@@ -1,23 +1,26 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-import random
-from keras.models import Model
-from keras.layers import Input, merge, Convolution2D, MaxPooling2D, UpSampling2D, Reshape, core, Dropout
-from keras.utils import to_categorical
-from keras.optimizers import Adam
-from keras.callbacks import ModelCheckpoint, LearningRateScheduler
-from keras import backend as K
-from keras.preprocessing.image import ImageDataGenerator
-from collections import defaultdict
-# print(K.image_data_format)
-import unet
-import tensorflow as tf
-import h5py
-# import resnet
-# from tf.python.ops.clip_ops import clip_by_value
 
-def plot_some_results(data, target, img_sufixe):
+from torch.autograd import Variable
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from torch import nn
+
+import metrics
+import unet_pytorch
+import CreateDataset
+from utils import get_gpu_memory_map
+from sklearn.metrics import confusion_matrix
+
+import torch
+import torch.optim as optim
+import time
+import argparse
+import shutil
+
+
+def plot_some_results(data, target, img_sufixe, folder):
     """__author__ = 'Fabian Isensee'
     https://github.com/Lasagne/Recips/blob/master/examples/UNet/massachusetts_road_segm.py"""
     d = data
@@ -29,111 +32,468 @@ def plot_some_results(data, target, img_sufixe):
     plt.subplot(1, 3, 2)
     plt.imshow(s[0])
     plt.title("ground truth")
-    plt.savefig(os.path.join("D:\Processus\image_to_echantillons\img_1", "result_%03.0f.png"%img_sufixe))
+    plt.savefig(os.path.join(folder, "result_%03.0f.png"%img_sufixe))
     plt.close()
+        
+def flatten_labels(annotations):
+    return annotations.view(-1)
 
-def EncoderLabels(input_batch, num_classes):
-    # One-hot encoding for reference map
-    # print(input_batch.shape)
-    batch_size, etiquette, n_rows, n_cols = input_batch.shape
-    x1d = input_batch.ravel()
-    # print(x1d)
-    y1d = to_categorical( x1d, num_classes = num_classes )
-    y4d = y1d.reshape( [ batch_size, num_classes, n_rows, n_cols ] )
+def flatten_outputs(logits, number_of_classes):
+    """Flattens the logits batch except for the logits dimension"""
     
-    return y4d
+    logits_permuted = logits.permute(0, 2, 3, 1)
+    logits_permuted_cont = logits_permuted.contiguous()
+    logits_flatten = logits_permuted_cont.view(-1, number_of_classes)
+    
+    return logits_flatten
 
-def ChargerDonnees(DossierEchantillons, TypeEchantillons, nbreEchantillons, Taille_tuile):
-    """ 
-    Code modifie de https://stackoverflow.com/questions/29380403/reading-a-binary-file-into-2d-array-python
-    en combinaison avec
-    https://stackoverflow.com/questions/30124255/read-a-binary-file-using-numpy-fromfile-and-a-given-offset
+def get_valid_annotations_index(flatten_annotations, mask_out_value=255):
+    return torch.squeeze( torch.nonzero((flatten_annotations != mask_out_value )), 1)
+
+def main(TravailFolder, batch_size, num_epochs, start_epoch, learning_rate, momentum, resume, TailleTuile, NbClasses, NbEchantillonsTrn, NbEchantillonsVal):
     """
-    # TypeEchantillons = "validation" ou "entrainement"
+    Args:
+        data_path:
+        batch_size:
+        num_epochs:
+    Returns:
+    """
+    since = time.time()
+
+    # get model
+    model = unet_pytorch.UNetSmall(NbClasses)
+
+    if torch.cuda.is_available():
+        model = model.cuda()
+        
+
+    # set up binary cross entropy
+    criterion = nn.CrossEntropyLoss()
+
+    # optimizer
+    # optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=momentum, nesterov=True)
+    # optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    # decay LR
+    # lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.1)
+
+    # starting params
+    # best_loss = 999
+    best_validation_score = 0
+
+    # optionally resume from a checkpoint
+    if resume:
+        if os.path.isfile(resume):
+            print("=> loading checkpoint '{}'".format(resume))
+            checkpoint = torch.load(resume)
+
+            if checkpoint['epoch'] > start_epoch:
+                start_epoch = checkpoint['epoch']
+
+            best_loss = checkpoint['best_loss']
+            model.load_state_dict(checkpoint['state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            print("=> loaded checkpoint '{}' (epoch {})".format(resume, checkpoint['epoch']))
+        else:
+            print("=> no checkpoint found at '{}'".format(args.resume))
+
+    # get data
+    trn_dataset = CreateDataset.SegmentationDataset(os.path.join(TravailFolder, "echantillons_entrainement"), NbEchantillonsTrn, TailleTuile)
+    val_dataset = CreateDataset.SegmentationDataset(os.path.join(TravailFolder, "echantillons_validation"), NbEchantillonsVal, TailleTuile)
+
+    # creating loaders
+    train_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=1, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=4, num_workers=1, shuffle=False)
+
+    # loggers
+    # train_logger = logger.Logger('../logs/run_{}/training'.format(str(run)), print_freq)
+    # val_logger = logger.Logger('../logs/run_{}/validation'.format(str(run)), print_freq)
+    train_logger = "toto"
+    val_logger = "boubou"
     
-    # fichier_info = open(os.path.join(DossierEchantillons, 'info.txt'), 'r')
+    for epoch in range(start_epoch, num_epochs):
+        print()
+        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+        print('-' * 10)
 
-    # liste pour randomizer les echantillons
-    # listRdm = range(0, nbreEchantillons)
-    listRdm = []
-    for i in range(0, nbreEchantillons):
-        listRdm.append(i)
-    random.shuffle(listRdm)
-    # print(listRdm)
- 
-    # tailleTuile = 512
-    data = np.empty([nbreEchantillons, 3, Taille_tuile, Taille_tuile], dtype=np.uint8)
-    target = np.empty([nbreEchantillons, 1, Taille_tuile, Taille_tuile], dtype=np.uint8)
-    # matrices = np.load(os.path.join(DossierEchantillons, "echantillons_"+TypeEchantillons, "echantillons_RGB.npy"))
-    for i in range (0, nbreEchantillons):
-        indiceData = listRdm[i]
+        # step the learning rate scheduler
+        # lr_scheduler.step()
+        lr_scheduler = "boubou"
         
-        data_file = open(os.path.join(DossierEchantillons, "echantillons_"+TypeEchantillons, "echantillons_RGB.dat"), "rb")
-        ref_file = open(os.path.join(DossierEchantillons, "echantillons_"+TypeEchantillons, "echantillons_Label.dat"), "rb")   
-        data_file.seek(i*Taille_tuile*Taille_tuile*3)
-        ref_file.seek(i*Taille_tuile*Taille_tuile)
+
+        torch.cuda.empty_cache()
+        # run training and validation
+        train_metrics = train(train_dataloader, model, criterion, optimizer, lr_scheduler, train_logger, epoch, nbrClasses)
+
+        torch.cuda.empty_cache()
         
-        data[indiceData, :, :, :] = np.reshape(np.fromfile(data_file, dtype=np.uint8, count=3*Taille_tuile*Taille_tuile), [3, Taille_tuile, Taille_tuile]) 
-        target[indiceData, :, :, :] = np.reshape(np.fromfile(ref_file, dtype=np.uint8, count=Taille_tuile*Taille_tuile), [1, Taille_tuile, Taille_tuile])
+        # print("GPU memoire: ", get_gpu_memory_map())
         
-        d = np.reshape(np.fromfile(data_file, dtype=np.uint8, count=3*Taille_tuile*Taille_tuile), [3, Taille_tuile, Taille_tuile]) 
-        t = np.reshape(np.fromfile(ref_file, dtype=np.uint8, count=Taille_tuile*Taille_tuile), [1, Taille_tuile, Taille_tuile])
+        current_validation_score = validation(val_dataloader, model, criterion, val_logger, epoch, nbrClasses)
         
-        # plot_some_results(d, t, i)
-    data_file.close()
-    ref_file.close()
+        # print(valid_metricNew)
+        
+        torch.cuda.empty_cache()
+
+
+#         # store best loss and save a model checkpoint
+#         is_best = valid_metrics['valid_loss'] < best_loss
+#         best_loss = min(valid_metrics['valid_loss'], best_loss)
+#         save_checkpoint({
+#             'epoch': epoch,
+#             'arch': 'UNetSmall',
+#             'state_dict': model.state_dict(),
+#             'best_loss': best_loss,
+#             'optimizer': optimizer.state_dict()
+#         }, is_best, 'checkpt.pth.tar')
+        # Save the model if it has a better MIoU score.
+        
+        if current_validation_score > best_validation_score:
     
-    return data, target
+            torch.save(model.state_dict(), 'unet_best.pth')
+            best_validation_score = current_validation_score
 
-def train_net(TravailFolder, pretrained, TailleBatch, NbEpoques, TailleTuile, NbClasses, tache="segmentation"):
-    if tache == "segmentation":
-        x_val, y_val = ChargerDonnees(TravailFolder, "validation", 2, Taille_tuile)
-        x_trn, y_trn = ChargerDonnees(TravailFolder, "entrainement", 50, Taille_tuile)
-        
-        y_trn= EncoderLabels(y_trn, num_classes=NbClasses)
-        y_val= EncoderLabels(y_val, num_classes=NbClasses)
-        # print(y_trn.shape)
-        
-        
-        # Preparer l'augmentation de donnees a la volee
-        datagen = ImageDataGenerator(featurewise_std_normalization=True, rotation_range=20, width_shift_range=0.2, height_shift_range=0.2, horizontal_flip=True, vertical_flip=True,channel_shift_range=10.)
-        
-        # model = unet.get_unet(TailleTuile,NbClasses)
-        model = unet.get_unet_Conv_Block(TailleTuile,NbClasses)
+        cur_elapsed = time.time() - since
+        print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
+
+    time_elapsed = time.time() - since
+    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+
+
+def train(train_loader, model, criterion, optimizer, scheduler, logger, epoch_num, nbreClasses):
+    """
+    Args:
+        train_loader:
+        model:
+        criterion:
+        optimizer:
+        epoch:
+    Returns:
+    """
+    model.train()
     
-        # Load pre-trained model?
-        if pretrained:
-            model.load_weights('filepath_vers_poids.hdf5')
-        
-        model_checkpoint = ModelCheckpoint(os.path.join(TravailFolder, 'unet_tmp.hdf5'), monitor='loss', save_best_only=True)
-        
-        # Fit le model sur les donnees d'entrainement et fait l'augmentation de donnees a la volee.
-        datagen.fit(x_trn)
-        model.fit_generator(datagen.flow(x_trn, y_trn, batch_size=TailleBatch), steps_per_epoch=len(x_trn) / TailleBatch, epochs=NbEpoques, verbose=1, shuffle=True, callbacks=[model_checkpoint], validation_data=(x_val, y_val))
-        
-        # model.fit(x_trn, y_trn, batch_size=TailleBatch, epochs=NbEpoques, verbose=1, shuffle=True, callbacks=[model_checkpoint], validation_data=(x_val, y_val)) 
-        del x_trn
-        del y_trn
-        model.save_weights(os.path.join(TravailFolder, "unet_final.hdf5"))
-        
-    # elif tache == "classification":
-        # Charger le Cifar10 dataset
-        # from keras.datasets import cifar10
-        # (x_trn, y_trn), (x_val, y_val) = cifar10.load_data()
-        
-        # x_trn = x_trn.astypt('float32')        
-        
-        # model = resnet.ResNet50(input_shape=)
+    # logging accuracy and loss
+    train_acc = metrics.MetricTracker()
+    train_loss = metrics.MetricTracker()
 
-### parametres
-Taille_batch = 2
-Nbre_epoque = 1
-Taille_tuile = 512
-Nbre_classes = 4
-# TravailDossier = "/gpfs/fs1/nrcan/nrcan_geobase/extraction/Deep_learning/tensorflowtest"
-TravailDossier = "D:\Processus\image_to_echantillons\img_1"
-pretrn = False
+#    log_iter = len(train_loader)//logger.print_freq
 
-train_net(TravailDossier, pretrn, Taille_batch, Nbre_epoque, Taille_tuile, Nbre_classes)        
+    # scheduler.step()
+
+    # iterate over data
+    # for idx, data in enumerate(tqdm(train_loader, desc="training")):
+    for idx, data in enumerate(train_loader):
+        
+        
+        # We need to flatten annotations and logits to apply index of valid
+        # annotations. All of this is because pytorch doesn't have tf.gather_nd()
+        # https://github.com/warmspringwinds/pytorch-segmentation-detection/blob/master/pytorch_segmentation_detection/recipes/pascal_voc/segmentation/resnet_18_8s_train.ipynb
+        
+        # flatten label
+        labels_flatten = flatten_labels(data['map_img'])
+        # index = get_valid_annotations_index(labels_flatten, mask_out_value=255)
+        # print(index)
+        # labels_flatten_valid = torch.index_select(labels_flatten, 0, index)
+        
+        # get the inputs and wrap in Variable
+        if torch.cuda.is_available():
+            inputs = Variable(data['sat_img'].cuda())
+            labels = Variable(labels_flatten.cuda())
+            # index = Variable(index.cuda())
+        else:
+            inputs = Variable(data['sat_img'])
+            labels = Variable(labels_flatten)
+            # index = Variable(index)
+        del labels_flatten
+        torch.cuda.empty_cache()
+        # zero the parameter gradients
+        optimizer.zero_grad()
+
+        # forward
+        # prob_map = model(inputs) # last activation was a sigmoid
+        # outputs = (prob_map > 0.3).float()
+        preds = model(inputs)
+        outputs = torch.nn.functional.sigmoid(preds)
+        
+        
+        del inputs
+        torch.cuda.empty_cache()
+        
+        
+        # flatten outputs
+        outputs_flatten = flatten_outputs(outputs, nbreClasses)
+        
+        del outputs
+        torch.cuda.empty_cache()
+        
+        # outputs_flatten_valid = torch.index_select(outputs_flatten, 0, index)
+
+        
+        # loss = criterion(outputs, labels)
+        loss = criterion(outputs_flatten, labels)
+
+        # backward
+        loss.backward()
+        optimizer.step()
+        
+        # print(loss.item(), outputs.size(0))
+        # print(metrics.dice_coeff(outputs_flatten_valid, labels), outputs.size(0))
+        
+        # train_acc.update(metrics.dice_coeff(outputs, labels), outputs.size(0))
+        # train_loss.update(loss.item(), outputs.size(0))
+        
+
+            
+            
+        # print(target.dtype, target.shape)
+    
+        # compute coeff_dice
+        with torch.no_grad():
+            num_in_target = outputs_flatten.size(0)
+            float_target = labels.float()
+            del labels
+            torch.cuda.empty_cache()
+            smooth = 1.
+            pred = outputs_flatten.view(num_in_target, -1)
+            truth = float_target.view(num_in_target, -1)
+            intersection = (pred * truth).sum(1)
+        
+            dice_coefficient = (2. * intersection + smooth) /(pred.sum(1) + truth.sum(1) + smooth)
+           
+            
+            train_acc.update(dice_coefficient, outputs_flatten.size(0))
+            train_loss.update(loss.item(), outputs_flatten.size(0))
+            # print("trn_acc: ", dice_coefficient)
+            # print("trn_loss: ", loss.item())
+            del outputs_flatten
+            del float_target
+            torch.cuda.empty_cache()
+        # tensorboard logging
+#         if idx % log_iter == 0:
+# 
+#             step = (epoch_num*logger.print_freq)+(idx/log_iter)
+# 
+#             # log accuracy and loss
+#             info = {
+#                 'loss': train_loss.avg,
+#                 'accuracy': train_acc.avg
+#             }
+# 
+#             for tag, value in info.items():
+#                 logger.scalar_summary(tag, value, step)
+# 
+#             # log weights, biases, and gradients
+#             for tag, value in model.named_parameters():
+#                 tag = tag.replace('.', '/')
+#                 logger.histo_summary(tag, value.data.cpu().numpy(), step)
+#                 logger.histo_summary(tag + '/grad', value.grad.data.cpu().numpy(), step)
+# 
+#             # log the sample images
+#             log_img = [data_utils.show_tensorboard_image(data['sat_img'], data['map_img'], outputs, as_numpy=True),]
+#             logger.image_summary('train_images', log_img, step)
+
+    print('Training Loss: ', train_loss.avg, ' Acc: ', train_acc.avg)
+    # print()
+
+    # liberer de la memoire
+    # del inputs
+    # del labels
+    return {'train_loss': train_loss.avg, 'train_acc': train_acc.avg}
+
+def validation(valid_loader, model, criterion, logger, epoch_num, nbreClasses):
+    """
+    Args:
+        train_loader:
+        model:
+        criterion:
+        optimizer:
+        epoch:
+    Returns:
+    """
+    # logging accuracy and loss
+    valid_acc = metrics.MetricTracker()
+    valid_loss = metrics.MetricTracker()
+
+    # log_iter = len(valid_loader)//logger.print_freq
+
+    # switch to evaluate mode
+    model.eval()
+    overall_confusion_matrix = None
+    # Iterate over data.
+    for idx, data in enumerate(valid_loader):
+        torch.cuda.empty_cache()
+        with torch.no_grad():
+            # flatten label
+            labels_flatten = flatten_labels(data['map_img'])
+            # index = get_valid_annotations_index(labels_flatten, mask_out_value=255)
+            # print(index)
+            # labels_flatten_valid = torch.index_select(labels_flatten, 0, index)
+            
+            # get the inputs and wrap in Variable
+            if torch.cuda.is_available():
+                inputs = Variable(data['sat_img'].cuda())
+                labels = Variable(labels_flatten.cuda())
+                # index = Variable(index.cuda())
+            else:
+                inputs = Variable(data['sat_img'])
+                labels = Variable(labels_flatten)
+                # index = Variable(index)
+            del labels_flatten
+            torch.cuda.empty_cache()
+    #         # forward
+            # prob_map = model(inputs) # last activation was a sigmoid
+            # outputs = (prob_map > 0.3).float()
+            outputs = model(inputs)
+            # print(outputs.shape)
+            outputs = torch.nn.functional.sigmoid(outputs)
+            # print(outputs.shape)
+            # outputs = torch.nn.LogSoftmax(outputs)
+            # flatten outputs
+            outputs_flatten = flatten_outputs(outputs, nbreClasses)
+            # outputs_flatten_valid = torch.index_select(outputs_flatten, 0, index)
+    # 
+    #         
+    #         # loss = criterion(outputs, labels)
+            loss = criterion(outputs_flatten, labels)
+    
+            num_in_target = outputs_flatten.size(0)
+            float_target = labels.float()
+            smooth = 1.
+            pred = outputs_flatten.view(num_in_target, -1)
+            truth = float_target.view(num_in_target, -1)
+            intersection = (pred * truth).sum(1)
+        
+            dice_coefficient = (2. * intersection + smooth) /(pred.sum(1) + truth.sum(1) + smooth)
+            valid_acc.update(dice_coefficient, outputs.size(0))
+            valid_loss.update(loss.item(), outputs.size(0))
+        # print("valid_acc: ", dice_coefficient)
+        # print("valid_loss: ", loss.item())
+#     
+#        valid_acc.update(metrics.dice_coeff(outputs_flatten_valid, labels), outputs.size(0))
+#        valid_loss.update(loss.item(), outputs.size(0))
+
+
+#         logits = model(inputs)
+#                 
+# 
+#         # First we do argmax on gpu and then transfer it to cpu
+#         logits = logits.data
+#         _, prediction = logits.max(1)
+#         prediction = prediction.squeeze(1)
+# 
+#         prediction_np = prediction.cpu().numpy().flatten()
+#         annotation_np = labels.numpy().flatten()
+# 
+#         # Mask-out value is ignored by default in the sklearn
+#         # read sources to see how that was handled
+# 
+#         current_confusion_matrix = confusion_matrix(y_true=annotation_np, y_pred=prediction_np)
+# 
+#         if overall_confusion_matrix is None:
+#             overall_confusion_matrix = current_confusion_matrix
+#         else:
+#             overall_confusion_matrix += current_confusion_matrix
+#     
+#     intersection = np.diag(overall_confusion_matrix)
+#     ground_truth_set = overall_confusion_matrix.sum(axis=1)
+#     predicted_set = overall_confusion_matrix.sum(axis=0)
+#     union =  ground_truth_set + predicted_set - intersection
+# 
+#     intersection_over_union = intersection / union.astype(np.float32)
+#     mean_intersection_over_union = np.mean(intersection_over_union)
+#     
+#     model.train()
+# 
+#     
+#     print("MIoU: " , mean_intersection_over_union)
+#     print()
+#     return mean_intersection_over_union
+
+
+        # tensorboard logging
+#         if idx % log_iter == 0:
+# 
+#             step = (epoch_num*logger.print_freq)+(idx/log_iter)
+# 
+#             # log accuracy and loss
+#             info = {
+#                 'loss': valid_loss.avg,
+#                 'accuracy': valid_acc.avg
+#             }
+# 
+#             for tag, value in info.items():
+#                 logger.scalar_summary(tag, value, step)
+# 
+#             # log the sample images
+#             log_img = [data_utils.show_tensorboard_image(data['sat_img'], data['map_img'], outputs, as_numpy=True),]
+#             logger.image_summary('valid_images', log_img, step)
+    print('Validation Loss: ', valid_loss.avg, ' Acc: ', valid_acc.avg)
+    return valid_loss.avg
+#     print()
+#     
+#     # liberer de la memoire
+#     del labels
+#     
+#     return {'valid_loss': valid_loss.avg, 'valid_acc': valid_acc.avg}
+
+
+# create a function to save the model state (https://github.com/pytorch/examples/blob/master/imagenet/main.py)
+def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+    """
+    :param state:
+    :param is_best:
+    :param filename:
+    :return:
+    """
+    torch.save(state, filename)
+    if is_best:
+        shutil.copyfile(filename, 'model_best.pth.tar')
+
+
+if __name__ == '__main__':
+#     parser = argparse.ArgumentParser(description='Road and Building Extraction')
+#     parser.add_argument('data', metavar='DIR',
+#                         help='path to dataset csv')
+#     parser.add_argument('--epochs', default=75, type=int, metavar='N',
+#                         help='number of total epochs to run')
+#     parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
+#                         help='epoch to start from (used with resume flag')
+#     parser.add_argument('-b', '--batch-size', default=16, type=int,
+#                         metavar='N', help='mini-batch size (default: 16)')
+#     parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
+#                         metavar='LR', help='initial learning rate')
+#     parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
+#                         help='momentum')
+#     parser.add_argument('--print-freq', default=4, type=int, metavar='N',
+#                         help='number of time to log per epoch')
+#     parser.add_argument('--run', default=0, type=int, metavar='N',
+#                         help='number of run (for tensorboard logging)')
+#     parser.add_argument('--resume', default='', type=str, metavar='PATH',
+#                         help='path to latest checkpoint (default: none)')
+#     parser.add_argument('--data-set', default='mass_roads_crop', type=str,
+#                         help='mass_roads or mass_buildings or mass_roads_crop')
+# 
+#     args = parser.parse_args()
+
+    # main(args.data, batch_size=args.batch_size, num_epochs=args.epochs, start_epoch=args.start_epoch, learning_rate=args.lr, momentum=args.momentum, print_freq=args.print_freq, run=args.run, resume=args.resume, data_set=args.data_set)
+
+
+    #### parametres ###
+    print('Debut:')
+    # TravailFolder = "D:\Processus\image_to_echantillons\img_1"
+    TravailFolder = "/space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/"
+    batch_size = 8
+    num_epoch = 10
+    start_epoch = 0
+    lr = 0.0005
+    momentum = 0.9
+    resume = ''
+    tailleTuile = 512
+    nbrClasses = 4
+    nbrEchantTrn = 1000
+    nbrEchantVal = 560
+    main(TravailFolder, batch_size, num_epoch, start_epoch, lr, momentum, resume,tailleTuile, nbrClasses, nbrEchantTrn, nbrEchantVal)
+    print('Fin')
 
         
