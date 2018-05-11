@@ -24,10 +24,6 @@ def get_gpu_memory_map():
     gpu_memory_map = dict(zip(range(len(gpu_memory)), gpu_memory))
     return gpu_memory_map
 
-
-
-
-
 def summary(model, input_size):
         def register_hook(module):
             def hook(module, input, output):
@@ -102,3 +98,41 @@ def summary(model, input_size):
         print('Non-trainable params: ' + str(total_params - trainable_params))
         print('----------------------------------------------------------------')
         # return summary
+        
+# define a class to log values during training
+
+
+class AverageMeter(object):
+    """
+    https://github.com/pytorch/examples/blob/master/imagenet/main.py
+    Computes and stores the average and current value
+    """
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
+# define a function to help us saving model checkpoints
+def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+    """
+    https://github.com/pytorch/examples/blob/master/imagenet/main.py
+    :param state:
+    :param is_best:
+    :param filename:
+    :return:
+    """
+    torch.save(state, filename)
+    if is_best:
+        shutil.copyfile(filename, 'model_best.pth.tar')

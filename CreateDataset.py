@@ -1,7 +1,4 @@
-""" 
-from: https://pytorch.org/tutorials/beginner/data_loading_tutorial.html
-"""
-
+""" from: https://pytorch.org/tutorials/beginner/data_loading_tutorial.html """
 import torch
 from torch.utils.data import Dataset
 import os
@@ -25,23 +22,17 @@ class SegmentationDataset(Dataset):
         data_file.seek(index*self.tailleTuile*self.tailleTuile*3)
         ref_file.seek(index*self.tailleTuile*self.tailleTuile)
         
-        
         data = np.float32(np.reshape(np.fromfile(data_file, dtype=np.uint8, count=3*self.tailleTuile*self.tailleTuile), [3, self.tailleTuile, self.tailleTuile]))
-        # target = np.int64(np.reshape(np.fromfile(ref_file, dtype=np.uint8, count=self.tailleTuile*self.tailleTuile), [self.tailleTuile, self.tailleTuile]))
         target = np.int64(np.reshape(np.fromfile(ref_file, dtype=np.uint8, count=self.tailleTuile*self.tailleTuile), [self.tailleTuile, self.tailleTuile]))
+        data_n = np.reshape(np.fromfile(data_file, dtype=np.uint8, count=3*self.tailleTuile*self.tailleTuile), [3, self.tailleTuile, self.tailleTuile])
+        target_n = np.reshape(np.fromfile(ref_file, dtype=np.uint8, count=self.tailleTuile*self.tailleTuile), [self.tailleTuile, self.tailleTuile])
         
-        
-        # data = np.float32(data_a)
-        # target = np.int64(target_a)
-        # data.astype(float)
-        # target.astype(int)
-        
-        
-        # entrainement_modele.plot_some_results(data, target, index, self.workFolder)
+        # print(data_n.shape)
+        # print(target_n.shape)
+        # print(index)
+        # entrainement_modele.plot_some_results(data_n, target_n, index, self.workFolder)
         # val = target.ravel()
         # print(max(val),min(val))
-        
-        
         
         data_file.close()
         ref_file.close()
@@ -49,9 +40,6 @@ class SegmentationDataset(Dataset):
         TorchTarget = torch.from_numpy(target)
         del data
         del target
-        # print(TorchData.dtype, TorchData.shape)
-        # print(TorchTarget.dtype, TorchTarget.shape)
-        
         
         sample = {'sat_img':TorchData, 'map_img':TorchTarget}
         return sample
