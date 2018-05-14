@@ -98,13 +98,13 @@ def randomisationEchantillons(OutputFolder, tailleTuile, chevauchement, Nbrechan
 
 # parametres
 # TODO lire les parametres dans un fichier txt.
-# images_Folder =  'D:/Processus/image_to_echantillons/img_1'
-# path_Echantillons_training = 'D:/Processus/image_to_echantillons/img_1/echantillons_entrainement'
-images_Folder =  '/gpfs/fs1/nrcan/nrcan_geobase/extraction/Deep_learning/pytorch'
-path_Echantillons_training = '/gpfs/fs1/nrcan/nrcan_geobase/extraction/Deep_learning/pytorch/echantillons_entrainement'
-largeur_tuile = 512
+images_Folder =  'D:/Processus/image_to_echantillons/img_1'
+path_Echantillons_training = 'D:/Processus/image_to_echantillons/img_1/echantillons_entrainement'
+# images_Folder =  '/gpfs/fs1/nrcan/nrcan_geobase/extraction/Deep_learning/pytorch'
+# path_Echantillons_training = '/gpfs/fs1/nrcan/nrcan_geobase/extraction/Deep_learning/pytorch/echantillons_entrainement'
+largeur_tuile = 256
 # chevauchement = espace entre 2 centres de tuiles
-chevauchement = 350
+chevauchement = 150
  
 # lister les images dans les dossiers RGB et Label
 images_RGB = [img for img in os.listdir(os.path.join(images_Folder, "RGB")) if fnmatch.fnmatch(img, "*.tif*")]
