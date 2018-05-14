@@ -4,14 +4,15 @@ import os
 
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-from torchvision import transforms
+# from torchvision import transforms
 from torch import nn
 import metrics
-import unet_pytorch
+# import unet_pytorch
+import unet
 import CreateDataset
-from utils import get_gpu_memory_map
-from utils import AverageMeter
-from sklearn.metrics import confusion_matrix
+# from utils import get_gpu_memory_map
+from metrics import MetricTracker
+# from sklearn.metrics import confusion_matrix
 
 import torch
 import torch.optim as optim
@@ -36,7 +37,9 @@ def plot_some_results(data, target, img_sufixe, folder):
     plt.close()
         
 def flatten_labels(annotations):
-    return annotations.view(-1)
+    flatten = annotations.view(-1)
+    # one_hot = convert_labels_to_one_hot_encoding(flatten, 4)
+    return flatten
 
 def flatten_outputs(logits, number_of_classes):
     """Flattens the logits batch except for the logits dimension"""
@@ -71,13 +74,15 @@ def main(TravailFolder, batch_size, num_epochs, start_epoch, learning_rate, Tail
     since = time.time()
 
     # get model
-    model = unet_pytorch.UNetSmall(NbClasses)
+    # model = unet_pytorch.UNetSmall(NbClasses)
+    model = unet.Unet(NbClasses)
 
     if torch.cuda.is_available():
         model = model.cuda()
         
 
-    # set up binary cross entropy
+    # set up cross entropy
+    # poids = np.array([10000.,100.,100,100.,100.,100.,100.])
     criterion = nn.CrossEntropyLoss()
 
     # optimizer
@@ -94,7 +99,7 @@ def main(TravailFolder, batch_size, num_epochs, start_epoch, learning_rate, Tail
     val_dataset = CreateDataset.SegmentationDataset(os.path.join(TravailFolder, "echantillons_validation"), NbEchantillonsVal, TailleTuile)
     # creating loaders
     train_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=2, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=4, num_workers=2, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=8, num_workers=2, shuffle=False)
     
     for epoch in range(start_epoch, num_epochs):
         print()
@@ -139,11 +144,10 @@ def train(train_loader, model, criterion, optimizer, epoch_num, nbreClasses):
     Returns:
     """
     model.train()
-    losses = AverageMeter()
     
     # logging accuracy and loss
-    # train_acc = metrics.MetricTracker()
-    # train_loss = metrics.MetricTracker()
+    train_acc = metrics.MetricTracker()
+    train_loss = metrics.MetricTracker()
 
     # iterate over data
     for idx, data in enumerate(train_loader):
@@ -168,23 +172,26 @@ def train(train_loader, model, criterion, optimizer, epoch_num, nbreClasses):
         # forward
         # preds = model(inputs)
         outputs = model(inputs)
-        m = nn.LogSoftmax(1)
-        outputs = m(outputs)
+        # m = nn.LogSoftmax(1)
+        # outputs = m(outputs)
         # outputs = torch.nn.functional.sigmoid(preds)
         outputs_flatten = flatten_outputs(outputs, nbreClasses)
-        
+
+        a, segmentation = torch.max(outputs_flatten, dim=1)
+        acc = metrics.accuracy(segmentation, labels)
         
         del outputs
         torch.cuda.empty_cache()
         
         loss = criterion(outputs_flatten, labels)
-        losses.update(loss.item(), inputs.size(0))
-        # perte += loss.data[0]
+        train_acc.update(acc, inputs.size(0))
+        train_loss.update(loss.item(), inputs.size(0))
         del inputs
         # backward
         loss.backward()
         optimizer.step()
-    print("perte trn: ", losses.avg)
+    
+    print('Training Loss: {:.4f} Acc: {:.4f}'.format(train_loss.avg, train_acc.avg))
 
 def validation(valid_loader, model, criterion, epoch_num, nbreClasses):
     """
@@ -197,13 +204,11 @@ def validation(valid_loader, model, criterion, epoch_num, nbreClasses):
     Returns:
     """
     # logging accuracy and loss
-    # valid_acc = metrics.MetricTracker()
-    # valid_loss = metrics.MetricTracker()
-    valid_losses = AverageMeter()
+    valid_acc = metrics.MetricTracker()
+    valid_loss = metrics.MetricTracker()
 
     # switch to evaluate mode
     model.eval()
-    overall_confusion_matrix = None
     # Iterate over data.
     for idx, data in enumerate(valid_loader):
         torch.cuda.empty_cache()
@@ -224,16 +229,19 @@ def validation(valid_loader, model, criterion, epoch_num, nbreClasses):
             # forward
             outputs = model(inputs)
             # print(outputs.shape)
-            outputs = torch.nn.functional.sigmoid(outputs)
-            m = nn.LogSoftmax(1)
-            outputs = m(outputs)
+            # outputs = torch.nn.functional.sigmoid(outputs)
+            # m = nn.LogSoftmax(1)
+            # outputs = m(outputs)
             outputs_flatten = flatten_outputs(outputs, nbreClasses)
+            
+            a, segmentation = torch.max(outputs_flatten, dim=1)
+            acc = metrics.accuracy(segmentation, labels)
+            
             loss = criterion(outputs_flatten, labels)
-            valid_losses.update(loss.item(), outputs.size(0))
-
-    print('Validation Loss: ', valid_losses.avg)
-    # print('Validation Loss: ', valid_loss.avg, ' Acc: ', valid_acc.avg)
-    return valid_losses.avg
+            valid_acc.update(acc, inputs.size(0))
+            valid_loss.update(loss.item(), inputs.size(0))
+    print('Validation Loss: {:.4f} Acc: {:.4f}'.format(valid_loss.avg, valid_acc.avg))
+    return valid_loss.avg
     
 #     return {'valid_loss': valid_loss.avg, 'valid_acc': valid_acc.avg}
 
@@ -269,14 +277,14 @@ if __name__ == '__main__':
     print('Debut:')
     # TravailFolder = "D:\Processus\image_to_echantillons\img_1"
     TravailFolder = "/space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/"
-    batch_size = 8
-    num_epoch = 50
+    batch_size = 32
+    num_epoch = 15
     start_epoch = 0
     lr = 0.001
-    tailleTuile = 512
+    tailleTuile = 256
     nbrClasses = 4
-    nbrEchantTrn = 1000
-    nbrEchantVal = 200
+    nbrEchantTrn = 4000
+    nbrEchantVal = 2000
     main(TravailFolder, batch_size, num_epoch, start_epoch, lr, tailleTuile, nbrClasses, nbrEchantTrn, nbrEchantVal)
     print('Fin')
 

@@ -24,15 +24,6 @@ class SegmentationDataset(Dataset):
         
         data = np.float32(np.reshape(np.fromfile(data_file, dtype=np.uint8, count=3*self.tailleTuile*self.tailleTuile), [3, self.tailleTuile, self.tailleTuile]))
         target = np.int64(np.reshape(np.fromfile(ref_file, dtype=np.uint8, count=self.tailleTuile*self.tailleTuile), [self.tailleTuile, self.tailleTuile]))
-        data_n = np.reshape(np.fromfile(data_file, dtype=np.uint8, count=3*self.tailleTuile*self.tailleTuile), [3, self.tailleTuile, self.tailleTuile])
-        target_n = np.reshape(np.fromfile(ref_file, dtype=np.uint8, count=self.tailleTuile*self.tailleTuile), [self.tailleTuile, self.tailleTuile])
-        
-        # print(data_n.shape)
-        # print(target_n.shape)
-        # print(index)
-        # entrainement_modele.plot_some_results(data_n, target_n, index, self.workFolder)
-        # val = target.ravel()
-        # print(max(val),min(val))
         
         data_file.close()
         ref_file.close()
