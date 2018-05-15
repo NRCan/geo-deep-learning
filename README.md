@@ -42,6 +42,4 @@ Extrants:
 Processus:
 - Entrainement du modèle. 
 
-## Fichier unet.py
-Implantation du modèle [Unet](https://github.com/jocicmarko/ultrasound-nerve-segmentation). 
 
