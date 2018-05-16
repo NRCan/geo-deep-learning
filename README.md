@@ -1,9 +1,9 @@
 # Projet d'apprentissage profond du CCCOT.
 
-## Fichier images_to_echantillons.py  
+## Fichier images_to_samples.py  
 Pour lancer le programme:  
 ``` 
-python images_to_echantillons.py path/to/parameter_file.txt
+python images_to_samples.py path/to/parameter_file.txt
 ```
 
 Le fichier de paramètres contient les informations suivantes:  
