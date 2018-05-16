@@ -1,6 +1,6 @@
 # Projet d'apprentissage profond du CCCOT.
 
-## Fichier images_to_samples.py  
+## images_to_samples.py  
 Pour lancer le programme:  
 ``` 
 python images_to_samples.py path/to/parameter_file.txt
@@ -30,7 +30,7 @@ Processus:
 - Subdiviser les images en échantillons de taille et d'espacement spécifié en intrant
 - Écrire les échantillons dans 2 fichiers .dat (RGB et Label)
 
-## Fichier entrainement_modele.py
+## entrainement_modele.py
 
 Intrants:
 - 2 fichiers .dat contenant les matrices RGB et Label pour l'entrainement.
