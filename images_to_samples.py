@@ -2,107 +2,105 @@ import numpy as np
 import os
 from PIL import Image
 import fnmatch
-import matplotlib.pyplot as plt
 import random
 import argparse
-
-def plot_some_results(data, target, img_sufixe, dossierTravail):
-    """__author__ = 'Fabian Isensee'
-    https://github.com/Lasagne/Recips/blob/master/examples/UNet/massachusetts_road_segm.py"""
-    d = data
-    s = target
-    plt.figure(figsize=(12, 6))
-    plt.subplot(1, 3, 1)
-    plt.imshow(d.transpose(1,2,0))
-    plt.title("input patch")
-    plt.subplot(1, 3, 2)
-    plt.imshow(s)
-    plt.title("ground truth")
-    plt.savefig(os.path.join(dossierTravail, "result_%03.0f.png"%img_sufixe))
-    plt.close()
-
-# fonction pour ecrire en mode append les matrices 
-def ecrireArray(fichier, matrice):
-    with open(fichier, 'ab') as out_file:
-    # out_file = open(fichier, 'ab')
-        matrice.tofile(out_file)
+ 
+def WriteArray(file, npArray):
+    """write numpy array in binary and append mode"""
+    with open(file, 'ab') as out_file:
+        npArray.tofile(out_file)
     
-def rdmList(nbrEchant):
+def rdmList(len_list):
+    """Create and return a list with random number in range len_list"""
     listRdm = []
-    for i in range(nbrEchant):
+    for i in range(len_list):
         listRdm.append(i)
     random.shuffle(listRdm)
     return listRdm
 
 def ReadParameters(ParamFile):
+    """Read and return parameters in .txt file
+    Args:
+        ParamFile: Path and name for the file
+    Returns:
+        images_folder: 1st line of the file
+        path_to_samples: 2nd line of the file
+        sample_size: height and width for the samples (in pixel). 3rd line of the file
+        dist_samples: distance (in pixel) between 2 samples center. 4th line of the file
+    """
     with open(ParamFile) as f:
         lines = f.readlines()
     content = [x.strip() for x in lines]
-    image_folder = content[0]
-    path_Echantillons = content[1]
-    largeur_tuile = int(content[2])
-    chevauchement = int(content[3])
-    return image_folder, path_Echantillons, largeur_tuile, chevauchement
+    images_folder = content[0]
+    path_to_samples = content[1]
+    sample_size = int(content[2])
+    dist_samples = int(content[3])
+    return images_folder, path_to_samples, sample_size, dist_samples
     
-def WriteInfo(OutputFolder, nbEchant, nbClasses):
-    with open(os.path.join(OutputFolder, "info.txt"), 'a') as the_file:
-        the_file.write(str(nbEchant) + "\n")
-        the_file.write(str(nbClasses + 1) + "\n")
+def WriteInfo(output_folder, num_samples, num_classes):
+    """Write txt file containing number of created samples and number of classes."""
+    with open(os.path.join(output_folder, "info.txt"), 'a') as the_file:
+        the_file.write(str(num_samples) + "\n")
+        the_file.write(str(num_classes + 1) + "\n")
     the_file.close()
     
-# fonction de preparation des echantillons, a partir des listes d'images RGB et Label.
-def PrepEchantillons(ImagesRGB, ImagesLabel, ImagesFolder, OutputFolder, tailleTuile, chevauchement):
-    # verifier que la liste des images rgb est de la meme taille que la liste des etiquettes.
-    assert(len(ImagesRGB) == len(ImagesLabel))
-    # compter le nombre d'echantillons ecrit
-    compteur = 0
+
+def SamplesPreparation(sat_img, ref_img, ImagesFolder, OutputFolder, sample_size, dist_samples):
+    """Extract and write samples from a list of RGB and reference images
+    During training, loading array is much more efficient than images."""
+    assert(len(sat_img) == len(ref_img))
+    
+    num_samples = 0
     num_classes = 0
-    for img in ImagesRGB:
-        print(os.path.join(ImagesFolder, "RGB", img))
+    
+    for img in sat_img:
         
-        # lecture des images rgb et label comme des matrices
+        # read RGB and reference images as array
         RGBArray = np.array(Image.open(os.path.join(ImagesFolder, "RGB", img)))
-        hauteur, largeur, nbbande = RGBArray.shape
-        LabelArray = np.array(Image.open(os.path.join(ImagesFolder, "label", ImagesLabel[ImagesRGB.index(img)])))     
+        LabelArray = np.array(Image.open(os.path.join(ImagesFolder, "label", ref_img[sat_img.index(img)]))) 
+        h, w, nbband = RGBArray.shape
+        print(img, ' ', RGBArray.shape)
         
-        # zero padding autour des images. taille du padding egale a une demi-tuile.
         # swap color axis because
         # numpy image: H x W x C
         # torch image: C X H X W
         transp = np.transpose(RGBArray, (2, 0, 1))
-        pad_RGB_Array = np.pad(transp, ((0,0),(int(tailleTuile / 2), int(tailleTuile / 2)),(int(tailleTuile / 2), int(tailleTuile / 2))), mode='constant')
-        pad_Label_Array = np.pad(LabelArray, ((int(tailleTuile / 2), int(tailleTuile / 2)),(int(tailleTuile / 2), int(tailleTuile / 2))), mode='constant')
         
-        # print(pad_Label_Array.dtype)
-        for row in range(0, largeur, chevauchement):
-            for column in range(0, hauteur, chevauchement):
-                # on ecrit dans le .dat la portion de l image correspondant a la tuile
-                data = (pad_RGB_Array[:,row:row+tailleTuile, column:column+tailleTuile])
-                target = (pad_Label_Array[row:row+tailleTuile, column:column+tailleTuile])
+        # half tile padding
+        half_tile = int(sample_size/2)
+        pad_RGB_Array = np.pad(transp, ((0,0),(half_tile, half_tile),(half_tile, half_tile)), mode='constant')
+        pad_Label_Array = np.pad(LabelArray, ((half_tile, half_tile),(half_tile, half_tile)), mode='constant')
+        
+        for row in range(0, h, dist_samples):
+            for column in range(0, w, dist_samples):
+                data = (pad_RGB_Array[:,row:row+sample_size, column:column+sample_size])
+                target = (pad_Label_Array[row:row+sample_size, column:column+sample_size])
                 
-                compteur+=1
-                # Loading array is much more efficient than images.
-                ecrireArray(os.path.join(OutputFolder, "tmp_echantillons_RGB.dat"), data)
-                ecrireArray(os.path.join(OutputFolder, "tmp_echantillons_Label.dat"), target)
+                num_samples+=1
+
+                WriteArray(os.path.join(OutputFolder, "tmp_echantillons_RGB.dat"), data)
+                WriteArray(os.path.join(OutputFolder, "tmp_echantillons_Label.dat"), target)
                 
                 if num_classes < max(target.ravel()):
                     num_classes = max(target.ravel())
-    return compteur, num_classes
+    return num_samples, num_classes
 
-def randomisationEchantillons(OutputFolder, tailleTuile, chevauchement, Nbrechant):
-    RdmEchant = rdmList(Nbrechant)
+def RandomSamples(OutputFolder, sample_size, num_samples):
+    """Read prepared samples and rewrite them in random order."""
+    RdmEchant = rdmList(num_samples)
     
     for idx in RdmEchant:
         data_file = open(os.path.join(OutputFolder, "tmp_echantillons_RGB.dat"), "rb")
-        ref_file = open(os.path.join(OutputFolder, "tmp_echantillons_Label.dat"), "rb")   
-        data_file.seek(idx*tailleTuile*tailleTuile*3)
-        ref_file.seek(idx*tailleTuile*tailleTuile)
+        ref_file = open(os.path.join(OutputFolder, "tmp_echantillons_Label.dat"), "rb")
         
-        data = np.fromfile(data_file, dtype=np.uint8, count=3*tailleTuile*tailleTuile)
-        target = np.fromfile(ref_file, dtype=np.uint8, count=tailleTuile*tailleTuile)
+        data_file.seek(idx*sample_size*sample_size*3)
+        ref_file.seek(idx*sample_size*sample_size)
         
-        ecrireArray(os.path.join(OutputFolder, "echantillons_RGB.dat"), data)
-        ecrireArray(os.path.join(OutputFolder, "echantillons_Label.dat"), target)
+        data = np.fromfile(data_file, dtype=np.uint8, count=3*sample_size*sample_size)
+        target = np.fromfile(ref_file, dtype=np.uint8, count=sample_size*sample_size)
+        
+        WriteArray(os.path.join(OutputFolder, "echantillons_RGB.dat"), data)
+        WriteArray(os.path.join(OutputFolder, "echantillons_Label.dat"), target)
     
     # Delete temp files.
     data_file.close()
@@ -110,23 +108,22 @@ def randomisationEchantillons(OutputFolder, tailleTuile, chevauchement, Nbrechan
     os.remove(os.path.join(OutputFolder, "tmp_echantillons_RGB.dat"))
     os.remove(os.path.join(OutputFolder, "tmp_echantillons_Label.dat"))
 
-### Debut des traitements ###
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Sample preparation')
     parser.add_argument('ParamFile', metavar='DIR',
                         help='path to parameters txt')
     args = parser.parse_args()
-    images_Folder, path_Echantillons, largeur_tuile, chevauchement = ReadParameters(args.ParamFile)
+    images_Folder, folder_samples, tile_size, tile_dist = ReadParameters(args.ParamFile)
     
-    # lister les images dans les dossiers RGB et Label
+    # List RGB and reference images in both folders.
     images_RGB = [img for img in os.listdir(os.path.join(images_Folder, "RGB")) if fnmatch.fnmatch(img, "*.tif*")]
     images_Label = [img for img in os.listdir(os.path.join(images_Folder, "label")) if fnmatch.fnmatch(img, "*.tif*")]
     images_RGB.sort()
     images_Label.sort()
-     
-    # Ecrire les echantillons dans 2 fichiers .dat 
-    nbrEchant, nbrClasses = PrepEchantillons(images_RGB, images_Label, images_Folder, path_Echantillons, largeur_tuile, chevauchement)
-    randomisationEchantillons(path_Echantillons, largeur_tuile, chevauchement, nbrEchant)
-    WriteInfo(path_Echantillons, nbrEchant, nbrClasses)
-    print("Terminado")
+    
+    nbrsamples, nbrclasses = SamplesPreparation(images_RGB, images_Label, images_Folder, folder_samples, tile_size, tile_dist)
+    RandomSamples(folder_samples, tile_size, nbrsamples)
+    WriteInfo(folder_samples, nbrsamples, nbrclasses)
+    print("End of process")
         
