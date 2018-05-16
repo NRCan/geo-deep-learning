@@ -1,16 +1,28 @@
 # Projet d'apprentissage profond du CCCOT.
 
-## Fichier images_to_echantillons.py
+## Fichier images_to_echantillons.py  
+Pour lancer le programme:  
+``` 
+python images_to_echantillons.py path/to/parameter_file.txt
+```
+
+Le fichier de paramètres contient les informations suivantes:  
+```
+path/to/folder/images_et_reference
+path/to/folder/ecriture_des_echantillons
+taille des tuiles
+espacement entre centres de tuiles
+```
 
 Intrants: 
 - Images RGB et référence
+- Dossier de travail
 - Taille des échantillons (tuiles) à créer, en pixel
 - Espace entre 2 centres de tuiles (chevauchement), en pixel
-- Dossier de travail
 
 Extrants:
 - 2 fichiers .dat contenant les matrices (numpy.array) des tuiles créées.
-- 1 fichier .txt contenant le nombre d'echantillons et le nombre de classe des données de ref. (TODO)
+- 1 fichier .txt contenant le nombre d'echantillons et le nombre de classe des données de ref.
 
 Processus: 
 - Lire les images dans le dossier "RGB" et dans le dossier "label"
@@ -30,6 +42,4 @@ Extrants:
 Processus:
 - Entrainement du modèle. 
 
-## Fichier unet.py
-Implantation du modèle [Unet](https://github.com/jocicmarko/ultrasound-nerve-segmentation). 
 
