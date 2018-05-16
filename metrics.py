@@ -1,6 +1,8 @@
-# https://github.com/pytorch/examples/blob/master/imagenet/main.py
 class MetricTracker(object):
-    """Computes and stores the average and current value"""
+    """
+    https://github.com/pytorch/examples/blob/master/imagenet/main.py
+    Computes and stores the average and current value
+    """
     def __init__(self):
         self.reset()
 
@@ -17,13 +19,10 @@ class MetricTracker(object):
         self.avg = self.sum / self.count
 
 def accuracy(preds, label):
-    # valid = (label >= 0)
-    # print(preds.shape)
-    # print(label.shape)
-    # flt_label = label.float()
+    """Computes and return the accuracy for a prediction image and a reference image"""
     acc_sum = (preds == label).sum()
-    total_sum = label.shape
-    acc = float(acc_sum) / (total_sum[0]) * 100
+    total = label.shape[0]
+    acc = float(acc_sum) / (total) * 100
     return acc
     
 
