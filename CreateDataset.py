@@ -30,8 +30,6 @@ class SegmentationDataset(Dataset):
         
         data_file.close()
         ref_file.close()
-        # TorchData = torch.from_numpy(data)
-        # TorchTarget = torch.from_numpy(target)
         del data
         del target
         

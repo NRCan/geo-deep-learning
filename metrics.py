@@ -36,13 +36,10 @@ class AverageMeter(object):
 def accuracy(preds, label):
     """Computes and return the accuracy for a prediction image and a reference image"""
     valid = label.byte()
-    # acc_sum = (valid *(preds == label)).sum()
     torch.eq(label, preds, out=valid)
     total_eq = valid.sum()
     total = label.shape[0]
-    # acc = float(acc_sum) / (total + 1e-10)
     acc = (float(total_eq) / float(total)) * 100
-    print(acc)
     return acc
     
 

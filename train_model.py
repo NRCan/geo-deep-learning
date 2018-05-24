@@ -71,8 +71,8 @@ def main(working_folder, batch_size, num_epochs, learning_rate, sample_size, num
         model = model.cuda()
         
     # set up cross entropy
-    poids = torch.tensor([1.,2.,2.,2.])
-    criterion = nn.CrossEntropyLoss(weight=poids).cuda()
+    class_weights = torch.tensor([1.,2.,2.,2.])
+    criterion = nn.CrossEntropyLoss(weight=class_weights).cuda()
 
     # optimizer
     # optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
@@ -144,7 +144,6 @@ def train(train_loader, model, criterion, optimizer, epoch_num, num_classes, bat
         else:
             inputs = Variable(data['sat_img'])
             labels = Variable(flatten_labels(data['map_img']))
-        torch.cuda.empty_cache()
         
         # zero the parameter gradients
         optimizer.zero_grad()
@@ -166,22 +165,23 @@ def train(train_loader, model, criterion, optimizer, epoch_num, num_classes, bat
         loss.backward()
         optimizer.step()
         
+        # Compute accuracy only on last batch (time consuming)
         if idx == len(train_loader) - 1:
             a, segmentation = torch.max(outputs_flatten, dim=1)
             acc = metrics.accuracy(segmentation, labels)
             train_acc.update(acc, batch_size)
             
     print('Training Loss: {:.4f} Acc: {:.4f}'.format(train_loss.avg, train_acc.avg))
-    # print('Training Loss: {:.4f}'.format(train_loss.avg))
 
-def validation(valid_loader, model, criterion, epoch_num, nbreClasses, batch_size):
+def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_size):
     """
     Args:
-        train_loader:
+        validation_loader:
         model:
         criterion:
-        optimizer:
         epoch:
+        num_classes:
+        batch_size:
     Returns:
     """
     # logging accuracy and loss
@@ -193,39 +193,37 @@ def validation(valid_loader, model, criterion, epoch_num, nbreClasses, batch_siz
     # Iterate over data.
     for idx, data in enumerate(valid_loader):
         torch.cuda.empty_cache()
-        with torch.no_grad():
-            # flatten label
-            labels_flatten = flatten_labels(data['map_img'])           
+        with torch.no_grad():       
             # get the inputs and wrap in Variable
             if torch.cuda.is_available():
                 inputs = Variable(data['sat_img'].cuda())
-                labels = Variable(labels_flatten.cuda())
-                # index = Variable(index.cuda())
+                labels = Variable(flatten_labels(data['map_img']))
+
             else:
                 inputs = Variable(data['sat_img'])
-                labels = Variable(labels_flatten)
-                # index = Variable(index)
-            del labels_flatten
-            torch.cuda.empty_cache()
+                labels = Variable(flatten_labels(data['map_img']))
+            
             # forward
             outputs = model(inputs)
-            # print(outputs.shape)
-            outputs_flatten = flatten_outputs(outputs, nbreClasses)
+            outputs_flatten = flatten_outputs(outputs, num_classes)
             
             loss = criterion(outputs_flatten, labels)
             valid_loss.update(loss.item(), inputs.size(0))
+            
+            # Compute accuracy only on last batch (time consuming)
             if idx == len(valid_loader) - 1:
                 a, segmentation = torch.max(outputs_flatten, dim=1)
                 acc = metrics.accuracy(segmentation, labels)
                 valid_acc.update(acc, batch_size)
                 
     print('Validation Loss: {:.4f} Acc: {:.4f}'.format(valid_loss.avg, valid_acc.avg))
-    # print('Validation Loss: {:.4f}'.format(valid_loss.avg))
     return valid_loss.avg
-    
-#     return {'valid_loss': valid_loss.avg, 'valid_acc': valid_acc.avg}
 
 if __name__ == '__main__':
+    """ 
+    To be modified with yaml
+    """
+    
     parser = argparse.ArgumentParser(description='Training execution')
     parser.add_argument('ParamFile', metavar='DIR',
                         help='path to parameters txt')
@@ -244,17 +242,7 @@ if __name__ == '__main__':
 
 
     #### parametres ###
-    print('Debut:')
-    # working_folder = "D:\Processus\image_to_echantillons\img_1"
-#     working_folder = "/space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training"
-#     batch_size = 96
-#     num_epoch = 150
-#     start_epoch = 0
-#     lr = 0.0005
-#     tailleTuile = 128
-#     nbrClasses = 4
-#     nbrEchantTrn = 38400
-#     nbrEchantVal = 19200
+    print('Start:')
     main(working_folder, batch_size, num_epoch, lr, tailleTuile, nbrClasses, nbrEchantTrn, nbrEchantVal)
     print('Fin')
 

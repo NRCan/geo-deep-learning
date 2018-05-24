@@ -87,6 +87,10 @@ def Classification(folderImages, model, image):
         pilImage.save(os.path.join(folderImages, image.split('.')[0] + '_classif.tif'))
             
 if __name__ == '__main__':
+    """ 
+    To be modified with yaml
+    """
+    
     parser = argparse.ArgumentParser(description='Image classification using trained model')
     parser.add_argument('param_file', metavar='file',
                         help='txt file containing parameters')
