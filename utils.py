@@ -5,9 +5,12 @@ from torch.autograd import Variable
 
 from collections import OrderedDict
 
+import matplotlib.pyplot as plt
+import os
+
+
 def get_gpu_memory_map():
     """Get the current gpu usage.
-
     Returns
     -------
     usage: dict
@@ -100,26 +103,7 @@ def summary(model, input_size):
         # return summary
         
 # define a class to log values during training
-class AverageMeter(object):
-    """
-    https://github.com/pytorch/examples/blob/master/imagenet/main.py
-    Computes and stores the average and current value
-    """
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count        
+     
         
 def convert_labels_to_one_hot_encoding(labels, number_of_classes):
 
@@ -137,3 +121,33 @@ def convert_labels_to_one_hot_encoding(labels, number_of_classes):
     one_hot_encoding.scatter_(dim=labels_dims_number, index=labels_, value=1)
     
     return one_hot_encoding.byte()
+
+
+def plot_some_results(data, target, img_sufixe, dossierTravail):
+    """__author__ = 'Fabian Isensee'
+    https://github.com/Lasagne/Recips/blob/master/examples/UNet/massachusetts_road_segm.py
+    """
+    d = data
+    s = target
+    plt.figure(figsize=(12, 6))
+    plt.subplot(1, 3, 1)
+    plt.imshow(d.transpose(1,2,0))
+    plt.title("input patch")
+    plt.subplot(1, 3, 2)
+    plt.imshow(s)
+    plt.title("ground truth")
+    plt.savefig(os.path.join(dossierTravail, "result_%03.0f.png"%img_sufixe))
+    plt.close()
+    
+    
+def ReadParameters(ParamFile):
+    """Read and return parameters in .txt file
+    Args:
+        ParamFile: Path and name for the file
+    Returns:
+        Param
+    """
+    with open(ParamFile) as f:
+        lines = f.readlines()
+    content = [x.strip() for x in lines]
+    return content

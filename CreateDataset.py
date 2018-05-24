@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import Dataset
 import os
 import numpy as np
-import entrainement_modele
+# import entrainement_modele
 
 class SegmentationDataset(Dataset):
     """Dataset for semantic segmentation"""
@@ -30,10 +30,9 @@ class SegmentationDataset(Dataset):
         
         data_file.close()
         ref_file.close()
-        TorchData = torch.from_numpy(data)
-        TorchTarget = torch.from_numpy(target)
         del data
         del target
         
-        sample = {'sat_img':TorchData, 'map_img':TorchTarget}
+        sample = {'sat_img':data, 'map_img':target}
+        # sample = {'sat_img':TorchData, 'map_img':TorchTarget.long()}
         return sample
