@@ -4,6 +4,7 @@ from PIL import Image
 import fnmatch
 import random
 import argparse
+from utils import ReadParameters
  
 def WriteArray(file, npArray):
     """write numpy array in binary and append mode"""
@@ -17,25 +18,6 @@ def rdmList(len_list):
         listRdm.append(i)
     random.shuffle(listRdm)
     return listRdm
-
-def ReadParameters(ParamFile):
-    """Read and return parameters in .txt file
-    Args:
-        ParamFile: Path and name for the file
-    Returns:
-        images_folder: 1st line of the file
-        path_to_samples: 2nd line of the file
-        sample_size: height and width for the samples (in pixel). 3rd line of the file
-        dist_samples: distance (in pixel) between 2 samples center. 4th line of the file
-    """
-    with open(ParamFile) as f:
-        lines = f.readlines()
-    content = [x.strip() for x in lines]
-    images_folder = content[0]
-    path_to_samples = content[1]
-    sample_size = int(content[2])
-    dist_samples = int(content[3])
-    return images_folder, path_to_samples, sample_size, dist_samples
     
 def WriteInfo(output_folder, num_samples, num_classes):
     """Write txt file containing number of created samples and number of classes."""
@@ -114,16 +96,20 @@ if __name__ == '__main__':
     parser.add_argument('ParamFile', metavar='DIR',
                         help='path to parameters txt')
     args = parser.parse_args()
-    images_Folder, folder_samples, tile_size, tile_dist = ReadParameters(args.ParamFile)
+    params = ReadParameters(args.ParamFile)
+    images_folder = params[0]
+    samples_folder = params[1]
+    samples_size = int(params[2])
+    samples_dist = int(params[3])
     
     # List RGB and reference images in both folders.
-    images_RGB = [img for img in os.listdir(os.path.join(images_Folder, "RGB")) if fnmatch.fnmatch(img, "*.tif*")]
-    images_Label = [img for img in os.listdir(os.path.join(images_Folder, "label")) if fnmatch.fnmatch(img, "*.tif*")]
+    images_RGB = [img for img in os.listdir(os.path.join(images_folder, "RGB")) if fnmatch.fnmatch(img, "*.tif*")]
+    images_Label = [img for img in os.listdir(os.path.join(images_folder, "label")) if fnmatch.fnmatch(img, "*.tif*")]
     images_RGB.sort()
     images_Label.sort()
     
-    nbrsamples, nbrclasses = SamplesPreparation(images_RGB, images_Label, images_Folder, folder_samples, tile_size, tile_dist)
-    RandomSamples(folder_samples, tile_size, nbrsamples)
-    WriteInfo(folder_samples, nbrsamples, nbrclasses)
+    nbrsamples, nbrclasses = SamplesPreparation(images_RGB, images_Label, images_folder, samples_folder, samples_size, samples_dist)
+    RandomSamples(samples_folder, samples_size, nbrsamples)
+    WriteInfo(samples_folder, nbrsamples, nbrclasses)
     print("End of process")
         
