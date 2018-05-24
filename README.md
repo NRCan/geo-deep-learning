@@ -1,45 +1,53 @@
-# Projet d'apprentissage profond du CCCOT.
+# CCMEO's deep learning project
 
 ## images_to_samples.py  
-Pour lancer le programme:  
+To launch the program:  
 ``` 
 python images_to_samples.py path/to/parameter_file.txt
+```  
+Parameter file content:  
+```
+path/to/folder/images_and_references
+path/to/folder/output_samples
+size of each sample (in pixel)
+distance between 2 sample centers
 ```
 
-Le fichier de paramètres contient les informations suivantes:  
+Outputs:
+- 2 .dat files with RGB and reference arrays
+- 1 .txt file with number of samples created and the number of classes in the references data.
+
+Process: 
+- Read images in the "RGB" and the "label" folders
+- Convert images to arrays
+- Divide images in samples of size and distance specified in the parameters
+- Write samples in 2 .dat files (RGB and label)
+
+## train_model.py
+To launch the program:  
+``` 
+python train_model.py path/to/parameter_file.txt
+```  
+Parameter file content:  
 ```
-path/to/folder/images_et_reference
-path/to/folder/ecriture_des_echantillons
-taille des tuiles
-espacement entre centres de tuiles
+path/to/folder/training_and_validation_data
+batch size
+number of epoch
+learning rate
+size of each sample (in pixel)
+number of classes
+number of training samples
+number of validation samples
 ```
 
-Intrants: 
-- Images RGB et référence
-- Dossier de travail
-- Taille des échantillons (tuiles) à créer, en pixel
-- Espace entre 2 centres de tuiles (chevauchement), en pixel
+Inputs:
+- 2 .dat files with RGB and reference arrays use for training
+- 2 .dat files with RGB and reference arrays use for validation
 
-Extrants:
-- 2 fichiers .dat contenant les matrices (numpy.array) des tuiles créées.
-- 1 fichier .txt contenant le nombre d'echantillons et le nombre de classe des données de ref.
+Output:
+- Trained model weights
 
-Processus: 
-- Lire les images dans le dossier "RGB" et dans le dossier "label"
-- Convertir les images en matrices
-- Subdiviser les images en échantillons de taille et d'espacement spécifié en intrant
-- Écrire les échantillons dans 2 fichiers .dat (RGB et Label)
-
-## entrainement_modele.py
-
-Intrants:
-- 2 fichiers .dat contenant les matrices RGB et Label pour l'entrainement.
-- 2 fichiers .dat contenant les matrices RGB et Label pour la validation.
-
-Extrants:
-- Poids du modèle entrainé
-
-Processus:
-- Entrainement du modèle. 
+Process:
+- model training. 
 
 
