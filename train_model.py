@@ -1,26 +1,26 @@
 # import matplotlib.pyplot as plt
-import numpy as np
+# import numpy as np
+import argparse
 import os
+import shutil
+import time
 
+from ruamel_yaml import YAML
+from torch import nn
+import torch
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-# from torchvision import transforms
-from torch import nn
-import metrics
-import unet_pytorch
-# import unet
+
 import CreateDataset
-# from utils import get_gpu_memory_map
 from metrics import AverageMeter
-# from sklearn.metrics import confusion_matrix
-
-import torch
+import metrics
 import torch.optim as optim
-import time
-import argparse
-import shutil
-from utils import ReadParameters
+import unet_pytorch
 
+# from torchvision import transforms
+# import unet
+# from utils import get_gpu_memory_map
+# from sklearn.metrics import confusion_matrix
 def flatten_labels(annotations):
     flatten = annotations.view(-1)
     return flatten
@@ -33,20 +33,16 @@ def flatten_outputs(predictions, number_of_classes):
     return outputs_flatten
 
 
-def save_checkpoint(state, is_best, filename='./checkpoint.pth.tar'):
+def save_checkpoint(state, filename):
     """
-    Create a function to save the model state
+    Function to save the model state
     https://github.com/pytorch/examples/blob/master/imagenet/main.py
     :param state:
-    :param is_best:
     :param filename:
-    :return:
     """
     torch.save(state, filename)
-    if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
 
-def main(working_folder, batch_size, num_epochs, learning_rate, sample_size, num_classes, num_samples_trn, num_samples_val):
+def main(data_path, output_path, sample_size, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs, learning_rate, weight_decay, step_size, gamma, num_classes, weight_classes):
     """
     Function to train and validate a model for semantic segmentation. 
     Args:
@@ -71,19 +67,21 @@ def main(working_folder, batch_size, num_epochs, learning_rate, sample_size, num
         model = model.cuda()
         
     # set up cross entropy
-    class_weights = torch.tensor([1.,2.,2.,2.])
-    criterion = nn.CrossEntropyLoss(weight=class_weights).cuda()
+    criterion = nn.CrossEntropyLoss(weight=torch.tensor(weight_classes)).cuda()
 
     # optimizer
-    # optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    # optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+    # lr decay
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
 
     # loss initialisation
     best_loss = 999
 
     # get data
-    trn_dataset = CreateDataset.SegmentationDataset(os.path.join(working_folder, "trn/samples"), num_samples_trn, sample_size)
-    val_dataset = CreateDataset.SegmentationDataset(os.path.join(working_folder, "val/samples"), num_samples_val, sample_size)
+    trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "trn/samples"), num_trn_samples, sample_size)
+    val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "val/samples"), num_val_samples, sample_size)
     # creating loaders
     train_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=False)
@@ -92,32 +90,26 @@ def main(working_folder, batch_size, num_epochs, learning_rate, sample_size, num
         print()
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
         print('-' * 20)
-    
-        torch.cuda.empty_cache()
-        # run training and validation
-        train_metrics = train(train_dataloader, model, criterion, optimizer, epoch, num_classes, batch_size)
 
-        torch.cuda.empty_cache()
-        
-        # print("GPU momory: ", get_gpu_memory_map())
-        
+        # run training and validation
+        train_loss = train(train_dataloader, model, criterion, optimizer, lr_scheduler, epoch, num_classes, batch_size)       
         Val_loss = validation(val_dataloader, model, criterion, epoch, num_classes, batch_size)
-        
-        torch.cuda.empty_cache()
         
         if Val_loss < best_loss:
             print("save checkpoint")
-            save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'state_dict': model.state_dict(), 'best_loss': best_loss, 'optimizer': optimizer.state_dict()}, is_best=False)
+            filename=os.path.join(output_path, 'checkpoint.pth.tar')
+            save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'state_dict': model.state_dict(), 'best_loss': best_loss, 'optimizer': optimizer.state_dict()}, filename)
             best_loss = Val_loss
             
         cur_elapsed = time.time() - since
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
-    save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'state_dict': model.state_dict(), 'best_loss': best_loss, 'optimizer': optimizer.state_dict()}, is_best=True)
+        
+    filename=os.path.join(output_path, 'last_epoch.pth.tar')
+    save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'state_dict': model.state_dict(), 'best_loss': best_loss, 'optimizer': optimizer.state_dict()}, filename)
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
-
-def train(train_loader, model, criterion, optimizer, epoch_num, num_classes, batch_size):
+def train(train_loader, model, criterion, optimizer, scheduler, epoch_num, num_classes, batch_size):
     """
     Args:
         train_loader:
@@ -129,10 +121,12 @@ def train(train_loader, model, criterion, optimizer, epoch_num, num_classes, bat
     """
     model.train()
     
+    scheduler.step()
+    
     # logging accuracy and loss
     train_acc = AverageMeter()
     train_loss = AverageMeter()
-
+    
     # iterate over data
     for idx, data in enumerate(train_loader):
         # We need to flatten annotations and logits to apply index of valid annotations.
@@ -153,7 +147,6 @@ def train(train_loader, model, criterion, optimizer, epoch_num, num_classes, bat
         outputs_flatten = flatten_outputs(outputs, num_classes)
 
         del outputs
-        torch.cuda.empty_cache()
         
         loss = criterion(outputs_flatten, labels)
         
@@ -192,12 +185,11 @@ def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_siz
     model.eval()
     # Iterate over data.
     for idx, data in enumerate(valid_loader):
-        torch.cuda.empty_cache()
         with torch.no_grad():       
             # get the inputs and wrap in Variable
             if torch.cuda.is_available():
                 inputs = Variable(data['sat_img'].cuda())
-                labels = Variable(flatten_labels(data['map_img']))
+                labels = Variable(flatten_labels(data['map_img']).cuda())
 
             else:
                 inputs = Variable(data['sat_img'])
@@ -220,30 +212,16 @@ def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_siz
     return valid_loss.avg
 
 if __name__ == '__main__':
-    """ 
-    To be modified with yaml
-    """
-    
+    print('Start:')
     parser = argparse.ArgumentParser(description='Training execution')
     parser.add_argument('ParamFile', metavar='DIR',
-                        help='path to parameters txt')
+                        help='path to parameters yaml')
     args = parser.parse_args()
-    parampampam = ReadParameters(args.ParamFile)
+    yaml = YAML()
+    with open(args.ParamFile, 'r') as yamlfile:
+        cfg = yaml.load(yamlfile)
 
-    working_folder = parampampam[0]
-    batch_size = int(parampampam[1])
-    num_epoch = int(parampampam[2])
-    lr = float(parampampam[3])
-    tailleTuile = int(parampampam[4])
-    nbrClasses = int(parampampam[5])
-    nbrEchantTrn = int(parampampam[6])
-    nbrEchantVal = int(parampampam[7])
-    print(parampampam)
-
-
-    #### parametres ###
-    print('Start:')
-    main(working_folder, batch_size, num_epoch, lr, tailleTuile, nbrClasses, nbrEchantTrn, nbrEchantVal)
-    print('Fin')
+    main(cfg['data_path'], cfg['output_path'], cfg['samples_size'], cfg['num_trn_samples'], cfg['num_val_samples'], cfg['pretrained'], cfg['batch_size'], cfg['num_epochs'], cfg['learning_rate'], cfg['weight_decay'], cfg['step_size'], cfg['gamma'], cfg['num_classes'], cfg['classes_weight'])
+    print('End of training')
 
         

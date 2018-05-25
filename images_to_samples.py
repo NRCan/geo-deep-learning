@@ -60,8 +60,8 @@ def SamplesPreparation(sat_img, ref_img, ImagesFolder, OutputFolder, sample_size
                 
                 num_samples+=1
 
-                WriteArray(os.path.join(OutputFolder, "tmp_echantillons_RGB.dat"), data)
-                WriteArray(os.path.join(OutputFolder, "tmp_echantillons_Label.dat"), target)
+                WriteArray(os.path.join(OutputFolder, "tmp_samples_RGB.dat"), data)
+                WriteArray(os.path.join(OutputFolder, "tmp_samples_Label.dat"), target)
                 
                 if num_classes < max(target.ravel()):
                     num_classes = max(target.ravel())
@@ -72,8 +72,8 @@ def RandomSamples(OutputFolder, sample_size, num_samples):
     RdmEchant = rdmList(num_samples)
     
     for idx in RdmEchant:
-        data_file = open(os.path.join(OutputFolder, "tmp_echantillons_RGB.dat"), "rb")
-        ref_file = open(os.path.join(OutputFolder, "tmp_echantillons_Label.dat"), "rb")
+        data_file = open(os.path.join(OutputFolder, "tmp_samples_RGB.dat"), "rb")
+        ref_file = open(os.path.join(OutputFolder, "tmp_samples_Label.dat"), "rb")
         
         data_file.seek(idx*sample_size*sample_size*3)
         ref_file.seek(idx*sample_size*sample_size)
@@ -81,14 +81,14 @@ def RandomSamples(OutputFolder, sample_size, num_samples):
         data = np.fromfile(data_file, dtype=np.uint8, count=3*sample_size*sample_size)
         target = np.fromfile(ref_file, dtype=np.uint8, count=sample_size*sample_size)
         
-        WriteArray(os.path.join(OutputFolder, "echantillons_RGB.dat"), data)
-        WriteArray(os.path.join(OutputFolder, "echantillons_Label.dat"), target)
+        WriteArray(os.path.join(OutputFolder, "samples_RGB.dat"), data)
+        WriteArray(os.path.join(OutputFolder, "samples_Label.dat"), target)
     
     # Delete temp files.
     data_file.close()
     ref_file.close()
-    os.remove(os.path.join(OutputFolder, "tmp_echantillons_RGB.dat"))
-    os.remove(os.path.join(OutputFolder, "tmp_echantillons_Label.dat"))
+    os.remove(os.path.join(OutputFolder, "tmp_samples_RGB.dat"))
+    os.remove(os.path.join(OutputFolder, "tmp_samples_Label.dat"))
 
 
 if __name__ == '__main__':
