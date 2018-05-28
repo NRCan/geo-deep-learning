@@ -9,6 +9,8 @@ from PIL import Image
 import fnmatch
 from utils import ReadParameters
 
+from osgeo import gdal
+
 def main(working_folder, img_list, num_classes, Weights_File_Name):
     """
     Args:
@@ -22,7 +24,7 @@ def main(working_folder, img_list, num_classes, Weights_File_Name):
 
     if torch.cuda.is_available():
         model = model.cuda()
-    
+
     # load weights
     if os.path.isfile(Weights_File_Name):
         print("=> loading model '{}'".format(Weights_File_Name))
@@ -31,9 +33,9 @@ def main(working_folder, img_list, num_classes, Weights_File_Name):
         print("=> loaded weights '{}'".format(Weights_File_Name))
     else:
         print("=> no checkpoint found at '{}'".format(Weights_File_Name))
-    
+
     since = time.time()
-    
+
     for img in img_list:
         Classification(working_folder, model, img)
         print('Image ', img, ' classified')
@@ -51,14 +53,14 @@ def Classification(folderImages, model, image):
     # Chunk size. Should not be modified often. We want the biggest chunk to be process at a time but,
     # a too large image chunk bust the GPU memory when processing.
     chunk_size = 1024
-    
+
     # switch to evaluate mode
     model.eval()
-    
+
     RGBArray = np.float32(np.array(Image.open(os.path.join(folderImages, image))))
-    # transpose 
-    # H x W x C to 
-    # C x H x W  
+    # transpose
+    # H x W x C to
+    # C x H x W
     transp = np.transpose(RGBArray, (2, 0, 1))
     nb, h, w = transp.shape
     del RGBArray
@@ -76,21 +78,36 @@ def Classification(folderImages, model, image):
                     inputs = Variable(TorchData)
                 # forward
                 outputs = model(inputs)
-                
+
                 a, pred = torch.max(outputs, dim=1)
                 segmentation = torch.squeeze(pred)
-                
+
                 outputNP[row:row+chunk_size, col:col+chunk_size] = segmentation
-                
-        print(outputNP.shape)
-        pilImage = Image.fromarray(np.uint8(outputNP))
-        pilImage.save(os.path.join(folderImages, image.split('.')[0] + '_classif.tif'))
-            
+        CreateNewRasterFromBase(os.path.join(folderImages, image), os.path.join(folderImages, image.split('.')[0] + '_classif.tif'), outputNP)
+
+def CreateNewRasterFromBase(InputRasterPath, OutputRasterFn, array):
+    """Read RGB image geospatial information and write them in the out raster"""
+    # Read info
+    inputImage = gdal.Open(InputRasterPath)
+    src = inputImage
+    cols = src.RasterXSize
+    rows = src.RasterYSize
+    projection = src.GetProjection()
+    geotransform = src.GetGeoTransform()
+
+    # write info
+    new_raster = gdal.GetDriverByName('GTiff').Create(OutputRasterFn, cols, rows, 1, gdal.GDT_Byte)
+    new_raster.SetProjection(projection)
+    new_raster.SetGeoTransform(geotransform)
+    band = new_raster.GetRasterBand(1)
+    band.SetNoDataValue(-9999)
+    band.WriteArray(array)
+
 if __name__ == '__main__':
-    """ 
+    """
     To be modified with yaml
     """
-    
+
     parser = argparse.ArgumentParser(description='Image classification using trained model')
     parser.add_argument('param_file', metavar='file',
                         help='txt file containing parameters')
@@ -101,8 +118,6 @@ if __name__ == '__main__':
     working_folder = params[0]
     model_name = params[1]
     num_classes = int(params[2])
-    
+
     listImg = [img for img in os.listdir(working_folder) if fnmatch.fnmatch(img, "*.tif*")]
     main(working_folder, listImg, num_classes, model_name)
-
-        
