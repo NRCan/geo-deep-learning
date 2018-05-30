@@ -99,7 +99,7 @@ if __name__ == '__main__':
     params = ReadParameters(args.ParamFile)
     images_folder =  params['sample']['images_folder']
     samples_folder = params['sample']['samples_folder']
-    samples_size = params['sample']['samples_size']
+    samples_size = params['global']['samples_size']
     samples_dist = params['sample']['samples_dist']
 
     # List RGB and reference images in both folders.

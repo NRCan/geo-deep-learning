@@ -4,12 +4,16 @@
 #   2) training parameters
 #   3) Classification parameters
 
+# Global parameters
+
+global:
+  samples_size: 128
+  num_classes: 4
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
   images_folder: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training/val
   samples_folder: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training/val/samples
-  samples_size: 128
   samples_dist: 100
 
 # Training parameters; used in train_model.py ----------------------
@@ -17,7 +21,6 @@ sample:
 training:
   data_path: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training
   output_path: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training
-  samples_size: 128
   num_trn_samples: 38400
   num_val_samples: 19200
   pretrained: False # .pth filename containig pre-trained weights
@@ -27,7 +30,6 @@ training:
   weight_decay: 0
   step_size: 30
   gamma: 0.1
-  num_classes: 4
   class_weights: [1.0, 2.0, 2.0, 2.0]
 
 
@@ -36,7 +38,6 @@ training:
 classification:
   working_folder: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training/tst/RGB
   model_name: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training/last_epoch.pth.tar
-  num_classes: 4
 
 # Other params --------------------------------------
 # ALL ITEMS LISTED NEXT NOT USED YET

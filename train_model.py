@@ -236,7 +236,7 @@ if __name__ == '__main__':
 
     main(params['training']['data_path'],
          params['training']['output_path'],
-         params['training']['samples_size'],
+         params['global']['samples_size'],
          params['training']['num_trn_samples'],
          params['training']['num_val_samples'],
          params['training']['pretrained'],
@@ -246,6 +246,6 @@ if __name__ == '__main__':
          params['training']['weight_decay'],
          params['training']['step_size'],
          params['training']['gamma'],
-         params['training']['num_classes'],
+         params['global']['num_classes'],
          params['training']['class_weights'])
     print('End of training')

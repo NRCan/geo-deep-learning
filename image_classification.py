@@ -117,7 +117,7 @@ if __name__ == '__main__':
     params = ReadParameters(args.param_file)
     working_folder = params['classification']['working_folder']
     model_name = params['classification']['model_name']
-    num_classes = params['classification']['num_classes']
+    num_classes = params['global']['num_classes']
 
 
     listImg = [img for img in os.listdir(working_folder) if fnmatch.fnmatch(img, "*.tif*")]
