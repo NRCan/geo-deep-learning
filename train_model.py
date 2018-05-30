@@ -5,7 +5,6 @@ import os
 import shutil
 import time
 
-from ruamel_yaml import YAML
 from torch import nn
 import torch
 from torch.autograd import Variable
@@ -16,6 +15,7 @@ from metrics import AverageMeter
 import metrics
 import torch.optim as optim
 import unet_pytorch
+from utils import ReadParameters
 
 # from torchvision import transforms
 # import unet
@@ -229,12 +229,23 @@ def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_siz
 if __name__ == '__main__':
     print('Start:')
     parser = argparse.ArgumentParser(description='Training execution')
-    parser.add_argument('ParamFile', metavar='DIR',
-                        help='path to parameters yaml')
+    parser.add_argument('param_file', metavar='DIR',
+                        help='Path to training parameters stored in yaml')
     args = parser.parse_args()
-    yaml = YAML()
-    with open(args.ParamFile, 'r') as yamlfile:
-        cfg = yaml.load(yamlfile)
+    params = ReadParameters(args.param_file)
 
-    main(cfg['data_path'], cfg['output_path'], cfg['samples_size'], cfg['num_trn_samples'], cfg['num_val_samples'], cfg['pretrained'], cfg['batch_size'], cfg['num_epochs'], cfg['learning_rate'], cfg['weight_decay'], cfg['step_size'], cfg['gamma'], cfg['num_classes'], cfg['classes_weight'])
+    main(params['training']['data_path'],
+         params['training']['output_path'],
+         params['global']['samples_size'],
+         params['training']['num_trn_samples'],
+         params['training']['num_val_samples'],
+         params['training']['pretrained'],
+         params['training']['batch_size'],
+         params['training']['num_epochs'],
+         params['training']['learning_rate'],
+         params['training']['weight_decay'],
+         params['training']['step_size'],
+         params['training']['gamma'],
+         params['global']['num_classes'],
+         params['training']['class_weights'])
     print('End of training')

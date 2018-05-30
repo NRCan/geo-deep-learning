@@ -2,7 +2,7 @@ import numpy as np
 import os
 from torch.autograd import Variable
 import torch
-import unet_pytorch_clas
+import unet_pytorch
 import time
 import argparse
 from PIL import Image
@@ -20,7 +20,7 @@ def main(working_folder, img_list, num_classes, Weights_File_Name):
         Weights_File_Name:
     """
     # get model
-    model = unet_pytorch_clas.UNetSmall(num_classes)
+    model = unet_pytorch.UNetSmall(num_classes)
 
     if torch.cuda.is_available():
         model = model.cuda()
@@ -115,9 +115,10 @@ if __name__ == '__main__':
 
     print('Start: ')
     params = ReadParameters(args.param_file)
-    working_folder = params[0]
-    model_name = params[1]
-    num_classes = int(params[2])
+    working_folder = params['classification']['working_folder']
+    model_name = params['classification']['model_name']
+    num_classes = params['global']['num_classes']
+
 
     listImg = [img for img in os.listdir(working_folder) if fnmatch.fnmatch(img, "*.tif*")]
     main(working_folder, listImg, num_classes, model_name)

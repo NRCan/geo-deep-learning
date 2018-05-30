@@ -2,6 +2,7 @@ import subprocess
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+from ruamel_yaml import YAML
 
 from collections import OrderedDict
 
@@ -50,24 +51,24 @@ def summary(model, input_size):
                 if hasattr(module, 'bias') and hasattr(module.bias, 'size'):
                     params +=  torch.prod(torch.LongTensor(list(module.bias.size())))
                 summary[m_key]['nb_params'] = params
-                
-            if (not isinstance(module, nn.Sequential) and 
-               not isinstance(module, nn.ModuleList) and 
+
+            if (not isinstance(module, nn.Sequential) and
+               not isinstance(module, nn.ModuleList) and
                not (module == model)):
                 hooks.append(module.register_forward_hook(hook))
-                
+
         if torch.cuda.is_available():
             dtype = torch.cuda.FloatTensor
         else:
             dtype = torch.FloatTensor
-        
+
         # check if there are multiple inputs to the network
         if isinstance(input_size[0], (list, tuple)):
             x = [Variable(torch.rand(1,*in_size)).type(dtype) for in_size in input_size]
         else:
             x = Variable(torch.rand(1,*input_size)).type(dtype)
-            
-            
+
+
         # print(type(x[0]))
         # create properties
         summary = OrderedDict()
@@ -101,25 +102,25 @@ def summary(model, input_size):
         print('Non-trainable params: ' + str(total_params - trainable_params))
         print('----------------------------------------------------------------')
         # return summary
-        
+
 # define a class to log values during training
-     
-        
+
+
 def convert_labels_to_one_hot_encoding(labels, number_of_classes):
 
     labels_dims_number = labels.dim()
 
     # Add a singleton dim -- we need this for scatter
     labels_ = labels.unsqueeze(labels_dims_number)
-    
+
     # We add one more dim to the end of tensor with the size of 'number_of_classes'
     one_hot_shape = list(labels.size())
     one_hot_shape.append(number_of_classes)
     one_hot_encoding = torch.zeros(one_hot_shape).type(labels.type())
-    
+
     # Filling out the tensor with ones
     one_hot_encoding.scatter_(dim=labels_dims_number, index=labels_, value=1)
-    
+
     return one_hot_encoding.byte()
 
 
@@ -138,16 +139,16 @@ def plot_some_results(data, target, img_sufixe, dossierTravail):
     plt.title("ground truth")
     plt.savefig(os.path.join(dossierTravail, "result_%03.0f.png"%img_sufixe))
     plt.close()
-    
-    
+
+
 def ReadParameters(ParamFile):
-    """Read and return parameters in .txt file
+    """Read and return parameters in .yaml file
     Args:
-        ParamFile: Path and name for the file
+        ParamFile: Full file path
     Returns:
-        Param
+        YAML (Ruamel) CommentedMap dict-like object
     """
-    with open(ParamFile) as f:
-        lines = f.readlines()
-    content = [x.strip() for x in lines]
-    return content
+    yaml = YAML()
+    with open(ParamFile) as yamlfile:
+        params = yaml.load(yamlfile)
+    return params
