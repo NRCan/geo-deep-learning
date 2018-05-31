@@ -1,26 +1,23 @@
-# import matplotlib.pyplot as plt
-# import numpy as np
 import argparse
 import os
-import shutil
 import time
 
 from torch import nn
 import torch
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
+from torchvision import transforms
 
 import CreateDataset
-from metrics import AverageMeter
-import metrics
+import augmentation as aug
+from logger import InformationLogger
+from metrics import AverageMeter, ClassificationReport
 import torch.optim as optim
 import unet_pytorch
 from utils import ReadParameters
 
-# from torchvision import transforms
-# import unet
 # from utils import get_gpu_memory_map
-# from sklearn.metrics import confusion_matrix
+
 def flatten_labels(annotations):
     flatten = annotations.view(-1)
     return flatten
@@ -70,6 +67,10 @@ def main(data_path, output_path, sample_size, num_trn_samples, num_val_samples, 
     """
     since = time.time()
 
+    # init loggers
+    TrnLog = InformationLogger(output_path, 'trn')
+    ValLog = InformationLogger(output_path, 'val')
+
     # get model
     model = unet_pytorch.UNetSmall(num_classes)
     # model = unet.Unet(num_classes)
@@ -95,11 +96,11 @@ def main(data_path, output_path, sample_size, num_trn_samples, num_val_samples, 
         load_from_checkpoint(pretrained, model, optimizer)
 
     # get data
-    trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "trn/samples"), num_trn_samples, sample_size)
-    val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "val/samples"), num_val_samples, sample_size)
+    trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "trn/samples"), num_trn_samples, sample_size, transform=transforms.Compose([aug.ToTensorTarget()]))
+    val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "val/samples"), num_val_samples, sample_size, transform=transforms.Compose([aug.ToTensorTarget()]))
     # creating loaders
     train_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=False)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
 
     for epoch in range(0, num_epochs):
         print()
@@ -107,14 +108,17 @@ def main(data_path, output_path, sample_size, num_trn_samples, num_val_samples, 
         print('-' * 20)
 
         # run training and validation
-        train_loss = train(train_dataloader, model, criterion, optimizer, lr_scheduler, epoch, num_classes, batch_size)
-        Val_loss = validation(val_dataloader, model, criterion, epoch, num_classes, batch_size)
+        Trn_report = train(trn_dataloader, model, criterion, optimizer, lr_scheduler, epoch, num_classes, batch_size)
+        TrnLog.AddValues(Trn_report, epoch)
 
-        if Val_loss < best_loss:
+        Val_report = validation(val_dataloader, model, criterion, epoch, num_classes, batch_size)
+        ValLog.AddValues(Val_report, epoch)
+
+        if Val_report['loss'] < best_loss:
             print("save checkpoint")
             filename=os.path.join(output_path, 'checkpoint.pth.tar')
+            best_loss = Val_report['loss']
             save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'state_dict': model.state_dict(), 'best_loss': best_loss, 'optimizer': optimizer.state_dict()}, filename)
-            best_loss = Val_loss
 
         cur_elapsed = time.time() - since
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
@@ -138,8 +142,6 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch_num, num_c
 
     scheduler.step()
 
-    # logging accuracy and loss
-    train_acc = AverageMeter()
     train_loss = AverageMeter()
 
     # iterate over data
@@ -174,12 +176,15 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch_num, num_c
         optimizer.step()
 
         # Compute accuracy only on last batch (time consuming)
+        # TODO: might be worth it to calculate it every n batches and then average values...
         if idx == len(train_loader) - 1:
             a, segmentation = torch.max(outputs_flatten, dim=1)
-            acc = metrics.accuracy(segmentation, labels)
-            train_acc.update(acc, batch_size)
+            trn_report = ClassificationReport(segmentation, labels, nbClasses=num_classes)
+            print("Training Precision", trn_report['prfAvg'][0], "Recall", trn_report['prfAvg'][1], "f-score", trn_report['prfAvg'][2])
 
-    print('Training Loss: {:.4f} Acc: {:.4f}'.format(train_loss.avg, train_acc.avg))
+    print('Training Loss: {:.4f}'.format(train_loss.avg))
+    trn_report['loss'] = train_loss.avg
+    return trn_report
 
 def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_size):
     """
@@ -192,8 +197,7 @@ def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_siz
         batch_size:
     Returns:
     """
-    # logging accuracy and loss
-    valid_acc = AverageMeter()
+
     valid_loss = AverageMeter()
 
     # switch to evaluate mode
@@ -218,13 +222,15 @@ def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_siz
             valid_loss.update(loss.item(), inputs.size(0))
 
             # Compute accuracy only on last batch (time consuming)
+            # TODO: might be worth it to calculate it every n batches and then average values...
             if idx == len(valid_loader) - 1:
                 a, segmentation = torch.max(outputs_flatten, dim=1)
-                acc = metrics.accuracy(segmentation, labels)
-                valid_acc.update(acc, batch_size)
+                val_report = ClassificationReport(segmentation, labels, nbClasses=num_classes)
+                print("Validation Precision", val_report['prfAvg'][0], "Recall", val_report['prfAvg'][1], "f-score", val_report['prfAvg'][2])
 
-    print('Validation Loss: {:.4f} Acc: {:.4f}'.format(valid_loss.avg, valid_acc.avg))
-    return valid_loss.avg
+    print('Validation Loss: {:.4f}'.format(valid_loss.avg))
+    val_report['loss'] = valid_loss.avg
+    return val_report
 
 if __name__ == '__main__':
     print('Start:')

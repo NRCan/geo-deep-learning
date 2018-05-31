@@ -43,19 +43,14 @@ def SamplesPreparation(sat_img, ref_img, ImagesFolder, OutputFolder, sample_size
         h, w, nbband = RGBArray.shape
         print(img, ' ', RGBArray.shape)
 
-        # swap color axis because
-        # numpy image: H x W x C
-        # torch image: C X H X W
-        transp = np.transpose(RGBArray, (2, 0, 1))
-
         # half tile padding
         half_tile = int(sample_size/2)
-        pad_RGB_Array = np.pad(transp, ((0,0),(half_tile, half_tile),(half_tile, half_tile)), mode='constant')
+        pad_RGB_Array = np.pad(RGBArray, ((half_tile, half_tile),(half_tile, half_tile),(0,0)), mode='constant')
         pad_Label_Array = np.pad(LabelArray, ((half_tile, half_tile),(half_tile, half_tile)), mode='constant')
 
         for row in range(0, h, dist_samples):
             for column in range(0, w, dist_samples):
-                data = (pad_RGB_Array[:,row:row+sample_size, column:column+sample_size])
+                data = (pad_RGB_Array[row:row+sample_size, column:column+sample_size,:])
                 target = (pad_Label_Array[row:row+sample_size, column:column+sample_size])
 
                 num_samples+=1
@@ -94,7 +89,7 @@ def RandomSamples(OutputFolder, sample_size, num_samples):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Sample preparation')
     parser.add_argument('ParamFile', metavar='DIR',
-                        help='path to parameters txt')
+                        help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = ReadParameters(args.ParamFile)
     images_folder =  params['sample']['images_folder']
