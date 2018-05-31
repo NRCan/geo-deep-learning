@@ -104,16 +104,12 @@ def CreateNewRasterFromBase(InputRasterPath, OutputRasterFn, array):
     band.WriteArray(array)
 
 if __name__ == '__main__':
-    """
-    To be modified with yaml
-    """
-
+    print('Start: ')
     parser = argparse.ArgumentParser(description='Image classification using trained model')
     parser.add_argument('param_file', metavar='file',
-                        help='txt file containing parameters')
+                        help='Path to training parameters stored in yaml')
     args = parser.parse_args()
 
-    print('Start: ')
     params = ReadParameters(args.param_file)
     working_folder = params['classification']['working_folder']
     model_name = params['classification']['model_name']

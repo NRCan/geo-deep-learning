@@ -1,5 +1,4 @@
 from torch import nn
-
 import torch
 
 # encoding block
@@ -61,7 +60,7 @@ class decoding_block(nn.Module):
 
         output2 = self.up(input2)
 
-        output1 = nn.functional.upsample(input1, output2.size()[2:], mode='bilinear')
+        output1 = nn.functional.upsample(input1, output2.size()[2:], mode='bilinear', align_corners=True)
 
         return self.conv(torch.cat([output1, output2], 1))
 
