@@ -99,7 +99,7 @@ def main(data_path, output_path, sample_size, num_trn_samples, num_val_samples, 
     trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "trn/samples"), num_trn_samples, sample_size, transform=transforms.Compose([aug.ToTensorTarget()]))
     val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "val/samples"), num_val_samples, sample_size, transform=transforms.Compose([aug.ToTensorTarget()]))
     # creating loaders
-    train_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
+    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
 
     for epoch in range(0, num_epochs):
