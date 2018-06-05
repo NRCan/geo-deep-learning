@@ -1,5 +1,16 @@
 # CCMEO's deep learning project
 
+## Requirements  
+- Python 3.6 with the following libraries:
+    - pytorch 0.4.0
+    - torchvision 0.4.0
+    - numpy 1.14.0
+    - gdal 2.2.2
+    - ruamel_yaml 0.15.35
+    - scikit-image 0.13.1
+    - PIL 5.1.0
+- nvidia GPU highly recommended
+
 ## images_to_samples.py  
 To launch the program:  
 ``` 
