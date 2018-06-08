@@ -1,23 +1,22 @@
-# Configuration file ------------------------------------------------
-# Three sections :
-#   1) Sample parameters
-#   2) training parameters
-#   3) Classification parameters
+# Deep learning configuration file ------------------------------------------------
+# Four sections :
+#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and classification)
+#   2) Sampling parameters
+#   3) training parameters
+#   4) Classification parameters
 
 # Global parameters
-
 global:
   samples_size: 128
   num_classes: 4
-# Sample parameters; used in images_to_samples.py -------------------
 
+# Sample parameters; used in images_to_samples.py -------------------
 sample:
   images_folder: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training/val
   samples_folder: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training/val/samples
   samples_dist: 100
 
 # Training parameters; used in train_model.py ----------------------
-
 training:
   data_path: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training
   output_path: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training
@@ -34,7 +33,6 @@ training:
 
 
 # Classification parameters; used in image_classification.py --------
-
 classification:
   working_folder: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training/tst/RGB
   model_name: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_training/last_epoch.pth.tar
