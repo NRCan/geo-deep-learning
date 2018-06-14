@@ -27,7 +27,7 @@ def WriteInfo(output_folder, num_samples, num_classes):
     the_file.close()
 
 
-def SamplesPreparation(sat_img, ref_img, ImagesFolder, OutputFolder, sample_size, dist_samples):
+def SamplesPreparation(sat_img, ref_img, ImagesFolder, OutputFolder, sample_size, dist_samples, backgroundSwitch):
     """Extract and write samples from a list of RGB and reference images
     During training, loading array is much more efficient than images."""
     assert(len(sat_img) == len(ref_img))
@@ -53,13 +53,23 @@ def SamplesPreparation(sat_img, ref_img, ImagesFolder, OutputFolder, sample_size
                 data = (pad_RGB_Array[row:row+sample_size, column:column+sample_size,:])
                 target = (pad_Label_Array[row:row+sample_size, column:column+sample_size])
 
-                num_samples+=1
+                targetClassNum = max(target.ravel())
 
-                WriteArray(os.path.join(OutputFolder, "tmp_samples_RGB.dat"), data)
-                WriteArray(os.path.join(OutputFolder, "tmp_samples_Label.dat"), target)
+                if backgroundSwitch and targetClassNum != 0:
+                    # Write samples if there are more than 2 classes in samples.
+                    WriteArray(os.path.join(OutputFolder, "tmp_samples_RGB.dat"), data)
+                    WriteArray(os.path.join(OutputFolder, "tmp_samples_Label.dat"), target)
+                    num_samples+=1
 
-                if num_classes < max(target.ravel()):
-                    num_classes = max(target.ravel())
+                elif not backgroundSwitch:
+                    WriteArray(os.path.join(OutputFolder, "tmp_samples_RGB.dat"), data)
+                    WriteArray(os.path.join(OutputFolder, "tmp_samples_Label.dat"), target)
+                    num_samples+=1
+
+                # update the number of classes in reference images
+                if num_classes < targetClassNum:
+                    num_classes = targetClassNum
+
     return num_samples, num_classes
 
 def RandomSamples(OutputFolder, sample_size, num_samples):
@@ -96,6 +106,7 @@ if __name__ == '__main__':
     samples_folder = params['sample']['samples_folder']
     samples_size = params['global']['samples_size']
     samples_dist = params['sample']['samples_dist']
+    remove_background = params['sample']['remove_background']
 
     # List RGB and reference images in both folders.
     images_RGB = [img for img in os.listdir(os.path.join(images_folder, "RGB")) if fnmatch.fnmatch(img, "*.tif*")]
@@ -103,7 +114,7 @@ if __name__ == '__main__':
     images_RGB.sort()
     images_Label.sort()
 
-    nbrsamples, nbrclasses = SamplesPreparation(images_RGB, images_Label, images_folder, samples_folder, samples_size, samples_dist)
+    nbrsamples, nbrclasses = SamplesPreparation(images_RGB, images_Label, images_folder, samples_folder, samples_size, samples_dist, remove_background)
     RandomSamples(samples_folder, samples_size, nbrsamples)
     WriteInfo(samples_folder, nbrsamples, nbrclasses)
     print("End of process")
