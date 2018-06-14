@@ -1,8 +1,9 @@
 # Configuration file ------------------------------------------------
 # Three sections :
-#   1) Sample parameters
-#   2) training parameters
-#   3) Classification parameters
+#   1) Global parameters
+#   2) Sample parameters
+#   3) training parameters
+#   4) Classification parameters
 
 # Global parameters
 
@@ -40,5 +41,3 @@ training:
 classification:
   working_folder: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only/tst
   model_name: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only/tst/checkpoint.pth.tar
-
-
