@@ -1,7 +1,7 @@
-# Configuration file ------------------------------------------------
-# Three sections :
-#   1) Global parameters
-#   2) Sample parameters
+# Deep learning configuration file ------------------------------------------------
+# Four sections :
+#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and classification)
+#   2) Sampling parameters
 #   3) training parameters
 #   4) Classification parameters
 

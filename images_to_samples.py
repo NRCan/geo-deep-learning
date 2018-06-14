@@ -5,7 +5,6 @@ import fnmatch
 import random
 import argparse
 from utils import ReadParameters
-from pip._vendor.colorama.ansi import Back
 
 def WriteArray(file, npArray):
     """write numpy array in binary and append mode"""
@@ -53,24 +52,24 @@ def SamplesPreparation(sat_img, ref_img, ImagesFolder, OutputFolder, sample_size
             for column in range(0, w, dist_samples):
                 data = (pad_RGB_Array[row:row+sample_size, column:column+sample_size,:])
                 target = (pad_Label_Array[row:row+sample_size, column:column+sample_size])
-                
+
                 targetClassNum = max(target.ravel())
-                
+
                 if backgroundSwitch and targetClassNum != 0:
                     # Write samples if there are more than 2 classes in samples.
                     WriteArray(os.path.join(OutputFolder, "tmp_samples_RGB.dat"), data)
                     WriteArray(os.path.join(OutputFolder, "tmp_samples_Label.dat"), target)
                     num_samples+=1
-                    
+
                 elif not backgroundSwitch:
                     WriteArray(os.path.join(OutputFolder, "tmp_samples_RGB.dat"), data)
                     WriteArray(os.path.join(OutputFolder, "tmp_samples_Label.dat"), target)
                     num_samples+=1
-                
+
                 # update the number of classes in reference images
                 if num_classes < targetClassNum:
                     num_classes = targetClassNum
-                    
+
     return num_samples, num_classes
 
 def RandomSamples(OutputFolder, sample_size, num_samples):
