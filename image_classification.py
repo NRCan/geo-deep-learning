@@ -8,8 +8,15 @@ import argparse
 from PIL import Image
 import fnmatch
 from utils import ReadParameters
+# from torchvision import transforms
+from skimage import exposure
 
 from osgeo import gdal
+
+def NormArray(HWCArray):
+    
+    transpData = np.float32(np.transpose(HWCArray, (2, 0, 1)))
+    return torch.from_numpy(transpData)
 
 def main(working_folder, img_list, num_classes, Weights_File_Name):
     """
@@ -57,20 +64,22 @@ def Classification(folderImages, model, image):
     # switch to evaluate mode
     model.eval()
 
-    RGBArray = np.float32(np.array(Image.open(os.path.join(folderImages, image))))
-    # transpose
-    # H x W x C to
-    # C x H x W
-    transp = np.transpose(RGBArray, (2, 0, 1))
-    nb, h, w = transp.shape
-    del RGBArray
+    RGBArray = np.array(Image.open(os.path.join(folderImages, image)))
+    h, w, nb = RGBArray.shape
+    
+    paddedArray = np.pad(RGBArray, ((0, int(chunk_size/2)),(0, int(chunk_size/2)),(0,0)), mode='constant')
+    
     outputNP = np.empty([h,w], dtype=np.uint8)
+    
     with torch.no_grad():
         for row in range(0, h, chunk_size):
             for col in range(0, w, chunk_size):
-                partRGB = transp[:, row:row+chunk_size, col:col+chunk_size]
-                TorchData = torch.from_numpy(partRGB)
+                
+                partRGB = paddedArray[row:row+chunk_size, col:col+chunk_size, :]
+                
+                TorchData = NormArray(partRGB)
                 TorchData.unsqueeze_(0)
+                
                 # get the inputs and wrap in Variable
                 if torch.cuda.is_available():
                     inputs = Variable(TorchData.cuda())
@@ -81,8 +90,10 @@ def Classification(folderImages, model, image):
 
                 a, pred = torch.max(outputs, dim=1)
                 segmentation = torch.squeeze(pred)
-
-                outputNP[row:row+chunk_size, col:col+chunk_size] = segmentation
+                
+                reslon, reslarg = outputNP[row:row+chunk_size, col:col+chunk_size].shape
+                outputNP[row:row+chunk_size, col:col+chunk_size] = segmentation[:reslon, :reslarg]
+                
         CreateNewRasterFromBase(os.path.join(folderImages, image), os.path.join(folderImages, image.split('.')[0] + '_classif.tif'), outputNP)
 
 def CreateNewRasterFromBase(InputRasterPath, OutputRasterFn, array):
