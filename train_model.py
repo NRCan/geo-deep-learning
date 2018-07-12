@@ -16,8 +16,6 @@ import torch.optim as optim
 import unet_pytorch
 from utils import ReadParameters
 
-# from utils import get_gpu_memory_map
-
 def flatten_labels(annotations):
     flatten = annotations.view(-1)
     return flatten
@@ -28,7 +26,6 @@ def flatten_outputs(predictions, number_of_classes):
     logits_permuted_cont = logits_permuted.contiguous()
     outputs_flatten = logits_permuted_cont.view(-1, number_of_classes)
     return outputs_flatten
-
 
 def save_checkpoint(state, filename):
     """
@@ -50,7 +47,7 @@ def load_from_checkpoint(filename, model, optimizer):
     else:
         print("=> no checkpoint found at '{}'".format(filename))
 
-def main(data_path, output_path, sample_size, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs, learning_rate, weight_decay, step_size, gamma, num_classes, weight_classes):
+def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs, learning_rate, weight_decay, step_size, gamma, num_classes, weight_classes):
     """
     Function to train and validate a model for semantic segmentation.
     Args:
@@ -58,7 +55,6 @@ def main(data_path, output_path, sample_size, num_trn_samples, num_val_samples, 
         batch_size:
         num_epochs:
         learning_rate:
-        sample_size:
         num_classes:
         num_samples_trn:
         num_samples_val:
@@ -96,8 +92,8 @@ def main(data_path, output_path, sample_size, num_trn_samples, num_val_samples, 
         load_from_checkpoint(pretrained, model, optimizer)
 
     # get data
-    trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "trn/samples"), num_trn_samples, sample_size, transform=transforms.Compose([aug.ToTensorTarget()]))
-    val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "val/samples"), num_val_samples, sample_size, transform=transforms.Compose([aug.ToTensorTarget()]))
+    trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "trn/samples"), num_trn_samples, "trn", transform=transforms.Compose([aug.RandomRotationTarget(), aug.HorizontalFlip(), aug.ToTensorTarget()]))
+    val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "val/samples"), num_val_samples, "val", transform=transforms.Compose([aug.ToTensorTarget()]))
     # creating loaders
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
@@ -158,7 +154,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch_num, num_c
 
         # zero the parameter gradients
         optimizer.zero_grad()
-
+        
         # forward
         outputs = model(inputs)
         outputs_flatten = flatten_outputs(outputs, num_classes)
@@ -239,10 +235,9 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = ReadParameters(args.param_file)
-
-    main(params['training']['data_path'],
+    
+    main(params['global']['data_path'],
          params['training']['output_path'],
-         params['global']['samples_size'],
          params['training']['num_trn_samples'],
          params['training']['num_val_samples'],
          params['training']['pretrained'],
