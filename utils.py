@@ -103,27 +103,6 @@ def summary(model, input_size):
         print('----------------------------------------------------------------')
         # return summary
 
-# define a class to log values during training
-
-
-def convert_labels_to_one_hot_encoding(labels, number_of_classes):
-
-    labels_dims_number = labels.dim()
-
-    # Add a singleton dim -- we need this for scatter
-    labels_ = labels.unsqueeze(labels_dims_number)
-
-    # We add one more dim to the end of tensor with the size of 'number_of_classes'
-    one_hot_shape = list(labels.size())
-    one_hot_shape.append(number_of_classes)
-    one_hot_encoding = torch.zeros(one_hot_shape).type(labels.type())
-
-    # Filling out the tensor with ones
-    one_hot_encoding.scatter_(dim=labels_dims_number, index=labels_, value=1)
-
-    return one_hot_encoding.byte()
-
-
 def plot_some_results(data, target, img_sufixe, dossierTravail):
     """__author__ = 'Fabian Isensee'
     https://github.com/Lasagne/Recips/blob/master/examples/UNet/massachusetts_road_segm.py
@@ -139,7 +118,6 @@ def plot_some_results(data, target, img_sufixe, dossierTravail):
     plt.title("ground truth")
     plt.savefig(os.path.join(dossierTravail, "result_%03.0f.png"%img_sufixe))
     plt.close()
-
 
 def ReadParameters(ParamFile):
     """Read and return parameters in .yaml file
