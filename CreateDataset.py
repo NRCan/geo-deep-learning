@@ -2,35 +2,31 @@
 From:
 https://pytorch.org/tutorials/beginner/data_loading_tutorial.html
 """
-
+import h5py
 from torch.utils.data import Dataset
 import os
-import numpy as np
 
 class SegmentationDataset(Dataset):
     """Dataset for semantic segmentation"""
-    def __init__(self, workFolder, num_samples, sample_size, transform = None):
+    def __init__(self, workFolder, num_samples, dataset_type, transform = None):
         self.workFolder = workFolder
         self.num_samples = num_samples
-        self.sample_size = sample_size
+        self.dataset_type = dataset_type
         self.transform = transform
 
     def __len__(self):
         return self.num_samples
     
     def __getitem__(self, index):
+        
+        hdf5_file = h5py.File(os.path.join(self.workFolder, self.dataset_type + "_samples.hdf5"), "r")
+        
+        sat_img = hdf5_file["sat_img"][index, ...]
+        map_img = hdf5_file["map_img"][index, ...]
 
-        data_file = open(os.path.join(self.workFolder, "samples_RGB.dat"), "rb")
-        ref_file = open(os.path.join(self.workFolder, "samples_Label.dat"), "rb")
-        data_file.seek(index*self.sample_size*self.sample_size*3)
-        ref_file.seek(index*self.sample_size*self.sample_size)
-
-        data = np.float32(np.reshape(np.fromfile(data_file, dtype=np.uint8, count=3*self.sample_size*self.sample_size), [self.sample_size, self.sample_size, 3]))
-        target = np.int64(np.reshape(np.fromfile(ref_file, dtype=np.uint8, count=self.sample_size*self.sample_size), [self.sample_size, self.sample_size]))
-
-        data_file.close()
-        ref_file.close()
-        sample = {'sat_img':data, 'map_img':target}
+        hdf5_file.close()
+        
+        sample = {'sat_img':sat_img, 'map_img':map_img}
 
         if self.transform:
             sample = self.transform(sample)
