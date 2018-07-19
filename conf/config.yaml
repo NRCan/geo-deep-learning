@@ -8,33 +8,33 @@
 # Global parameters
 
 global:
-  samples_size: 128
+  samples_size: 256
   num_classes: 2
+  data_path: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only
+
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
-  images_folder: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only/trn
-  samples_folder: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only/trn/samples
-  samples_dist: 100
+  prep_csv_file: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only/building_all.csv
+  samples_dist: 200
   remove_background: True
+  mask_input_image: False
 
 # Training parameters; used in train_model.py ----------------------
 
 training:
-  data_path: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only
   output_path: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only
-  num_trn_samples: 14688
-  num_val_samples: 6144
+  num_trn_samples: 4960
+  num_val_samples: 2208
   pretrained: False # .pth filename containig pre-trained weights
-  batch_size: 96
+  batch_size: 32
   num_epochs: 150
-  learning_rate: 0.0005
+  learning_rate: 0.0001
   weight_decay: 0
   step_size: 4
   gamma: 0.9
   # class_weights: [1.0, 2.0, 2.0, 2.0]
   class_weights: [1.0, 2.0]
-
 
 # Classification parameters; used in image_classification.py --------
 

@@ -92,8 +92,8 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
         load_from_checkpoint(pretrained, model, optimizer)
 
     # get data
-    trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "trn/samples"), num_trn_samples, "trn", transform=transforms.Compose([aug.RandomRotationTarget(), aug.HorizontalFlip(), aug.ToTensorTarget()]))
-    val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "val/samples"), num_val_samples, "val", transform=transforms.Compose([aug.ToTensorTarget()]))
+    trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn", transform=transforms.Compose([aug.RandomRotationTarget(), aug.HorizontalFlip(), aug.ToTensorTarget()]))
+    val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_val_samples, "val", transform=transforms.Compose([aug.ToTensorTarget()]))
     # creating loaders
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
@@ -154,7 +154,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch_num, num_c
 
         # zero the parameter gradients
         optimizer.zero_grad()
-        
+
         # forward
         outputs = model(inputs)
         outputs_flatten = flatten_outputs(outputs, num_classes)
@@ -235,7 +235,7 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = ReadParameters(args.param_file)
-    
+
     main(params['global']['data_path'],
          params['training']['output_path'],
          params['training']['num_trn_samples'],
