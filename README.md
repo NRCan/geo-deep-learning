@@ -1,4 +1,4 @@
-# CCMEO's deep learning project
+# Geobase AI - CCMEO's deep learning project
 
 ## Requirements  
 - Python 3.6 with the following libraries:
