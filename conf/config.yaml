@@ -11,7 +11,7 @@ global:
   samples_size: 256
   num_classes: 2
   data_path: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only
-  input_images_band_count: 3
+  number_of_bands: 3
 
 # Sample parameters; used in images_to_samples.py -------------------
 

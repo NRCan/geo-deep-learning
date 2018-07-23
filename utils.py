@@ -92,12 +92,12 @@ def CreateNewRasterFromBase(input_raster, output_raster, band_count, write_array
 
 def AssertBandNumber(in_image, band_count_yaml):
     in_array = np.array(Image.open(in_image))
-    msg = "The number of band in the input image and the parameter 'input_images_band_count' in the yaml file must be the same"
+    msg = "The number of band in the input image and the parameter 'number_of_bands' in the yaml file must be the same"
     if band_count_yaml == 1:
         assert len(in_array.shape) == 2, msg
     else:
         assert in_array.shape[2] == band_count_yaml, msg
-        
+
 def LoadFromCheckpoint(filename, model, optimizer=None):
     """function to load weights from a checkpoint"""
     if os.path.isfile(filename):

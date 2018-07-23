@@ -19,7 +19,7 @@ def main(working_folder, img_list, num_classes, Weights_File_Name, in_image_band
         Weights_File_Name:
     """
     # get model
-    model = unet_pytorch.UNetSmall(num_classes, in_image_band_count)
+    model = unet_pytorch.UNetSmall(num_classes, number_of_bands)
 
     if torch.cuda.is_available():
         model = model.cuda()
@@ -31,7 +31,7 @@ def main(working_folder, img_list, num_classes, Weights_File_Name, in_image_band
 
     for img in img_list:
         # assert that img band and the parameter in yaml have the same value
-        AssertBandNumber(os.path.join(working_folder, img), in_image_band_count)
+        AssertBandNumber(os.path.join(working_folder, img), number_of_bands)
         Classification(working_folder, model, img)
         print('Image ', img, ' classified')
 
@@ -98,8 +98,8 @@ if __name__ == '__main__':
     working_folder = params['classification']['working_folder']
     model_name = params['classification']['model_name']
     num_classes = params['global']['num_classes']
-    input_images_band_count = params['global']['input_images_band_count']
+    number_of_bands = params['global']['number_of_bands']
 
 
     listImg = [img for img in os.listdir(working_folder) if fnmatch.fnmatch(img, "*.tif*")]
-    main(working_folder, listImg, num_classes, model_name, input_images_band_count)
+    main(working_folder, listImg, num_classes, model_name, number_of_bands)

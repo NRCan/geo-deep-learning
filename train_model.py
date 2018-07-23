@@ -36,7 +36,7 @@ def save_checkpoint(state, filename):
     """
     torch.save(state, filename)
 
-def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs, learning_rate, weight_decay, step_size, gamma, num_classes, weight_classes, in_image_band_count):
+def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs, learning_rate, weight_decay, step_size, gamma, num_classes, weight_classes, number_of_bands):
     """
     Function to train and validate a model for semantic segmentation.
     Args:
@@ -52,7 +52,7 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
         gamma:
         num_classes:
         weight_classes:
-        in_image_band_count:
+        number_of_bands:
     Returns:
         Files 'checkpoint.pth.tar' and 'last_epoch.pth.tar' containing trained weight
     """
@@ -63,7 +63,7 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
     ValLog = InformationLogger(output_path, 'val')
 
     # get model
-    model = unet_pytorch.UNetSmall(num_classes, in_image_band_count)
+    model = unet_pytorch.UNetSmall(num_classes, number_of_bands)
     # model = unet.Unet(num_classes)
 
     if torch.cuda.is_available():
@@ -244,5 +244,5 @@ if __name__ == '__main__':
          params['training']['gamma'],
          params['global']['num_classes'],
          params['training']['class_weights'],
-         params['global']['input_images_band_count'])
+         params['global']['number_of_bands'])
     print('End of training')

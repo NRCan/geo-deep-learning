@@ -27,7 +27,7 @@ global:
   samples_size: 256                 # Size (in pixel) of the samples
   num_classes: 2                    # Number of classes
   data_path: /path/to/data/folder   # Path to folder containing samples
-  input_images_band_count: 3        # Number on band of input all input images
+  number_of_bands: 3                # Number of bands in input images
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -70,7 +70,7 @@ Details on parameters used by this module:
 global:
   samples_size: 256                 # Size (in pixel) of the samples
   data_path: /path/to/data/folder   # Path to folder containing samples
-  input_images_band_count: 3        # Number on band of input all input images
+  number_of_bands: 3                # Number of bands in input images
 
 sample:
   prep_csv_file: /path/to/csv/file_name.csv     # Path to CSV file used in preparation.
@@ -116,7 +116,7 @@ global:
   samples_size: 256                 # Size (in pixel) of the samples
   num_classes: 2                    # Number of classes
   data_path: /path/to/data/folder   # Path to folder containing samples
-  input_images_band_count: 3        # Number on band of input all input images
+  number_of_bands: 3                # Number of bands in input images
 
 training:
   output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
@@ -155,7 +155,7 @@ python image_classification.py path/to/config/file/config.yaml
 Details on parameters used by this module:  
 ```yaml
 global:
-  input_images_band_count: 3        # Number on band of input all input images
+  number_of_bands: 3        # Number of bands in input images
 classification:
   working_folder: /path/to/images/to/classify           # Folder containing all the images to be classified
   model_name: /path/to/weights/file/last_epoch.pth.tar  # File containing pre-trained weights

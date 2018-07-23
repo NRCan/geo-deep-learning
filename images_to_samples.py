@@ -37,7 +37,7 @@ def MaskImage(arrayA, arrayB):
     ma_array = np.zeros(arrayB.shape, dtype=np.uint8)
     # Handle arrayB of shapes (h,w,c) and (h,w)
     if len(arrayB.shape) == 3:
-        for i in range(0,len(arrayB.shape[2])):
+        for i in range(0,arrayB.shape[2]):
             ma_array[:, :, i] = mask*arrayB[:, :, i]
     else:
         ma_array = arrayB*mask
@@ -186,7 +186,7 @@ if __name__ == '__main__':
     params = ReadParameters(args.ParamFile)
     data_path = params['global']['data_path']
     samples_size = params['global']['samples_size']
-    input_images_band_count = params['global']['input_images_band_count']
+    number_of_bands = params['global']['number_of_bands']
     csv_file = params['sample']['prep_csv_file']
     samples_dist = params['sample']['samples_dist']
     remove_background = params['sample']['remove_background']
@@ -208,9 +208,9 @@ if __name__ == '__main__':
     tmp_trn_hdf5 = h5py.File(os.path.join(samples_folder, "trn_tmp_samples.hdf5"), "w")
     tmp_val_hdf5 = h5py.File(os.path.join(samples_folder, "val_tmp_samples.hdf5"), "w")
 
-    tmp_trn_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, input_images_band_count), np.uint8, maxshape=(None, samples_size, samples_size, input_images_band_count))
+    tmp_trn_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.uint8, maxshape=(None, samples_size, samples_size, number_of_bands))
     tmp_trn_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8, maxshape=(None, samples_size, samples_size))
-    tmp_val_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, input_images_band_count), np.uint8, maxshape=(None, samples_size, samples_size, input_images_band_count))
+    tmp_val_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.uint8, maxshape=(None, samples_size, samples_size, number_of_bands))
     tmp_val_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8, maxshape=(None, samples_size, samples_size))
 
     # loop in rows in csv
@@ -220,7 +220,7 @@ if __name__ == '__main__':
         label_name = os.path.join(out_label_folder, img_name + "_label.tif")
         print(img_name)
 
-        AssertBandNumber(info['tif'], input_images_band_count)
+        AssertBandNumber(info['tif'], number_of_bands)
 
         # Create temp raster and rasterize values from shp in it.
         tmp_label_raster = CreateNewRasterFromBase(info['tif'], tmp_label_name, 1)
@@ -234,7 +234,7 @@ if __name__ == '__main__':
         # Mask zeros from label raster into input image.
         if mask_input_image:
             maskedImg = MaskImage(np.array(Image.open(label_name)), np.array(Image.open(info['tif'])))
-            CreateNewRasterFromBase(label_name, info['tif'], input_images_band_count, maskedImg)
+            CreateNewRasterFromBase(label_name, info['tif'], number_of_bands, maskedImg)
 
         os.remove(tmp_label_name)
 
@@ -253,7 +253,7 @@ if __name__ == '__main__':
     # Create file and datasets for samples storage (in random order).
     for dset in (['trn', 'val']):
         hdf5_file = h5py.File(os.path.join(samples_folder, dset + "_samples.hdf5"), "w")
-        hdf5_file.create_dataset("sat_img", (number_samples[dset], samples_size, samples_size, input_images_band_count), np.uint8)
+        hdf5_file.create_dataset("sat_img", (number_samples[dset], samples_size, samples_size, number_of_bands), np.uint8)
         hdf5_file.create_dataset("map_img", (number_samples[dset], samples_size, samples_size), np.uint8)
 
         tmp_hdf5 = h5py.File(os.path.join(samples_folder, dset + "_tmp_samples.hdf5"), "r")
