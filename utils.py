@@ -1,13 +1,12 @@
 import subprocess
-import torch
-import torch.nn as nn
-from torch.autograd import Variable
 from ruamel_yaml import YAML
-
-from collections import OrderedDict
 
 import matplotlib.pyplot as plt
 import os
+import gdal
+import numpy as np
+from PIL import Image
+import torch
 
 
 def get_gpu_memory_map():
@@ -27,81 +26,6 @@ def get_gpu_memory_map():
     gpu_memory = [int(x) for x in result.strip().split('\n')]
     gpu_memory_map = dict(zip(range(len(gpu_memory)), gpu_memory))
     return gpu_memory_map
-
-def summary(model, input_size):
-        def register_hook(module):
-            def hook(module, input, output):
-                class_name = str(module.__class__).split('.')[-1].split("'")[0]
-                module_idx = len(summary)
-
-                m_key = '%s-%i' % (class_name, module_idx+1)
-                summary[m_key] = OrderedDict()
-                summary[m_key]['input_shape'] = list(input[0].size())
-                summary[m_key]['input_shape'][0] = -1
-                if isinstance(output, (list,tuple)):
-                    summary[m_key]['output_shape'] = [[-1] + list(o.size())[1:] for o in output]
-                else:
-                    summary[m_key]['output_shape'] = list(output.size())
-                    summary[m_key]['output_shape'][0] = -1
-
-                params = 0
-                if hasattr(module, 'weight'):
-                    params += torch.prod(torch.LongTensor(list(module.weight.size())))
-                    summary[m_key]['trainable'] = module.weight.requires_grad
-                if hasattr(module, 'bias') and hasattr(module.bias, 'size'):
-                    params +=  torch.prod(torch.LongTensor(list(module.bias.size())))
-                summary[m_key]['nb_params'] = params
-
-            if (not isinstance(module, nn.Sequential) and
-               not isinstance(module, nn.ModuleList) and
-               not (module == model)):
-                hooks.append(module.register_forward_hook(hook))
-
-        if torch.cuda.is_available():
-            dtype = torch.cuda.FloatTensor
-        else:
-            dtype = torch.FloatTensor
-
-        # check if there are multiple inputs to the network
-        if isinstance(input_size[0], (list, tuple)):
-            x = [Variable(torch.rand(1,*in_size)).type(dtype) for in_size in input_size]
-        else:
-            x = Variable(torch.rand(1,*input_size)).type(dtype)
-
-
-        # print(type(x[0]))
-        # create properties
-        summary = OrderedDict()
-        hooks = []
-        # register hook
-        model.apply(register_hook)
-        # make a forward pass
-        # print(x.shape)
-        model(x)
-        # remove these hooks
-        for h in hooks:
-            h.remove()
-
-        print('----------------------------------------------------------------')
-        line_new = '{:>20}  {:>25} {:>15}'.format('Layer (type)', 'Output Shape', 'Param #')
-        print(line_new)
-        print('================================================================')
-        total_params = 0
-        trainable_params = 0
-        for layer in summary:
-            # input_shape, output_shape, trainable, nb_params
-            line_new = '{:>20}  {:>25} {:>15}'.format(layer, str(summary[layer]['output_shape']), summary[layer]['nb_params'])
-            total_params += summary[layer]['nb_params']
-            if 'trainable' in summary[layer]:
-                if summary[layer]['trainable'] == True:
-                    trainable_params += summary[layer]['nb_params']
-            print(line_new)
-        print('================================================================')
-        print('Total params: ' + str(total_params))
-        print('Trainable params: ' + str(trainable_params))
-        print('Non-trainable params: ' + str(total_params - trainable_params))
-        print('----------------------------------------------------------------')
-        # return summary
 
 def plot_some_results(data, target, img_sufixe, dossierTravail):
     """__author__ = 'Fabian Isensee'
@@ -130,3 +54,61 @@ def ReadParameters(ParamFile):
     with open(ParamFile) as yamlfile:
         params = yaml.load(yamlfile)
     return params
+
+def CreateNewRasterFromBase(input_raster, output_raster, band_count, write_array=None):
+    """Function to use info from input raster to create new one.
+    args:
+    input_raster: input raster path and name
+    output_raster: raster name and path to be created with info from input
+    write_array (optional): array to write into the new raster
+    """
+
+    # Get info on input raster
+    inputImage = gdal.Open(input_raster)
+    src = inputImage
+    cols = src.RasterXSize
+    rows = src.RasterYSize
+    projection = src.GetProjection()
+    geotransform = src.GetGeoTransform()
+
+    # Create new raster
+    new_raster = gdal.GetDriverByName('GTiff').Create(output_raster, cols, rows, band_count, gdal.GDT_Byte)
+    new_raster.SetProjection(projection)
+    new_raster.SetGeoTransform(geotransform)
+
+    for band_num in range(0, band_count):
+        band = new_raster.GetRasterBand(band_num+1)
+        band.SetNoDataValue(-9999)
+        # Write array if provided. If not, the image is filled with NoDataValues
+        if write_array is not None:
+            if band_count > 1:
+                band.WriteArray(write_array[:, :, band_num])
+            else:
+                band.WriteArray(write_array)
+            band.FlushCache()
+
+    inputImage = None
+    return new_raster
+
+def AssertBandNumber(in_image, band_count_yaml):
+    in_array = np.array(Image.open(in_image))
+    msg = "The number of band in the input image and the parameter 'input_images_band_count' in the yaml file must be the same"
+    if band_count_yaml == 1:
+        assert len(in_array.shape) == 2, msg
+    else:
+        assert in_array.shape[2] == band_count_yaml, msg
+        
+def LoadFromCheckpoint(filename, model, optimizer=None):
+    """function to load weights from a checkpoint"""
+    if os.path.isfile(filename):
+        print("=> loading model '{}'".format(filename))
+        checkpoint = torch.load(filename)
+        model.load_state_dict(checkpoint['state_dict'])
+        print("=> loaded model '{}'".format(filename))
+        if optimizer:
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            return model, optimizer
+        elif optimizer is None:
+            return model
+    else:
+        print("=> no model found at '{}'".format(filename))

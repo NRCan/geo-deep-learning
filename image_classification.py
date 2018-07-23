@@ -7,18 +7,10 @@ import time
 import argparse
 from PIL import Image
 import fnmatch
-from utils import ReadParameters
-# from torchvision import transforms
-from skimage import exposure
+from utils import ReadParameters, CreateNewRasterFromBase, AssertBandNumber, LoadFromCheckpoint
 
-from osgeo import gdal
 
-def NormArray(HWCArray):
-    
-    transpData = np.float32(np.transpose(HWCArray, (2, 0, 1)))
-    return torch.from_numpy(transpData)
-
-def main(working_folder, img_list, num_classes, Weights_File_Name):
+def main(working_folder, img_list, num_classes, Weights_File_Name, in_image_band_count):
     """
     Args:
         working_folder:
@@ -27,23 +19,19 @@ def main(working_folder, img_list, num_classes, Weights_File_Name):
         Weights_File_Name:
     """
     # get model
-    model = unet_pytorch.UNetSmall(num_classes)
+    model = unet_pytorch.UNetSmall(num_classes, in_image_band_count)
 
     if torch.cuda.is_available():
         model = model.cuda()
 
     # load weights
-    if os.path.isfile(Weights_File_Name):
-        print("=> loading model '{}'".format(Weights_File_Name))
-        checkpoint = torch.load(Weights_File_Name)
-        model.load_state_dict(checkpoint['state_dict'])
-        print("=> loaded weights '{}'".format(Weights_File_Name))
-    else:
-        print("=> no checkpoint found at '{}'".format(Weights_File_Name))
+    model = LoadFromCheckpoint(Weights_File_Name, model)
 
     since = time.time()
 
     for img in img_list:
+        # assert that img band and the parameter in yaml have the same value
+        AssertBandNumber(os.path.join(working_folder, img), in_image_band_count)
         Classification(working_folder, model, img)
         print('Image ', img, ' classified')
 
@@ -64,22 +52,25 @@ def Classification(folderImages, model, image):
     # switch to evaluate mode
     model.eval()
 
-    RGBArray = np.array(Image.open(os.path.join(folderImages, image)))
-    h, w, nb = RGBArray.shape
-    
-    paddedArray = np.pad(RGBArray, ((0, int(chunk_size/2)),(0, int(chunk_size/2)),(0,0)), mode='constant')
-    
+    input_image = np.array(Image.open(os.path.join(folderImages, image)))
+    if len(input_image.shape) == 3:
+        h, w, nb = input_image.shape
+        paddedArray = np.pad(input_image, ((0, int(chunk_size/2)),(0, int(chunk_size/2)),(0,0)), mode='constant')
+    elif len(input_image.shape) == 2:
+        h, w = input_image.shape
+        paddedArray = np.expand_dims(np.pad(input_image, ((0, int(chunk_size/2)),(0, int(chunk_size/2))), mode='constant'), axis=0)
+
     outputNP = np.empty([h,w], dtype=np.uint8)
-    
+
     with torch.no_grad():
         for row in range(0, h, chunk_size):
             for col in range(0, w, chunk_size):
-                
-                partRGB = paddedArray[row:row+chunk_size, col:col+chunk_size, :]
-                
-                TorchData = NormArray(partRGB)
+
+                chunk_input = paddedArray[row:row+chunk_size, col:col+chunk_size, :]
+                TorchData = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
+
                 TorchData.unsqueeze_(0)
-                
+
                 # get the inputs and wrap in Variable
                 if torch.cuda.is_available():
                     inputs = Variable(TorchData.cuda())
@@ -90,29 +81,11 @@ def Classification(folderImages, model, image):
 
                 a, pred = torch.max(outputs, dim=1)
                 segmentation = torch.squeeze(pred)
-                
+
                 reslon, reslarg = outputNP[row:row+chunk_size, col:col+chunk_size].shape
                 outputNP[row:row+chunk_size, col:col+chunk_size] = segmentation[:reslon, :reslarg]
-                
-        CreateNewRasterFromBase(os.path.join(folderImages, image), os.path.join(folderImages, image.split('.')[0] + '_classif.tif'), outputNP)
 
-def CreateNewRasterFromBase(InputRasterPath, OutputRasterFn, array):
-    """Read RGB image geospatial information and write them in the out raster"""
-    # Read info
-    inputImage = gdal.Open(InputRasterPath)
-    src = inputImage
-    cols = src.RasterXSize
-    rows = src.RasterYSize
-    projection = src.GetProjection()
-    geotransform = src.GetGeoTransform()
-
-    # write info
-    new_raster = gdal.GetDriverByName('GTiff').Create(OutputRasterFn, cols, rows, 1, gdal.GDT_Byte)
-    new_raster.SetProjection(projection)
-    new_raster.SetGeoTransform(geotransform)
-    band = new_raster.GetRasterBand(1)
-    band.SetNoDataValue(-9999)
-    band.WriteArray(array)
+        CreateNewRasterFromBase(os.path.join(folderImages, image), os.path.join(folderImages, image.split('.')[0] + '_classif.tif'), 1, outputNP)
 
 if __name__ == '__main__':
     print('Start: ')
@@ -125,7 +98,8 @@ if __name__ == '__main__':
     working_folder = params['classification']['working_folder']
     model_name = params['classification']['model_name']
     num_classes = params['global']['num_classes']
+    input_images_band_count = params['global']['input_images_band_count']
 
 
     listImg = [img for img in os.listdir(working_folder) if fnmatch.fnmatch(img, "*.tif*")]
-    main(working_folder, listImg, num_classes, model_name)
+    main(working_folder, listImg, num_classes, model_name, input_images_band_count)

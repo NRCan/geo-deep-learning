@@ -1,5 +1,5 @@
 import argparse
-from job_utils import ReadParameters
+from utils import ReadParameters
 from string import Template
 
 # Dict used to match job_type with name of python file

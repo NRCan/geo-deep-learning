@@ -14,7 +14,7 @@ from logger import InformationLogger
 from metrics import AverageMeter, ClassificationReport
 import torch.optim as optim
 import unet_pytorch
-from utils import ReadParameters
+from utils import ReadParameters, LoadFromCheckpoint
 
 def flatten_labels(annotations):
     flatten = annotations.view(-1)
@@ -36,30 +36,25 @@ def save_checkpoint(state, filename):
     """
     torch.save(state, filename)
 
-def load_from_checkpoint(filename, model, optimizer):
-    """function to load weights from a checkpoint"""
-    if os.path.isfile(filename):
-        print("=> loading checkpoint '{}'".format(filename))
-        checkpoint = torch.load(filename)
-        model.load_state_dict(checkpoint['state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        print("=> loaded checkpoint '{}'".format(filename))
-    else:
-        print("=> no checkpoint found at '{}'".format(filename))
-
-def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs, learning_rate, weight_decay, step_size, gamma, num_classes, weight_classes):
+def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs, learning_rate, weight_decay, step_size, gamma, num_classes, weight_classes, in_image_band_count):
     """
     Function to train and validate a model for semantic segmentation.
     Args:
-        working_folder
+        data_path:
+        output_path:
+        num_trn_samples:
+        pretrained:
         batch_size:
         num_epochs:
         learning_rate:
+        weight_decay:
+        step_size:
+        gamma:
         num_classes:
-        num_samples_trn:
-        num_samples_val:
+        weight_classes:
+        in_image_band_count:
     Returns:
-        File 'model_best.pth.tar' containing trained weights
+        Files 'checkpoint.pth.tar' and 'last_epoch.pth.tar' containing trained weight
     """
     since = time.time()
 
@@ -68,7 +63,7 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
     ValLog = InformationLogger(output_path, 'val')
 
     # get model
-    model = unet_pytorch.UNetSmall(num_classes)
+    model = unet_pytorch.UNetSmall(num_classes, in_image_band_count)
     # model = unet.Unet(num_classes)
 
     if torch.cuda.is_available():
@@ -89,7 +84,7 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
 
     # optionally resume from a checkpoint
     if pretrained:
-        load_from_checkpoint(pretrained, model, optimizer)
+        model, optimizer = LoadFromCheckpoint(pretrained, model, optimizer)
 
     # get data
     trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn", transform=transforms.Compose([aug.RandomRotationTarget(), aug.HorizontalFlip(), aug.ToTensorTarget()]))
@@ -248,5 +243,6 @@ if __name__ == '__main__':
          params['training']['step_size'],
          params['training']['gamma'],
          params['global']['num_classes'],
-         params['training']['class_weights'])
+         params['training']['class_weights'],
+         params['global']['input_images_band_count'])
     print('End of training')

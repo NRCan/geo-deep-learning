@@ -13,7 +13,7 @@
 - nvidia GPU highly recommended
 
 ## config/config.yaml  
-```yaml 
+```yaml
 # Deep learning configuration file ------------------------------------------------
 # Four sections :
 #   1) Global parameters; those are re-used amongst the next three operations (sampling, training and classification)
@@ -27,13 +27,14 @@ global:
   samples_size: 256                 # Size (in pixel) of the samples
   num_classes: 2                    # Number of classes
   data_path: /path/to/data/folder   # Path to folder containing samples
-  
+  input_images_band_count: 3        # Number on band of input all input images
+
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
   prep_csv_file: /path/to/csv/file_name.csv     # Path to CSV file used in preparation.
   samples_dist: 200                             # Distance (in pixel) between samples
-  remove_background: True                       # When True, does not write samples containing only "0" values. 
+  remove_background: True                       # When True, does not write samples containing only "0" values.
   mask_input_image: False                       # When True, mask the input image where there is no reference data.
 
 # Training parameters; used in train_model.py ----------------------
@@ -61,7 +62,7 @@ classification:
 
 ## images_to_samples.py  
 To launch the program:  
-``` 
+```
 python images_to_samples.py path/to/config/file/config.yaml
 ```  
 Details on parameters used by this module:
@@ -69,11 +70,12 @@ Details on parameters used by this module:
 global:
   samples_size: 256                 # Size (in pixel) of the samples
   data_path: /path/to/data/folder   # Path to folder containing samples
+  input_images_band_count: 3        # Number on band of input all input images
 
 sample:
   prep_csv_file: /path/to/csv/file_name.csv     # Path to CSV file used in preparation.
   samples_dist: 200                             # Distance (in pixel) between samples
-  remove_background: True                       # When True, does not write samples containing only "0" values. 
+  remove_background: True                       # When True, does not write samples containing only "0" values.
   mask_input_image: False                       # When True, mask the input image where there is no reference data.
 ```
 
@@ -84,17 +86,17 @@ The csv file must contain 4 informations, separated by comma:
 - dataset ('trn' or 'val') where the image will be used  
 Each images is a new line in the csv file.  
 
-``` 
+```
 \path\to\input\images.tif,\path\to\reference\vector.shp,attribute,trn
 \path\to\input\images2.tif,\path\to\reference\vector.shp,attribute,val
-``` 
+```
 
 Outputs:
 - 2 .hdfs files with input images and reference data, stored as arrays
     - trn_samples.hdfs
     - val_samples.hdfs
 
-Process: 
+Process:
 - Read csv file and for each line in the file, does the following:
     - Create a new raster called "label" with the same properties as the input image
     - Convert shp vector information into the "label" raster. The pixel value is determined by the attribute in the csv file.
@@ -105,7 +107,7 @@ Process:
 
 ## train_model.py
 To launch the program:  
-``` 
+```
 python train_model.py path/to/config/file/config.yaml
 ```  
 Details on parameters used by this module:  
@@ -114,6 +116,7 @@ global:
   samples_size: 256                 # Size (in pixel) of the samples
   num_classes: 2                    # Number of classes
   data_path: /path/to/data/folder   # Path to folder containing samples
+  input_images_band_count: 3        # Number on band of input all input images
 
 training:
   output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
@@ -142,18 +145,20 @@ Process:
 - The application loads the UNet model located in unet_pytorch.py
 - Using the hyperparameters provided in ```config.yaml ``` , the application will try to minimize the crossEntropy loss on the training data and validation data.
 - Every epoch, the application shows the loss, accuracy, recall and f-score for both datasets (trn and val).
-- The application also log the accuracy, recall and f-score for each classes of both the datasets. 
+- The application also log the accuracy, recall and f-score for each classes of both the datasets.
 
 ## image_classification.py
 To launch the program:  
-``` 
+```
 python image_classification.py path/to/config/file/config.yaml
 ```  
 Details on parameters used by this module:  
 ```yaml
+global:
+  input_images_band_count: 3        # Number on band of input all input images
 classification:
   working_folder: /path/to/images/to/classify           # Folder containing all the images to be classified
   model_name: /path/to/weights/file/last_epoch.pth.tar  # File containing pre-trained weights
-``` 
+```
 Process:  
 - The process will load trained weights to the UNet architecture and perform a per-pixel classification task on all the images contained in the working_folder.
