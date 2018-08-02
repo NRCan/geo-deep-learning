@@ -8,7 +8,6 @@
     - gdal 2.2.2
     - ruamel_yaml 0.15.35
     - scikit-image 0.13.1
-    - PIL 5.1.0
     - H5py 2.8.0
 - nvidia GPU highly recommended
 

@@ -5,9 +5,18 @@ import matplotlib.pyplot as plt
 import os
 import gdal
 import numpy as np
-from PIL import Image
 import torch
 
+def CreateOrEmptyFolder(folder):
+    """Create a folder if it does not exist and empty it if it exist."""
+
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+    else:
+        for the_file in os.listdir(folder):
+            file_path = os.path.join(folder, the_file)
+            if os.path.isfile(file_path):
+                os.unlink(file_path)
 
 def get_gpu_memory_map():
     """Get the current gpu usage.
@@ -81,17 +90,18 @@ def CreateNewRasterFromBase(input_raster, output_raster, band_count, write_array
         band.SetNoDataValue(-9999)
         # Write array if provided. If not, the image is filled with NoDataValues
         if write_array is not None:
-            if band_count > 1:
-                band.WriteArray(write_array[:, :, band_num])
-            else:
-                band.WriteArray(write_array)
+            band.WriteArray(write_array[:, :, band_num])
             band.FlushCache()
 
     inputImage = None
     return new_raster
 
 def AssertBandNumber(in_image, band_count_yaml):
-    in_array = np.array(Image.open(in_image))
+    try:
+        in_array = ImageReaderAsArray(in_image)
+    except Exception as e:
+        print(e)
+
     msg = "The number of band in the input image and the parameter 'number_of_bands' in the yaml file must be the same"
     if band_count_yaml == 1:
         assert len(in_array.shape) == 2, msg
@@ -112,3 +122,20 @@ def LoadFromCheckpoint(filename, model, optimizer=None):
             return model
     else:
         print("=> no model found at '{}'".format(filename))
+
+def ImageReaderAsArray(file_name):
+    # Read images and return as a 3d array (h,w,c)
+
+    raster = gdal.Open(file_name)
+    band_num = raster.RasterCount
+    band = raster.GetRasterBand(1)
+    rows, columns = (band.XSize, band.YSize)
+
+    np_array = np.empty([columns, rows, band_num], dtype=np.uint8)
+
+    for i in range(0,band_num):
+        band = raster.GetRasterBand(i+1)
+        arr = band.ReadAsArray()
+        np_array[:,:,i] = arr
+    
+    return np_array

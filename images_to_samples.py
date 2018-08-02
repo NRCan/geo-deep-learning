@@ -5,25 +5,12 @@ import csv
 import os
 import random
 
-from PIL import Image
 import gdal, osr, ogr
 import h5py
 from skimage import exposure
 
 import numpy as np
-from utils import ReadParameters, CreateNewRasterFromBase, AssertBandNumber
-
-
-def CreateOrEmptyFolder(folder):
-    """Create a folder if it does not exist and empty it if it exist."""
-
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-    else:
-        for the_file in os.listdir(folder):
-            file_path = os.path.join(folder, the_file)
-            if os.path.isfile(file_path):
-                os.unlink(file_path)
+from utils import ReadParameters, CreateNewRasterFromBase, AssertBandNumber, ImageReaderAsArray, CreateOrEmptyFolder
 
 def MaskImage(arrayA, arrayB):
     """Function to mask values of arrayB, based on 0 values from arrayA."""
@@ -114,14 +101,10 @@ def SamplesPreparation(sat_img, ref_img, sample_size, dist_samples, samples_coun
     """
 
     # read input and reference images as array
-    in_img_array = ScaleIntensity(np.array(Image.open(sat_img)))
-    label_array = np.array(Image.open(ref_img))
+    in_img_array = ScaleIntensity(ImageReaderAsArray(sat_img)))
+    label_array = ImageReaderAsArray(ref_img))
 
-    if len(in_img_array.shape) == 3:
-        h, w, nbband = in_img_array.shape
-    elif len(in_img_array.shape) == 2:
-        h, w = in_img_array.shape
-        in_img_array = np.expand_dims(in_img_array, axis=2)
+    h, w, nbband = in_img_array.shape
 
     if dataset == 'trn':
         idx_samples = samples_count['trn']
@@ -131,12 +114,12 @@ def SamplesPreparation(sat_img, ref_img, sample_size, dist_samples, samples_coun
     # half tile padding
     half_tile = int(sample_size/2)
     pad_in_img_array = np.pad(in_img_array, ((half_tile, half_tile),(half_tile, half_tile),(0,0)), mode='constant')
-    pad_label_array = np.pad(label_array, ((half_tile, half_tile),(half_tile, half_tile)), mode='constant')
+    pad_label_array = np.pad(label_array, ((half_tile, half_tile),(half_tile, half_tile), (0,0)), mode='constant')
 
     for row in range(0, h, dist_samples):
         for column in range(0, w, dist_samples):
             data = (pad_in_img_array[row:row+sample_size, column:column+sample_size,:])
-            target = (pad_label_array[row:row+sample_size, column:column+sample_size])
+            target = np.squeeze(pad_label_array[row:row+sample_size, column:column+sample_size, :], axis=2)
 
             target_class_num = max(target.ravel())
 
@@ -228,12 +211,12 @@ if __name__ == '__main__':
         tmp_label_raster = None
 
         # Mask zeros from input image into label raster.
-        maskedArray = MaskImage(np.array(Image.open(info['tif'])), np.array(Image.open(tmp_label_name)))
+        maskedArray = MaskImage(ImageReaderAsArray(info['tif']), ImageReaderAsArray(tmp_label_name))
         CreateNewRasterFromBase(info['tif'], label_name, 1, maskedArray)
 
         # Mask zeros from label raster into input image.
         if mask_input_image:
-            maskedImg = MaskImage(np.array(Image.open(label_name)), np.array(Image.open(info['tif'])))
+            maskedImg = MaskImage(ImageReaderAsArray(label_name), ImageReaderAsArray(info['tif']))
             CreateNewRasterFromBase(label_name, info['tif'], number_of_bands, maskedImg)
 
         os.remove(tmp_label_name)

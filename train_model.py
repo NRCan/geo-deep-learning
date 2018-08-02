@@ -64,17 +64,18 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
 
     # get model
     model = unet_pytorch.UNetSmall(num_classes, number_of_bands)
-    # model = unet.Unet(num_classes)
 
     if torch.cuda.is_available():
         model = model.cuda()
 
     # set up cross entropy
-    criterion = nn.CrossEntropyLoss(weight=torch.tensor(weight_classes)).cuda()
+    if weight_classes is not False:
+        criterion = nn.CrossEntropyLoss(weight=torch.tensor(weight_classes)).cuda()
+    else:
+        criterion = nn.CrossEntropyLoss().cuda()
 
     # optimizer
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    # optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
     # lr decay
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
@@ -155,12 +156,10 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch_num, num_c
         outputs_flatten = flatten_outputs(outputs, num_classes)
 
         del outputs
+        del inputs
 
         loss = criterion(outputs_flatten, labels)
-
-        train_loss.update(loss.item(), inputs.size(0))
-
-        del inputs
+        train_loss.update(loss.item(), batch_size)
 
         # backward
         loss.backward()

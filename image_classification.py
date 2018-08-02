@@ -5,9 +5,8 @@ import torch
 import unet_pytorch
 import time
 import argparse
-from PIL import Image
 import fnmatch
-from utils import ReadParameters, CreateNewRasterFromBase, AssertBandNumber, LoadFromCheckpoint
+from utils import ReadParameters, CreateNewRasterFromBase, AssertBandNumber, LoadFromCheckpoint, ImageReaderAsArray
 
 
 def main(working_folder, img_list, num_classes, Weights_File_Name, in_image_band_count):
@@ -52,7 +51,7 @@ def Classification(folderImages, model, image):
     # switch to evaluate mode
     model.eval()
 
-    input_image = np.array(Image.open(os.path.join(folderImages, image)))
+    input_image = ImageReaderAsArray(os.path.join(folderImages, image))
     if len(input_image.shape) == 3:
         h, w, nb = input_image.shape
         paddedArray = np.pad(input_image, ((0, int(chunk_size/2)),(0, int(chunk_size/2)),(0,0)), mode='constant')
@@ -60,7 +59,7 @@ def Classification(folderImages, model, image):
         h, w = input_image.shape
         paddedArray = np.expand_dims(np.pad(input_image, ((0, int(chunk_size/2)),(0, int(chunk_size/2))), mode='constant'), axis=0)
 
-    outputNP = np.empty([h,w], dtype=np.uint8)
+    outputNP = np.empty([h,w,1], dtype=np.uint8)
 
     with torch.no_grad():
         for row in range(0, h, chunk_size):
@@ -83,7 +82,7 @@ def Classification(folderImages, model, image):
                 segmentation = torch.squeeze(pred)
 
                 reslon, reslarg = outputNP[row:row+chunk_size, col:col+chunk_size].shape
-                outputNP[row:row+chunk_size, col:col+chunk_size] = segmentation[:reslon, :reslarg]
+                outputNP[row:row+chunk_size, col:col+chunk_size, :] = segmentation[:reslon, :reslarg]
 
         CreateNewRasterFromBase(os.path.join(folderImages, image), os.path.join(folderImages, image.split('.')[0] + '_classif.tif'), 1, outputNP)
 
