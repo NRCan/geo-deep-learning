@@ -11,7 +11,7 @@ from torchvision import transforms
 import CreateDataset
 import augmentation as aug
 from logger import InformationLogger
-from metrics import AverageMeter, ClassificationReport
+from metrics import ClassificationReport, iou, CreateMetricsdict
 import torch.optim as optim
 import unet_pytorch
 from utils import ReadParameters, LoadFromCheckpoint
@@ -104,12 +104,13 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
         TrnLog.AddValues(Trn_report, epoch)
 
         Val_report = validation(val_dataloader, model, criterion, epoch, num_classes, batch_size)
+        val_loss = Val_report['loss'].avg
         ValLog.AddValues(Val_report, epoch)
 
-        if Val_report['loss'] < best_loss:
+        if val_loss < best_loss:
             print("save checkpoint")
             filename=os.path.join(output_path, 'checkpoint.pth.tar')
-            best_loss = Val_report['loss']
+            best_loss = val_loss
             save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'state_dict': model.state_dict(), 'best_loss': best_loss, 'optimizer': optimizer.state_dict()}, filename)
 
         cur_elapsed = time.time() - since
@@ -134,12 +135,10 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch_num, num_c
 
     scheduler.step()
 
-    train_loss = AverageMeter()
+    train_metrics = CreateMetricsdict(num_classes)
 
     # iterate over data
     for idx, data in enumerate(train_loader):
-        # We need to flatten annotations and logits to apply index of valid annotations.
-        # https://github.com/warmspringwinds/pytorch-segmentation-detection/blob/master/pytorch_segmentation_detection/recipes/pascal_voc/segmentation/resnet_18_8s_train.ipynb
         # get the inputs and wrap in Variable
         if torch.cuda.is_available():
             inputs = Variable(data['sat_img'].cuda())
@@ -159,22 +158,26 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch_num, num_c
         del inputs
 
         loss = criterion(outputs_flatten, labels)
-        train_loss.update(loss.item(), batch_size)
+        train_metrics['loss'].update(loss.item(), batch_size)
 
         # backward
         loss.backward()
         optimizer.step()
 
-        # Compute accuracy only on last batch (time consuming)
-        # TODO: might be worth it to calculate it every n batches and then average values...
-        if idx == len(train_loader) - 1:
+        # Compute accuracy and iou every 2 batches and average values. time consuming.
+        if idx % 2 == 0:
             a, segmentation = torch.max(outputs_flatten, dim=1)
-            trn_report = ClassificationReport(segmentation, labels, nbClasses=num_classes)
-            print("Training Precision", trn_report['prfAvg'][0], "Recall", trn_report['prfAvg'][1], "f-score", trn_report['prfAvg'][2])
 
-    print('Training Loss: {:.4f}'.format(train_loss.avg))
-    trn_report['loss'] = train_loss.avg
-    return trn_report
+            train_metrics = ClassificationReport(segmentation, labels, num_classes, batch_size, train_metrics)
+            train_metrics = iou(segmentation, labels, batch_size, train_metrics)
+
+    print('Training Loss: {:.4f}'.format(train_metrics['loss'].avg))
+    print('Training iou: {:.4f}'.format(train_metrics['iou'].avg))
+    print('Training precision: {:.4f}'.format(train_metrics['precision'].avg))
+    print('Training recall: {:.4f}'.format(train_metrics['recall'].avg))
+    print('Training f1-score: {:.4f}'.format(train_metrics['fscore'].avg))
+
+    return train_metrics
 
 def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_size):
     """
@@ -188,7 +191,7 @@ def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_siz
     Returns:
     """
 
-    valid_loss = AverageMeter()
+    valid_metrics = CreateMetricsdict(num_classes)
 
     # switch to evaluate mode
     model.eval()
@@ -209,18 +212,22 @@ def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_siz
             outputs_flatten = flatten_outputs(outputs, num_classes)
 
             loss = criterion(outputs_flatten, labels)
-            valid_loss.update(loss.item(), inputs.size(0))
+            valid_metrics['loss'].update(loss.item(), batch_size)
 
-            # Compute accuracy only on last batch (time consuming)
-            # TODO: might be worth it to calculate it every n batches and then average values...
-            if idx == len(valid_loader) - 1:
+            # Compute metrics every 2 batches. Time consuming.
+            if idx % 2 == 0:
                 a, segmentation = torch.max(outputs_flatten, dim=1)
-                val_report = ClassificationReport(segmentation, labels, nbClasses=num_classes)
-                print("Validation Precision", val_report['prfAvg'][0], "Recall", val_report['prfAvg'][1], "f-score", val_report['prfAvg'][2])
 
-    print('Validation Loss: {:.4f}'.format(valid_loss.avg))
-    val_report['loss'] = valid_loss.avg
-    return val_report
+                valid_metrics = ClassificationReport(segmentation, labels, num_classes, batch_size, valid_metrics)
+                valid_metrics = iou(segmentation, labels, batch_size, valid_metrics)
+
+    print('Validation Loss: {:.4f}'.format(valid_metrics['loss'].avg))
+    print('Validation iou: {:.4f}'.format(valid_metrics['iou'].avg))
+    print('Validation precision: {:.4f}'.format(valid_metrics['precision'].avg))
+    print('Validation recall: {:.4f}'.format(valid_metrics['recall'].avg))
+    print('Validation f1-score: {:.4f}'.format(valid_metrics['fscore'].avg))
+
+    return valid_metrics
 
 if __name__ == '__main__':
     print('Start:')

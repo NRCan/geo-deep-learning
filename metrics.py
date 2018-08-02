@@ -1,5 +1,18 @@
-from sklearn.metrics import classification_report
+import sklearn
+from sklearn.metrics import classification_report, precision_recall_fscore_support, jaccard_similarity_score
 import torch
+import numpy as np
+
+def CreateMetricsdict(num_classes):
+    metrics_dict = {'precision': AverageMeter(), 'recall': AverageMeter(), 'fscore': AverageMeter(), 'loss': AverageMeter(), 'iou': AverageMeter()}
+
+    for i in range(0, num_classes):
+        metrics_dict['precision_' + str(i)] = AverageMeter()
+        metrics_dict['recall_' + str(i)] = AverageMeter()
+        metrics_dict['fscore_' + str(i)] = AverageMeter()
+
+    return metrics_dict
+
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -35,29 +48,52 @@ class AverageMeter(object):
     def average(self):
         return self.avg
 
-
-def Accuracy(preds, label):
-    # DEPRECATED.
-    """Computes and return the accuracy for a prediction image and a reference image"""
-    valid = label.byte()
-    torch.eq(label, preds, out=valid)
-    total_eq = valid.sum()
-    total = label.shape[0]
-    acc = (float(total_eq) / float(total)) * 100
-    return acc
-
-def ClassificationReport(pred, label, nbClasses):
+def ClassificationReport(pred, label, nbClasses, batch_size, metrics_dict):
     """
     Computes precision, recall and f-score for each classes and averaged for all the classes.
     http://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
     """
-    class_report = classification_report(label, pred)
-    content = class_report.split('\n')
-    titre = list(filter(None, content[0].split(' ')))
-    avgTot = list(filter(None, content[-2].split(' ')))
-    prfAvg = [avgTot[3],avgTot[4], avgTot[5]]
-    prfScore = []
-    for y in range(0,nbClasses):
-        prfScore.append(list(filter(None, content[y+2].split(' '))))
 
-    return{'titre': titre, 'prfScore': prfScore, 'prfAvg': prfAvg}
+    if sklearn.__version__ == '0.19.1':
+        headers = ["precision", "recall", "f1-score", "support"]
+        ListnbClasses = [i for i in range(0,(nbClasses-1))]
+        target_names = [u'%s' % l for l in ListnbClasses]
+        p, r, f1, s = precision_recall_fscore_support(label, pred, labels=None, average=None, sample_weight=None)
+        prfDict = {'p':p, 'r':r, 'f':f1}
+        rows = zip(target_names, p, r, f1, s)
+
+        avg_total = [np.average(p, weights=s),
+                     np.average(r, weights=s),
+                     np.average(f1, weights=s),
+                     np.sum(s)]
+
+        report_dict = {lbl[0]: lbl[1:] for lbl in rows}
+        report_dict['avg / total'] = dict(zip(headers, avg_total))
+
+        return{'prfScore': prfDict, 'prfAvg': report_dict['avg / total']}
+
+    elif sklearn.__version__ == '0.20.dev0':
+        class_report = classification_report(label, pred, output_dict=True)
+
+        class_score = {}
+        for key, value in class_report.items():
+            if key != 'avg / total':
+                class_score[key] = value
+
+                metrics_dict['precision_' + key].update(class_score[key]['precision'], batch_size)
+                metrics_dict['recall_' + key].update(class_score[key]['recall'], batch_size)
+                metrics_dict['fscore_' + key].update(class_score[key]['f1-score'], batch_size)
+
+        metrics_dict['precision'].update(class_report['avg / total']['precision'], batch_size)
+        metrics_dict['recall'].update(class_report['avg / total']['recall'], batch_size)
+        metrics_dict['fscore'].update(class_report['avg / total']['f1-score'], batch_size)
+
+        return metrics_dict
+
+def iou(pred, target, batch_size, metrics_dict):
+    # Function to calculate the intersection over union (or jaccard index) between two datasets.
+    # The jaccard distance (or dissimilarity) would be 1-iou.
+
+    iou = jaccard_similarity_score(target, pred, normalize=True)
+    metrics_dict['iou'].update(iou, batch_size)
+    return metrics_dict
