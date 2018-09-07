@@ -1,7 +1,4 @@
-import sklearn
-from sklearn.metrics import classification_report, precision_recall_fscore_support, jaccard_similarity_score
-import torch
-import numpy as np
+from sklearn.metrics import classification_report, jaccard_similarity_score
 
 def CreateMetricsdict(num_classes):
     metrics_dict = {'precision': AverageMeter(), 'recall': AverageMeter(), 'fscore': AverageMeter(), 'loss': AverageMeter(), 'iou': AverageMeter()}
@@ -12,7 +9,6 @@ def CreateMetricsdict(num_classes):
         metrics_dict['fscore_' + str(i)] = AverageMeter()
 
     return metrics_dict
-
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -53,36 +49,26 @@ def ClassificationReport(pred, label, nbClasses, batch_size, metrics_dict):
     Computes precision, recall and f-score for each classes and averaged for all the classes.
     http://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
     """
+    class_report = classification_report(label, pred, output_dict=True)
 
-    if sklearn.__version__ == '0.19.1':
-        # Before 0.20.0, the classification report is a string, therefore not fun to use.
+    class_score = {}
+    for key, value in class_report.items():
+        if key not in ['micro avg', 'macro avg', 'weighted avg']:
+            class_score[key] = value
 
-        p, r, f1, s = precision_recall_fscore_support(label, pred, labels=None, average='weighted', sample_weight=None)
+            metrics_dict['precision_' + key].update(class_score[key]['precision'], batch_size)
+            metrics_dict['recall_' + key].update(class_score[key]['recall'], batch_size)
+            metrics_dict['fscore_' + key].update(class_score[key]['f1-score'], batch_size)
 
-        metrics_dict['precision'].update(p, batch_size)
-        metrics_dict['recall'].update(r, batch_size)
-        metrics_dict['fscore'].update(f1, batch_size)
-
-    elif sklearn.__version__ == '0.20.dev0':
-        class_report = classification_report(label, pred, output_dict=True)
-
-        for key, value in class_report.items():
-            if key != 'avg / total':
-
-                metrics_dict['precision_' + key].update(value['precision'], batch_size)
-                metrics_dict['recall_' + key].update(value['recall'], batch_size)
-                metrics_dict['fscore_' + key].update(value['f1-score'], batch_size)
-
-        metrics_dict['precision'].update(class_report['avg / total']['precision'], batch_size)
-        metrics_dict['recall'].update(class_report['avg / total']['recall'], batch_size)
-        metrics_dict['fscore'].update(class_report['avg / total']['f1-score'], batch_size)
+    metrics_dict['precision'].update(class_report['weighted avg']['precision'], batch_size)
+    metrics_dict['recall'].update(class_report['weighted avg']['recall'], batch_size)
+    metrics_dict['fscore'].update(class_report['weighted avg']['f1-score'], batch_size)
 
     return metrics_dict
 
 def iou(pred, target, batch_size, metrics_dict):
     # Function to calculate the intersection over union (or jaccard index) between two datasets.
     # The jaccard distance (or dissimilarity) would be 1-iou.
-
     iou = jaccard_similarity_score(target, pred, normalize=True)
     metrics_dict['iou'].update(iou, batch_size)
     return metrics_dict

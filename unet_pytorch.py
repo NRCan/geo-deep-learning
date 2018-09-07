@@ -6,7 +6,7 @@ class encoding_block(nn.Module):
     """
     Convolutional batch norm block with relu activation (main block used in the encoding steps)
     """
-    def __init__(self, in_size, out_size, kernel_size=3, padding=0, stride=1, dilation=1, batch_norm=True, dropout=False):
+    def __init__(self, in_size, out_size, kernel_size=3, padding=0, stride=1, dilation=1, batch_norm=True, dropout=False, prob=0.5):
         super().__init__()
 
         if batch_norm:
@@ -31,7 +31,7 @@ class encoding_block(nn.Module):
                       nn.PReLU(),]
 
         if dropout:
-            layers.append(nn.Dropout())
+            layers.append(nn.Dropout(p=prob))
 
         self.encoding_block = nn.Sequential(*layers)
 
@@ -69,24 +69,24 @@ class UNet(nn.Module):
     """
     Main UNet architecture
     """
-    def __init__(self, num_classes, number_of_bands):
+    def __init__(self, num_classes, number_of_bands, dropout=False, prob=0.5):
         super().__init__()
 
         # encoding
-        self.conv1 = encoding_block(number_of_bands, 64)
+        self.conv1 = encoding_block(number_of_bands, 64, dropout=dropout, prob=prob)
         self.maxpool1 = nn.MaxPool2d(kernel_size=2)
 
-        self.conv2 = encoding_block(64, 128)
+        self.conv2 = encoding_block(64, 128, dropout=dropout, prob=prob)
         self.maxpool2 = nn.MaxPool2d(kernel_size=2)
 
-        self.conv3 = encoding_block(128, 256)
+        self.conv3 = encoding_block(128, 256, dropout=dropout, prob=prob)
         self.maxpool3 = nn.MaxPool2d(kernel_size=2)
 
-        self.conv4 = encoding_block(256, 512)
+        self.conv4 = encoding_block(256, 512, dropout=dropout, prob=prob)
         self.maxpool4 = nn.MaxPool2d(kernel_size=2)
 
         # center
-        self.center = encoding_block(512, 1024)
+        self.center = encoding_block(512, 1024, dropout=dropout, prob=prob)
 
         # decoding
         self.decode4 = decoding_block(1024, 512)
@@ -134,17 +134,17 @@ class UNetSmall(nn.Module):
     """
     Main UNet architecture
     """
-    def __init__(self, num_classes, number_of_bands):
+    def __init__(self, num_classes, number_of_bands, dropout=False, prob=0.5):
         super().__init__()
 
         # encoding
-        self.conv1 = encoding_block(number_of_bands, 32)
+        self.conv1 = encoding_block(number_of_bands, 32, dropout=dropout, prob=prob)
         self.maxpool1 = nn.MaxPool2d(kernel_size=2)
 
-        self.conv2 = encoding_block(32, 64)
+        self.conv2 = encoding_block(32, 64, dropout=dropout, prob=prob)
         self.maxpool2 = nn.MaxPool2d(kernel_size=2)
 
-        self.conv3 = encoding_block(64, 128)
+        self.conv3 = encoding_block(64, 128, dropout=dropout, prob=prob)
         self.maxpool3 = nn.MaxPool2d(kernel_size=2)
 
         # self.conv4 = encoding_block(128, 256)
@@ -152,7 +152,7 @@ class UNetSmall(nn.Module):
 
         # center
         # self.center = encoding_block(256, 512)
-        self.center = encoding_block(128, 256)
+        self.center = encoding_block(128, 256, dropout=dropout, prob=prob)
 
         # decoding
         # self.decode4 = decoding_block(512, 256)

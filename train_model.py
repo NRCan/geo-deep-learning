@@ -15,6 +15,7 @@ from metrics import ClassificationReport, iou, CreateMetricsdict
 import torch.optim as optim
 import unet_pytorch
 from utils import ReadParameters, LoadFromCheckpoint
+import numpy as np
 
 def flatten_labels(annotations):
     flatten = annotations.view(-1)
@@ -29,16 +30,26 @@ def flatten_outputs(predictions, number_of_classes):
 
 def save_checkpoint(state, filename):
     """
-    Function to save the model state
+    Function to save the models state
     https://github.com/pytorch/examples/blob/master/imagenet/main.py
     :param state:
     :param filename:
     """
     torch.save(state, filename)
 
-def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs, learning_rate, weight_decay, step_size, gamma, num_classes, weight_classes, number_of_bands):
+def net(net_params):
+
+    if net_params['name'].lower() == 'unetsmall':
+        model = unet_pytorch.UNetSmall(net_params['num_classes'], net_params['number_of_bands'], net_params['dropout'], net_params['probability'])
+
+    elif net_params['name'].lower() == 'unet':
+        model = unet_pytorch.UNet(net_params['num_classes'], net_params['number_of_bands'], net_params['dropout'], net_params['probability'])
+
+    return model
+
+def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs, learning_rate, weight_decay, step_size, gamma, num_classes, weight_classes, number_of_bands, nn_parameters):
     """
-    Function to train and validate a model for semantic segmentation.
+    Function to train and validate a models for semantic segmentation.
     Args:
         data_path:
         output_path:
@@ -63,7 +74,7 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
     ValLog = InformationLogger(output_path, 'val')
 
     # get model
-    model = unet_pytorch.UNetSmall(num_classes, number_of_bands)
+    model = net(nn_parameters)
 
     if torch.cuda.is_available():
         model = model.cuda()
@@ -125,7 +136,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, epoch_num, num_c
     """
     Args:
         train_loader:
-        model:
+        models:
         criterion:
         optimizer:
         epoch:
@@ -183,7 +194,7 @@ def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_siz
     """
     Args:
         validation_loader:
-        model:
+        models:
         criterion:
         epoch:
         num_classes:
@@ -218,7 +229,7 @@ def validation(valid_loader, model, criterion, epoch_num, num_classes, batch_siz
             if idx % 2 == 0:
                 a, segmentation = torch.max(outputs_flatten, dim=1)
 
-                valid_metrics = ClassificationReport(segmentation, labels, num_classes, batch_size, valid_metrics)
+                valid_metrics = ClassificationReport(segmentation, labels, num_classes , batch_size, valid_metrics)
                 valid_metrics = iou(segmentation, labels, batch_size, valid_metrics)
 
     print('Validation Loss: {:.4f}'.format(valid_metrics['loss'].avg))
@@ -236,6 +247,11 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = ReadParameters(args.param_file)
+    nn_parameters = {'name': 'unetsmall',
+                'num_classes': params['global']['num_classes'],
+                'number_of_bands': params['global']['number_of_bands'],
+                'dropout': params['training']['dropout'],
+                'probability': params['training']['probability']}
 
     main(params['global']['data_path'],
          params['training']['output_path'],
@@ -250,5 +266,6 @@ if __name__ == '__main__':
          params['training']['gamma'],
          params['global']['num_classes'],
          params['training']['class_weights'],
-         params['global']['number_of_bands'])
+         params['global']['number_of_bands'],
+         nn_parameters)
     print('End of training')

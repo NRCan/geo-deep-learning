@@ -46,7 +46,7 @@ def Classification(folderImages, model, image):
     """
     # Chunk size. Should not be modified often. We want the biggest chunk to be process at a time but,
     # a too large image chunk bust the GPU memory when processing.
-    chunk_size = 1024
+    chunk_size = 512
 
     # switch to evaluate mode
     model.eval()
@@ -81,8 +81,8 @@ def Classification(folderImages, model, image):
                 a, pred = torch.max(outputs, dim=1)
                 segmentation = torch.squeeze(pred)
 
-                reslon, reslarg = outputNP[row:row+chunk_size, col:col+chunk_size].shape
-                outputNP[row:row+chunk_size, col:col+chunk_size, :] = segmentation[:reslon, :reslarg]
+                reslon, reslarg, b = outputNP[row:row+chunk_size, col:col+chunk_size].shape
+                outputNP[row:row+chunk_size, col:col+chunk_size, 0] = segmentation[:reslon, :reslarg]
 
         CreateNewRasterFromBase(os.path.join(folderImages, image), os.path.join(folderImages, image.split('.')[0] + '_classif.tif'), 1, outputNP)
 

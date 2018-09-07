@@ -10,13 +10,13 @@
 global:
   samples_size: 256
   num_classes: 2
-  data_path: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only
+  data_path: /path/to/data/
   number_of_bands: 3
 
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
-  prep_csv_file: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only/building_all.csv
+  prep_csv_file: /path/to/csv/file.csv
   samples_dist: 200
   remove_background: True
   mask_input_image: False
@@ -24,21 +24,23 @@ sample:
 # Training parameters; used in train_model.py ----------------------
 
 training:
-  output_path: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only
+  output_path: /path/to/model/weights/output/folder
   num_trn_samples: 4960
   num_val_samples: 2208
   pretrained: False # .pth filename containig pre-trained weights
   batch_size: 32
-  num_epochs: 150
+  num_epochs: 100
   learning_rate: 0.0001
   weight_decay: 0
   step_size: 4
   gamma: 0.9
   # class_weights: [1.0, 2.0, 2.0, 2.0]
   class_weights: [1.0, 2.0]
+  dropout: False
+  probability: 0.2 # Set with dropout
 
 # Classification parameters; used in image_classification.py --------
 
 classification:
-  working_folder: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only/tst
-  model_name: /space/hall0/work/nrcan/geobase/extraction/Deep_learning/pytorch/data_building_only/tst/checkpoint.pth.tar
+  working_folder: /path/to/folder/with/images/to/classify
+  model_name: /path/to/model/weights/for/classification/checkpoint.pth.tar

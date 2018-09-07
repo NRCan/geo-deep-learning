@@ -5,7 +5,7 @@ import csv
 import os
 import random
 
-import gdal, osr, ogr
+from osgeo import gdal, osr, ogr
 import h5py
 from skimage import exposure
 
@@ -101,8 +101,8 @@ def SamplesPreparation(sat_img, ref_img, sample_size, dist_samples, samples_coun
     """
 
     # read input and reference images as array
-    in_img_array = ScaleIntensity(ImageReaderAsArray(sat_img)))
-    label_array = ImageReaderAsArray(ref_img))
+    in_img_array = ScaleIntensity(ImageReaderAsArray(sat_img))
+    label_array = ImageReaderAsArray(ref_img)
 
     h, w, nbband = in_img_array.shape
 
@@ -118,7 +118,7 @@ def SamplesPreparation(sat_img, ref_img, sample_size, dist_samples, samples_coun
 
     for row in range(0, h, dist_samples):
         for column in range(0, w, dist_samples):
-            data = (pad_in_img_array[row:row+sample_size, column:column+sample_size,:])
+            data = (pad_in_img_array[row:row+sample_size, column:column+sample_size, :])
             target = np.squeeze(pad_label_array[row:row+sample_size, column:column+sample_size, :], axis=2)
 
             target_class_num = max(target.ravel())
@@ -149,7 +149,7 @@ def VectorToRaster(vector_file, attribute_name, new_raster):
     attribute_name: Attribute containing the pixel value to write
     new_raster: Raster file where the info will be written
     """
-
+    print(vector_file)
     source_ds = ogr.Open(vector_file)
     source_layer = source_ds.GetLayer()
     name_lyr = source_layer.GetLayerDefn().GetName()
@@ -161,24 +161,11 @@ def VectorToRaster(vector_file, attribute_name, new_raster):
     source_ds = None
     source_layer = None
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Sample preparation')
-    parser.add_argument('ParamFile', metavar='DIR',
-                        help='Path to training parameters stored in yaml')
-    args = parser.parse_args()
-    params = ReadParameters(args.ParamFile)
-    data_path = params['global']['data_path']
-    samples_size = params['global']['samples_size']
-    number_of_bands = params['global']['number_of_bands']
-    csv_file = params['sample']['prep_csv_file']
-    samples_dist = params['sample']['samples_dist']
-    remove_background = params['sample']['remove_background']
-    mask_input_image = params['sample']['mask_input_image']
+def main(data_path, samples_size, number_of_bands, csv_file, samples_dist, remove_background, mask_input_image):
 
     # Folder preparation and creation
     samples_folder = os.path.join(data_path, "samples")
     out_label_folder = os.path.join(data_path, "label")
-
     CreateOrEmptyFolder(samples_folder)
     CreateOrEmptyFolder(out_label_folder)
 
@@ -247,3 +234,18 @@ if __name__ == '__main__':
 
     print("Number of samples created: ", number_samples)
     print("End of process")
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Sample preparation')
+    parser.add_argument('ParamFile', metavar='DIR',
+                        help='Path to training parameters stored in yaml')
+    args = parser.parse_args()
+    params = ReadParameters(args.ParamFile)
+
+    main(params['global']['data_path'],
+         params['global']['samples_size'],
+         params['global']['number_of_bands'],
+         params['sample']['prep_csv_file'],
+         params['sample']['samples_dist'],
+         params['sample']['remove_background'],
+         params['sample']['mask_input_image'])

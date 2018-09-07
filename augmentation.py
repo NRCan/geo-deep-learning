@@ -1,6 +1,5 @@
 from skimage import transform, exposure
 import torch
-from torchvision import transforms
 import random
 
 import numpy as np
@@ -8,7 +7,7 @@ import numpy as np
 class RandomRotationTarget(object):
     """ Rotate the image and target randomly. The rotation degree is between -90 and 90 deg."""
     def __call__(self, sample):
-        
+
         angle = np.random.uniform(-90, 90)
         sat_img = transform.rotate(sample['sat_img'], angle, preserve_range=True)
         map_img = transform.rotate(sample['map_img'], angle, preserve_range=True)
@@ -21,14 +20,14 @@ class ContrastStretching(object):
     def __call__(self, sample):
 
         v_min, v_max = np.percentile(sample['sat_img'], (2, 98))
-        sat_img = np.nan_to_num(exposure.rescale_intensity(sample['sat_img'], in_range=(v_min, v_max)))   
-        
+        sat_img = np.nan_to_num(exposure.rescale_intensity(sample['sat_img'], in_range=(v_min, v_max)))
+
         return {'sat_img': sat_img, 'map_img': sample['map_img']}
-            
+
 class HorizontalFlip(object):
     """Flip horizontally the input image and reference map, given a probability of 0.5."""
     def __call__(self, sample):
-        
+
         if random.random() < 0.5:
             sat_img = sample['sat_img'][:, ::-1]
             map_img = sample['map_img'][:, ::-1]
@@ -40,7 +39,7 @@ class ToTensorTarget(object):
     """Convert ndarrays in sample to Tensors."""
     def __call__(self, sample):
         """https://discuss.pytorch.org/t/torchvision-transforms-totensor-img-not-working/12663"""
-        
+
         sat_img = np.float32(np.transpose(sample['sat_img'], (2, 0, 1)))
         map_img = np.int64(sample['map_img'])
 
