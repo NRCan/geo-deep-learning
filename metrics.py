@@ -55,40 +55,29 @@ def ClassificationReport(pred, label, nbClasses, batch_size, metrics_dict):
     """
 
     if sklearn.__version__ == '0.19.1':
-        headers = ["precision", "recall", "f1-score", "support"]
-        ListnbClasses = [i for i in range(0,(nbClasses-1))]
-        target_names = [u'%s' % l for l in ListnbClasses]
-        p, r, f1, s = precision_recall_fscore_support(label, pred, labels=None, average=None, sample_weight=None)
-        prfDict = {'p':p, 'r':r, 'f':f1}
-        rows = zip(target_names, p, r, f1, s)
+        # Before 0.20.0, the classification report is a string, therefore not fun to use.
 
-        avg_total = [np.average(p, weights=s),
-                     np.average(r, weights=s),
-                     np.average(f1, weights=s),
-                     np.sum(s)]
+        p, r, f1, s = precision_recall_fscore_support(label, pred, labels=None, average='weighted', sample_weight=None)
 
-        report_dict = {lbl[0]: lbl[1:] for lbl in rows}
-        report_dict['avg / total'] = dict(zip(headers, avg_total))
-
-        return{'prfScore': prfDict, 'prfAvg': report_dict['avg / total']}
+        metrics_dict['precision'].update(p, batch_size)
+        metrics_dict['recall'].update(r, batch_size)
+        metrics_dict['fscore'].update(f1, batch_size)
 
     elif sklearn.__version__ == '0.20.dev0':
         class_report = classification_report(label, pred, output_dict=True)
 
-        class_score = {}
         for key, value in class_report.items():
             if key != 'avg / total':
-                class_score[key] = value
 
-                metrics_dict['precision_' + key].update(class_score[key]['precision'], batch_size)
-                metrics_dict['recall_' + key].update(class_score[key]['recall'], batch_size)
-                metrics_dict['fscore_' + key].update(class_score[key]['f1-score'], batch_size)
+                metrics_dict['precision_' + key].update(value['precision'], batch_size)
+                metrics_dict['recall_' + key].update(value['recall'], batch_size)
+                metrics_dict['fscore_' + key].update(value['f1-score'], batch_size)
 
         metrics_dict['precision'].update(class_report['avg / total']['precision'], batch_size)
         metrics_dict['recall'].update(class_report['avg / total']['recall'], batch_size)
         metrics_dict['fscore'].update(class_report['avg / total']['f1-score'], batch_size)
 
-        return metrics_dict
+    return metrics_dict
 
 def iou(pred, target, batch_size, metrics_dict):
     # Function to calculate the intersection over union (or jaccard index) between two datasets.
