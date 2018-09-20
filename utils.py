@@ -1,15 +1,17 @@
+import os
 import subprocess
+import numpy as np
+import matplotlib.pyplot as plt
+import gdal
+import torch
 from ruamel_yaml import YAML
 
-import matplotlib.pyplot as plt
-import os
-import gdal
-import numpy as np
-import torch
 
-def CreateOrEmptyFolder(folder):
-    """Create a folder if it does not exist and empty it if it exist."""
-
+def create_or_empty_folder(folder):
+    """Empty an existing folder or create it if it doesn't exist.
+    Args:
+        folder: full file path of the folder to be emptied/created
+    """
     if not os.path.exists(folder):
         os.makedirs(folder)
     else:
@@ -18,13 +20,11 @@ def CreateOrEmptyFolder(folder):
             if os.path.isfile(file_path):
                 os.unlink(file_path)
 
+
 def get_gpu_memory_map():
     """Get the current gpu usage.
-    Returns
-    -------
-    usage: dict
-        Keys are device ids as integers.
-        Values are memory usage as integers in MB.
+    Returns:
+        dictionary of memory usage values in MB. Keys are device ids as integers.
     """
     result = subprocess.check_output(
         [
@@ -36,80 +36,90 @@ def get_gpu_memory_map():
     gpu_memory_map = dict(zip(range(len(gpu_memory)), gpu_memory))
     return gpu_memory_map
 
-def plot_some_results(data, target, img_sufixe, dossierTravail):
-    """__author__ = 'Fabian Isensee'
-    https://github.com/Lasagne/Recips/blob/master/examples/UNet/massachusetts_road_segm.py
-    """
+
+def plot_some_results(data, target, img_suffix, work_file):
+    """Plots data. Used for visualization during development.
+    __author__ = 'Fabian Isensee' """
     d = data
     s = target
     plt.figure(figsize=(12, 6))
     plt.subplot(1, 3, 1)
-    plt.imshow(d.transpose(1,2,0))
+    plt.imshow(d.transpose(1, 2, 0))
     plt.title("input patch")
     plt.subplot(1, 3, 2)
     plt.imshow(s)
     plt.title("ground truth")
-    plt.savefig(os.path.join(dossierTravail, "result_%03.0f.png"%img_sufixe))
+    plt.savefig(os.path.join(work_file, "result_%03.0f.png" % img_suffix))
     plt.close()
 
-def ReadParameters(ParamFile):
+
+def read_parameters(param_file):
     """Read and return parameters in .yaml file
     Args:
-        ParamFile: Full file path
+        param_file: Full file path of the parameters file
     Returns:
         YAML (Ruamel) CommentedMap dict-like object
     """
     yaml = YAML()
-    with open(ParamFile) as yamlfile:
+    with open(param_file) as yamlfile:
         params = yaml.load(yamlfile)
     return params
 
-def CreateNewRasterFromBase(input_raster, output_raster, band_count, write_array=None):
-    """Function to use info from input raster to create new one.
-    args:
-    input_raster: input raster path and name
-    output_raster: raster name and path to be created with info from input
-    write_array (optional): array to write into the new raster
-    """
 
-    # Get info on input raster
-    inputImage = gdal.Open(input_raster)
-    src = inputImage
+def create_new_raster_from_base(input_raster, output_raster, band_count, write_array=None):
+    """Function to use info from input raster to create new one.
+    Args:
+        input_raster: input raster path and name
+        output_raster: raster name and path to be created with info from input
+        band_count: number of bands in the input raster
+        write_array (optional): array to write into the new raster
+    """
+    input_image = gdal.Open(input_raster)
+    src = input_image
     cols = src.RasterXSize
     rows = src.RasterYSize
     projection = src.GetProjection()
     geotransform = src.GetGeoTransform()
 
-    # Create new raster
     new_raster = gdal.GetDriverByName('GTiff').Create(output_raster, cols, rows, band_count, gdal.GDT_Byte)
     new_raster.SetProjection(projection)
     new_raster.SetGeoTransform(geotransform)
 
     for band_num in range(0, band_count):
-        band = new_raster.GetRasterBand(band_num+1)
+        band = new_raster.GetRasterBand(band_num + 1)
         band.SetNoDataValue(-9999)
         # Write array if provided. If not, the image is filled with NoDataValues
         if write_array is not None:
             band.WriteArray(write_array[:, :, band_num])
             band.FlushCache()
-
-    inputImage = None
     return new_raster
 
-def AssertBandNumber(in_image, band_count_yaml):
+
+def assert_band_number(in_image, band_count_yaml):
+    """Verify if provided image has the same number of bands as described in the .yaml
+    Args:
+        in_image: full file path of the image
+        band_count_yaml: band count listed in the .yaml
+    """
     try:
-        in_array = ImageReaderAsArray(in_image)
+        in_array = image_reader_as_array(in_image)
     except Exception as e:
         print(e)
 
-    msg = "The number of band in the input image and the parameter 'number_of_bands' in the yaml file must be the same"
+    msg = "The number of bands in the input image and the parameter 'number_of_bands' in the yaml file must be the same"
     if band_count_yaml == 1:
         assert len(in_array.shape) == 2, msg
     else:
         assert in_array.shape[2] == band_count_yaml, msg
 
-def LoadFromCheckpoint(filename, model, optimizer=None):
-    """function to load weights from a checkpoint"""
+
+def load_from_checkpoint(filename, model, optimizer=None):
+    """Load weights from a previous checkpoint
+    Args:
+        filename: full file path of file containing checkpoint
+        model: model to replace
+        optimizer: optimiser to be used
+    """
     if os.path.isfile(filename):
         print("=> loading model '{}'".format(filename))
         checkpoint = torch.load(filename)
@@ -123,9 +133,12 @@ def LoadFromCheckpoint(filename, model, optimizer=None):
     else:
         print("=> no model found at '{}'".format(filename))
 
-def ImageReaderAsArray(file_name):
-    # Read images and return as a 3d array (h,w,c)
 
+def image_reader_as_array(file_name):
+    """Read an image from a file and return a 3d array (h,w,c)
+    Args:
+        file_name: full file path of the image
+    """
     raster = gdal.Open(file_name)
     band_num = raster.RasterCount
     band = raster.GetRasterBand(1)
@@ -133,9 +146,9 @@ def ImageReaderAsArray(file_name):
 
     np_array = np.empty([columns, rows, band_num], dtype=np.uint8)
 
-    for i in range(0,band_num):
-        band = raster.GetRasterBand(i+1)
+    for i in range(0, band_num):
+        band = raster.GetRasterBand(i + 1)
         arr = band.ReadAsArray()
-        np_array[:,:,i] = arr
-    
+        np_array[:, :, i] = arr
+
     return np_array

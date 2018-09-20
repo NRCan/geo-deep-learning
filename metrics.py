@@ -1,7 +1,9 @@
 from sklearn.metrics import classification_report, jaccard_similarity_score
 
-def CreateMetricsdict(num_classes):
-    metrics_dict = {'precision': AverageMeter(), 'recall': AverageMeter(), 'fscore': AverageMeter(), 'loss': AverageMeter(), 'iou': AverageMeter()}
+
+def create_metrics_dict(num_classes):
+    metrics_dict = {'precision': AverageMeter(), 'recall': AverageMeter(), 'fscore': AverageMeter(),
+                    'loss': AverageMeter(), 'iou': AverageMeter()}
 
     for i in range(0, num_classes):
         metrics_dict['precision_' + str(i)] = AverageMeter()
@@ -10,8 +12,10 @@ def CreateMetricsdict(num_classes):
 
     return metrics_dict
 
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self):
         self.initialized = False
         self.val = None
@@ -44,9 +48,9 @@ class AverageMeter(object):
     def average(self):
         return self.avg
 
-def ClassificationReport(pred, label, nbClasses, batch_size, metrics_dict):
-    """
-    Computes precision, recall and f-score for each classes and averaged for all the classes.
+
+def report_classification(pred, label, batch_size, metrics_dict):
+    """Computes precision, recall and f-score for each class and average of all classes.
     http://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
     """
     class_report = classification_report(label, pred, output_dict=True)
@@ -66,9 +70,11 @@ def ClassificationReport(pred, label, nbClasses, batch_size, metrics_dict):
 
     return metrics_dict
 
+
 def iou(pred, target, batch_size, metrics_dict):
-    # Function to calculate the intersection over union (or jaccard index) between two datasets.
-    # The jaccard distance (or dissimilarity) would be 1-iou.
+    """Calculate the intersection over union (or Jaccard index) between two datasets.
+    The Jaccard distance (or dissimilarity) would be 1-iou.
+    """
     iou = jaccard_similarity_score(target, pred, normalize=True)
     metrics_dict['iou'].update(iou, batch_size)
     return metrics_dict

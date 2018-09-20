@@ -1,5 +1,5 @@
 import argparse
-from utils import ReadParameters
+from utils import read_parameters
 from string import Template
 
 # Dict used to match job_type with name of python file
@@ -34,20 +34,16 @@ cd $work_base
 python -u $user_home/$script_location/$operation.py $user_home/$operation_config_location/$config_filename
 source deactivate''')
 
-def main(yaml_conf, job_type):
-    """
-    Args:
-        yaml_conf:
-        job_type:
 
-    """
+def main(job_type):
+    """Generate runnable bash job file"""
     operation_dict = {'operation': job_type2python_file[job_type]}
     # Replace the undefined sections of parameters that are dependent on operation type
     params['output_file'] = params['output_file'].replace("$operation", operation_dict['operation'])
     # Concatenate operation_dict with params for final substitution
     params.update(operation_dict)
     shell_script = job_template.substitute(params)
-    return print(shell_script)
+    print(shell_script)
 
 
 if __name__ == '__main__':
@@ -58,7 +54,7 @@ if __name__ == '__main__':
                         help='Type of PyTorch job : sampling, training, classification',
                         choices=set(job_type2python_file.keys()))
     args = parser.parse_args()
-    params = ReadParameters(args.param_file)
+    params = read_parameters(args.param_file)
     job_type = args.job_type
 
     main(params, job_type)
