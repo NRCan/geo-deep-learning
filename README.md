@@ -1,6 +1,6 @@
 # geo-deep-learning
 
-The `geo-deep-learning` project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) in the context of georeferenced data sets.
+The `geo-deep-learning` project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced data sets.
 
 The overall learning process comprises three broad phases : data preparation, training & validation, and classification.  The data preparation phase (sampling) allows creating sub-images that will be used for either training or validation. The training & validation phase learns using the data prepared in the previous phase. Finally, the classification phase performs the classification on new input data. The training & validation and classification phases currently allow the use of a UNET neural network to perform the classification. In future code iterations, we would like to parametrize the choice of neural network type and enable a capacity for other computer vision tasks. 
 
