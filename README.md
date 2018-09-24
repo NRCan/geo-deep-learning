@@ -2,9 +2,9 @@
 
 The `geo-deep-learning` project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) in the context of georeferenced data sets.
 
-The overall learning process comprises three broad phases : data preparation, training, and classification.  The data preparation phase (sampling) allows selecting sub-images that will be used for either the training phase or the validation phase.  The training phase currently allows the use of a UNET neural network.  In future code iterations, we would like to parametrize the choice of neural network type.  Finally, the classification phase assigns each pixel one of the initial classes.  
+The overall learning process comprises three broad phases : data preparation, training & validation, and classification.  The data preparation phase (sampling) allows creating sub-images that will be used for either training or validation. The training & validation phase learns using the data prepared in the previous phase. Finally, the classification phase performs the classification on new input data. The training & validation and classification phases currently allow the use of a UNET neural network to perform the classification. In future code iterations, we would like to parametrize the choice of neural network type and enable a capacity for other computer vision tasks. 
 
-> The term `classification` in this project is used like it has been traditionally used in the remote sensing community: a process of assigning land cover classes to pixels.  The meaning of the word in the deep learning community differs somewhat, where classification is related to the ability to detect a specific feature.  In that world, classification as it is understood here is expressed as `image segmentation`, ["the process of assigning a label to every pixel in an image"](https://en.wikipedia.org/wiki/Image_segmentation).
+> The term `classification` in this project is used like it has been traditionally used in the remote sensing community: a process of assigning land cover classes to pixels.  The meaning of the word in the deep learning community differs somewhat, where classification is simply to assign a label to the whole input image.  In that world, classification as it is understood here is expressed as `semantic segmentation`, ["the process of assigning a label to every pixel in an image"](https://en.wikipedia.org/wiki/Image_segmentation).
 
 After installing the required computing environment (see next section), one needs to replace the config.yaml file boilerplate path and other items to point to images and other data.  The full sequence of steps is described in the sections below. 
 
@@ -18,6 +18,7 @@ After installing the required computing environment (see next section), one need
     - gdal 2.2.2
     - ruamel_yaml 0.15.35
     - scikit-image 0.13.1
+	- scikit-learn 0.20rc1
     - h5py 2.8.0
 - nvidia GPU highly recommended
 
