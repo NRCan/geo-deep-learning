@@ -26,7 +26,7 @@ Installation using conda can be performed with the following commands:
 
 ```shell
 conda create -p YOUR_PATH python=3.6 pytorch=0.4.0 torchvision cuda80 ruamel_yaml h5py gdal=2.2.2 scikit-image -c pytorch  
-pip install scikit-learn==0.20rc1
+pip install scikit-learn==0.20 # Until scikit-learn 0.20 makes it to the main Anaconda repo
 ```
 
 > `scikit-learn` is used to output statistics.  The code in this project is compatible with the next version of scikit-learn, which is currently available only as a Release Candidate.
