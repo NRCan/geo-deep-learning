@@ -12,7 +12,11 @@ install:
   - conda info -a
 
   - conda create -q -n ci_env python=3.6 pytorch-cpu=0.4.0 torchvision ruamel_yaml h5py gdal=2.2.2 scikit-image scikit-learn -c pytorch
-  - source activate ci-env
-  - python setup.py install
+  - source activate ci_env
+  # - python setup.py install
+before_script:
+  - unzip ./ci/data/massachusetts_buildings.zip -d ./ci/data
 script:
-  - images_to_samples.py ./conf/ci_tst.yaml
+  - python images_to_samples.py ./conf/config_ci_tst.yaml
+  - python train_model.py ./conf/config_ci_tst.yaml
+  # - python image_classification.py ./conf/config_ci_tst.yaml

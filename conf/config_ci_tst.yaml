@@ -1,0 +1,45 @@
+# Deep learning configuration file ------------------------------------------------
+# Four sections :
+#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and classification)
+#   2) Sampling parameters
+#   3) training parameters
+#   4) Classification parameters
+
+# Global parameters
+
+global:
+  samples_size: 256
+  num_classes: 2
+  data_path: ./ci/data
+  number_of_bands: 3
+
+# Sample parameters; used in images_to_samples.py -------------------
+
+sample:
+  prep_csv_file: ./ci/data/ci_csv.csv
+  samples_dist: 200
+  remove_background: True
+  mask_input_image: False
+
+# Training parameters; used in train_model.py ----------------------
+
+training:
+  output_path: ./ci/data
+  num_trn_samples: 24
+  num_val_samples: 24
+  pretrained: False # .pth filename containig pre-trained weights
+  batch_size: 4
+  num_epochs: 2
+  learning_rate: 0.0001
+  weight_decay: 0
+  step_size: 4
+  gamma: 0.9
+  class_weights: [1.0, 2.0]
+  dropout: False
+  probability: 0.2 # Set with dropout
+
+# Classification parameters; used in image_classification.py --------
+
+classification:
+  working_folder: ./ci/data
+  model_name: ./ci/data/checkpoint.pth.tar
