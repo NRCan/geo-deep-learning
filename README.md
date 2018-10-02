@@ -13,7 +13,7 @@ After installing the required computing environment (see next section), one need
 ## Requirements  
 - Python 3.6 with the following libraries:
     - pytorch 0.4.0
-    - torchvision 0.4.0
+    - torchvision 0.2.1
     - numpy 1.14.0
     - gdal 2.2.2
     - ruamel_yaml 0.15.35
