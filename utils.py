@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import gdal
 import torch
 from ruamel_yaml import YAML
+from osgeo import gdal, osr, ogr
 
 
 def create_or_empty_folder(folder):
@@ -152,3 +153,19 @@ def image_reader_as_array(file_name):
         np_array[:, :, i] = arr
 
     return np_array
+
+
+def validate_num_classes(vector_file, num_classes, value_field):
+    """Validate that the number of classes in the .shp corresponds to the expected number
+    Args:
+        vector_file: full file path of the vector image
+        num_classes: number of classes set in config.yaml
+        value_field: name of the value field representing the required classes in the vector image file
+    """
+    source_ds = ogr.Open(vector_file)
+    source_layer = source_ds.GetLayer()
+    name_lyr = source_layer.GetLayerDefn().GetName()
+    vector_classes = source_ds.ExecuteSQL("SELECT DISTINCT " + value_field + " FROM " + name_lyr).GetFeatureCount()
+    if vector_classes != num_classes:
+        raise ValueError('The number of classes in the yaml.config (%d) is different than the number of classes in '
+                         'the file %s (%d)' % (num_classes, info['shp'], vector_classes))
