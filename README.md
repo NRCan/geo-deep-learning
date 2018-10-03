@@ -42,7 +42,7 @@ After installing the required computing environment (see next section), one need
     python train_model.py ./conf/config.yaml
     python image_classification.py ./conf/config.yaml
     ```
-
+    
 ## config.yaml
 
 The `config.yaml` file is located in the `conf` directory.  It stores the values of all parameters needed by the deep learning algorithms for all phases.  It is shown below: 
