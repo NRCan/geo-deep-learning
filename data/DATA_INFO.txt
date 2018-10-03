@@ -1,0 +1,9 @@
+The data provided here is a subset of the "Massachusetts Buildings Dataset" introduced in the PhD thesis of
+Mnih V. Machine learning for aerial image labeling. University of Toronto (Canada), 2013.
+The thesis can be found here: https://www.cs.toronto.edu/~vmnih/docs/Mnih_Volodymyr_PhD_Thesis.pdf
+
+There is no licence associated to this data, as stated in the thesis.
+The images have been cropped from their original source and the vector data has been modified, in order to reduce the size of the dataset.
+
+The rest of the dataset can be found at this url: https://www.cs.toronto.edu/~vmnih/data/
+

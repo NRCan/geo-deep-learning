@@ -22,15 +22,27 @@ After installing the required computing environment (see next section), one need
     - h5py 2.8.0
 - nvidia GPU highly recommended
 
-Installation using conda can be performed with the following commands:
-
-```shell
-conda create -p YOUR_PATH python=3.6 pytorch=0.4.0 torchvision cuda80 ruamel_yaml h5py gdal=2.2.2 scikit-image -c pytorch  
-pip install scikit-learn==0.20 # Until scikit-learn 0.20 makes it to the main Anaconda repo
-```
-
-> `scikit-learn` is used to output statistics.  The code in this project is compatible with the next version of scikit-learn, which is currently available only as a Release Candidate.
-
+## Installation on your workstation
+1. Using conda, you can set and activate your python environment with the following commands:  
+    With GPU:
+    ```shell
+    conda create -p YOUR_PATH python=3.6 pytorch=0.4.0 torchvision cuda80 ruamel_yaml h5py gdal=2.2.2 scikit-image scikit-learn=0.20 -c pytorch
+    source activate YOUR_ENV
+    ```
+    CPU only:
+    ```shell
+    conda create -p YOUR_PATH python=3.6 pytorch-cpu=0.4.0 torchvision ruamel_yaml h5py gdal=2.2.2 scikit-image scikit-learn=0.20 -c pytorch
+    source activate YOUR_ENV
+    ```
+1. Set your parameters in the `config.yaml` (see section bellow)
+1. Prepare your data and `csv` file
+1. Start your task using one of the following command:
+    ```shell
+    python images_to_samples.py ./conf/config.yaml
+    python train_model.py ./conf/config.yaml
+    python image_classification.py ./conf/config.yaml
+    ```
+    
 ## config.yaml
 
 The `config.yaml` file is located in the `conf` directory.  It stores the values of all parameters needed by the deep learning algorithms for all phases.  It is shown below: 
@@ -82,9 +94,24 @@ classification:
   model_name: /path/to/weights/file/last_epoch.pth.tar  # File containing pre-trained weights
 ```  
 
+## `csv` preparation
+The `csv` specifies the input images and reference vector data that will be use during the training.   
+The `csv` file must contain 4 comma-separated items: 
+- input image file (tif)
+- reference vector data (shp)
+- attribute of the shapefile to use as classes values
+- dataset (either of 'trn' for training or 'val' for validation) where the sample will be used  
+
+Each image is a new line in the csv file.  For example:  
+
+```
+\path\to\input\image1.tif,\path\to\reference\vector1.shp,attribute,trn
+\path\to\input\image2.tif,\path\to\reference\vector2.shp,attribute,val
+```
+
 ## images_to_samples.py  
 
-The first phase of the process is to determine sub-images (samples) to be used for training and validation.  Images to be used mut be of the geotiff type.  Sample locations in each image must be stored in a shapefile (see csv file below).  
+The first phase of the process is to determine sub-images (samples) to be used for training and validation.  Images to be used mut be of the geotiff type.  Sample locations in each image must be stored in a shapefile.  
 
 To launch the program:  
 
@@ -107,18 +134,7 @@ sample:
   mask_input_image: False                       # When True, mask the input image where there is no reference data.
 ```
 
-The csv file must contain 4 comma-separated items: 
-- input image file (tif)
-- reference vector data (shp)
-- attribute of the shapefile to use as classes values
-- dataset (either of 'trn' for training or 'val' for validation) where the sample will be used  
 
-Each image is a new line in the csv file.  For example:  
-
-```
-\path\to\input\image1.tif,\path\to\reference\vector1.shp,attribute,trn
-\path\to\input\image2.tif,\path\to\reference\vector2.shp,attribute,val
-```
 
 Outputs:
 - 2 .hdfs files with input images and reference data, stored as arrays

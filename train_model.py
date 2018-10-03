@@ -81,11 +81,15 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
 
     if torch.cuda.is_available():
         model = model.cuda()
-
-    if class_weights:
-        criterion = nn.CrossEntropyLoss(weight=torch.tensor(class_weights)).cuda()
+        if class_weights:
+            criterion = nn.CrossEntropyLoss(weight=torch.tensor(class_weights)).cuda()
+        else:
+            criterion = nn.CrossEntropyLoss().cuda()
     else:
-        criterion = nn.CrossEntropyLoss().cuda()
+        if class_weights:
+            criterion = nn.CrossEntropyLoss(weight=torch.tensor(class_weights))
+        else:
+            criterion = nn.CrossEntropyLoss()
 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)  # learning rate decay
