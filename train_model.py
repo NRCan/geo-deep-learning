@@ -1,12 +1,11 @@
 import argparse
 import os
 import time
-import numpy as np
+import h5py
 
 import torch
 import torch.optim as optim
 from torch import nn
-from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
@@ -16,6 +15,38 @@ import unet_pytorch
 from logger import InformationLogger
 from metrics import report_classification, iou, create_metrics_dict
 from utils import read_parameters, load_from_checkpoint
+
+
+def verify_weights(num_classes, weights):
+    """Verifies that the number of weights equals the number of classes if any are given
+    Args:
+        num_classes: number of classes defined in the configuration file
+        weights: weights defined in the configuration file
+    """
+    if weights:
+        if num_classes != len(weights):
+            raise ValueError('The number of class weights in the configuration file is different than the number of '
+                             'classes')
+
+
+def verify_sample_count(num_trn_samples, num_val_samples, hdf5_folder):
+    """Verifies that the number of training and validation samples defined in the configuration file is less or equal to
+     the number of training and validation samples in the hdf5 file
+     Args:
+         num_trn_samples: number of training samples defined in the configuration file
+         num_val_samples: number of validation samples defined in the configuration file
+         hdf5_folder: data path in which the samples are saved
+     """
+    with h5py.File(os.path.join(hdf5_folder + '/samples', "trn_samples.hdf5"), 'r') as f:
+        train_samples = len(f['map_img'])
+    if num_trn_samples > train_samples:
+        raise IndexError('The number of training samples in the configuration file exceeds the number of '
+                         'samples in the hdf5 training dataset.')
+    with h5py.File(os.path.join(hdf5_folder + '/samples', "val_samples.hdf5"), 'r') as f:
+        valid_samples = len(f['map_img'])
+    if num_val_samples > valid_samples:
+        raise IndexError('The number of validation samples in the configuration file exceeds the number of '
+                         'samples in the hdf5 validation dataset.')
 
 
 def flatten_labels(annotations):
@@ -49,7 +80,7 @@ def net(net_params):
 
 
 def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs, learning_rate,
-         weight_decay, step_size, gamma, num_classes, class_weights, number_of_bands, net_parameters):
+         weight_decay, step_size, gamma, num_classes, class_weights, net_parameters):
     """Function to train and validate a models for semantic segmentation.
     Args:
         data_path: full file path of the folder containing h5py files
@@ -71,6 +102,9 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
     Returns:
         Files 'checkpoint.pth.tar' and 'last_epoch.pth.tar' containing trained weight
     """
+    verify_weights(num_classes, class_weights)
+    verify_sample_count(num_trn_samples, num_val_samples, data_path)
+
     since = time.time()
     best_loss = 999
 
@@ -81,11 +115,15 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
 
     if torch.cuda.is_available():
         model = model.cuda()
-
-    if class_weights:
-        criterion = nn.CrossEntropyLoss(weight=torch.tensor(class_weights)).cuda()
+        if class_weights:
+            criterion = nn.CrossEntropyLoss(weight=torch.tensor(class_weights)).cuda()
+        else:
+            criterion = nn.CrossEntropyLoss().cuda()
     else:
-        criterion = nn.CrossEntropyLoss().cuda()
+        if class_weights:
+            criterion = nn.CrossEntropyLoss(weight=torch.tensor(class_weights))
+        else:
+            criterion = nn.CrossEntropyLoss()
 
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)  # learning rate decay
@@ -120,7 +158,7 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
             filename = os.path.join(output_path, 'checkpoint.pth.tar')
             best_loss = val_loss
             save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'state_dict': model.state_dict(), 'best_loss':
-                best_loss, 'optimizer': optimizer.state_dict()}, filename)
+                             best_loss, 'optimizer': optimizer.state_dict()}, filename)
 
         cur_elapsed = time.time() - since
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
@@ -150,11 +188,11 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     for index, data in enumerate(train_loader):
 
         if torch.cuda.is_available():
-            inputs = Variable(data['sat_img'].cuda())
-            labels = Variable(flatten_labels(data['map_img']).cuda())
+            inputs = data['sat_img'].cuda()
+            labels = flatten_labels(data['map_img']).cuda()
         else:
-            inputs = Variable(data['sat_img'])
-            labels = Variable(flatten_labels(data['map_img']))
+            inputs = data['sat_img']
+            labels = flatten_labels(data['map_img'])
 
         # forward
         optimizer.zero_grad()
@@ -200,11 +238,11 @@ def validation(valid_loader, model, criterion, num_classes, batch_size):
     for index, data in enumerate(valid_loader):
         with torch.no_grad():
             if torch.cuda.is_available():
-                inputs = Variable(data['sat_img'].cuda())
-                labels = Variable(flatten_labels(data['map_img']).cuda())
+                inputs = data['sat_img'].cuda()
+                labels = flatten_labels(data['map_img']).cuda()
             else:
-                inputs = Variable(data['sat_img'])
-                labels = Variable(flatten_labels(data['map_img']))
+                inputs = data['sat_img']
+                labels = flatten_labels(data['map_img'])
 
             # forward
             outputs = model(inputs)
@@ -255,6 +293,5 @@ if __name__ == '__main__':
          params['training']['gamma'],
          params['global']['num_classes'],
          params['training']['class_weights'],
-         params['global']['number_of_bands'],
          nn_parameters)
     print('End of training')
