@@ -10,13 +10,13 @@
 global:
   samples_size: 256
   num_classes: 2
-  data_path: /path/to/data/
+  data_path: ./data
   number_of_bands: 3
 
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
-  prep_csv_file: /path/to/csv/file.csv
+  prep_csv_file: ./data/ci_csv.csv
   samples_dist: 200
   remove_background: True
   mask_input_image: False
@@ -24,17 +24,16 @@ sample:
 # Training parameters; used in train_model.py ----------------------
 
 training:
-  output_path: /path/to/model/weights/output/folder
-  num_trn_samples: 4960
-  num_val_samples: 2208
+  output_path: ./data
+  num_trn_samples: 24
+  num_val_samples: 24
   pretrained: False # .pth filename containig pre-trained weights
-  batch_size: 32
-  num_epochs: 100
+  batch_size: 4
+  num_epochs: 2
   learning_rate: 0.0001
   weight_decay: 0
   step_size: 4
   gamma: 0.9
-  # class_weights: [1.0, 2.0, 2.0, 2.0]
   class_weights: [1.0, 2.0]
   dropout: False
   probability: 0.2 # Set with dropout
@@ -42,5 +41,5 @@ training:
 # Classification parameters; used in image_classification.py --------
 
 classification:
-  working_folder: /path/to/folder/with/images/to/classify
-  model_name: /path/to/model/weights/for/classification/checkpoint.pth.tar
+  working_folder: ./data
+  model_name: ./data/checkpoint.pth.tar

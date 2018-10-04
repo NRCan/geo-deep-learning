@@ -162,7 +162,7 @@ def vector_to_raster(vector_file, attribute_name, new_raster):
 
 
 def main(data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist, remove_background,
-         mask_input_image, value_field):
+         mask_input_image):
     samples_folder = os.path.join(data_path, "samples")
     out_label_folder = os.path.join(data_path, "label")
     create_or_empty_folder(samples_folder)
@@ -194,6 +194,7 @@ def main(data_path, samples_size, num_classes, number_of_bands, csv_file, sample
         assert_band_number(info['tif'], number_of_bands)
 
         tmp_label_raster = create_new_raster_from_base(info['tif'], tmp_label_name, 1)
+        value_field = info['attribute_name']
         validate_num_classes(info['shp'], num_classes, value_field)
         vector_to_raster(info['shp'], info['attribute_name'], tmp_label_raster)
 
@@ -256,5 +257,4 @@ if __name__ == '__main__':
          params['sample']['prep_csv_file'],
          params['sample']['samples_dist'],
          params['sample']['remove_background'],
-         params['sample']['mask_input_image'],
-         params['sample']['value_field'])
+         params['sample']['mask_input_image'])
