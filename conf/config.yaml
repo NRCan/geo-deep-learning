@@ -20,6 +20,7 @@ sample:
   samples_dist: 200
   remove_background: True
   mask_input_image: False
+  value_field: classes
 
 # Training parameters; used in train_model.py ----------------------
 

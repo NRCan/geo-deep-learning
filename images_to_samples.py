@@ -7,7 +7,7 @@ import h5py
 from osgeo import gdal, osr, ogr
 from skimage import exposure
 from utils import read_parameters, create_new_raster_from_base, assert_band_number, image_reader_as_array, \
-    create_or_empty_folder
+    create_or_empty_folder, validate_num_classes
 
 
 def mask_image(arrayA, arrayB):
@@ -31,7 +31,7 @@ def mask_image(arrayA, arrayB):
 
 def random_samples(num_samples, samples_file, tmp_samples_file):
     """Read prepared samples and rewrite them in random order.
-    args:
+    Args:
     num_samples: number of samples created
     samples_file: hdfs file where the final samples (in random order) will be written
     tmp_samples_file: hdfs file containing samples (in image order)
@@ -161,7 +161,8 @@ def vector_to_raster(vector_file, attribute_name, new_raster):
     gdal.RasterizeLayer(new_raster, [1], rev_lyr, options=["ATTRIBUTE=%s" % attribute_name])
 
 
-def main(data_path, samples_size, number_of_bands, csv_file, samples_dist, remove_background, mask_input_image):
+def main(data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist, remove_background,
+         mask_input_image, value_field):
     samples_folder = os.path.join(data_path, "samples")
     out_label_folder = os.path.join(data_path, "label")
     create_or_empty_folder(samples_folder)
@@ -193,7 +194,9 @@ def main(data_path, samples_size, number_of_bands, csv_file, samples_dist, remov
         assert_band_number(info['tif'], number_of_bands)
 
         tmp_label_raster = create_new_raster_from_base(info['tif'], tmp_label_name, 1)
+        validate_num_classes(info['shp'], num_classes, value_field)
         vector_to_raster(info['shp'], info['attribute_name'], tmp_label_raster)
+
         tmp_label_raster = None
 
         # Mask zeros from input image into label raster.
@@ -248,8 +251,10 @@ if __name__ == '__main__':
 
     main(params['global']['data_path'],
          params['global']['samples_size'],
+         params['global']['num_classes'],
          params['global']['number_of_bands'],
          params['sample']['prep_csv_file'],
          params['sample']['samples_dist'],
          params['sample']['remove_background'],
-         params['sample']['mask_input_image'])
+         params['sample']['mask_input_image'],
+         params['sample']['value_field'])
