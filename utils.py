@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import gdal
 import torch
 from ruamel_yaml import YAML
-from osgeo import gdal, osr, ogr
+from osgeo import gdal, ogr
 
 
 def create_or_empty_folder(folder):
@@ -168,4 +168,4 @@ def validate_num_classes(vector_file, num_classes, value_field):
     vector_classes = source_ds.ExecuteSQL("SELECT DISTINCT " + value_field + " FROM " + name_lyr).GetFeatureCount()
     if vector_classes != num_classes:
         raise ValueError('The number of classes in the yaml.config (%d) is different than the number of classes in '
-                         'the file %s (%d)' % (num_classes, info['shp'], vector_classes))
+                         'the file %s (%d)' % (num_classes, vector_file, vector_classes))
