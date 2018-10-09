@@ -4,23 +4,21 @@ import torch
 import time
 import argparse
 import fnmatch
-import unet_pytorch
 
 from torch.autograd import Variable
+from models.model_choice import net
 from utils import read_parameters, create_new_raster_from_base, assert_band_number, load_from_checkpoint, \
     image_reader_as_array
 
 
-def main(work_folder, img_list, nb_classes, weights_file_name):
+def main(work_folder, img_list, weights_file_name, model, number_of_bands):
     """Identify the class to which each image belongs.
     Args:
         work_folder: full file path of the folder containing images
         img_list: list containing images to classify
-        nb_classes: number of class types to be recognized
         weights_file_name: full file path of the file containing weights
+        model:
     """
-    # get model
-    model = unet_pytorch.UNetSmall(nb_classes, number_of_bands)
 
     if torch.cuda.is_available():
         model = model.cuda()
@@ -109,9 +107,9 @@ if __name__ == '__main__':
 
     params = read_parameters(args.param_file)
     working_folder = params['classification']['working_folder']
-    model_name = params['classification']['model_name']
-    num_classes = params['global']['num_classes']
-    number_of_bands = params['global']['number_of_bands']
+
+    model, sdp = net(params)
 
     list_img = [img for img in os.listdir(working_folder) if fnmatch.fnmatch(img, "*.tif*")]
-    main(working_folder, list_img, num_classes, model_name)
+    main(params['classification']['working_folder'], list_img, params['classification']['state_dict_path'], model,
+         params['global']['number_of_bands'])
