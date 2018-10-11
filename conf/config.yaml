@@ -12,6 +12,7 @@ global:
   num_classes: 2
   data_path: /path/to/data/
   number_of_bands: 3
+  model_name: unetsmall     # One of unet, unetsmall or ternausnet
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -20,6 +21,7 @@ sample:
   samples_dist: 200
   remove_background: True
   mask_input_image: False
+  value_field: classes
 
 # Training parameters; used in train_model.py ----------------------
 
@@ -27,7 +29,6 @@ training:
   output_path: /path/to/model/weights/output/folder
   num_trn_samples: 4960
   num_val_samples: 2208
-  pretrained: False # .pth filename containig pre-trained weights
   batch_size: 32
   num_epochs: 100
   learning_rate: 0.0001
@@ -36,11 +37,21 @@ training:
   gamma: 0.9
   # class_weights: [1.0, 2.0, 2.0, 2.0]
   class_weights: [1.0, 2.0]
-  dropout: False
-  probability: 0.2 # Set with dropout
 
 # Classification parameters; used in image_classification.py --------
 
 classification:
   working_folder: /path/to/folder/with/images/to/classify
-  model_name: /path/to/model/weights/for/classification/checkpoint.pth.tar
+  state_dict_path: /path/to/model/weights/for/classification/checkpoint.pth.tar
+
+# Models parameters; used in train_model.py and image_classification.py
+
+models:
+  unet:   &unet001
+    dropout: False
+    probability: 0.2    # Set with dropout
+    pretrained: False   # optional
+  unetsmall:
+    <<: *unet001
+  ternausnet:
+    pretrained: ./models/TernausNet.pt    # Mandatory
