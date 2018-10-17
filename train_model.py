@@ -11,9 +11,9 @@ from torchvision import transforms
 
 import CreateDataset
 import augmentation as aug
-import unet_pytorch
 from logger import InformationLogger
 from metrics import report_classification, iou, create_metrics_dict
+from models.model_choice import net
 from utils import read_parameters, load_from_checkpoint
 
 
@@ -68,19 +68,8 @@ def save_checkpoint(state, filename):
     torch.save(state, filename)
 
 
-def net(net_params):
-    """Define the neural net"""
-    if net_params['name'].lower() == 'unetsmall':
-        model = unet_pytorch.UNetSmall(net_params['num_classes'], net_params['number_of_bands'], net_params['dropout'],
-                                       net_params['probability'])
-    elif net_params['name'].lower() == 'unet':
-        model = unet_pytorch.UNet(net_params['num_classes'], net_params['number_of_bands'], net_params['dropout'],
-                                  net_params['probability'])
-    return model
-
-
 def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs, learning_rate,
-         weight_decay, step_size, gamma, num_classes, class_weights, net_parameters):
+         weight_decay, step_size, gamma, num_classes, class_weights, model):
     """Function to train and validate a models for semantic segmentation.
     Args:
         data_path: full file path of the folder containing h5py files
@@ -95,10 +84,8 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
         step_size: step size
         gamma: multiplicative factor of learning rate decay
         num_classes: number of classes
-        class_weights: weights to apply to each class. A value > 1.0 will apply more weights to the learning of the
-        class
-        number_of_bands: number of bands
-        net_parameters: parameters for the neural net (in dict)
+        class_weights: weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class
+        model: CNN model (tensor)
     Returns:
         Files 'checkpoint.pth.tar' and 'last_epoch.pth.tar' containing trained weight
     """
@@ -111,10 +98,9 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
     trn_log = InformationLogger(output_path, 'trn')
     val_log = InformationLogger(output_path, 'val')
 
-    model = net(net_parameters)
-
     if torch.cuda.is_available():
         model = model.cuda()
+
         if class_weights:
             criterion = nn.CrossEntropyLoss(weight=torch.tensor(class_weights)).cuda()
         else:
@@ -128,7 +114,7 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)  # learning rate decay
 
-    if pretrained:
+    if pretrained != '':
         model, optimizer = load_from_checkpoint(pretrained, model, optimizer)
 
     trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn",
@@ -145,7 +131,6 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
         print()
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
         print('-' * 20)
-
         trn_report = train(trn_dataloader, model, criterion, optimizer, lr_scheduler, num_classes, batch_size)
         trn_log.add_values(trn_report, epoch)
 
@@ -157,7 +142,7 @@ def main(data_path, output_path, num_trn_samples, num_val_samples, pretrained, b
             print("save checkpoint")
             filename = os.path.join(output_path, 'checkpoint.pth.tar')
             best_loss = val_loss
-            save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'state_dict': model.state_dict(), 'best_loss':
+            save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'model': model.state_dict(), 'best_loss':
                              best_loss, 'optimizer': optimizer.state_dict()}, filename)
 
         cur_elapsed = time.time() - since
@@ -274,17 +259,13 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
-    nn_parameters = {'name': 'unetsmall',
-                     'num_classes': params['global']['num_classes'],
-                     'number_of_bands': params['global']['number_of_bands'],
-                     'dropout': params['training']['dropout'],
-                     'probability': params['training']['probability']}
+    cnn_model, state_dict_path = net(params)
 
     main(params['global']['data_path'],
          params['training']['output_path'],
          params['training']['num_trn_samples'],
          params['training']['num_val_samples'],
-         params['training']['pretrained'],
+         state_dict_path,
          params['training']['batch_size'],
          params['training']['num_epochs'],
          params['training']['learning_rate'],
@@ -293,5 +274,5 @@ if __name__ == '__main__':
          params['training']['gamma'],
          params['global']['num_classes'],
          params['training']['class_weights'],
-         nn_parameters)
+         cnn_model)
     print('End of training')
