@@ -110,11 +110,6 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     Returns:
         Files 'checkpoint.pth.tar' and 'last_epoch.pth.tar' containing trained weight
     """
-    torch.backends.cudnn.deterministic = True
-    torch.manual_seed(999)
-    torch.cuda.manual_seed(999)
-    torch.cuda.manual_seed_all(999)
-    random.seed(0)
 
     if bucket_name:
         s3 = boto3.resource('s3')
