@@ -1,4 +1,4 @@
-from models import TernausNet, unet
+from models import TernausNet, unet, checkpointed_unet
 
 
 def net(net_params):
@@ -22,6 +22,13 @@ def net(net_params):
     elif model_name == 'ternausnet':
         model = TernausNet.ternausnet(net_params['global']['num_classes'],
                                       net_params['models']['ternausnet']['pretrained'])
+    elif model_name == 'checkpointed_unet':
+        model = checkpointed_unet.UNetSmall(net_params['global']['num_classes'],
+                                       net_params['global']['number_of_bands'],
+                                       net_params['models']['unetsmall']['dropout'],
+                                       net_params['models']['unetsmall']['probability'])
+        if net_params['models']['unetsmall']['pretrained']:
+            state_dict_path = net_params['models']['unetsmall']['pretrained']
     else:
         raise ValueError('The model name in the yaml.config is not defined.')
     return model, state_dict_path
