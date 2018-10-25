@@ -4,10 +4,17 @@ import os
 import random
 import numpy as np
 import h5py
+import warnings
 from osgeo import gdal, osr, ogr
 from skimage import exposure
 from utils import read_parameters, create_new_raster_from_base, assert_band_number, image_reader_as_array, \
     create_or_empty_folder, validate_num_classes
+
+try:
+    import boto3
+except ModuleNotFoundError:
+    warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
+    pass
 
 
 def mask_image(arrayA, arrayB):
@@ -117,7 +124,8 @@ def samples_preparation(sat_img, ref_img, sample_size, dist_samples, samples_cou
 
     # half tile padding
     half_tile = int(sample_size / 2)
-    pad_in_img_array = np.pad(in_img_array, ((half_tile, half_tile), (half_tile, half_tile), (0, 0)), mode='constant')
+    pad_in_img_array = np.pad(in_img_array, ((half_tile, half_tile), (half_tile, half_tile), (0, 0)),
+                              mode='constant')
     pad_label_array = np.pad(label_array, ((half_tile, half_tile), (half_tile, half_tile), (0, 0)), mode='constant')
 
     for row in range(0, h, dist_samples):
@@ -152,7 +160,6 @@ def vector_to_raster(vector_file, attribute_name, new_raster):
         attribute_name: Attribute containing the pixel value to write
         new_raster: Raster file where the info will be written
     """
-    print(vector_file)
     source_ds = ogr.Open(vector_file)
     source_layer = source_ds.GetLayer()
     name_lyr = source_layer.GetLayerDefn().GetName()
@@ -161,14 +168,22 @@ def vector_to_raster(vector_file, attribute_name, new_raster):
     gdal.RasterizeLayer(new_raster, [1], rev_lyr, options=["ATTRIBUTE=%s" % attribute_name])
 
 
-def main(data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist, remove_background,
-         mask_input_image):
-    samples_folder = os.path.join(data_path, "samples")
-    out_label_folder = os.path.join(data_path, "label")
+def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
+         remove_background, mask_input_image):
+    if bucket_name:
+        s3 = boto3.resource('s3')
+        bucket = s3.Bucket(bucket_name)
+        bucket.download_file(csv_file, 'samples_prep.csv')
+        list_data_prep = read_csv('samples_prep.csv')
+        samples_folder = "samples"
+        out_label_folder = "label"
+    else:
+        list_data_prep = read_csv(csv_file)
+        samples_folder = os.path.join(data_path, "samples")
+        out_label_folder = os.path.join(data_path, "label")
+
     create_or_empty_folder(samples_folder)
     create_or_empty_folder(out_label_folder)
-
-    list_data_prep = read_csv(csv_file)
 
     number_samples = {'trn': 0, 'val': 0}
     number_classes = 0
@@ -184,12 +199,20 @@ def main(data_path, samples_size, num_classes, number_of_bands, csv_file, sample
                                 maxshape=(None, samples_size, samples_size, number_of_bands))
     tmp_val_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
                                 maxshape=(None, samples_size, samples_size))
-
     for info in list_data_prep:
         img_name = os.path.basename(info['tif']).split('.')[0]
         tmp_label_name = os.path.join(out_label_folder, img_name + "_label_tmp.tif")
         label_name = os.path.join(out_label_folder, img_name + "_label.tif")
-        print(img_name)
+
+        if bucket_name:
+            bucket.download_file(info['tif'], info['tif'])
+            bucket.download_file(info['shp'], info['shp'])
+            shx_file = info['shp'].split('.')[0] + '.shx'
+            dbf_file = info['shp'].split('.')[0] + '.dbf'
+            prj_file = info['shp'].split('.')[0] + '.prj'
+            bucket.download_file(shx_file, shx_file)
+            bucket.download_file(dbf_file, dbf_file)
+            bucket.download_file(prj_file, prj_file)
 
         assert_band_number(info['tif'], number_of_bands)
 
@@ -203,7 +226,6 @@ def main(data_path, samples_size, num_classes, number_of_bands, csv_file, sample
         # Mask zeros from input image into label raster.
         masked_array = mask_image(image_reader_as_array(info['tif']), image_reader_as_array(tmp_label_name))
         create_new_raster_from_base(info['tif'], label_name, 1, masked_array)
-
         # Mask zeros from label raster into input image.
         if mask_input_image:
             masked_img = mask_image(image_reader_as_array(label_name), image_reader_as_array(info['tif']))
@@ -217,15 +239,14 @@ def main(data_path, samples_size, num_classes, number_of_bands, csv_file, sample
             out_file = tmp_val_hdf5
 
         number_samples, number_classes = samples_preparation(info['tif'], label_name, samples_size, samples_dist,
-                                                             number_samples,
-                                                             number_classes, out_file, info['dataset'],
+                                                             number_samples, number_classes, out_file, info['dataset'],
                                                              remove_background)
+        print(info['tif'])
         print(number_samples)
         out_file.flush()
 
     tmp_trn_hdf5.close()
     tmp_val_hdf5.close()
-
     # Create file and datasets for sample storage (in random order).
     for dataset in (['trn', 'val']):
         hdf5_file = h5py.File(os.path.join(samples_folder, dataset + "_samples.hdf5"), "w")
@@ -238,8 +259,35 @@ def main(data_path, samples_size, num_classes, number_of_bands, csv_file, sample
 
         tmp_hdf5.close()
         os.remove(os.path.join(samples_folder, dataset + "_tmp_samples.hdf5"))
-
+        hdf5_file.close()
     print("Number of samples created: ", number_samples)
+    if bucket_name:
+        print('Transfering Samples to the bucket')
+        try:
+            bucket.put_object(Key='samples/', Body='')
+        except ClientError:
+            pass
+        try:
+            bucket.put_object(Key='label/', Body='')
+        except ClientError:
+            pass
+
+        trn_samples = open(samples_folder + "/trn_samples.hdf5", 'rb')
+        bucket.put_object(Key=samples_folder + '/trn_samples.hdf5', Body=trn_samples)
+        val_samples = open(samples_folder + "/val_samples.hdf5", 'rb')
+        bucket.put_object(Key=samples_folder + '/val_samples.hdf5', Body=val_samples)
+        # trn labels from out_label_folder
+        for f in os.listdir(out_label_folder):
+            label = open(os.path.join(out_label_folder, f), 'rb')
+            bucket.put_object(Key=os.path.join(out_label_folder, f), Body=label)
+            os.remove(os.path.join(out_label_folder, f))
+        os.remove(samples_folder + "/trn_samples.hdf5")
+        os.remove(samples_folder + "/val_samples.hdf5")
+        os.remove(shx_file)
+        os.remove(info['shp'])
+        os.remove(prj_file)
+        os.remove(dbf_file)
+        os.remove('samples_prep.csv')
     print("End of process")
 
 
@@ -250,7 +298,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     params = read_parameters(args.ParamFile)
 
-    main(params['global']['data_path'],
+    main(params['global']['bucket_name'],
+         params['global']['data_path'],
          params['global']['samples_size'],
          params['global']['num_classes'],
          params['global']['number_of_bands'],

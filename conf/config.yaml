@@ -12,7 +12,8 @@ global:
   num_classes: 2
   data_path: /path/to/data/
   number_of_bands: 3
-  model_name: unetsmall     # One of unet, unetsmall or ternausnet
+  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet or ternausnet
+  bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -21,7 +22,6 @@ sample:
   samples_dist: 200
   remove_background: True
   mask_input_image: False
-  value_field: classes
 
 # Training parameters; used in train_model.py ----------------------
 
@@ -35,7 +35,6 @@ training:
   weight_decay: 0
   step_size: 4
   gamma: 0.9
-  # class_weights: [1.0, 2.0, 2.0, 2.0]
   class_weights: [1.0, 2.0]
 
 # Classification parameters; used in image_classification.py --------
@@ -55,3 +54,6 @@ models:
     <<: *unet001
   ternausnet:
     pretrained: ./models/TernausNet.pt    # Mandatory
+  checkpointed_unet: 
+    <<: *unet001
+    
