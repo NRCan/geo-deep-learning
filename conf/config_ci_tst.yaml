@@ -12,7 +12,8 @@ global:
   num_classes: 2
   data_path: ./data
   number_of_bands: 3
-  model_name: unetsmall     # One of unet, unetsmall or ternausnet
+  model_name: checkpointed_unet     # One of unet, unetsmall or ternausnet
+  bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -53,3 +54,5 @@ models:
     <<: *unet001
   ternausnet:
     pretrained: ./models/TernausNet.pt    # Mandatory
+  checkpointed_unet: 
+    <<: *unet001
