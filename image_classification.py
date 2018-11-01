@@ -93,7 +93,7 @@ def classification(bucket, folder_images, model, image, overlay):
     if padded_array.any():
         with torch.no_grad():
             for row in range(0, h, chunk_size - (2 * overlay)):
-                for col in range(0, w, chunk_size - (2 * overlay))
+                for col in range(0, w, chunk_size - (2 * overlay)):
 
                     chunk_input = padded_array[row:row + chunk_size, col:col + chunk_size, :]
                     inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
