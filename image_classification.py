@@ -16,7 +16,7 @@ except ModuleNotFoundError:
     pass
 
 
-def main(bucket, work_folder, img_list, weights_file_name, model, number_of_bands):
+def main(bucket, work_folder, img_list, weights_file_name, model, number_of_bands, overlay):
     """Identify the class to which each image belongs.
     Args:
         bucket:
@@ -42,7 +42,7 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
         # assert that img band and the parameter in yaml have the same value
         else:
             assert_band_number(os.path.join(work_folder, img), number_of_bands)
-        classification(bucket, work_folder, model, img)
+        classification(bucket, work_folder, model, img, overlay)
         print('Image ', img, ' classified')
         if bucket:
             try:
@@ -57,7 +57,7 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
     print('Classification complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
-def classification(bucket, folder_images, model, image):
+def classification(bucket, folder_images, model, image, overlay):
     """Classify images
     Args:
         bucket:
@@ -78,43 +78,46 @@ def classification(bucket, folder_images, model, image):
         input_image = image_reader_as_array(os.path.join(folder_images, image))
     if len(input_image.shape) == 3:
         h, w, nb = input_image.shape
-        padded_array = np.pad(input_image, ((0, int(chunk_size / 2)), (0, int(chunk_size / 2)), (0, 0)),
-                              mode='constant')
+        padded_array = np.pad(input_image, ((overlay, chunk_size), (overlay, chunk_size), (0, 0)), mode='constant')
     elif len(input_image.shape) == 2:
         h, w = input_image.shape
-        padded_array = np.expand_dims(np.pad(input_image, ((0, int(chunk_size / 2)), (0, int(chunk_size / 2))),
+        padded_array = np.expand_dims(np.pad(input_image, ((overlay, chunk_size), (overlay, chunk_size)),
                                              mode='constant'), axis=0)
     else:
         h = 0
         w = 0
         padded_array = None
 
-    output_np = np.empty([h, w, 1], dtype=np.uint8)
+    output_np = np.empty([h + overlay + chunk_size, w + overlay + chunk_size, 1], dtype=np.uint8)
 
     if padded_array.any():
         with torch.no_grad():
-            for row in range(0, h, chunk_size):
-                for col in range(0, w, chunk_size):
+            for row in range(0, h, chunk_size - (2 * overlay)):
+                for col in range(0, w, chunk_size - (2 * overlay)):
 
                     chunk_input = padded_array[row:row + chunk_size, col:col + chunk_size, :]
-                    torch_data = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
+                    inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
-                    torch_data.unsqueeze_(0)
+                    inputs.unsqueeze_(0)
 
-                    # get the inputs
                     if torch.cuda.is_available():
-                        inputs = torch_data.cuda()
-                    else:
-                        inputs = torch_data
+                        inputs = inputs.cuda()
                     # forward
                     outputs = model(inputs)
 
                     a, pred = torch.max(outputs, dim=1)
                     segmentation = torch.squeeze(pred)
 
-                    res_height, res_width, b = output_np[row:row + chunk_size, col:col + chunk_size].shape
-                    output_np[row:row + chunk_size, col:col + chunk_size, 0] = segmentation[:res_height, :res_width]
+                    row_from = row + overlay
+                    row_to = row + chunk_size - overlay
+                    col_from = col + overlay
+                    col_to = col + chunk_size - overlay
 
+                    useful_classification = segmentation[overlay:chunk_size - overlay, overlay:chunk_size - overlay]
+                    output_np[row_from:row_to, col_from:col_to, 0] = useful_classification
+
+            # Resize the output array to the size of the input image and write it
+            output_np = output_np[overlay:h + overlay, overlay:w + overlay]
             if bucket:
                 create_new_raster_from_base(image, image.split('.')[0] + '_classif.tif', 1, output_np)
             else:
@@ -135,7 +138,8 @@ if __name__ == '__main__':
     params = read_parameters(args.param_file)
     working_folder = params['classification']['working_folder']
 
-    model, sdp = net(params)
+    model, sdp, model_depth = net(params, rtn_level=True)
+    nbr_pix_overlay = 2 ** (model_depth + 1)
 
     bucket_name = params['global']['bucket_name']
 
@@ -149,5 +153,4 @@ if __name__ == '__main__':
     else:
         list_img = [img for img in os.listdir(working_folder) if fnmatch.fnmatch(img, "*.tif*")]
     main(bucket, params['classification']['working_folder'], list_img, params['classification']['state_dict_path'],
-         model,
-         params['global']['number_of_bands'])
+         model, params['global']['number_of_bands'], nbr_pix_overlay)

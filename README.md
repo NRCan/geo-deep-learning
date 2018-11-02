@@ -21,6 +21,7 @@ After installing the required computing environment (see next section), one need
     - scikit-learn 0.20 (version on [conda-forge](https://anaconda.org/conda-forge/scikit-learn) as of 26 Sept. 2018)
     - h5py 2.8.0
 - nvidia GPU highly recommended
+- The system can be use on your workstation or cluster and on [AWS](https://aws.amazon.com/). 
 
 ## Installation on your workstation
 1. Using conda, you can set and activate your python environment with the following commands:  
@@ -54,6 +55,7 @@ The `config.yaml` file is located in the `conf` directory.  It stores the values
 #   2) Sampling parameters
 #   3) training parameters
 #   4) Classification parameters
+#   5) Model parameters
 
 # Global parameters
 
@@ -62,6 +64,7 @@ global:
   num_classes: 2                    # Number of classes
   data_path: /path/to/data/folder   # Path to folder containing samples
   number_of_bands: 3                # Number of bands in input images
+  bucket_name:                      # Name of the S3 bucket where data is stored. Leave blank if using local files
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -77,7 +80,6 @@ training:
   output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
   num_trn_samples: 4960                         # Number of samples to use for training (should be a multiple of batch_size)
   num_val_samples: 2208                         # Number of samples to use for validation (should be a multiple of batch_size)
-  pretrained: False                             # .pth.tar filename containig pre-trained weights
   batch_size: 32                                # Size of each batch
   num_epochs: 150                               # Number of epochs
   learning_rate: 0.0001                         # Initial learning rate
@@ -86,12 +88,25 @@ training:
   step_size: 4                                  # Apply gamma every step_size
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
 
-
 # Classification parameters; used in image_classification.py --------
 
 classification:
-  working_folder: /path/to/images/to/classify           # Folder containing all the images to be classified
-  model_name: /path/to/weights/file/last_epoch.pth.tar  # File containing pre-trained weights
+  working_folder: /path/to/images/to/classify                 # Folder containing all the images to be classified
+  state_dict_path: /path/to/weights/file/last_epoch.pth.tar   # File containing pre-trained weights
+
+# Models parameters; used in train_model.py and image_classification.py
+
+models:
+  unet:   &unet001
+    dropout: False
+    probability: 0.2    # Set with dropout
+    pretrained: False   # optional
+  unetsmall:
+    <<: *unet001
+  ternausnet:
+    pretrained: ./models/TernausNet.pt    # Mandatory
+  checkpointed_unet: 
+    <<: *unet001
 ```  
 
 ## `csv` preparation
@@ -126,6 +141,8 @@ global:
   samples_size: 256                 # Size (in pixel) of the samples
   data_path: /path/to/data/folder   # Path to folder containing samples
   number_of_bands: 3                # Number of bands in input images
+  model_name: unetsmall             # One of unet, unetsmall, checkpointed_unet or ternausnet
+  bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
 
 sample:
   prep_csv_file: /path/to/csv/file_name.csv     # Path to CSV file used in preparation.
@@ -133,8 +150,6 @@ sample:
   remove_background: True                       # When True, does not write samples containing only "0" values.
   mask_input_image: False                       # When True, mask the input image where there is no reference data.
 ```
-
-
 
 Outputs:
 - 2 .hdfs files with input images and reference data, stored as arrays
@@ -165,12 +180,14 @@ global:
   num_classes: 2                    # Number of classes
   data_path: /path/to/data/folder   # Path to folder containing samples
   number_of_bands: 3                # Number of bands in input images
+  model_name: unetsmall             # One of unet, unetsmall, checkpointed_unet or ternausnet
+  bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
+
 
 training:
   output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
   num_trn_samples: 4960                         # Number of samples to use for training (should be a multiple of batch_size)
   num_val_samples: 2208                         # Number of samples to use for validation (should be a multiple of batch_size)
-  pretrained: False                             # .pth.tar filename containig pre-trained weights
   batch_size: 32                                # Size of each batch
   num_epochs: 150                               # Number of epochs
   learning_rate: 0.0001                         # Initial learning rate
@@ -208,6 +225,8 @@ Details on parameters used by this module:
 ```yaml
 global:
   number_of_bands: 3        # Number of bands in input images
+  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet or ternausnet
+  bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
 classification:
   working_folder: /path/to/images/to/classify           # Folder containing all the images to be classified
   model_name: /path/to/weights/file/last_epoch.pth.tar  # File containing pre-trained weights

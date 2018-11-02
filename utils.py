@@ -123,8 +123,13 @@ def load_from_checkpoint(filename, model, optimizer=None):
     """
     if os.path.isfile(filename):
         print("=> loading model '{}'".format(filename))
-        checkpoint = torch.load(filename)
+
+        if torch.cuda.is_available():
+            checkpoint = torch.load(filename)
+        else:
+            checkpoint = torch.load(filename, map_location='cpu')
         model.load_state_dict(checkpoint['model'])
+
         print("=> loaded model '{}'".format(filename))
         if optimizer:
             optimizer.load_state_dict(checkpoint['optimizer'])

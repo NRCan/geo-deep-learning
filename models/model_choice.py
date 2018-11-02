@@ -1,7 +1,45 @@
+import torch
+import torch.nn as nn
+
+from collections import OrderedDict
+
 from models import TernausNet, unet, checkpointed_unet
 
 
-def net(net_params):
+def maxpool_level(model):
+    """Calculate and return the number of maxpool inside the model definition.
+    This function is useful during classification in order to calculate the number of pixel required as context.
+    """
+    def register_hook(module):
+        def hook(module, input, output):
+            class_name = str(module.__class__).split('.')[-1].split("'")[0]
+            module_idx = len(summary)
+
+            m_key = '%s-%i' % (class_name, module_idx + 1)
+            summary[m_key] = OrderedDict()
+
+        if not isinstance(module, nn.Sequential) and not isinstance(module, nn.ModuleList) and not (module == model):
+            hooks.append(module.register_forward_hook(hook))
+
+    input_size = (3, 256, 256)
+    x = torch.rand(1, *input_size).type(torch.FloatTensor)
+
+    summary = OrderedDict()
+    hooks = []
+    model.apply(register_hook)
+    model(x)
+    # remove these hooks
+    for h in hooks:
+        h.remove()
+
+    maxpool_count = 0
+    for layer in summary:
+        if layer.startswith("MaxPool2d"):
+            maxpool_count += 1
+    return {'MaxPoolCount': maxpool_count}
+
+
+def net(net_params, rtn_level=False):
     """Define the neural net"""
     model_name = net_params['global']['model_name'].lower()
     state_dict_path = ''
@@ -30,5 +68,10 @@ def net(net_params):
         if net_params['models']['unetsmall']['pretrained']:
             state_dict_path = net_params['models']['unetsmall']['pretrained']
     else:
-        raise ValueError('The model name in the yaml.config is not defined.')
-    return model, state_dict_path
+        raise ValueError('The model name in the config.yaml is not defined.')
+
+    if rtn_level:
+        lvl = maxpool_level(model)
+        return model, state_dict_path, lvl['MaxPoolCount']
+    else:
+        return model, state_dict_path
