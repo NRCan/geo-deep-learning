@@ -92,7 +92,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
          weight_decay, step_size, gamma, num_classes, class_weights, model):
     """Function to train and validate a models for semantic segmentation.
     Args:
-        bucket_name:
+        bucket_name: bucket in which data is stored if using AWS S3
         data_path: full file path of the folder containing h5py files
         output_path: full file path in which the model will be saved
         num_trn_samples: number of training samples
@@ -195,7 +195,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
 
     filename = os.path.join(output_path, 'last_epoch.pth.tar')
-    save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'state_dict': model.state_dict(), 'best_loss': best_loss,
+    save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'model': model.state_dict(), 'best_loss': best_loss,
                      'optimizer': optimizer.state_dict()}, filename)
     if bucket_name:
         trained_model = open(filename, 'rb')
@@ -204,7 +204,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         now = datetime.datetime.now().strftime("%Y-%m-%d %I:%M ")
         if output_path:
             try:
-                bucket.put_object(Key=output_path, Body='')
+                bucket.put_object(Key=output_path + '/', Body='')
                 bucket.put_object(Key=os.path.join(output_path, "Logs/"), Body='')
             except ClientError:
                 pass
@@ -222,7 +222,10 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
             bucket.put_object(Key=os.path.join(output_path, "Logs/" + now + "val_losses_values.log"), Body=logs)
             logs = open(os.path.join(output_path, "trn_iou.log"), 'rb')
             bucket.put_object(Key=os.path.join(output_path, "Logs/" + now + "trn_iou.log"), Body=logs)
+            logs = open(os.path.join(output_path, "val_iou.log"), 'rb')
+            bucket.put_object(Key=os.path.join(output_path, "Logs/" + now + "val_iou.log"), Body=logs)
             os.remove(os.path.join(output_path, "trn_iou.log"))
+            os.remove(os.path.join(output_path, "val_iou.log"))
             os.remove(os.path.join(output_path, "val_losses_values.log"))
             os.remove(os.path.join(output_path, "trn_losses_values.log"))
             os.remove(os.path.join(output_path, "val_averaged_score.log"))

@@ -170,10 +170,13 @@ def vector_to_raster(vector_file, attribute_name, new_raster):
 
 def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
          remove_background, mask_input_image):
+    shpfiles = []
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
-        bucket.download_file(csv_file, 'samples_prep.csv')
+        if csv_file not in shpfiles:
+            shpfiles.append(csv_file)
+            bucket.download_file(csv_file, 'samples_prep.csv')
         list_data_prep = read_csv('samples_prep.csv')
         samples_folder = "samples"
         out_label_folder = "label"
