@@ -128,7 +128,7 @@ def load_from_checkpoint(filename, model, optimizer=None):
             checkpoint = torch.load(filename)
         else:
             checkpoint = torch.load(filename, map_location='cpu')
-        model.load_state_dict(checkpoint['state_dict'])
+        model.load_state_dict(checkpoint['model'])
 
         print("=> loaded model '{}'".format(filename))
         if optimizer:

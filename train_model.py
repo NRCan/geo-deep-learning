@@ -195,7 +195,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
 
     filename = os.path.join(output_path, 'last_epoch.pth.tar')
-    save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'state_dict': model.state_dict(), 'best_loss': best_loss,
+    save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'model': model.state_dict(), 'best_loss': best_loss,
                      'optimizer': optimizer.state_dict()}, filename)
     if bucket_name:
         trained_model = open(filename, 'rb')
