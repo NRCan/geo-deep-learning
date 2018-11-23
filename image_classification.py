@@ -19,11 +19,11 @@ except ModuleNotFoundError:
 def main(bucket, work_folder, img_list, weights_file_name, model, number_of_bands, overlay):
     """Identify the class to which each image belongs.
     Args:
-        bucket:
+        bucket: bucket in which data is stored if using AWS S3
         work_folder: full file path of the folder containing images
         img_list: list containing images to classify
         weights_file_name: full file path of the file containing weights
-        model:
+        model: loaded model with which classification should be done
     """
 
     if torch.cuda.is_available():
@@ -60,7 +60,7 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
 def classification(bucket, folder_images, model, image, overlay):
     """Classify images
     Args:
-        bucket:
+        bucket: bucket in which data is stored if using AWS S3
         folder_images: full file path of the folder containing images
         model: model to use for classification
         image: image to classify
