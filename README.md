@@ -113,20 +113,20 @@ models:
 The `csv` specifies the input images and reference vector data that will be use during the training.   
 The `csv` file must contain 4 comma-separated items: 
 - input image file (tif)
-- reference vector data (shp)
-- attribute of the shapefile to use as classes values
+- reference vector data (GeoPackage)
+- attribute of the GeoPackage to use as classes values
 - dataset (either of 'trn' for training or 'val' for validation) where the sample will be used  
 
 Each image is a new line in the csv file.  For example:  
 
 ```
-\path\to\input\image1.tif,\path\to\reference\vector1.shp,attribute,trn
-\path\to\input\image2.tif,\path\to\reference\vector2.shp,attribute,val
+\path\to\input\image1.tif,\path\to\reference\vector1.gpkg,attribute,trn
+\path\to\input\image2.tif,\path\to\reference\vector2.gpkg,attribute,val
 ```
 
 ## images_to_samples.py  
 
-The first phase of the process is to determine sub-images (samples) to be used for training and validation.  Images to be used mut be of the geotiff type.  Sample locations in each image must be stored in a shapefile.  
+The first phase of the process is to determine sub-images (samples) to be used for training and validation.  Images to be used mut be of the geotiff type.  Sample locations in each image must be stored in a GeoPackage.  
 
 To launch the program:  
 
@@ -159,7 +159,7 @@ Outputs:
 Process:
 - Read csv file and for each line in the file, do the following:
     - Create a new raster called "label" with the same properties as the input image
-    - Convert shp vector information into the "label" raster. The pixel value is determined by the attribute in the csv file
+    - Convert GeoPackage vector information into the "label" raster. The pixel value is determined by the attribute in the csv file
     - Convert both input and label images to arrays
     - Divide images in smaller samples of size and distance specified in the configuration file. Visual representation of this is provided [here](https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f)
     - Write samples into the "val" or "trn" hdfs file, depending on the value contained in the csv file
