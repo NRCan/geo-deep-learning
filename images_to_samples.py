@@ -72,7 +72,7 @@ def read_csv(csv_file_name):
     with open(csv_file_name, 'r') as f:
         reader = csv.reader(f)
         for row in reader:
-            list_values.append({'tif': row[0], 'shp': row[1], 'attribute_name': row[2], 'dataset': row[3]})
+            list_values.append({'tif': row[0], 'gpkg': row[1], 'attribute_name': row[2], 'dataset': row[3]})
 
     return sorted(list_values, key=lambda k: k['dataset'])
 
@@ -156,7 +156,7 @@ def samples_preparation(sat_img, ref_img, sample_size, dist_samples, samples_cou
 def vector_to_raster(vector_file, attribute_name, new_raster):
     """Function to rasterize vector data.
     Args:
-        vector_file: Path and name of reference shp
+        vector_file: Path and name of reference GeoPackage
         attribute_name: Attribute containing the pixel value to write
         new_raster: Raster file where the info will be written
     """
@@ -170,12 +170,12 @@ def vector_to_raster(vector_file, attribute_name, new_raster):
 
 def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
          remove_background, mask_input_image):
-    shpfiles = []
+    gpkg_file = []
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
-        if csv_file not in shpfiles:
-            shpfiles.append(csv_file)
+        if csv_file not in gpkg_file:
+            gpkg_file.append(csv_file)
             bucket.download_file(csv_file, 'samples_prep.csv')
         list_data_prep = read_csv('samples_prep.csv')
         samples_folder = "samples"
@@ -209,20 +209,14 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
 
         if bucket_name:
             bucket.download_file(info['tif'], info['tif'])
-            bucket.download_file(info['shp'], info['shp'])
-            shx_file = info['shp'].split('.')[0] + '.shx'
-            dbf_file = info['shp'].split('.')[0] + '.dbf'
-            prj_file = info['shp'].split('.')[0] + '.prj'
-            bucket.download_file(shx_file, shx_file)
-            bucket.download_file(dbf_file, dbf_file)
-            bucket.download_file(prj_file, prj_file)
+            bucket.download_file(info['gpkg'], info['gpkg'])
 
         assert_band_number(info['tif'], number_of_bands)
 
         tmp_label_raster = create_new_raster_from_base(info['tif'], tmp_label_name, 1)
         value_field = info['attribute_name']
-        validate_num_classes(info['shp'], num_classes, value_field)
-        vector_to_raster(info['shp'], info['attribute_name'], tmp_label_raster)
+        validate_num_classes(info['gpkg'], num_classes, value_field)
+        vector_to_raster(info['gpkg'], info['attribute_name'], tmp_label_raster)
 
         tmp_label_raster = None
 
@@ -286,10 +280,7 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
             os.remove(os.path.join(out_label_folder, f))
         os.remove(samples_folder + "/trn_samples.hdf5")
         os.remove(samples_folder + "/val_samples.hdf5")
-        os.remove(shx_file)
-        os.remove(info['shp'])
-        os.remove(prj_file)
-        os.remove(dbf_file)
+        os.remove(info['gpkg'])
         os.remove('samples_prep.csv')
     print("End of process")
 

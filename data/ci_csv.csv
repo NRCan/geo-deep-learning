@@ -1,2 +1,2 @@
-./data/22978945_15.tif,./data/massachusetts_buildings.shp,class,trn
-./data/23429155_15.tif,./data/massachusetts_buildings.shp,class,val
+./data/22978945_15.tif,./data/massachusetts_buildings.gpkg,class,trn
+./data/23429155_15.tif,./data/massachusetts_buildings.gpkg,class,val
