@@ -153,7 +153,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     if pretrained != '':
         model, optimizer = load_from_checkpoint(pretrained, model, optimizer)
 
-    if bucket_name is '':
+    if not bucket_name:
         trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn",
                                                         transform=transforms.Compose([aug.RandomRotationTarget(),
                                                                                       aug.HorizontalFlip(),
