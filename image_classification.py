@@ -29,16 +29,18 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
     if torch.cuda.is_available():
         model = model.cuda()
     if bucket:
-        bucket.download_file(weights_file_name, weights_file_name)
+        bucket.download_file(weights_file_name, "saved_model.pth.tar")
+        model = load_from_checkpoint("saved_model.pth.tar", model)
     # load weights
-    model = load_from_checkpoint(weights_file_name, model)
+    else:
+        model = load_from_checkpoint(weights_file_name, model)
 
     since = time.time()
 
     for img in img_list:
         if bucket:
-            bucket.download_file(img, img)
-            assert_band_number(img, number_of_bands)
+            bucket.download_file(os.path.join(work_folder, img), "Images/"+img)
+            assert_band_number("Images/"+img, number_of_bands)
         # assert that img band and the parameter in yaml have the same value
         else:
             assert_band_number(os.path.join(work_folder, img), number_of_bands)
@@ -49,10 +51,8 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
                 bucket.put_object(Key='Classified_Images/', Body='')
             except ClientError:
                 pass
-            os.remove(img)
-            classif_img = open(img.split('.')[0] + '_classif.tif', 'rb')
-            bucket.put_object(Key='Classified_' + img.split('.')[0] + '_classif.tif', Body=classif_img)
-            os.remove(img.split('.')[0] + '_classif.tif')
+            classif_img = open('Classified_Images/'+img.split('.')[0] + '_classif.tif', 'rb')
+            bucket.put_object(Key='Classified_Images/' + img.split('.')[0] + '_classif.tif', Body=classif_img)
     time_elapsed = time.time() - since
     print('Classification complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
@@ -73,7 +73,7 @@ def classification(bucket, folder_images, model, image, overlay):
     model.eval()
 
     if bucket:
-        input_image = image_reader_as_array(image)
+        input_image = image_reader_as_array("Images/"+image)
     else:
         input_image = image_reader_as_array(os.path.join(folder_images, image))
     if len(input_image.shape) == 3:
@@ -119,7 +119,8 @@ def classification(bucket, folder_images, model, image, overlay):
             # Resize the output array to the size of the input image and write it
             output_np = output_np[overlay:h + overlay, overlay:w + overlay]
             if bucket:
-                create_new_raster_from_base(image, image.split('.')[0] + '_classif.tif', 1, output_np)
+                create_new_raster_from_base("Images/"+image, "Classified_Images/"+image.split('.')[0] + '_classif.tif',
+                                            1, output_np)
             else:
                 create_new_raster_from_base(os.path.join(folder_images, image),
                                             os.path.join(folder_images, image.split('.')[0] + '_classif.tif'), 1,
@@ -149,8 +150,9 @@ if __name__ == '__main__':
         bucket = s3.Bucket(bucket_name)
         for f in bucket.objects.filter(Prefix=working_folder):
             if f.key != working_folder + '/':
-                list_img.append(f.key)
+                list_img.append(f.key.split('/')[-1])
     else:
         list_img = [img for img in os.listdir(working_folder) if fnmatch.fnmatch(img, "*.tif*")]
     main(bucket, params['classification']['working_folder'], list_img, params['classification']['state_dict_path'],
          model, params['global']['number_of_bands'], nbr_pix_overlay)
+
