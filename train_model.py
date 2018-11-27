@@ -45,7 +45,7 @@ def verify_sample_count(num_trn_samples, num_val_samples, hdf5_folder, bucket=No
          hdf5_folder: data path in which the samples are saved
          bucket: aws s3 bucket where data is stored. '' if not on AWS
      """
-    if bucket is '':
+    if bucket:
         with h5py.File(os.path.join(hdf5_folder + '/samples', "trn_samples.hdf5"), 'r') as f:
             train_samples = len(f['map_img'])
         if num_trn_samples > train_samples:
