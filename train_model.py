@@ -36,15 +36,16 @@ def verify_weights(num_classes, weights):
                              'classes')
 
 
-def verify_sample_count(num_trn_samples, num_val_samples, hdf5_folder):
+def verify_sample_count(num_trn_samples, num_val_samples, hdf5_folder, bucket=None):
     """Verifies that the number of training and validation samples defined in the configuration file is less or equal to
      the number of training and validation samples in the hdf5 file
      Args:
          num_trn_samples: number of training samples defined in the configuration file
          num_val_samples: number of validation samples defined in the configuration file
          hdf5_folder: data path in which the samples are saved
+         bucket: aws s3 bucket where data is stored. '' if not on AWS
      """
-    if hdf5_folder:
+    if bucket is '':
         with h5py.File(os.path.join(hdf5_folder + '/samples', "trn_samples.hdf5"), 'r') as f:
             train_samples = len(f['map_img'])
         if num_trn_samples > train_samples:
@@ -116,18 +117,20 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         bucket = s3.Bucket(bucket_name)
         if data_path:
             bucket.download_file(os.path.join(data_path, 'samples/trn_samples.hdf5'),
-                                 os.path.join(data_path, 'samples/trn_samples.hdf5'))
+                                 'samples/trn_samples.hdf5')
             bucket.download_file(os.path.join(data_path, 'samples/val_samples.hdf5'),
-                                 os.path.join(data_path, 'samples/val_samples.hdf5'))
+                                 'samples/val_samples.hdf5')
         else:
             bucket.download_file('samples/trn_samples.hdf5', 'samples/trn_samples.hdf5')
             bucket.download_file('samples/val_samples.hdf5', 'samples/val_samples.hdf5')
     verify_weights(num_classes, class_weights)
-    verify_sample_count(num_trn_samples, num_val_samples, data_path)
+    verify_sample_count(num_trn_samples, num_val_samples, data_path, bucket_name)
 
     since = time.time()
     best_loss = 999
 
+    if bucket_name:
+        os.mkdir(output_path)
     trn_log = InformationLogger(output_path, 'trn')
     val_log = InformationLogger(output_path, 'val')
 
@@ -150,7 +153,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     if pretrained != '':
         model, optimizer = load_from_checkpoint(pretrained, model, optimizer)
 
-    if data_path:
+    if bucket_name is '':
         trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn",
                                                         transform=transforms.Compose([aug.RandomRotationTarget(),
                                                                                       aug.HorizontalFlip(),
