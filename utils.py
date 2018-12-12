@@ -4,8 +4,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import gdal
 import torch
+import warnings
 from ruamel_yaml import YAML
 from osgeo import gdal, ogr
+try:
+    import boto3
+except ModuleNotFoundError:
+    warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
+    pass
 
 
 def create_or_empty_folder(folder):
@@ -174,3 +180,17 @@ def validate_num_classes(vector_file, num_classes, value_field):
     if vector_classes + 1 != num_classes:
         raise ValueError('The number of classes in the yaml.config (%d) is different than the number of classes in '
                          'the file %s (%d)' % (num_classes, vector_file, vector_classes))
+
+
+def list_s3_subfolders(bucket, data_path):
+    list_classes = []
+
+    client = boto3.client('s3')
+    result = client.list_objects(Bucket=bucket, Prefix=data_path+'/', Delimiter='/')
+    for p in result.get('CommonPrefixes'):
+        if p['Prefix'].split('/')[-2] is not data_path:
+            list_classes.append(p['Prefix'].split('/')[-2])
+    return list_classes
+
+
+
