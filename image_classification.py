@@ -5,6 +5,7 @@ import torch
 import time
 import argparse
 import fnmatch
+import heapq
 from PIL import Image
 import torchvision
 from models.model_choice import net, maxpool_level
@@ -17,7 +18,7 @@ except ModuleNotFoundError:
     pass
 
 
-def main(bucket, work_folder, img_list, weights_file_name, model, number_of_bands, overlay, classify):
+def main(bucket, work_folder, img_list, weights_file_name, model, number_of_bands, overlay, classify, num_classes):
     """Identify the class to which each image belongs.
     Args:
         bucket: bucket in which data is stored if using AWS S3
@@ -54,7 +55,7 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
                 reader = csv.reader(f)
                 classes = list(reader)
     since = time.time()
-    classified_results = np.empty((0, 2))
+    classified_results = np.empty((0, 2 + num_classes))
 
     for img in img_list:
         if bucket:
@@ -63,10 +64,18 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
         else:
             assert_band_number(os.path.join(work_folder, img), number_of_bands)
         if classify:
-            predicted = classifier(bucket, model, work_folder, img)
+            outputs, predicted = classifier(bucket, model, work_folder, img)
+            top5 = heapq.nlargest(5, outputs.cpu().numpy()[0])
+            top5_loc = []
+            for i in top5:
+                top5_loc.append(np.where(outputs.cpu().numpy()[0] == i)[0][0])
             print('Image', img, 'classified as', classes[0][predicted])
-            classified_results = np.append(classified_results, [[os.path.join(work_folder, img), classes[0][
-                predicted]]], axis=0)
+            print('Top 5 classes:')
+            for i in range(0, 5):
+                print('\t', classes[0][top5_loc[i]], ':', top5[i])
+            classified_results = np.append(classified_results, [np.append([os.path.join(work_folder, img),
+                                                            classes[0][predicted]], outputs.cpu().numpy()[0])], axis=0)
+            print()
         else:
             classification(bucket, work_folder, model, img, overlay)
             print('Image ', img, ' classified')
@@ -184,8 +193,9 @@ def classifier(bucket, model, folder_images, image):
         if torch.cuda.is_available():
             img = img.cuda()
         outputs = model(img)
+        #print(outputs.cpu().numpy()[0])
         _, predicted = torch.max(outputs, 1)
-    return predicted
+    return outputs, predicted
 
 
 if __name__ == '__main__':
@@ -217,5 +227,5 @@ if __name__ == '__main__':
     else:
         list_img = [img for img in os.listdir(working_folder) if fnmatch.fnmatch(img, "*.tif*")]
     main(bucket, params['classification']['working_folder'], list_img, params['classification']['state_dict_path'],
-         model, params['global']['number_of_bands'], nbr_pix_overlay, params['global']['classify'])
+         model, params['global']['number_of_bands'], nbr_pix_overlay, params['global']['classify'], params['global']['num_classes'],)
 
