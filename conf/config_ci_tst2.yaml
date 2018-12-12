@@ -41,7 +41,7 @@ training:
 # Classification parameters; used in image_classification.py --------
 
 classification:
-  working_folder: ./data
+  working_folder: ./data/classification
   state_dict_path: ./data/checkpoint.pth.tar
 
 # Models parameters; used in train_model.py and image_classification.py
