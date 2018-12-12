@@ -8,13 +8,13 @@
 # Global parameters
 
 global:
-  samples_size: 256
-  num_classes: 2
+  samples_size: 299
+  num_classes: 6
   data_path: ./data
-  number_of_bands: 3
-  model_name: checkpointed_unet     # One of unet, unetsmall or ternausnet
+  number_of_bands: 4
+  model_name: inception     # One of unet, unetsmall or ternausnet
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
-  classify: False #False for semantic segmentation, True for classification
+  classify: True # False for semantic segmentation, True for classification
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -36,7 +36,7 @@ training:
   weight_decay: 0
   step_size: 4
   gamma: 0.9
-  class_weights: [1.0, 2.0]
+  class_weights: False
 
 # Classification parameters; used in image_classification.py --------
 
