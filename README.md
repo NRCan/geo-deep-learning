@@ -313,7 +313,7 @@ training:
   step_size: 4                                  # Apply gamma every step_size
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
 ```
-Note: ```data_path``` always must have a value for classification tasks
+Note: ```data_path``` must always have a value for classification tasks
 
 Inputs:
 - Tiff images in the file structure described in the Classification Task Data Preparation section
@@ -358,9 +358,10 @@ Inputs:
 - Images to be classified
 
 Outputs:
-- csv file associating each image by its file path to a label
+- csv file associating each image by its file path to a label. This file also contains the class prediction vector with the classes in the same order as in classes.csv if it was generated during training.
 
 Process:
 - The process will load trained weights to the specified architecture and perform a classification task on all the images contained in the ```working_folder```.
+- The full file path of the classified image, the class identified, as well as the top 5 most likely classes and their value will be displayed on the screen
 
 
