@@ -168,9 +168,30 @@ def vector_to_raster(vector_file, attribute_name, new_raster):
     gdal.RasterizeLayer(new_raster, [1], rev_lyr, options=["ATTRIBUTE=%s" % attribute_name])
 
 
-def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
-         remove_background, mask_input_image):
-    gpkg_file = []
+def save_samples_to_s3(bucket, data_path, samples_folder, final_samples_folder, out_label_folder, final_out_label_folder):
+    try:
+        bucket.put_object(Key=os.path.join(data_path, 'samples/'), Body='')
+    except:
+        pass
+    try:
+        bucket.put_object(Key='label/', Body='')
+    except:
+        pass
+    trn_samples = open(samples_folder + "/trn_samples.hdf5", 'rb')
+    bucket.put_object(Key=final_samples_folder + '/trn_samples.hdf5', Body=trn_samples, Tagging='Project Name=Deep Learning')
+    val_samples = open(samples_folder + "/val_samples.hdf5", 'rb')
+    bucket.put_object(Key=final_samples_folder + '/val_samples.hdf5', Body=val_samples, Tagging='Project Name=Deep Learning')
+    # trn labels from out_label_folder
+    for f in os.listdir(out_label_folder):
+        label = open(os.path.join(out_label_folder, f), 'rb')
+        bucket.put_object(Key=os.path.join(final_out_label_folder, f), Body=label, Tagging='Project Name=Deep Learning')
+        os.remove(os.path.join(out_label_folder, f))
+    os.remove(samples_folder + "/trn_samples.hdf5")
+    os.remove(samples_folder + "/val_samples.hdf5")
+    os.remove('samples_prep.csv')
+
+
+def prepare_sample_folders(bucket_name, csv_file, data_path):
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
@@ -184,11 +205,23 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
             final_out_label_folder = "label"
         samples_folder = "samples"
         out_label_folder = "label"
+        return list_data_prep, samples_folder, out_label_folder, final_samples_folder, final_out_label_folder, bucket
 
     else:
         list_data_prep = read_csv(csv_file)
         samples_folder = os.path.join(data_path, "samples")
         out_label_folder = os.path.join(data_path, "label")
+        return list_data_prep, samples_folder, out_label_folder
+
+
+def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
+         remove_background, mask_input_image):
+    gpkg_file = []
+    if bucket_name:
+        list_data_prep, samples_folder, out_label_folder, final_samples_folder, final_out_label_folder, bucket = \
+            prepare_sample_folders(bucket_name, csv_file, data_path)
+    else:
+        list_data_prep, samples_folder, out_label_folder = prepare_sample_folders(bucket_name, csv_file, data_path)
 
     create_or_empty_folder(samples_folder)
     create_or_empty_folder(out_label_folder)
@@ -268,28 +301,9 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
     print("Number of samples created: ", number_samples)
     if bucket_name:
         print('Transfering Samples to the bucket')
-        try:
-            bucket.put_object(Key=os.path.join(data_path, 'samples/', Body=''))
-        except:
-            pass
-        try:
-            bucket.put_object(Key='label/', Body='')
-        except:
-            pass
-
-        trn_samples = open(samples_folder + "/trn_samples.hdf5", 'rb')
-        bucket.put_object(Key=final_samples_folder + '/trn_samples.hdf5', Body=trn_samples)
-        val_samples = open(samples_folder + "/val_samples.hdf5", 'rb')
-        bucket.put_object(Key=final_samples_folder + '/val_samples.hdf5', Body=val_samples)
-        # trn labels from out_label_folder
-        for f in os.listdir(out_label_folder):
-            label = open(os.path.join(out_label_folder, f), 'rb')
-            bucket.put_object(Key=os.path.join(final_out_label_folder, f), Body=label)
-            os.remove(os.path.join(out_label_folder, f))
-        os.remove(samples_folder + "/trn_samples.hdf5")
-        os.remove(samples_folder + "/val_samples.hdf5")
+        save_samples_to_s3(bucket, data_path, samples_folder, final_samples_folder, out_label_folder,
+                           final_out_label_folder)
         os.remove(info['gpkg'])
-        os.remove('samples_prep.csv')
     print("End of process")
 
 

@@ -2,17 +2,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# Modified from torchvision's inception-v3 on GitHub as of 2018-12-14
+# Source: https://github.com/pytorch/vision/blob/master/torchvision/models/inception.py
+# Copyright (c) Soumith Chintala 2016, All rights reserved.
 
-class Inception3(nn.Module):
+
+class CustomInception3(nn.Module):
     r"""Inception v3 model architecture from
     `"Rethinking the Inception Architecture for Computer Vision" <http://arxiv.org/abs/1512.00567>`_.
-    Modified from https://github.com/pytorch/vision/blob/master/torchvision/models/inception.py
     Args:
         num_classes: number of classes used for classification
         band_num: number of bands in the input image
     """
     def __init__(self, num_classes, band_num=3):
-        super(Inception3, self).__init__()
+        super(CustomInception3, self).__init__()
         self.Conv2d_1a_3x3 = BasicConv2d(band_num, 32, kernel_size=3, stride=2)
         self.Conv2d_2a_3x3 = BasicConv2d(32, 32, kernel_size=3)
         self.Conv2d_2b_3x3 = BasicConv2d(32, 64, kernel_size=3, padding=1)
@@ -20,15 +23,13 @@ class Inception3(nn.Module):
         self.Conv2d_4a_3x3 = BasicConv2d(80, 192, kernel_size=3)
         self.Mixed_5b = InceptionA(192, pool_features=32)
         self.Mixed_5c = InceptionA(256, pool_features=64)
-        self.Mixed_5d = InceptionA(288, pool_features=64)
         self.Mixed_6a = InceptionB(288)
         self.Mixed_6b = InceptionC(768, channels_7x7=128)
         self.Mixed_6c = InceptionC(768, channels_7x7=160)
         self.Mixed_6d = InceptionC(768, channels_7x7=160)
-        self.Mixed_6e = InceptionC(768, channels_7x7=192)
         self.Mixed_7a = InceptionD(768)
         self.Mixed_7b = InceptionE(1280)
-        self.Mixed_7c = InceptionE(2048)
+        self.avg_pool2d = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(2048, num_classes)
 
         for m in self.modules():
@@ -53,16 +54,13 @@ class Inception3(nn.Module):
         x = F.max_pool2d(x, kernel_size=3, stride=2)
         x = self.Mixed_5b(x)
         x = self.Mixed_5c(x)
-        x = self.Mixed_5d(x)
         x = self.Mixed_6a(x)
         x = self.Mixed_6b(x)
         x = self.Mixed_6c(x)
         x = self.Mixed_6d(x)
-        x = self.Mixed_6e(x)
         x = self.Mixed_7a(x)
         x = self.Mixed_7b(x)
-        x = self.Mixed_7c(x)
-        x = F.avg_pool2d(x, kernel_size=8)
+        x = self.avg_pool2d(x)
         x = F.dropout(x, training=self.training)
         x = x.view(x.size(0), -1)
         x = self.fc(x)

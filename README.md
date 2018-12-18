@@ -251,6 +251,8 @@ The classification task allows images to be recognized as a whole rather than id
 Currently, Inception-v3 is the only model available for classification tasks in our deep learning process. Other model architectures may be added in the future.
 ### Models available
 - [Inception-v3](https://arxiv.org/abs/1512.00567)
+- [ResNet18, ResNet34, ResNet50, ResNet101, ResNet152](https://arxiv.org/abs/1512.03385)
+- [DenseNet121, DenseNet161, DenseNet169, DenseNet201](https://arxiv.org/abs/1608.06993) 
 ### Data preparation
 The images used for training the model must be split into folders for training and validation samples within the ```data_path``` global parameter from the configuration file. Each of these folders must be divided into subfolders by class in a structure like ImageNet-like structure. Torchvision's ```ImageLoader``` is used as the dataset for training and thus running ```images_to_samples.py``` isn't necessary when performing classification tasks. An example of the required file structure is provided below:
 

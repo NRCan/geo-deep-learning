@@ -10,8 +10,7 @@ from PIL import Image
 import torchvision
 from models.model_choice import net, maxpool_level
 from utils import read_parameters, create_new_raster_from_base, assert_band_number, load_from_checkpoint, \
-    image_reader_as_array
-
+    image_reader_as_array, image_loader
 try:
     import boto3
 except ModuleNotFoundError:
@@ -86,12 +85,12 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
                 pass
             if not classify:
                 classif_img = open('Classified_Images/' + img.split('.')[0] + '_classif.tif', 'rb')
-                bucket.put_object(Key='Classified_Images/' + img.split('.')[0] + '_classif.tif', Body=classif_img)
+                bucket.put_object(Key='Classified_Images/' + img.split('.')[0] + '_classif.tif', Body=classif_img, Tagging='Project Name=Deep Learning')
     if classify:
         if bucket:
             np.savetxt('classification_results.csv', classified_results, fmt='%s', delimiter=',')
             csv_file = open('classification_results.csv', 'rb')
-            bucket.put_object(Key=os.path.join(work_folder, 'classification_results.csv'), Body=csv_file)
+            bucket.put_object(Key=os.path.join(work_folder, 'classification_results.csv'), Body=csv_file, Tagging='Project Name=Deep Learning')
         else:
             np.savetxt(os.path.join(work_folder, 'classification_results.csv'), classified_results, fmt='%s',
                        delimiter=',')
@@ -183,9 +182,10 @@ def classifier(bucket, model, folder_images, image):
         """
     model.eval()
     if bucket:
-        img = Image.open(os.path.join('Images', image)).resize((299, 299), resample=Image.BILINEAR)
+        img = image_loader(os.path.join('Images', image))
     else:
-        img = Image.open(os.path.join(folder_images, image)).resize((299, 299), resample=Image.BILINEAR)
+        img = image_loader(os.path.join(folder_images, image))
+
     to_tensor = torchvision.transforms.ToTensor()
     img = to_tensor(img)
     img = img.unsqueeze(0)
@@ -193,7 +193,6 @@ def classifier(bucket, model, folder_images, image):
         if torch.cuda.is_available():
             img = img.cuda()
         outputs = model(img)
-        #print(outputs.cpu().numpy()[0])
         _, predicted = torch.max(outputs, 1)
     return outputs, predicted
 

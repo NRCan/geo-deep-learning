@@ -11,14 +11,14 @@ import torch.optim as optim
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from PIL import Image
 
 import CreateDataset
 import augmentation as aug
 from logger import InformationLogger
 from metrics import report_classification, iou, create_metrics_dict
 from models.model_choice import net
-from utils import read_parameters, load_from_checkpoint, list_s3_subfolders
+from utils import read_parameters, load_from_checkpoint, list_s3_subfolders, image_loader
+
 
 try:
     import boto3
@@ -91,11 +91,6 @@ def save_checkpoint(state, filename):
     torch.save(state, filename)
 
 
-def loader(path):
-    img = Image.open(path)
-    return img
-
-
 def get_s3_classification_images(dataset, bucket, bucket_name, data_path, output_path):
     classes = list_s3_subfolders(bucket_name, os.path.join(data_path, dataset))
     classes.sort()
@@ -128,7 +123,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         output_path: full file path in which the model will be saved
         num_trn_samples: number of training samples
         num_val_samples: number of validation samples
-        pretrained: booleam indicating if the model is pretrained
+        pretrained: boolean indicating if the model is pretrained
         batch_size: number of samples to process simultaneously
         num_epochs: number of epochs
         learning_rate: learning rate
@@ -143,36 +138,9 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         Files 'checkpoint.pth.tar' and 'last_epoch.pth.tar' containing trained weight
     """
     if bucket_name:
-        if output_path is None:
-            final_output_path = None
-        else:
-            final_output_path = output_path
-        output_path = 'output_path'
-        try:
-            os.mkdir(output_path)
-        except FileExistsError:
-            pass
-        s3 = boto3.resource('s3')
-        bucket = s3.Bucket(bucket_name)
-        if classifier:
-            for i in ['trn', 'val']:
-                get_s3_classification_images(i, bucket, bucket_name, data_path, output_path)
-                class_file = open(os.path.join(output_path, 'classes.csv'), 'rb')
-                if final_output_path:
-                    bucket.put_object(Key=os.path.join(final_output_path, "classes.csv"), Body=class_file)
-                else:
-                    bucket.put_object(Key="classes.csv", Body=class_file)
-            data_path = 'Images'
-        else:
-            if data_path:
-                bucket.download_file(os.path.join(data_path, 'samples/trn_samples.hdf5'),
-                                     'samples/trn_samples.hdf5')
-                bucket.download_file(os.path.join(data_path, 'samples/val_samples.hdf5'),
-                                     'samples/val_samples.hdf5')
-            else:
-                bucket.download_file('samples/trn_samples.hdf5', 'samples/trn_samples.hdf5')
-                bucket.download_file('samples/val_samples.hdf5', 'samples/val_samples.hdf5')
-            verify_sample_count(num_trn_samples, num_val_samples, data_path, bucket_name)
+        final_output_path, output_path, data_path, bucket = get_train_data_from_s3(data_path, output_path,
+                                                                                   bucket_name, num_trn_samples,
+                                                                                   num_val_samples, classifier)
     elif classifier:
         # Get classes locally and write to csv in output_path
         classes = next(os.walk(os.path.join(data_path, 'trn')))[1]
@@ -208,27 +176,8 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     if pretrained != '':
         model, optimizer = load_from_checkpoint(pretrained, model, optimizer)
 
-    if classifier:
-        trn_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "trn"),
-            transform=transforms.Compose([transforms.RandomRotation((0, 275)), transforms.RandomHorizontalFlip(),
-                                          transforms.Resize(299), transforms.ToTensor()]), loader=loader)
-        val_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "val"),
-            transform = transforms.Compose([transforms.Resize(299), transforms.ToTensor()]), loader=loader)
-    else:
-        if not bucket_name:
-            trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn",
-                                                            transform=transforms.Compose([aug.RandomRotationTarget(),
-                                                                                          aug.HorizontalFlip(),
-                                                                                          aug.ToTensorTarget()]))
-            val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_val_samples, "val",
-                                                            transform=transforms.Compose([aug.ToTensorTarget()]))
-        else:
-            trn_dataset = CreateDataset.SegmentationDataset('samples', num_trn_samples, "trn",
-                                                            transform=transforms.Compose([aug.RandomRotationTarget(),
-                                                                                          aug.HorizontalFlip(),
-                                                                                          aug.ToTensorTarget()]))
-            val_dataset = CreateDataset.SegmentationDataset("samples", num_val_samples, "val",
-                                                            transform=transforms.Compose([aug.ToTensorTarget()]))
+    trn_dataset, val_dataset = load_datasets(data_path, image_loader, classifier, bucket_name, num_trn_samples,
+                                             num_val_samples)
 
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
@@ -257,7 +206,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                     filename = os.path.join(final_output_path, 'checkpoint.pth.tar')
                 else:
                     filename = 'checkpoint.pth.tar'
-                bucket.put_object(Key=filename, Body=check)
+                bucket.put_object(Key=filename, Body=check, Tagging='Project Name=Deep Learning')
                 os.remove(os.path.join(output_path, 'checkpoint.pth.tar'))
         cur_elapsed = time.time() - since
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
@@ -267,70 +216,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                      'optimizer': optimizer.state_dict()}, filename)
 
     if bucket_name:
-        if final_output_path:
-            final_filename = os.path.join(final_output_path, 'last_epoch.pth.tar')
-        else:
-            final_filename = 'last_epoch.pth.tar'
-        trained_model = open(filename, 'rb')
-        bucket.put_object(Key=final_filename, Body=trained_model)
-        os.remove(filename)
-        now = datetime.datetime.now().strftime("%Y-%m-%d %I:%M ")
-        if final_output_path:
-            try:
-                bucket.put_object(Key=final_output_path + '/', Body='')
-                bucket.put_object(Key=os.path.join(final_output_path, "Logs/"), Body='')
-            except ClientError:
-                pass
-            logs = open(os.path.join(output_path, "trn_classes_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_classes_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_classes_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_classes_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "trn_averaged_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_averaged_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_averaged_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_averaged_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "trn_losses_values.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_losses_values.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_losses_values.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_losses_values.log"), Body=logs)
-            logs = open(os.path.join(output_path, "trn_iou.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_iou.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_iou.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_iou.log"), Body=logs)
-            os.remove(os.path.join(output_path, "trn_iou.log"))
-            os.remove(os.path.join(output_path, "val_iou.log"))
-            os.remove(os.path.join(output_path, "val_losses_values.log"))
-            os.remove(os.path.join(output_path, "trn_losses_values.log"))
-            os.remove(os.path.join(output_path, "val_averaged_score.log"))
-            os.remove(os.path.join(output_path, "trn_averaged_score.log"))
-            os.remove(os.path.join(output_path, "val_classes_score.log"))
-            os.remove(os.path.join(output_path, "trn_classes_score.log"))
-        else:
-            try:
-                bucket.put_object(Key="Logs/", Body='')
-            except ClientError:
-                pass
-            logs = open(os.path.join(output_path, "trn_classes_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_classes_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "val_classes_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "val_classes_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "trn_averaged_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_averaged_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "val_averaged_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "val_averaged_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "trn_losses_values.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_losses_values.log", Body=logs)
-            logs = open(os.path.join(output_path, "val_losses_values.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "val_losses_values.log", Body=logs)
-            logs = open(os.path.join(output_path, "trn_iou.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_iou.log", Body=logs)
-            os.remove(os.path.join(output_path, "trn_iou.log"))
-            os.remove(os.path.join(output_path, "val_losses_values.log"))
-            os.remove(os.path.join(output_path, "trn_losses_values.log"))
-            os.remove(os.path.join(output_path, "val_averaged_score.log"))
-            os.remove(os.path.join(output_path, "trn_averaged_score.log"))
-            os.remove(os.path.join(output_path, "val_classes_score.log"))
-            os.remove(os.path.join(output_path, "trn_classes_score.log"))
+        save_train_results_to_s3(bucket, final_output_path, output_path, filename)
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
@@ -449,6 +335,132 @@ def validation(valid_loader, model, criterion, num_classes, batch_size, classifi
     return valid_metrics
 
 
+def get_train_data_from_s3(data_path, output_path, bucket_name, num_trn_samples, num_val_samples, classifier):
+    if output_path is None:
+        final_output_path = None
+    else:
+        final_output_path = output_path
+    output_path = 'output_path'
+    try:
+        os.mkdir(output_path)
+    except FileExistsError:
+        pass
+    s3 = boto3.resource('s3')
+    bucket = s3.Bucket(bucket_name)
+
+    if classifier:
+        for i in ['trn', 'val']:
+            get_s3_classification_images(i, bucket, bucket_name, data_path, output_path)
+            class_file = open(os.path.join(output_path, 'classes.csv'), 'rb')
+            if final_output_path:
+                bucket.put_object(Key=os.path.join(final_output_path, "classes.csv"), Body=class_file, Tagging='Project Name=Deep Learning')
+            else:
+                bucket.put_object(Key="classes.csv", Body=class_file, Tagging='Project Name=Deep Learning')
+        data_path = 'Images'
+    else:
+        if data_path:
+            bucket.download_file(os.path.join(data_path, 'samples/trn_samples.hdf5'),
+                                 'samples/trn_samples.hdf5')
+            bucket.download_file(os.path.join(data_path, 'samples/val_samples.hdf5'),
+                                 'samples/val_samples.hdf5')
+        else:
+            bucket.download_file('samples/trn_samples.hdf5', 'samples/trn_samples.hdf5')
+            bucket.download_file('samples/val_samples.hdf5', 'samples/val_samples.hdf5')
+        verify_sample_count(num_trn_samples, num_val_samples, data_path, bucket_name)
+
+    return final_output_path, output_path, data_path, bucket
+
+
+def save_train_results_to_s3(bucket, final_output_path, output_path, filename):
+    now = datetime.datetime.now().strftime("%Y-%m-%d %I:%M ")
+    if final_output_path:
+        final_filename = os.path.join(final_output_path, 'last_epoch.pth.tar')
+        try:
+            bucket.put_object(Key=final_output_path + '/', Body='')
+            bucket.put_object(Key=os.path.join(final_output_path, "Logs/"), Body='', Tagging='Project Name=Deep Learning')
+        except ClientError:
+            pass
+        logs = open(os.path.join(output_path, "trn_classes_score.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_classes_score.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_classes_score.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_classes_score.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_averaged_score.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_averaged_score.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_averaged_score.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_averaged_score.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_losses_values.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_losses_values.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_losses_values.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_losses_values.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_iou.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_iou.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_iou.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_iou.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        os.remove(os.path.join(output_path, "trn_iou.log"))
+        os.remove(os.path.join(output_path, "val_iou.log"))
+        os.remove(os.path.join(output_path, "val_losses_values.log"))
+        os.remove(os.path.join(output_path, "trn_losses_values.log"))
+        os.remove(os.path.join(output_path, "val_averaged_score.log"))
+        os.remove(os.path.join(output_path, "trn_averaged_score.log"))
+        os.remove(os.path.join(output_path, "val_classes_score.log"))
+        os.remove(os.path.join(output_path, "trn_classes_score.log"))
+    else:
+        final_filename = 'last_epoch.pth.tar'
+        try:
+            bucket.put_object(Key="Logs/", Body='')
+        except ClientError:
+            pass
+        logs = open(os.path.join(output_path, "trn_classes_score.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "trn_classes_score.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_classes_score.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "val_classes_score.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_averaged_score.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "trn_averaged_score.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_averaged_score.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "val_averaged_score.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_losses_values.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "trn_losses_values.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_losses_values.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "val_losses_values.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_iou.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "trn_iou.log", Body=logs, Tagging='Project Name=Deep Learning')
+        os.remove(os.path.join(output_path, "trn_iou.log"))
+        os.remove(os.path.join(output_path, "val_losses_values.log"))
+        os.remove(os.path.join(output_path, "trn_losses_values.log"))
+        os.remove(os.path.join(output_path, "val_averaged_score.log"))
+        os.remove(os.path.join(output_path, "trn_averaged_score.log"))
+        os.remove(os.path.join(output_path, "val_classes_score.log"))
+        os.remove(os.path.join(output_path, "trn_classes_score.log"))
+    trained_model = open(filename, 'rb')
+    bucket.put_object(Key=final_filename, Body=trained_model, Tagging='Project Name=Deep Learning')
+    os.remove(filename)
+
+
+def load_datasets(data_path, loader, classifier, bucket_name, num_trn_samples, num_val_samples):
+    if classifier:
+        trn_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "trn"),
+            transform=transforms.Compose([transforms.RandomRotation((0, 275)), transforms.RandomHorizontalFlip(),
+                                          transforms.ToTensor()]), loader=loader)
+        val_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "val"),
+                                                       transforms.ToTensor(), loader=loader)
+    else:
+        if not bucket_name:
+            trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn",
+                                                            transform=transforms.Compose([aug.RandomRotationTarget(),
+                                                                                          aug.HorizontalFlip(),
+                                                                                          aug.ToTensorTarget()]))
+            val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_val_samples, "val",
+                                                            transform=transforms.Compose([aug.ToTensorTarget()]))
+        else:
+            trn_dataset = CreateDataset.SegmentationDataset('samples', num_trn_samples, "trn",
+                                                            transform=transforms.Compose([aug.RandomRotationTarget(),
+                                                                                          aug.HorizontalFlip(),
+                                                                                          aug.ToTensorTarget()]))
+            val_dataset = CreateDataset.SegmentationDataset("samples", num_val_samples, "val",
+                                                            transform=transforms.Compose([aug.ToTensorTarget()]))
+    return trn_dataset, val_dataset
+
+
 if __name__ == '__main__':
     print('Start:')
     parser = argparse.ArgumentParser(description='Training execution')
@@ -457,7 +469,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     params = read_parameters(args.param_file)
     cnn_model, state_dict_path = net(params)
-
     main(params['global']['bucket_name'],
          params['global']['data_path'],
          params['training']['output_path'],

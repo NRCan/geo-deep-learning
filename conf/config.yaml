@@ -60,4 +60,21 @@ models:
     <<: *unet001
   inception:
     pretrained: False   # optional
-    
+  resnet18: &resnet
+    pretrained: False   # optional
+  resnet34:
+    <<: *resnet
+  resnet50:
+    <<: *resnet
+  resnet101:
+    <<: *resnet
+  resnet152:
+    <<: *resnet
+  densenet121: &densenet
+    pretrained: False   # optional
+  densenet161:
+    <<: *densenet  
+  densenet169:
+    <<: *densenet  
+  densenet201:
+    <<: *densenet  

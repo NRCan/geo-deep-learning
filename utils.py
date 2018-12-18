@@ -2,9 +2,9 @@ import os
 import subprocess
 import numpy as np
 import matplotlib.pyplot as plt
-import gdal
 import torch
 import warnings
+from PIL import Image
 from ruamel_yaml import YAML
 from osgeo import gdal, ogr
 try:
@@ -193,4 +193,20 @@ def list_s3_subfolders(bucket, data_path):
     return list_classes
 
 
-
+def image_loader(path):
+    """Image loader used for classification tasks in train_model.py and image_classification.py.
+    The resized image is set to 76 so that small images can work be used with inception-v3.
+    Args:
+          path: full file path of the image
+    Returns:
+          img: PIL Image"""
+    img = Image.open(path)
+    width, height = img.size
+    if height < 76:
+        adjustment = 76/height
+        img = img.resize((round(width * adjustment), round(height * adjustment)), resample=Image.BILINEAR)
+    width, height = img.size
+    if width < 76:
+        adjustment = 76/width
+        img = img.resize((round(width * adjustment), round(height * adjustment)), resample=Image.BILINEAR)
+    return img
