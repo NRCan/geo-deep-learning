@@ -174,12 +174,17 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
-        if csv_file not in gpkg_file:
-            gpkg_file.append(csv_file)
-            bucket.download_file(csv_file, 'samples_prep.csv')
+        bucket.download_file(csv_file, 'samples_prep.csv')
         list_data_prep = read_csv('samples_prep.csv')
+        if data_path:
+            final_samples_folder = os.path.join(data_path, "samples")
+            final_out_label_folder = os.path.join(data_path, "label")
+        else:
+            final_samples_folder = "samples"
+            final_out_label_folder = "label"
         samples_folder = "samples"
         out_label_folder = "label"
+
     else:
         list_data_prep = read_csv(csv_file)
         samples_folder = os.path.join(data_path, "samples")
@@ -208,9 +213,12 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
         label_name = os.path.join(out_label_folder, img_name + "_label.tif")
 
         if bucket_name:
-            bucket.download_file(info['tif'], info['tif'])
-            bucket.download_file(info['gpkg'], info['gpkg'])
-
+            bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
+            info['tif'] = "Images/" + info['tif'].split('/')[-1]
+            if info['gpkg'] not in gpkg_file:
+                gpkg_file.append(info['gpkg'])
+                bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
+            info['gpkg'] = info['gpkg'].split('/')[-1]
         assert_band_number(info['tif'], number_of_bands)
 
         tmp_label_raster = create_new_raster_from_base(info['tif'], tmp_label_name, 1)
@@ -261,22 +269,22 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
     if bucket_name:
         print('Transfering Samples to the bucket')
         try:
-            bucket.put_object(Key='samples/', Body='')
-        except ClientError:
+            bucket.put_object(Key=os.path.join(data_path, 'samples/', Body=''))
+        except:
             pass
         try:
             bucket.put_object(Key='label/', Body='')
-        except ClientError:
+        except:
             pass
 
         trn_samples = open(samples_folder + "/trn_samples.hdf5", 'rb')
-        bucket.put_object(Key=samples_folder + '/trn_samples.hdf5', Body=trn_samples)
+        bucket.put_object(Key=final_samples_folder + '/trn_samples.hdf5', Body=trn_samples)
         val_samples = open(samples_folder + "/val_samples.hdf5", 'rb')
-        bucket.put_object(Key=samples_folder + '/val_samples.hdf5', Body=val_samples)
+        bucket.put_object(Key=final_samples_folder + '/val_samples.hdf5', Body=val_samples)
         # trn labels from out_label_folder
         for f in os.listdir(out_label_folder):
             label = open(os.path.join(out_label_folder, f), 'rb')
-            bucket.put_object(Key=os.path.join(out_label_folder, f), Body=label)
+            bucket.put_object(Key=os.path.join(final_out_label_folder, f), Body=label)
             os.remove(os.path.join(out_label_folder, f))
         os.remove(samples_folder + "/trn_samples.hdf5")
         os.remove(samples_folder + "/val_samples.hdf5")

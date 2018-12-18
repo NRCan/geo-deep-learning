@@ -3,10 +3,10 @@ import torch.nn as nn
 
 from collections import OrderedDict
 
-from models import TernausNet, unet, checkpointed_unet
+from models import TernausNet, unet, checkpointed_unet, inception
 
 
-def maxpool_level(model):
+def maxpool_level(model, num_bands, size):
     """Calculate and return the number of maxpool inside the model definition.
     This function is useful during classification in order to calculate the number of pixel required as context.
     """
@@ -21,7 +21,7 @@ def maxpool_level(model):
         if not isinstance(module, nn.Sequential) and not isinstance(module, nn.ModuleList) and not (module == model):
             hooks.append(module.register_forward_hook(hook))
 
-    input_size = (3, 256, 256)
+    input_size = (num_bands, size, size)
     x = torch.rand(1, *input_size).type(torch.FloatTensor)
 
     summary = OrderedDict()
@@ -67,11 +67,16 @@ def net(net_params, rtn_level=False):
                                        net_params['models']['unetsmall']['probability'])
         if net_params['models']['unetsmall']['pretrained']:
             state_dict_path = net_params['models']['unetsmall']['pretrained']
+    elif model_name == 'inception':
+        model = inception.Inception3(net_params['global']['num_classes'],
+                                     net_params['global']['number_of_bands'])
+        if net_params['models']['inception']['pretrained']:
+            state_dict_path = net_params['models']['inception']['pretrained']
     else:
         raise ValueError('The model name in the config.yaml is not defined.')
 
     if rtn_level:
-        lvl = maxpool_level(model)
+        lvl = maxpool_level(model, net_params['global']['number_of_bands'], 256)
         return model, state_dict_path, lvl['MaxPoolCount']
     else:
         return model, state_dict_path
