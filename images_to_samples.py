@@ -112,7 +112,8 @@ def samples_preparation(sat_img, ref_img, sample_size, dist_samples, samples_cou
     """
 
     # read input and reference images as array
-    in_img_array = scale_intensity(image_reader_as_array(sat_img))
+    # in_img_array = scale_intensity(image_reader_as_array(sat_img))
+    in_img_array = image_reader_as_array(sat_img)
     label_array = image_reader_as_array(ref_img)
 
     h, w, num_bands = in_img_array.shape
@@ -199,11 +200,11 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
     tmp_trn_hdf5 = h5py.File(os.path.join(samples_folder, "trn_tmp_samples.hdf5"), "w")
     tmp_val_hdf5 = h5py.File(os.path.join(samples_folder, "val_tmp_samples.hdf5"), "w")
 
-    tmp_trn_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.uint8,
+    tmp_trn_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
                                 maxshape=(None, samples_size, samples_size, number_of_bands))
     tmp_trn_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
                                 maxshape=(None, samples_size, samples_size))
-    tmp_val_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.uint8,
+    tmp_val_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
                                 maxshape=(None, samples_size, samples_size, number_of_bands))
     tmp_val_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
                                 maxshape=(None, samples_size, samples_size))
