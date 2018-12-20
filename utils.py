@@ -1,4 +1,5 @@
 import torch
+# import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
 import os
 import subprocess
 import numpy as np

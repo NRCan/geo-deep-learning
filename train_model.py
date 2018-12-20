@@ -1,9 +1,10 @@
+import torch
+# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
 import os
 import csv
 import time
 import h5py
-import torch
 import datetime
 import warnings
 import torchvision
