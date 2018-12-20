@@ -1,9 +1,9 @@
+import torch
 import os
 import subprocess
 import numpy as np
 import matplotlib.pyplot as plt
 import gdal
-import torch
 import warnings
 from ruamel_yaml import YAML
 from osgeo import gdal, ogr
