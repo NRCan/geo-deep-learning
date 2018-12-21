@@ -1,7 +1,8 @@
+import torch
+# import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
 import numpy as np
 import os
 import csv
-import torch
 import time
 import argparse
 import fnmatch

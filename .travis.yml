@@ -10,7 +10,7 @@ install:
   - conda update -q conda
   - conda info -a
 
-  - conda create -q -n ci_env python=3.6 pytorch-cpu=0.4.0 torchvision ruamel_yaml h5py gdal=2.2.2 scikit-image scikit-learn -c pytorch
+  - conda create -q -n ci_env python=3.6 pytorch-cpu=0.4.0 torchvision ruamel_yaml h5py gdal scikit-image scikit-learn -c pytorch
   - source activate ci_env
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data

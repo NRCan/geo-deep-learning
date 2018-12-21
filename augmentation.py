@@ -1,5 +1,6 @@
-import random
 import torch
+# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
+import random
 import numpy as np
 from skimage import transform, exposure
 

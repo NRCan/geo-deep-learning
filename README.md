@@ -15,12 +15,12 @@ After installing the required computing environment (see next section), one need
 - Python 3.6 with the following libraries:
     - pytorch 0.4.0
     - torchvision 0.2.1
-    - numpy 1.14.0
-    - gdal 2.2.2
-    - ruamel_yaml 0.15.35
-    - scikit-image 0.13.1
-    - scikit-learn 0.20 (version on [conda-forge](https://anaconda.org/conda-forge/scikit-learn) as of 26 Sept. 2018)
-    - h5py 2.8.0
+    - numpy
+    - gdal
+    - ruamel_yaml
+    - scikit-image
+    - scikit-learn
+    - h5py
 - nvidia GPU highly recommended
 - The system can be used on your workstation or cluster and on [AWS](https://aws.amazon.com/).
 
