@@ -222,17 +222,21 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
             info['gpkg'] = info['gpkg'].split('/')[-1]
         assert_band_number(info['tif'], number_of_bands)
 
-        tmp_label_raster = create_new_raster_from_base(info['tif'], tmp_label_name, 1)
         value_field = info['attribute_name']
         validate_num_classes(info['gpkg'], num_classes, value_field)
-        vector_to_raster(info['gpkg'], info['attribute_name'], tmp_label_raster)
-
-        tmp_label_raster = None
 
         # Mask zeros from input image into label raster.
         if mask_reference:
+            tmp_label_raster = create_new_raster_from_base(info['tif'], tmp_label_name, 1)
+            vector_to_raster(info['gpkg'], info['attribute_name'], tmp_label_raster)
+
             masked_array = mask_image(image_reader_as_array(info['tif']), image_reader_as_array(tmp_label_name))
             create_new_raster_from_base(info['tif'], label_name, 1, masked_array)
+            tmp_label_raster = None
+        else:
+            label_raster = create_new_raster_from_base(info['tif'], label_name, 1)
+            vector_to_raster(info['gpkg'], info['attribute_name'], label_raster)
+
         # Mask zeros from label raster into input image.
         if mask_input_image:
             masked_img = mask_image(image_reader_as_array(label_name), image_reader_as_array(info['tif']))
