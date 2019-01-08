@@ -233,6 +233,7 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
             masked_array = mask_image(image_reader_as_array(info['tif']), image_reader_as_array(tmp_label_name))
             create_new_raster_from_base(info['tif'], label_name, 1, masked_array)
             tmp_label_raster = None
+            os.remove(tmp_label_name)
         else:
             label_raster = create_new_raster_from_base(info['tif'], label_name, 1)
             vector_to_raster(info['gpkg'], info['attribute_name'], label_raster)
@@ -241,8 +242,6 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
         if mask_input_image:
             masked_img = mask_image(image_reader_as_array(label_name), image_reader_as_array(info['tif']))
             create_new_raster_from_base(label_name, info['tif'], number_of_bands, masked_img)
-
-        os.remove(tmp_label_name)
 
         if info['dataset'] == 'trn':
             out_file = tmp_trn_hdf5
