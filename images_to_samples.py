@@ -170,7 +170,7 @@ def vector_to_raster(vector_file, attribute_name, new_raster):
 
 
 def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
-         remove_background, mask_input_image):
+         remove_background, mask_input_image, mask_reference):
     gpkg_file = []
     if bucket_name:
         s3 = boto3.resource('s3')
@@ -230,8 +230,9 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
         tmp_label_raster = None
 
         # Mask zeros from input image into label raster.
-        masked_array = mask_image(image_reader_as_array(info['tif']), image_reader_as_array(tmp_label_name))
-        create_new_raster_from_base(info['tif'], label_name, 1, masked_array)
+        if mask_reference:
+            masked_array = mask_image(image_reader_as_array(info['tif']), image_reader_as_array(tmp_label_name))
+            create_new_raster_from_base(info['tif'], label_name, 1, masked_array)
         # Mask zeros from label raster into input image.
         if mask_input_image:
             masked_img = mask_image(image_reader_as_array(label_name), image_reader_as_array(info['tif']))
@@ -309,4 +310,5 @@ if __name__ == '__main__':
          params['sample']['prep_csv_file'],
          params['sample']['samples_dist'],
          params['sample']['remove_background'],
-         params['sample']['mask_input_image'])
+         params['sample']['mask_input_image'],
+         params['sample']['mask_reference'])
