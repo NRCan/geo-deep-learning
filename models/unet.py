@@ -35,10 +35,10 @@ class EncodingBlock(nn.Module):
         if dropout:
             layers.append(nn.Dropout(p=prob))
 
-        self.encoding_block = nn.Sequential(*layers)
+        self.EncodingBlock = nn.Sequential(*layers)
 
     def forward(self, input_data):
-        output = self.encoding_block(input_data)
+        output = self.EncodingBlock(input_data)
         return output
 
 
@@ -145,4 +145,3 @@ class UNetSmall(nn.Module):
         final = nn.functional.upsample(self.final(decode1), input_data.size()[2:], mode='bilinear', align_corners=True)
 
         return final
-

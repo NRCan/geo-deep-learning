@@ -6,9 +6,9 @@
            year = 2018
         }
 """
-
-from torch import nn
 import torch
+# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
+from torch import nn
 from torchvision import models
 from utils import load_from_checkpoint
 

@@ -1,9 +1,10 @@
+import torch
+# import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
 import os
 import subprocess
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import gdal
-import torch
 import warnings
 from ruamel_yaml import YAML
 from osgeo import gdal, ogr
@@ -44,20 +45,20 @@ def get_gpu_memory_map():
     return gpu_memory_map
 
 
-def plot_some_results(data, target, img_suffix, work_file):
-    """Plots data. Used for visualization during development.
-    __author__ = 'Fabian Isensee' """
-    d = data
-    s = target
-    plt.figure(figsize=(12, 6))
-    plt.subplot(1, 3, 1)
-    plt.imshow(d.transpose(1, 2, 0))
-    plt.title("input patch")
-    plt.subplot(1, 3, 2)
-    plt.imshow(s)
-    plt.title("ground truth")
-    plt.savefig(os.path.join(work_file, "result_%03.0f.png" % img_suffix))
-    plt.close()
+# def plot_some_results(data, target, img_suffix, work_file):
+#     """Plots data. Used for visualization during development.
+#     __author__ = 'Fabian Isensee' """
+#     d = data
+#     s = target
+#     plt.figure(figsize=(12, 6))
+#     plt.subplot(1, 3, 1)
+#     plt.imshow(d.transpose(1, 2, 0))
+#     plt.title("input patch")
+#     plt.subplot(1, 3, 2)
+#     plt.imshow(s)
+#     plt.title("ground truth")
+#     plt.savefig(os.path.join(work_file, "result_%03.0f.png" % img_suffix))
+#     plt.close()
 
 
 def read_parameters(param_file):

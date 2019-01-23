@@ -1,12 +1,10 @@
 import argparse
 import csv
 import os
-import random
 import numpy as np
 import h5py
 import warnings
 from osgeo import gdal, osr, ogr
-from skimage import exposure
 from utils import read_parameters, create_new_raster_from_base, assert_band_number, image_reader_as_array, \
     create_or_empty_folder, validate_num_classes
 
@@ -36,35 +34,6 @@ def mask_image(arrayA, arrayB):
     return ma_array
 
 
-def random_samples(num_samples, samples_file, tmp_samples_file):
-    """Read prepared samples and rewrite them in random order.
-    Args:
-    num_samples: number of samples created
-    samples_file: hdfs file where the final samples (in random order) will be written
-    tmp_samples_file: hdfs file containing samples (in image order)
-    """
-
-    rdm_samples = rdm_list(num_samples)
-    for elem in rdm_samples:
-        data = tmp_samples_file['sat_img'][elem, ...]
-        target = tmp_samples_file['map_img'][elem, ...]
-
-        idx = rdm_samples.index(elem)
-
-        samples_file["sat_img"][idx, ...] = data
-        samples_file["map_img"][idx, ...] = target
-
-
-def rdm_list(len_list):
-    """Create and return a list with random number in range len_list"""
-
-    list_rdm = []
-    for i in range(len_list):
-        list_rdm.append(i)
-    random.shuffle(list_rdm)
-    return list_rdm
-
-
 def read_csv(csv_file_name):
     """Open csv file and parse it."""
 
@@ -87,15 +56,6 @@ def resize_datasets(hdf5_file):
     hdf5_file['map_img'].resize(new_size, axis=0)
 
 
-def scale_intensity(image_as_array):
-    """Image enhancement. Rescale intensity to extend it to the range 0-255.
-    based on: http://scikit-image.org/docs/dev/auto_examples/color_exposure/plot_equalize.html#sphx-glr-auto-examples-color-exposure-plot-equalize-py"""
-
-    v_min, v_max = np.percentile(image_as_array, (2, 98))
-    scaled_array = np.nan_to_num(exposure.rescale_intensity(image_as_array, in_range=(v_min, v_max)))
-    return scaled_array
-
-
 def samples_preparation(sat_img, ref_img, sample_size, dist_samples, samples_count, num_classes, samples_file, dataset,
                         background_switch):
     """Extract and write samples from input image and reference image
@@ -112,7 +72,7 @@ def samples_preparation(sat_img, ref_img, sample_size, dist_samples, samples_cou
     """
 
     # read input and reference images as array
-    in_img_array = scale_intensity(image_reader_as_array(sat_img))
+    in_img_array = image_reader_as_array(sat_img)
     label_array = image_reader_as_array(ref_img)
 
     h, w, num_bands = in_img_array.shape
@@ -169,7 +129,7 @@ def vector_to_raster(vector_file, attribute_name, new_raster):
 
 
 def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
-         remove_background, mask_input_image):
+         remove_background, mask_input_image, mask_reference):
     gpkg_file = []
     if bucket_name:
         s3 = boto3.resource('s3')
@@ -196,16 +156,16 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
     number_samples = {'trn': 0, 'val': 0}
     number_classes = 0
 
-    tmp_trn_hdf5 = h5py.File(os.path.join(samples_folder, "trn_tmp_samples.hdf5"), "w")
-    tmp_val_hdf5 = h5py.File(os.path.join(samples_folder, "val_tmp_samples.hdf5"), "w")
+    trn_hdf5 = h5py.File(os.path.join(samples_folder, "trn_samples.hdf5"), "w")
+    val_hdf5 = h5py.File(os.path.join(samples_folder, "val_samples.hdf5"), "w")
 
-    tmp_trn_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.uint8,
+    trn_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
                                 maxshape=(None, samples_size, samples_size, number_of_bands))
-    tmp_trn_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
+    trn_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
                                 maxshape=(None, samples_size, samples_size))
-    tmp_val_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.uint8,
+    val_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
                                 maxshape=(None, samples_size, samples_size, number_of_bands))
-    tmp_val_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
+    val_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
                                 maxshape=(None, samples_size, samples_size))
     for info in list_data_prep:
         img_name = os.path.basename(info['tif']).split('.')[0]
@@ -221,27 +181,34 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
             info['gpkg'] = info['gpkg'].split('/')[-1]
         assert_band_number(info['tif'], number_of_bands)
 
-        tmp_label_raster = create_new_raster_from_base(info['tif'], tmp_label_name, 1)
         value_field = info['attribute_name']
         validate_num_classes(info['gpkg'], num_classes, value_field)
-        vector_to_raster(info['gpkg'], info['attribute_name'], tmp_label_raster)
-
-        tmp_label_raster = None
 
         # Mask zeros from input image into label raster.
-        masked_array = mask_image(image_reader_as_array(info['tif']), image_reader_as_array(tmp_label_name))
-        create_new_raster_from_base(info['tif'], label_name, 1, masked_array)
+        if mask_reference:
+            tmp_label_raster = create_new_raster_from_base(info['tif'], tmp_label_name, 1)
+            vector_to_raster(info['gpkg'], info['attribute_name'], tmp_label_raster)
+            tmp_label_raster = None
+
+            masked_array = mask_image(image_reader_as_array(info['tif']), image_reader_as_array(tmp_label_name))
+            create_new_raster_from_base(info['tif'], label_name, 1, masked_array)
+
+            os.remove(tmp_label_name)
+
+        else:
+            label_raster = create_new_raster_from_base(info['tif'], label_name, 1)
+            vector_to_raster(info['gpkg'], info['attribute_name'], label_raster)
+            label_raster = None
+
         # Mask zeros from label raster into input image.
         if mask_input_image:
             masked_img = mask_image(image_reader_as_array(label_name), image_reader_as_array(info['tif']))
             create_new_raster_from_base(label_name, info['tif'], number_of_bands, masked_img)
 
-        os.remove(tmp_label_name)
-
         if info['dataset'] == 'trn':
-            out_file = tmp_trn_hdf5
+            out_file = trn_hdf5
         elif info['dataset'] == 'val':
-            out_file = tmp_val_hdf5
+            out_file = val_hdf5
 
         number_samples, number_classes = samples_preparation(info['tif'], label_name, samples_size, samples_dist,
                                                              number_samples, number_classes, out_file, info['dataset'],
@@ -250,21 +217,9 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
         print(number_samples)
         out_file.flush()
 
-    tmp_trn_hdf5.close()
-    tmp_val_hdf5.close()
-    # Create file and datasets for sample storage (in random order).
-    for dataset in (['trn', 'val']):
-        hdf5_file = h5py.File(os.path.join(samples_folder, dataset + "_samples.hdf5"), "w")
-        hdf5_file.create_dataset("sat_img", (number_samples[dataset], samples_size, samples_size, number_of_bands),
-                                 np.uint8)
-        hdf5_file.create_dataset("map_img", (number_samples[dataset], samples_size, samples_size), np.uint8)
+    trn_hdf5.close()
+    val_hdf5.close()
 
-        tmp_hdf5 = h5py.File(os.path.join(samples_folder, dataset + "_tmp_samples.hdf5"), "r")
-        random_samples(number_samples[dataset], hdf5_file, tmp_hdf5)
-
-        tmp_hdf5.close()
-        os.remove(os.path.join(samples_folder, dataset + "_tmp_samples.hdf5"))
-        hdf5_file.close()
     print("Number of samples created: ", number_samples)
     if bucket_name:
         print('Transfering Samples to the bucket')
@@ -308,4 +263,5 @@ if __name__ == '__main__':
          params['sample']['prep_csv_file'],
          params['sample']['samples_dist'],
          params['sample']['remove_background'],
-         params['sample']['mask_input_image'])
+         params['sample']['mask_input_image'],
+         params['sample']['mask_reference'])

@@ -1,9 +1,10 @@
+import torch
+# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
 import os
 import csv
 import time
 import h5py
-import torch
 import datetime
 import warnings
 import torchvision
@@ -230,6 +231,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
             val_dataset = CreateDataset.SegmentationDataset("samples", num_val_samples, "val",
                                                             transform=transforms.Compose([aug.ToTensorTarget()]))
 
+    # Shuffle must be set to True.
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
 
