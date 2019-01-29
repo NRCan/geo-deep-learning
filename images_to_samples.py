@@ -16,7 +16,16 @@ except ModuleNotFoundError:
 
 
 def mask_image(arrayA, arrayB):
-    """Function to mask values of arrayB, based on 0 values from arrayA."""
+    """Function to mask values of arrayB, based on 0 values from arrayA.
+
+    >>> x1 = np.array([0, 2, 4, 6, 0, 3, 9, 8], dtype=np.uint8).reshape(2,2,2)
+    >>> x2 = np.array([1.5, 1.2, 1.6, 1.2, 11., 1.1, 25.9, 0.1], dtype=np.float32).reshape(2,2,2)
+    >>> mask_image(x1, x2)
+    array([[[ 0. ,  0. ],
+        [ 1.6,  1.2]],
+        [[11. ,  1.1],
+        [25.9,  0.1]]], dtype=float32)
+    """
 
     # Handle arrayA of shapes (h,w,c) and (h,w)
     if len(arrayA.shape) == 3:
@@ -24,7 +33,7 @@ def mask_image(arrayA, arrayB):
     else:
         mask = arrayA != 0
 
-    ma_array = np.zeros(arrayB.shape, dtype=np.uint8)
+    ma_array = np.zeros(arrayB.shape, dtype=arrayB.dtype)
     # Handle arrayB of shapes (h,w,c) and (h,w)
     if len(arrayB.shape) == 3:
         for i in range(0, arrayB.shape[2]):
