@@ -92,6 +92,54 @@ def save_checkpoint(state, filename):
     torch.save(state, filename)
 
 
+def save_logs_to_bucket(bucket, final_output_path, output_path, now):
+    if final_output_path:
+        try:
+            bucket.put_object(Key=final_output_path + '/', Body='')
+            bucket.put_object(Key=os.path.join(final_output_path, "Logs/"), Body='')
+        except ClientError:
+            pass
+        logs = open(os.path.join(output_path, "trn_classes_score.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_classes_score.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_classes_score.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_classes_score.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_averaged_score.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_averaged_score.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_averaged_score.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_averaged_score.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_losses_values.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_losses_values.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_losses_values.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_losses_values.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_iou.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_iou.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_iou.log"), 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_iou.log"), Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open("output.txt", 'rb')
+        bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "output.txt"), Body=logs, Tagging='Project Name=Deep Learning')
+    else:
+        try:
+            bucket.put_object(Key="Logs/", Body='')
+        except ClientError:
+            pass
+        logs = open(os.path.join(output_path, "trn_classes_score.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "trn_classes_score.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_classes_score.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "val_classes_score.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_averaged_score.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "trn_averaged_score.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_averaged_score.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "val_averaged_score.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_losses_values.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "trn_losses_values.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "val_losses_values.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "val_losses_values.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open(os.path.join(output_path, "trn_iou.log"), 'rb')
+        bucket.put_object(Key="Logs/" + now + "trn_iou.log", Body=logs, Tagging='Project Name=Deep Learning')
+        logs = open('output.txt', 'rb')
+        bucket.put_object(Key="Logs/" + now + "output.txt", Body=logs, Tagging='Project Name=Deep Learning')
+
+
 def loader(path):
     img = Image.open(path)
     return img
@@ -235,6 +283,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
 
+    now = datetime.datetime.now().strftime("%Y-%m-%d %I:%M ")
     for epoch in range(0, num_epochs):
         print()
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
@@ -246,6 +295,8 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         val_report = validation(val_dataloader, model, criterion, num_classes, batch_size, classifier)
         val_loss = val_report['loss'].avg
         val_log.add_values(val_report, epoch)
+        if bucket_name:
+            save_logs_to_bucket(bucket, final_output_path, output_path, now)
 
         if val_loss < best_loss:
             print("save checkpoint")
@@ -253,14 +304,13 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
             best_loss = val_loss
             save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'model': model.state_dict(), 'best_loss':
                 best_loss, 'optimizer': optimizer.state_dict()}, filename)
-            check = open(filename, 'rb')
             if bucket_name:
+                check = open(filename, 'rb')
                 if final_output_path:
                     filename = os.path.join(final_output_path, 'checkpoint.pth.tar')
                 else:
                     filename = 'checkpoint.pth.tar'
                 bucket.put_object(Key=filename, Body=check)
-                os.remove(os.path.join(output_path, 'checkpoint.pth.tar'))
         cur_elapsed = time.time() - since
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
 
@@ -271,68 +321,16 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     if bucket_name:
         if final_output_path:
             final_filename = os.path.join(final_output_path, 'last_epoch.pth.tar')
+            logs = open("output.txt", 'rb')
+            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "output.txt"), Body=logs,
+                              Tagging='Project Name=Deep Learning')
         else:
             final_filename = 'last_epoch.pth.tar'
+            logs = open('output.txt', 'rb')
+            bucket.put_object(Key="Logs/" + now + "output.txt", Body=logs, Tagging='Project Name=Deep Learning')
         trained_model = open(filename, 'rb')
         bucket.put_object(Key=final_filename, Body=trained_model)
-        os.remove(filename)
-        now = datetime.datetime.now().strftime("%Y-%m-%d %I:%M ")
-        if final_output_path:
-            try:
-                bucket.put_object(Key=final_output_path + '/', Body='')
-                bucket.put_object(Key=os.path.join(final_output_path, "Logs/"), Body='')
-            except ClientError:
-                pass
-            logs = open(os.path.join(output_path, "trn_classes_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_classes_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_classes_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_classes_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "trn_averaged_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_averaged_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_averaged_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_averaged_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "trn_losses_values.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_losses_values.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_losses_values.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_losses_values.log"), Body=logs)
-            logs = open(os.path.join(output_path, "trn_iou.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_iou.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_iou.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_iou.log"), Body=logs)
-            os.remove(os.path.join(output_path, "trn_iou.log"))
-            os.remove(os.path.join(output_path, "val_iou.log"))
-            os.remove(os.path.join(output_path, "val_losses_values.log"))
-            os.remove(os.path.join(output_path, "trn_losses_values.log"))
-            os.remove(os.path.join(output_path, "val_averaged_score.log"))
-            os.remove(os.path.join(output_path, "trn_averaged_score.log"))
-            os.remove(os.path.join(output_path, "val_classes_score.log"))
-            os.remove(os.path.join(output_path, "trn_classes_score.log"))
-        else:
-            try:
-                bucket.put_object(Key="Logs/", Body='')
-            except ClientError:
-                pass
-            logs = open(os.path.join(output_path, "trn_classes_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_classes_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "val_classes_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "val_classes_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "trn_averaged_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_averaged_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "val_averaged_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "val_averaged_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "trn_losses_values.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_losses_values.log", Body=logs)
-            logs = open(os.path.join(output_path, "val_losses_values.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "val_losses_values.log", Body=logs)
-            logs = open(os.path.join(output_path, "trn_iou.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_iou.log", Body=logs)
-            os.remove(os.path.join(output_path, "trn_iou.log"))
-            os.remove(os.path.join(output_path, "val_losses_values.log"))
-            os.remove(os.path.join(output_path, "trn_losses_values.log"))
-            os.remove(os.path.join(output_path, "val_averaged_score.log"))
-            os.remove(os.path.join(output_path, "trn_averaged_score.log"))
-            os.remove(os.path.join(output_path, "val_classes_score.log"))
-            os.remove(os.path.join(output_path, "trn_classes_score.log"))
+
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
