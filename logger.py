@@ -28,3 +28,16 @@ class InformationLogger(object):
         self.averaged_scores.close()
         self.losses_values.close()
         self.iou.close()
+
+
+def save_logs_to_bucket(bucket, bucket_output_path, output_path, now):
+    list_log_file = ['trn_classes_score', 'trn_averaged_score', 'trn_losses_values', 'trn_iou',
+                     'val_classes_score', 'val_averaged_score', 'val_losses_values', 'val_iou']
+    for i in list_log_file:
+        if bucket_output_path:
+            log_file = os.path.join(output_path, f"{i}.log")
+            bucket.upload_file(log_file, os.path.join(bucket_output_path, f"Logs/{now}_{i}.log"))
+        else:
+            log_file = os.path.join(output_path, f"{i}.log")
+            bucket.upload_file(log_file, f"Logs/{now}_{i}.log")
+    bucket.upload_file("output.txt", os.path.join(bucket_output_path, f"Logs/{now}_output.txt"))
