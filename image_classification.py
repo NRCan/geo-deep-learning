@@ -81,21 +81,17 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
             classification(bucket, work_folder, model, img, overlay)
             print('Image ', img, ' classified')
         if bucket:
-            try:
-                bucket.put_object(Key='Classified_Images/', Body='')
-            except ClientError:
-                pass
             if not classify:
-                classif_img = open('Classified_Images/' + img.split('.')[0] + '_classif.tif', 'rb')
-                bucket.put_object(Key='Classified_Images/' + img.split('.')[0] + '_classif.tif', Body=classif_img)
+                classif_img = f"Classified_Images/{img.split('.')[0]}_classif.tif"
+                bucket.upload_file(classif_img, classif_img)
     if classify:
+        csv_results = 'classification_results.csv'
         if bucket:
-            np.savetxt('classification_results.csv', classified_results, fmt='%s', delimiter=',')
-            csv_file = open('classification_results.csv', 'rb')
-            bucket.put_object(Key=os.path.join(work_folder, 'classification_results.csv'), Body=csv_file)
+            np.savetxt(csv_results, classified_results, fmt='%s', delimiter=',')
+            bucket.upload_file(csv_results, os.path.join(work_folder, csv_results))
         else:
-            np.savetxt(os.path.join(work_folder, 'classification_results.csv'), classified_results, fmt='%s',
-                       delimiter=',')
+            np.savetxt(os.path.join(work_folder, csv_results), classified_results, fmt='%s', delimiter=',')
+
     time_elapsed = time.time() - since
     print('Classification complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 

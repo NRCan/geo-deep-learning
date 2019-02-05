@@ -16,7 +16,7 @@ from PIL import Image
 
 import CreateDataset
 import augmentation as aug
-from logger import InformationLogger
+from logger import InformationLogger, save_logs_to_bucket
 from metrics import report_classification, iou, create_metrics_dict
 from models.model_choice import net
 from utils import read_parameters, load_from_checkpoint, list_s3_subfolders
@@ -145,9 +145,9 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     """
     if bucket_name:
         if output_path is None:
-            final_output_path = None
+            bucket_output_path = None
         else:
-            final_output_path = output_path
+            bucket_output_path = output_path
         output_path = 'output_path'
         try:
             os.mkdir(output_path)
@@ -158,11 +158,11 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         if classifier:
             for i in ['trn', 'val']:
                 get_s3_classification_images(i, bucket, bucket_name, data_path, output_path)
-                class_file = open(os.path.join(output_path, 'classes.csv'), 'rb')
-                if final_output_path:
-                    bucket.put_object(Key=os.path.join(final_output_path, "classes.csv"), Body=class_file)
+                class_file = os.path.join(output_path, 'classes.csv')
+                if bucket_output_path:
+                    bucket.upload_file(class_file, os.path.join(bucket_output_path, 'classes.csv'))
                 else:
-                    bucket.put_object(Key="classes.csv", Body=class_file)
+                    bucket.upload_file(class_file, 'classes.csv')
             data_path = 'Images'
         else:
             if data_path:
@@ -235,6 +235,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
 
+    now = datetime.datetime.now().strftime("%Y-%m-%d %I:%M ")
     for epoch in range(0, num_epochs):
         print()
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
@@ -253,14 +254,15 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
             best_loss = val_loss
             save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'model': model.state_dict(), 'best_loss':
                 best_loss, 'optimizer': optimizer.state_dict()}, filename)
-            check = open(filename, 'rb')
+
             if bucket_name:
-                if final_output_path:
-                    filename = os.path.join(final_output_path, 'checkpoint.pth.tar')
+                save_logs_to_bucket(bucket, bucket_output_path, output_path, now)
+                if bucket_output_path:
+                    bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
                 else:
-                    filename = 'checkpoint.pth.tar'
-                bucket.put_object(Key=filename, Body=check)
-                os.remove(os.path.join(output_path, 'checkpoint.pth.tar'))
+                    bucket_filename = 'checkpoint.pth.tar'
+                bucket.upload_file(filename, bucket_filename)
+
         cur_elapsed = time.time() - since
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
 
@@ -269,70 +271,13 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                      'optimizer': optimizer.state_dict()}, filename)
 
     if bucket_name:
-        if final_output_path:
-            final_filename = os.path.join(final_output_path, 'last_epoch.pth.tar')
+        if bucket_output_path:
+            bucket_filename = os.path.join(bucket_output_path, 'last_epoch.pth.tar')
+            bucket.upload_file("output.txt", os.path.join(bucket_output_path, f"Logs/{now}_output.txt"))
         else:
-            final_filename = 'last_epoch.pth.tar'
-        trained_model = open(filename, 'rb')
-        bucket.put_object(Key=final_filename, Body=trained_model)
-        os.remove(filename)
-        now = datetime.datetime.now().strftime("%Y-%m-%d %I:%M ")
-        if final_output_path:
-            try:
-                bucket.put_object(Key=final_output_path + '/', Body='')
-                bucket.put_object(Key=os.path.join(final_output_path, "Logs/"), Body='')
-            except ClientError:
-                pass
-            logs = open(os.path.join(output_path, "trn_classes_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_classes_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_classes_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_classes_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "trn_averaged_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_averaged_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_averaged_score.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_averaged_score.log"), Body=logs)
-            logs = open(os.path.join(output_path, "trn_losses_values.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_losses_values.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_losses_values.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_losses_values.log"), Body=logs)
-            logs = open(os.path.join(output_path, "trn_iou.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "trn_iou.log"), Body=logs)
-            logs = open(os.path.join(output_path, "val_iou.log"), 'rb')
-            bucket.put_object(Key=os.path.join(final_output_path, "Logs/" + now + "val_iou.log"), Body=logs)
-            os.remove(os.path.join(output_path, "trn_iou.log"))
-            os.remove(os.path.join(output_path, "val_iou.log"))
-            os.remove(os.path.join(output_path, "val_losses_values.log"))
-            os.remove(os.path.join(output_path, "trn_losses_values.log"))
-            os.remove(os.path.join(output_path, "val_averaged_score.log"))
-            os.remove(os.path.join(output_path, "trn_averaged_score.log"))
-            os.remove(os.path.join(output_path, "val_classes_score.log"))
-            os.remove(os.path.join(output_path, "trn_classes_score.log"))
-        else:
-            try:
-                bucket.put_object(Key="Logs/", Body='')
-            except ClientError:
-                pass
-            logs = open(os.path.join(output_path, "trn_classes_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_classes_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "val_classes_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "val_classes_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "trn_averaged_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_averaged_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "val_averaged_score.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "val_averaged_score.log", Body=logs)
-            logs = open(os.path.join(output_path, "trn_losses_values.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_losses_values.log", Body=logs)
-            logs = open(os.path.join(output_path, "val_losses_values.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "val_losses_values.log", Body=logs)
-            logs = open(os.path.join(output_path, "trn_iou.log"), 'rb')
-            bucket.put_object(Key="Logs/" + now + "trn_iou.log", Body=logs)
-            os.remove(os.path.join(output_path, "trn_iou.log"))
-            os.remove(os.path.join(output_path, "val_losses_values.log"))
-            os.remove(os.path.join(output_path, "trn_losses_values.log"))
-            os.remove(os.path.join(output_path, "val_averaged_score.log"))
-            os.remove(os.path.join(output_path, "trn_averaged_score.log"))
-            os.remove(os.path.join(output_path, "val_classes_score.log"))
-            os.remove(os.path.join(output_path, "trn_classes_score.log"))
+            bucket_filename = 'last_epoch.pth.tar'
+            bucket.upload_file("output.txt", f"Logs/{now}_output.txt")
+        bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
