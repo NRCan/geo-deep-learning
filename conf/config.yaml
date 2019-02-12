@@ -1,9 +1,9 @@
 # Deep learning configuration file ------------------------------------------------
-# Four sections :
-#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and classification)
+# Five sections :
+#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
 #   2) Sampling parameters
-#   3) training parameters
-#   4) Classification parameters
+#   3) Training parameters
+#   4) Inference parameters
 #   5) Model parameters
 
 # Global parameters
@@ -40,13 +40,14 @@ training:
   gamma: 0.9
   class_weights: [1.0, 2.0]
 
-# Classification parameters; used in image_classification.py --------
+# Inference parameters; used in inference.py --------
 
-classification:
-  working_folder: /path/to/folder/with/images/to/classify
-  state_dict_path: /path/to/model/weights/for/classification/checkpoint.pth.tar
+inference:
+  img_csv_file: /path/to/csv/containing/images/list.csv
+  working_folder: /path/to/folder/with/resulting/images
+  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
 
-# Models parameters; used in train_model.py and image_classification.py
+# Models parameters; used in train_model.py and inference.py
 
 models:
   unet:   &unet001

@@ -5,7 +5,7 @@ from string import Template
 # Dict used to match job_type with name of python file
 job_type2python_file = {'sampling': 'images_to_samples',
                         'training': 'train_model',
-                        'classification': 'image_classification'}
+                        'inference': 'inference'}
 
 # The following template is that of a shell script used to feed 'jobsub'
 # Parameter values are taken from a yaml file
@@ -50,8 +50,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='jobsub parameters')
     parser.add_argument('param_file', metavar='file',
                         help='Path to job parameters stored in yaml')
-    parser.add_argument('job_type', metavar='Type of PyTorch job in [sampling, training, classification]',
-                        help='Type of PyTorch job : sampling, training, classification',
+    parser.add_argument('job_type', metavar='Type of PyTorch job in [sampling, training, inference]',
+                        help='Type of PyTorch job : sampling, training, inference',
                         choices=set(job_type2python_file.keys()))
     args = parser.parse_args()
     params = read_parameters(args.param_file)
