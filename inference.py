@@ -59,18 +59,17 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
     classified_results = np.empty((0, 2 + num_classes))
 
     for img in img_list:
-        img_name = os.path.basename(img)
+        img_name = os.path.basename(img['tif'])
         if bucket:
-            # bucket.download_file(os.path.join(work_folder, img), "Images/" + img)
-            bucket.download_file(img, f"Images/{img_name}")
+            bucket.download_file(img['tif'], f"Images/{img_name}")
             assert_band_number(f"Images/{img_name}", number_of_bands)
             inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
         else:
-            assert_band_number(img, number_of_bands)
+            assert_band_number(img['tif'], number_of_bands)
             inference_image = os.path.join(work_folder, f"{img_name.split('.')[0]}_inference.tif")
 
         if classify:
-            outputs, predicted = classifier(bucket, model, img)
+            outputs, predicted = classifier(bucket, model, img['tif'])
             top5 = heapq.nlargest(5, outputs.cpu().numpy()[0])
             top5_loc = []
             for i in top5:
@@ -79,17 +78,17 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
             print('Top 5 classes:')
             for i in range(0, 5):
                 print(f"\t{classes[0][top5_loc[i]]} : {top5[i]}")
-            classified_results = np.append(classified_results, [np.append([img, classes[0][predicted]],
+            classified_results = np.append(classified_results, [np.append([img['tif'], classes[0][predicted]],
                                                                           outputs.cpu().numpy()[0])], axis=0)
             print()
         else:
-            sem_seg_results = sem_seg_inference(bucket, model, img, overlay)
-            create_new_raster_from_base(img, inference_image, 1, sem_seg_results)
+            sem_seg_results = sem_seg_inference(bucket, model, img['tif'], overlay)
+            create_new_raster_from_base(img['tif'], inference_image, 1, sem_seg_results)
             print(f"Semantic segmentation of image {img_name} completed")
 
         if bucket:
             if not classify:
-                classif_img = f"Classified_Images/{img.split('.')[0]}_classif.tif"
+                classif_img = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
                 bucket.upload_file(classif_img, classif_img)
     if classify:
         csv_results = 'classification_results.csv'
@@ -108,7 +107,7 @@ def sem_seg_inference(bucket, model, image, overlay):
     Args:
         bucket: bucket in which data is stored if using AWS S3
         model: model to use for inference
-        image: full path to the image to infer on
+        image: full path of the image to infer on
         overlay: amount of overlay to apply
 
         returns a numpy array of the same size (h,w) as the input image, where each value is the predicted output.
