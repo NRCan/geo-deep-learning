@@ -43,7 +43,7 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_csv_file: /path/to/csv/containing/images/list.csv
+  img_csv_file: ./data/inference_classif_ci_csv.csv
   working_folder: ./data/classification
   state_dict_path: ./data/checkpoint.pth.tar
 
