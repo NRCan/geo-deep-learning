@@ -60,13 +60,14 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
     for img in img_list:
         img_name = os.path.basename(img['tif'])
         if bucket:
-            bucket.download_file(img['tif'], f"Images/{img_name}")
-            assert_band_number(f"Images/{img_name}", number_of_bands)
+            local_img = f"Images/{img_name}"
+            bucket.download_file(img['tif'], local_img)
             inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
         else:
-            assert_band_number(img['tif'], number_of_bands)
+            local_img = img['tif']
             inference_image = os.path.join(work_folder, f"{img_name.split('.')[0]}_inference.tif")
 
+        assert_band_number(local_img, number_of_bands)
         if classify:
             outputs, predicted = classifier(bucket, model, img['tif'])
             top5 = heapq.nlargest(5, outputs.cpu().numpy()[0])
@@ -82,7 +83,7 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
             print()
         else:
             sem_seg_results = sem_seg_inference(bucket, model, img['tif'], overlay)
-            create_new_raster_from_base(img['tif'], inference_image, 1, sem_seg_results)
+            create_new_raster_from_base(local_img, inference_image, 1, sem_seg_results)
             print(f"Semantic segmentation of image {img_name} completed")
 
         if bucket:
