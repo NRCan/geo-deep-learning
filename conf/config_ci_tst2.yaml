@@ -1,9 +1,9 @@
 # Deep learning configuration file ------------------------------------------------
-# Four sections :
+# Five sections :
 #   1) Global parameters; those are re-used amongst the next three operations (sampling, training and classification)
 #   2) Sampling parameters
-#   3) training parameters
-#   4) Classification parameters
+#   3) Training parameters
+#   4) Inference parameters
 #   5) Model parameters
 
 # Global parameters
@@ -20,7 +20,7 @@ global:
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
-  prep_csv_file: ./data/ci_csv.csv
+  prep_csv_file: ./data/images_to_samples_ci_csv.csv
   samples_dist: 200
   remove_background: True
   mask_input_image: False
@@ -40,13 +40,14 @@ training:
   gamma: 0.9
   class_weights: False
 
-# Classification parameters; used in image_classification.py --------
+# Inference parameters; used in inference.py --------
 
-classification:
+inference:
+  img_csv_file: ./data/inference_classif_ci_csv.csv
   working_folder: ./data/classification
   state_dict_path: ./data/checkpoint.pth.tar
 
-# Models parameters; used in train_model.py and image_classification.py
+# Models parameters; used in train_model.py and inference.py
 
 models:
   unet:   &unet001

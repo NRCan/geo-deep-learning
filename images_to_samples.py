@@ -6,7 +6,7 @@ import h5py
 import warnings
 from osgeo import gdal, osr, ogr
 from utils import read_parameters, create_new_raster_from_base, assert_band_number, image_reader_as_array, \
-    create_or_empty_folder, validate_num_classes
+    create_or_empty_folder, validate_num_classes, read_csv
 
 try:
     import boto3
@@ -41,18 +41,6 @@ def mask_image(arrayA, arrayB):
     else:
         ma_array = arrayB * mask
     return ma_array
-
-
-def read_csv(csv_file_name):
-    """Open csv file and parse it."""
-
-    list_values = []
-    with open(csv_file_name, 'r') as f:
-        reader = csv.reader(f)
-        for row in reader:
-            list_values.append({'tif': row[0], 'gpkg': row[1], 'attribute_name': row[2], 'dataset': row[3]})
-
-    return sorted(list_values, key=lambda k: k['dataset'])
 
 
 def resize_datasets(hdf5_file):

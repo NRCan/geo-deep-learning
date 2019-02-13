@@ -8,6 +8,7 @@ import gdal
 import warnings
 from ruamel_yaml import YAML
 from osgeo import gdal, ogr
+import csv
 try:
     import boto3
 except ModuleNotFoundError:
@@ -27,38 +28,6 @@ def create_or_empty_folder(folder):
             file_path = os.path.join(folder, the_file)
             if os.path.isfile(file_path):
                 os.unlink(file_path)
-
-
-def get_gpu_memory_map():
-    """Get the current gpu usage.
-    Returns:
-        dictionary of memory usage values in MB. Keys are device ids as integers.
-    """
-    result = subprocess.check_output(
-        [
-            'nvidia-smi', '--query-gpu=memory.used',
-            '--format=csv,nounits,noheader'
-        ], encoding='utf-8')
-    # Convert lines into a dictionary
-    gpu_memory = [int(x) for x in result.strip().split('\n')]
-    gpu_memory_map = dict(zip(range(len(gpu_memory)), gpu_memory))
-    return gpu_memory_map
-
-
-# def plot_some_results(data, target, img_suffix, work_file):
-#     """Plots data. Used for visualization during development.
-#     __author__ = 'Fabian Isensee' """
-#     d = data
-#     s = target
-#     plt.figure(figsize=(12, 6))
-#     plt.subplot(1, 3, 1)
-#     plt.imshow(d.transpose(1, 2, 0))
-#     plt.title("input patch")
-#     plt.subplot(1, 3, 2)
-#     plt.imshow(s)
-#     plt.title("ground truth")
-#     plt.savefig(os.path.join(work_file, "result_%03.0f.png" % img_suffix))
-#     plt.close()
 
 
 def read_parameters(param_file):
@@ -194,4 +163,28 @@ def list_s3_subfolders(bucket, data_path):
     return list_classes
 
 
+def read_csv(csv_file_name, inference=False):
+    """Open csv file and parse it, returning a list of dict.
 
+    If inference == True, the dict contains this info:
+    - tif full path
+    Else, the returned list contains a dict with this info:
+    - tif full path
+    - gpkg full path
+    - attribute_name
+    - dataset (trn or val)
+    """
+
+    list_values = []
+    with open(csv_file_name, 'r') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if inference:
+                list_values.append({'tif': row[0]})
+            else:
+                list_values.append({'tif': row[0], 'gpkg': row[1], 'attribute_name': row[2], 'dataset': row[3]})
+
+    if inference:
+        return list_values
+    else:
+        return sorted(list_values, key=lambda k: k['dataset'])
