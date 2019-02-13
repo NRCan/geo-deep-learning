@@ -18,7 +18,7 @@ before_script:
 script:
   - python images_to_samples.py ./conf/config_ci_tst.yaml
   - python train_model.py ./conf/config_ci_tst.yaml
-  - python image_classification.py ./conf/config_ci_tst.yaml
+  - python inference.py ./conf/config_ci_tst.yaml
   - python train_model.py ./conf/config_ci_tst2.yaml
-  - python image_classification.py ./conf/config_ci_tst2.yaml
+  - python inference.py ./conf/config_ci_tst2.yaml
   

@@ -2,7 +2,7 @@
 
 The `geo-deep-learning` project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced data sets.
 
-The overall learning process comprises three broad stages: data preparation, training & validation, and classification.  The data preparation phase (sampling) allows creating sub-images that will be used for either training or validation. The training & validation phase learns using the data prepared in the previous phase. Finally, the classification phase performs the classification on new input data. The training & validation and classification phases currently allow the use of a variety of neural networks to perform the classification.
+The overall learning process comprises three broad stages: data preparation, training & validation, and inference.  The data preparation phase (sampling) allows creating sub-images that will be used for either training or validation. The training & validation phase learns using the data prepared in the previous phase. Finally, the inference phase allows the use of a trained model on new input data. The training & validation and inference phases currently allow the use of a variety of neural networks to perform classification and semantic segmentation tasks.
 
 > The term `classification` in this project is used as it has been traditionally used in the remote sensing community: a process of assigning land cover classes to pixels.  The meaning of the word in the deep learning community differs somewhat, where classification is simply to assign a label to the whole input image. This usage of the term classification will always be referred to as a ```classification task``` in the context of this project. Other uses of the term classification refer to the final phase of the learning process when a trained model is applied to new images, regardless of whether `semantic segmentation`, ["the process of assigning a label to every pixel in an image"](https://en.wikipedia.org/wiki/Image_segmentation), or a `classification task` is being used.
 
@@ -13,7 +13,7 @@ After installing the required computing environment (see next section), one need
 
 ## Requirements  
 - Python 3.6 with the following libraries:
-    - pytorch 0.4.0
+    - pytorch 0.4.1
     - torchvision 0.2.1
     - numpy
     - gdal
@@ -42,7 +42,7 @@ After installing the required computing environment (see next section), one need
     ```shell
     python images_to_samples.py ./conf/config.yaml
     python train_model.py ./conf/config.yaml
-    python image_classification.py ./conf/config.yaml
+    python inference.py ./conf/config.yaml
     ```
 
 ## config.yaml
@@ -51,11 +51,11 @@ The `config.yaml` file is located in the `conf` directory.  It stores the values
 
 ```yaml
 # Deep learning configuration file ------------------------------------------------
-# Four sections:
-#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and classification)
+# Five sections:
+#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
 #   2) Sampling parameters
-#   3) training parameters
-#   4) Classification parameters
+#   3) Training parameters
+#   4) Inference parameters
 #   5) Model parameters
 
 # Global parameters
@@ -67,7 +67,7 @@ global:
   number_of_bands: 3                # Number of bands in input images
   model_name: unetsmall				# One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:                      # Name of the S3 bucket where data is stored. Leave blank if using local files
-  classify: False					# Set to True for image classification and False for semantic segmentation
+  classify: False					# Set to True for image inference and False for semantic segmentation
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -91,13 +91,14 @@ training:
   step_size: 4                                  # Apply gamma every step_size
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
 
-# Classification parameters; used in image_classification.py --------
+# Inference parameters; used in inference.py --------
 
-classification:
-  working_folder: /path/to/images/to/classify                 # Folder containing all the images to be classified
-  state_dict_path: /path/to/weights/file/last_epoch.pth.tar   # File containing pre-trained weights
+inference:
+  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on 
+  working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
+  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
 
-# Models parameters; used in train_model.py and image_classification.py
+# Models parameters; used in train_model.py and inference.py
 
 models:
   unet:   &unet001
@@ -192,7 +193,7 @@ global:
   number_of_bands: 3                # Number of bands in input images
   model_name: unetsmall             # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
-  classify: False					# Set to True for a classification task and False for semantic segmentation
+  classify: False					# Set to True for a inference task and False for semantic segmentation
 
 
 training:
@@ -223,13 +224,13 @@ Process:
 - For every epoch, the application shows the loss, accuracy, recall and f-score for both datasets (trn and val)
 - The application also log the accuracy, recall and f-score for each classes of both the datasets
 
-### image_classification.py
+### inference.py
 
 The final step in the process if to assign very pixel in the original image a value corresponding to the most probable class.
 
 To launch the program:
 ```
-python image_classification.py path/to/config/file/config.yaml
+python inference.py path/to/config/file/config.yaml
 ```
 
 Details on parameters used by this module:
@@ -238,12 +239,13 @@ global:
   number_of_bands: 3        # Number of bands in input images
   model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
-classification:
-  working_folder: /path/to/images/to/classify           # Folder containing all the images to be classified
-  model_name: /path/to/weights/file/last_epoch.pth.tar  # File containing pre-trained weights
+inference:
+  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on 
+  working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
+  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
 ```
 Process:
-- The process will load trained weights to the UNet architecture and perform a per-pixel classification task on all the images contained in the working_folder
+- The process will load trained weights to the UNet architecture and perform a per-pixel inference task on all the images contained in the working_folder
 
 ## Classification Task
 The classification task allows images to be recognized as a whole rather than identifying the class of each pixel individually as is done in semantic segmentation.
@@ -330,14 +332,14 @@ Process:
 - The application also log the accuracy, recall and f-score for each classes of both the datasets
 
 
-### image_classification.py
+### inference.py
 The final step of a classification task is to associate a label to each image that needs to be classified. The associations will be displayed on the screen and be saved in a csv file.
 
 The classes.csv file must be saved in the same folder as the trained model weights file.
 
 To launch the program:
 ```
-python image_classification.py path/to/config/file/config.yaml
+python inference.py path/to/config/file/config.yaml
 ```
 
 Details on parameters used by this module:
@@ -347,10 +349,10 @@ global:
   model_name: inception     # One of unet, unetsmall, checkpointed_unet or ternausnet
   bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
   classify: True			# Set to True for classification tasks and False for semantic segmentation
-
-classification:
-  working_folder: /path/to/images/to/classify           # Folder containing all the images to be classified
-  model_name: /path/to/weights/file/last_epoch.pth.tar  # File containing pre-trained weights
+inference:
+  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on 
+  working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
+  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
 ```
 Inputs:
 - Trained model (weights)

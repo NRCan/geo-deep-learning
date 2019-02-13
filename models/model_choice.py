@@ -9,7 +9,7 @@ from models import TernausNet, unet, checkpointed_unet, inception
 
 def maxpool_level(model, num_bands, size):
     """Calculate and return the number of maxpool inside the model definition.
-    This function is useful during classification in order to calculate the number of pixel required as context.
+    This function is useful during inference in order to calculate the number of pixel required as context.
     """
     def register_hook(module):
         def hook(module, input, output):
