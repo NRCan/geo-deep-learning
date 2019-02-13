@@ -5,7 +5,6 @@ import os
 import csv
 import time
 import argparse
-import fnmatch
 import heapq
 from PIL import Image
 import torchvision
@@ -88,8 +87,8 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
 
         if bucket:
             if not classify:
-                classif_img = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-                bucket.upload_file(classif_img, classif_img)
+                bucket.upload_file(inference_image, os.path.join(work_folder, f"{img_name.split('.')[0]}_inference.tif"))
+
     if classify:
         csv_results = 'classification_results.csv'
         if bucket:
