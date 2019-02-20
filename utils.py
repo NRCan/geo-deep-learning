@@ -126,7 +126,7 @@ def image_reader_as_array(file_name):
     band = raster.GetRasterBand(1)
     rows, columns = (band.XSize, band.YSize)
 
-    np_array = np.empty([columns, rows, band_num], dtype=np.uint8)
+    np_array = np.empty([columns, rows, band_num], dtype=np.float32)
 
     for i in range(0, band_num):
         band = raster.GetRasterBand(i + 1)
