@@ -235,7 +235,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
 
-    now = datetime.datetime.now().strftime("%Y-%m-%d %I:%M ")
+    now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M ")
     for epoch in range(0, num_epochs):
         print()
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
