@@ -80,4 +80,4 @@ def net(net_params, rtn_level=False):
         lvl = maxpool_level(model, net_params['global']['number_of_bands'], 256)
         return model, state_dict_path, lvl['MaxPoolCount']
     else:
-        return model, state_dict_path
+        return model, state_dict_path, model_name
