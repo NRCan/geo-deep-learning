@@ -97,9 +97,11 @@ def loader(path):
     return img
 
 
-def get_s3_classification_images(dataset, bucket, bucket_name, data_path, output_path):
+def get_s3_classification_images(dataset, bucket, bucket_name, data_path, output_path, num_classes):
     classes = list_s3_subfolders(bucket_name, os.path.join(data_path, dataset))
     classes.sort()
+    assert num_classes == len(classes), "The configuration file specified %d classes, but only %d class folders were " \
+                                        "found in %s." % (num_classes, len(classes), os.path.join(data_path, dataset))
     with open(os.path.join(output_path, 'classes.csv'), 'wt') as myfile:
         wr = csv.writer(myfile)
         wr.writerow(classes)
@@ -118,6 +120,17 @@ def get_s3_classification_images(dataset, bucket, bucket_name, data_path, output
         for f in bucket.objects.filter(Prefix=os.path.join(data_path, dataset, c)):
             if f.key != data_path + '/':
                 bucket.download_file(f.key, os.path.join(classpath, f.key.split('/')[-1]))
+
+
+def get_local_classes(num_classes, data_path, output_path):
+    # Get classes locally and write to csv in output_path
+    classes = next(os.walk(os.path.join(data_path, 'trn')))[1]
+    classes.sort()
+    assert num_classes == len(classes), "The configuration file specified %d classes, but only %d class folders were " \
+                                        "found in %s." % (num_classes, len(classes), os.path.join(data_path, 'trn'))
+    with open(os.path.join(output_path, 'classes.csv'), 'w') as myfile:
+        wr = csv.writer(myfile)
+        wr.writerow(classes)
 
 
 def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs,
@@ -157,7 +170,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         bucket = s3.Bucket(bucket_name)
         if classifier:
             for i in ['trn', 'val']:
-                get_s3_classification_images(i, bucket, bucket_name, data_path, output_path)
+                get_s3_classification_images(i, bucket, bucket_name, data_path, output_path, num_classes)
                 class_file = os.path.join(output_path, 'classes.csv')
                 if bucket_output_path:
                     bucket.upload_file(class_file, os.path.join(bucket_output_path, 'classes.csv'))
@@ -175,12 +188,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                 bucket.download_file('samples/val_samples.hdf5', 'samples/val_samples.hdf5')
             verify_sample_count(num_trn_samples, num_val_samples, data_path, bucket_name)
     elif classifier:
-        # Get classes locally and write to csv in output_path
-        classes = next(os.walk(os.path.join(data_path, 'trn')))[1]
-        classes.sort()
-        with open(os.path.join(output_path, 'classes.csv'), 'w') as myfile:
-            wr = csv.writer(myfile)
-            wr.writerow(classes)
+        get_local_classes(num_classes, data_path, output_path)
     else:
         verify_sample_count(num_trn_samples, num_val_samples, data_path, bucket_name)
     verify_weights(num_classes, class_weights)
@@ -211,10 +219,15 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
 
     if classifier:
         trn_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "trn"),
-            transform=transforms.Compose([transforms.RandomRotation((0, 275)), transforms.RandomHorizontalFlip(),
-                                          transforms.Resize(299), transforms.ToTensor()]), loader=loader)
+                                                       transform=transforms.Compose(
+                                                           [transforms.RandomRotation((0, 275)),
+                                                            transforms.RandomHorizontalFlip(),
+                                                            transforms.Resize(299), transforms.ToTensor()]),
+                                                       loader=loader)
         val_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "val"),
-            transform = transforms.Compose([transforms.Resize(299), transforms.ToTensor()]), loader=loader)
+                                                       transform=transforms.Compose(
+                                                           [transforms.Resize(299), transforms.ToTensor()]),
+                                                       loader=loader)
     else:
         if not bucket_name:
             trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn",
@@ -241,7 +254,8 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
         print('-' * 20)
 
-        trn_report = train(trn_dataloader, model, criterion, optimizer, lr_scheduler, num_classes, batch_size, classifier)
+        trn_report = train(trn_dataloader, model, criterion, optimizer, lr_scheduler, num_classes, batch_size,
+                           classifier)
         trn_log.add_values(trn_report, epoch)
 
         val_report = validation(val_dataloader, model, criterion, num_classes, batch_size, classifier)
@@ -261,7 +275,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                 else:
                     bucket_filename = 'checkpoint.pth.tar'
                 bucket.upload_file(filename, bucket_filename)
-        
+
         if bucket_name:
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now)
 
