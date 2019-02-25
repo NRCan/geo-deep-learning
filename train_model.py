@@ -134,7 +134,7 @@ def get_local_classes(num_classes, data_path, output_path):
 
 
 def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs,
-         learning_rate, weight_decay, step_size, gamma, num_classes, class_weights, model, classifier):
+         learning_rate, weight_decay, step_size, gamma, num_classes, class_weights, model, classifier, model_name):
     """Function to train and validate a models for semantic segmentation.
     Args:
         bucket_name: bucket in which data is stored if using AWS S3
@@ -153,6 +153,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         class_weights: weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class
         model: CNN model (tensor)
         classifier: True if doing image classification, False if doing semantic segmentation.
+        model_name: name of the model used for training.
     Returns:
         Files 'checkpoint.pth.tar' and 'last_epoch.pth.tar' containing trained weight
     """
@@ -266,7 +267,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
             print("save checkpoint")
             filename = os.path.join(output_path, 'checkpoint.pth.tar')
             best_loss = val_loss
-            save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'model': model.state_dict(), 'best_loss':
+            save_checkpoint({'epoch': epoch, 'arch': model_name, 'model': model.state_dict(), 'best_loss':
                 best_loss, 'optimizer': optimizer.state_dict()}, filename)
 
             if bucket_name:
@@ -283,7 +284,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
 
     filename = os.path.join(output_path, 'last_epoch.pth.tar')
-    save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'model': model.state_dict(), 'best_loss': best_loss,
+    save_checkpoint({'epoch': epoch, 'arch': model_name, 'model': model.state_dict(), 'best_loss': best_loss,
                      'optimizer': optimizer.state_dict()}, filename)
 
     if bucket_name:
@@ -419,7 +420,7 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
-    cnn_model, state_dict_path = net(params)
+    cnn_model, state_dict_path, model_name = net(params)
 
     main(params['global']['bucket_name'],
          params['global']['data_path'],
@@ -436,5 +437,6 @@ if __name__ == '__main__':
          params['global']['num_classes'],
          params['training']['class_weights'],
          cnn_model,
-         params['global']['classify'])
+         params['global']['classify'],
+         model_name)
     print('End of training')
