@@ -125,6 +125,8 @@ def vector_to_raster(vector_file, attribute_name, new_raster):
     gdal.RasterizeLayer(new_raster, [1], rev_lyr, options=["ATTRIBUTE=%s" % attribute_name])
 
 
+
+
 def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
          remove_background, mask_input_image, mask_reference):
     gpkg_file = []

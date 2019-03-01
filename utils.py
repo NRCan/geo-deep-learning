@@ -4,6 +4,7 @@ import os
 import subprocess
 import numpy as np
 # import matplotlib.pyplot as plt
+import rasterio
 import gdal
 import warnings
 from ruamel_yaml import YAML
@@ -69,7 +70,14 @@ def create_new_raster_from_base(input_raster, output_raster, band_count, write_a
         if write_array is not None:
             band.WriteArray(write_array[:, :, band_num])
             band.FlushCache()
+
     return new_raster
+
+
+#    import rasterio
+#
+#    input_image = rasterio.open(input_raster)
+
 
 
 def assert_band_number(in_image, band_count_yaml):
@@ -121,6 +129,7 @@ def image_reader_as_array(file_name):
     Args:
         file_name: full file path of the image
     """
+    """
     raster = gdal.Open(file_name)
     band_num = raster.RasterCount
     band = raster.GetRasterBand(1)
@@ -132,6 +141,22 @@ def image_reader_as_array(file_name):
         band = raster.GetRasterBand(i + 1)
         arr = band.ReadAsArray()
         np_array[:, :, i] = arr
+    
+    return np_array
+    """
+
+    dataset = rasterio.open(file_name)
+    band_num = dataset.count
+    rows = dataset.height
+    columns = dataset.width
+
+    np_array = np.empty([rows, columns, band_num], dtype=np.float32)
+
+    for i in range(band_num):
+        band = dataset.read(i+1)  # Bands starts at 1 in rasterio not 0
+        np_array[:, :, i] = band
+
+    dataset.close()
 
     return np_array
 
