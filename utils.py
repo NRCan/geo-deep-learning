@@ -73,6 +73,35 @@ def create_new_raster_from_base(input_raster, output_raster, band_count, write_a
 
     return new_raster
 
+    gtiff = 'GTiff'
+    in_image = rasterio.open(input_raster, 'r', driver = gtiff)
+
+    # Create new raster with same image properties as in image
+    new_raster = rasterio.open(output_raster, 'w',
+                               driver=gtiff,
+                               height=in_image.height,
+                               width=in_image.width,
+                               count=in_image.count,
+                               dtype=inmage.dtype,
+                               crs=in_image.crs,
+                               transform=in_image.transform,
+                               nodatat=-9999)
+
+    for i in range(in_image.count):
+        band = in_image,read(i+1) # In rasterio first image in 1 not 0
+
+        if write_array is not none:
+            band = write_array(:, :, band_num)
+
+
+
+
+
+
+
+
+
+
 
 #    import rasterio
 #
