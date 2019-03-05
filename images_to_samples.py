@@ -57,12 +57,12 @@ def resize_datasets(hdf5_file):
     hdf5_file['map_img'].resize(new_size, axis=0)
 
 
-def samples_preparation(sat_img, ref_img, sample_size, dist_samples, samples_count, num_classes, samples_file, dataset,
+def samples_preparation(in_img_array, label_array, sample_size, dist_samples, samples_count, num_classes, samples_file, dataset,
                         background_switch):
     """Extract and write samples from input image and reference image
     Args:
-        sat_img: Path and name to the input image
-        ref_img: path and name to the reference image
+        sat_img: num py array of to the input image
+        ref_img: num py array the reference image
         sample_size: Size (in pixel) of the samples to create
         dist_samples: Distance (in pixel) between samples in both images
         samples_count: Current number of samples created (will be appended and return)
@@ -73,8 +73,8 @@ def samples_preparation(sat_img, ref_img, sample_size, dist_samples, samples_cou
     """
 
     # read input and reference images as array
-    in_img_array = image_reader_as_array(sat_img)
-    label_array = image_reader_as_array(ref_img)
+#    in_img_array = image_reader_as_array(sat_img)
+#    label_array = image_reader_as_array(ref_img)
 
     h, w, num_bands = in_img_array.shape
 
@@ -228,7 +228,6 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
         validate_num_classes(info['gpkg'], num_classes, info['attribute_name'])
 
         # Mask zeros from input image into label raster.
-        mask_reference=True  # Ligne à détruire
         if mask_reference:
 #            tmp_label_raster = create_new_raster_from_base(info['tif'], tmp_label_name, 1)
             # Burn vector file in a raster file
@@ -236,8 +235,8 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
 #            tmp_label_raster = None
 
 #            masked_array = mask_image(image_reader_as_array(info['tif']), image_reader_as_array(tmp_label_name))
-            np_masked_array = mask_image(image_reader_as_array(info['tif']), np_label_raster)
-            create_new_raster_from_base(info['tif'], label_name, 1, masked_array)    # Le fichier label name contien masked array
+            np_input_image = mask_image(image_reader_as_array(info['tif']), np_label_raster)
+#            create_new_raster_from_base(info['tif'], label_name, 1, masked_array)    # Le fichier label name contien masked array
 
 #            os.remove(tmp_label_name)
 
@@ -247,18 +246,20 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
             np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
 #            label_raster = None
 
-        # Mask zeros from label raster into input image.
+        # Mask zeros from label raster into input image otherwise use original image
         if mask_input_image:
 #             masked_img = mask_image(image_reader_as_array(label_name), image_reader_as_array(info['tif']))
-            np_masked_img = mask_image(np_label_raster, image_reader_as_array(info['tif']))
-            create_new_raster_from_base(label_name, info['tif'], number_of_bands, masked_img)
+            np_input_image = mask_image(np_label_raster, image_reader_as_array(info['tif']))
+#            create_new_raster_from_base(label_name, info['tif'], number_of_bands, masked_img)
+        else:
+            np_input_image = image_reader_as_array(info['tif'])
 
         if info['dataset'] == 'trn':
             out_file = trn_hdf5
         elif info['dataset'] == 'val':
             out_file = val_hdf5
 
-        number_samples, number_classes = samples_preparation(info['tif'], np_label_raster, samples_size, samples_dist,
+        number_samples, number_classes = samples_preparation(np_input_image, np_label_raster, samples_size, samples_dist,
                                                              number_samples, number_classes, out_file, info['dataset'],
                                                              remove_background)
 #        number_samples, number_classes = samples_preparation(info['tif'], label_name, samples_size, samples_dist,
