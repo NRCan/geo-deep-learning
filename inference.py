@@ -206,7 +206,7 @@ if __name__ == '__main__':
     csv_file = params['inference']['img_csv_file']
 
     if params['global']['classify']:
-        model, sdp = net(params)
+        model, sdp, model_name = net(params)
         model_depth = maxpool_level(model, params['global']['number_of_bands'], 299)['MaxPoolCount']
     else:
         model, sdp, model_depth = net(params, rtn_level=True)

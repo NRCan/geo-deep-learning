@@ -97,9 +97,11 @@ def loader(path):
     return img
 
 
-def get_s3_classification_images(dataset, bucket, bucket_name, data_path, output_path):
+def get_s3_classification_images(dataset, bucket, bucket_name, data_path, output_path, num_classes):
     classes = list_s3_subfolders(bucket_name, os.path.join(data_path, dataset))
     classes.sort()
+    assert num_classes == len(classes), "The configuration file specified %d classes, but only %d class folders were " \
+                                        "found in %s." % (num_classes, len(classes), os.path.join(data_path, dataset))
     with open(os.path.join(output_path, 'classes.csv'), 'wt') as myfile:
         wr = csv.writer(myfile)
         wr.writerow(classes)
@@ -120,8 +122,19 @@ def get_s3_classification_images(dataset, bucket, bucket_name, data_path, output
                 bucket.download_file(f.key, os.path.join(classpath, f.key.split('/')[-1]))
 
 
+def get_local_classes(num_classes, data_path, output_path):
+    # Get classes locally and write to csv in output_path
+    classes = next(os.walk(os.path.join(data_path, 'trn')))[1]
+    classes.sort()
+    assert num_classes == len(classes), "The configuration file specified %d classes, but only %d class folders were " \
+                                        "found in %s." % (num_classes, len(classes), os.path.join(data_path, 'trn'))
+    with open(os.path.join(output_path, 'classes.csv'), 'w') as myfile:
+        wr = csv.writer(myfile)
+        wr.writerow(classes)
+
+
 def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs,
-         learning_rate, weight_decay, step_size, gamma, num_classes, class_weights, model, classifier):
+         learning_rate, weight_decay, step_size, gamma, num_classes, class_weights, model, classifier, model_name):
     """Function to train and validate a models for semantic segmentation.
     Args:
         bucket_name: bucket in which data is stored if using AWS S3
@@ -140,6 +153,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         class_weights: weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class
         model: CNN model (tensor)
         classifier: True if doing image classification, False if doing semantic segmentation.
+        model_name: name of the model used for training.
     Returns:
         Files 'checkpoint.pth.tar' and 'last_epoch.pth.tar' containing trained weight
     """
@@ -157,7 +171,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         bucket = s3.Bucket(bucket_name)
         if classifier:
             for i in ['trn', 'val']:
-                get_s3_classification_images(i, bucket, bucket_name, data_path, output_path)
+                get_s3_classification_images(i, bucket, bucket_name, data_path, output_path, num_classes)
                 class_file = os.path.join(output_path, 'classes.csv')
                 if bucket_output_path:
                     bucket.upload_file(class_file, os.path.join(bucket_output_path, 'classes.csv'))
@@ -175,12 +189,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                 bucket.download_file('samples/val_samples.hdf5', 'samples/val_samples.hdf5')
             verify_sample_count(num_trn_samples, num_val_samples, data_path, bucket_name)
     elif classifier:
-        # Get classes locally and write to csv in output_path
-        classes = next(os.walk(os.path.join(data_path, 'trn')))[1]
-        classes.sort()
-        with open(os.path.join(output_path, 'classes.csv'), 'w') as myfile:
-            wr = csv.writer(myfile)
-            wr.writerow(classes)
+        get_local_classes(num_classes, data_path, output_path)
     else:
         verify_sample_count(num_trn_samples, num_val_samples, data_path, bucket_name)
     verify_weights(num_classes, class_weights)
@@ -211,10 +220,15 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
 
     if classifier:
         trn_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "trn"),
-            transform=transforms.Compose([transforms.RandomRotation((0, 275)), transforms.RandomHorizontalFlip(),
-                                          transforms.Resize(299), transforms.ToTensor()]), loader=loader)
+                                                       transform=transforms.Compose(
+                                                           [transforms.RandomRotation((0, 275)),
+                                                            transforms.RandomHorizontalFlip(),
+                                                            transforms.Resize(299), transforms.ToTensor()]),
+                                                       loader=loader)
         val_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "val"),
-            transform = transforms.Compose([transforms.Resize(299), transforms.ToTensor()]), loader=loader)
+                                                       transform=transforms.Compose(
+                                                           [transforms.Resize(299), transforms.ToTensor()]),
+                                                       loader=loader)
     else:
         if not bucket_name:
             trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn",
@@ -235,13 +249,14 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
 
-    now = datetime.datetime.now().strftime("%Y-%m-%d %I:%M ")
+    now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M ")
     for epoch in range(0, num_epochs):
         print()
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
         print('-' * 20)
 
-        trn_report = train(trn_dataloader, model, criterion, optimizer, lr_scheduler, num_classes, batch_size, classifier)
+        trn_report = train(trn_dataloader, model, criterion, optimizer, lr_scheduler, num_classes, batch_size,
+                           classifier)
         trn_log.add_values(trn_report, epoch)
 
         val_report = validation(val_dataloader, model, criterion, num_classes, batch_size, classifier)
@@ -252,7 +267,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
             print("save checkpoint")
             filename = os.path.join(output_path, 'checkpoint.pth.tar')
             best_loss = val_loss
-            save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'model': model.state_dict(), 'best_loss':
+            save_checkpoint({'epoch': epoch, 'arch': model_name, 'model': model.state_dict(), 'best_loss':
                 best_loss, 'optimizer': optimizer.state_dict()}, filename)
 
             if bucket_name:
@@ -261,7 +276,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                 else:
                     bucket_filename = 'checkpoint.pth.tar'
                 bucket.upload_file(filename, bucket_filename)
-        
+
         if bucket_name:
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now)
 
@@ -269,7 +284,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
 
     filename = os.path.join(output_path, 'last_epoch.pth.tar')
-    save_checkpoint({'epoch': epoch, 'arch': 'UNetSmall', 'model': model.state_dict(), 'best_loss': best_loss,
+    save_checkpoint({'epoch': epoch, 'arch': model_name, 'model': model.state_dict(), 'best_loss': best_loss,
                      'optimizer': optimizer.state_dict()}, filename)
 
     if bucket_name:
@@ -405,7 +420,7 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
-    cnn_model, state_dict_path = net(params)
+    cnn_model, state_dict_path, model_name = net(params)
 
     main(params['global']['bucket_name'],
          params['global']['data_path'],
@@ -422,5 +437,6 @@ if __name__ == '__main__':
          params['global']['num_classes'],
          params['training']['class_weights'],
          cnn_model,
-         params['global']['classify'])
+         params['global']['classify'],
+         model_name)
     print('End of training')
