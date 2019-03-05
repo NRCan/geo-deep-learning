@@ -5,6 +5,10 @@ import numpy as np
 import h5py
 import warnings
 from osgeo import gdal, osr, ogr
+import fiona
+import rasterio
+from rasterio import features
+
 from utils import read_parameters, create_new_raster_from_base, assert_band_number, image_reader_as_array, \
     create_or_empty_folder, validate_num_classes, read_csv
 
@@ -110,21 +114,61 @@ def samples_preparation(sat_img, ref_img, sample_size, dist_samples, samples_cou
     return samples_count, num_classes
 
 
-def vector_to_raster(vector_file, attribute_name, new_raster):
+def vector_to_raster(vector_file, input_image, attribute_name):
     """Function to rasterize vector data.
     Args:
         vector_file: Path and name of reference GeoPackage
+        input_image: Path and name of the input raster image
         attribute_name: Attribute containing the pixel value to write
-        new_raster: Raster file where the info will be written
+
+    Return
+        num py array of the burned image
     """
-    source_ds = ogr.Open(vector_file)
-    source_layer = source_ds.GetLayer()
-    name_lyr = source_layer.GetLayerDefn().GetName()
-    rev_lyr = source_ds.ExecuteSQL("SELECT * FROM " + name_lyr + " ORDER BY " + attribute_name + " ASC")
+#    source_ds = ogr.Open(vector_file)
+#    source_layer = source_ds.GetLayer()
+#    name_lyr = source_layer.GetLayerDefn().GetName()
+#    rev_lyr = source_ds.ExecuteSQL("SELECT * FROM " + name_lyr + " ORDER BY " + attribute_name + " ASC")
+#
+#    gdal.RasterizeLayer(new_raster, [1], rev_lyr, options=["ATTRIBUTE=%s" % attribute_name] )
 
-    gdal.RasterizeLayer(new_raster, [1], rev_lyr, options=["ATTRIBUTE=%s" % attribute_name])
+    # Extract vector features to burn in the raster image
+    with fiona.open (vector_file, 'r') as src:
+        lst_vector = [vector for vector in src]
 
+    # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
+    lst_vector.sort(key=lambda x : x['properties'][attribute_name])
+    lst_vector_tuple = [(vector['geometry'], vector['properties'][attribute_name]) for vector in lst_vector]
 
+    # Open input raster image to have access to number of rows, column, crs...
+    with rasterio.open(input_image, 'r') as src:
+        burned_raster = rasterio.features.rasterize( (vector_tuple for vector_tuple in lst_vector_tuple),
+                                    fill = 0,
+                                    out_shape=src.shape,
+                                    transform=src.transform)
+
+    return burned_raster
+
+    """
+    
+    with fiona.open(vector_file, 'r') as c:
+        with rasterio.open('13547682814_f2e459f7a5_o.png') as src:
+            image = features.rasterize(
+                ((a['geometry'], 255) for a in c),
+                out_shape=src.shape,
+                transform=src.transform)
+
+            with rasterio.open(
+                    'rasterized-results.tif', 'w',
+                    driver='GTiff',
+                    dtype=rasterio.uint8,
+                    count=1,
+                    width=src.width,
+                    height=src.height,
+                    transform=src.transform,
+                    crs=src.crs) as dst:
+                dst.write(image, indexes=1)
+                
+    """
 
 
 def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
@@ -180,28 +224,33 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
             info['gpkg'] = info['gpkg'].split('/')[-1]
         assert_band_number(info['tif'], number_of_bands)
 
-        value_field = info['attribute_name']
-        validate_num_classes(info['gpkg'], num_classes, value_field)
+        # Validate the number of class in the vector file
+        validate_num_classes(info['gpkg'], num_classes, info['attribute_name'])
 
         # Mask zeros from input image into label raster.
+        mask_reference=True  # Ligne à détruire
         if mask_reference:
-            tmp_label_raster = create_new_raster_from_base(info['tif'], tmp_label_name, 1)
-            vector_to_raster(info['gpkg'], info['attribute_name'], tmp_label_raster)
-            tmp_label_raster = None
+#            tmp_label_raster = create_new_raster_from_base(info['tif'], tmp_label_name, 1)
+            # Burn vector file in a raster file
+            np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
+#            tmp_label_raster = None
 
-            masked_array = mask_image(image_reader_as_array(info['tif']), image_reader_as_array(tmp_label_name))
-            create_new_raster_from_base(info['tif'], label_name, 1, masked_array)
+#            masked_array = mask_image(image_reader_as_array(info['tif']), image_reader_as_array(tmp_label_name))
+            np_masked_array = mask_image(image_reader_as_array(info['tif']), np_label_raster)
+            create_new_raster_from_base(info['tif'], label_name, 1, masked_array)    # Le fichier label name contien masked array
 
-            os.remove(tmp_label_name)
+#            os.remove(tmp_label_name)
 
         else:
-            label_raster = create_new_raster_from_base(info['tif'], label_name, 1)
-            vector_to_raster(info['gpkg'], info['attribute_name'], label_raster)
-            label_raster = None
+#            label_raster = create_new_raster_from_base(info['tif'], label_name, 1)
+#            vector_to_raster(info['gpkg'], info['attribute_name'], label_raster)
+            np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
+#            label_raster = None
 
         # Mask zeros from label raster into input image.
         if mask_input_image:
-            masked_img = mask_image(image_reader_as_array(label_name), image_reader_as_array(info['tif']))
+#             masked_img = mask_image(image_reader_as_array(label_name), image_reader_as_array(info['tif']))
+            np_masked_img = mask_image(np_label_raster, image_reader_as_array(info['tif']))
             create_new_raster_from_base(label_name, info['tif'], number_of_bands, masked_img)
 
         if info['dataset'] == 'trn':
@@ -209,9 +258,13 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
         elif info['dataset'] == 'val':
             out_file = val_hdf5
 
-        number_samples, number_classes = samples_preparation(info['tif'], label_name, samples_size, samples_dist,
+        number_samples, number_classes = samples_preparation(info['tif'], np_label_raster, samples_size, samples_dist,
                                                              number_samples, number_classes, out_file, info['dataset'],
                                                              remove_background)
+#        number_samples, number_classes = samples_preparation(info['tif'], label_name, samples_size, samples_dist,
+#                                                             number_samples, number_classes, out_file, info['dataset'],
+#                                                             remove_background)
+
         print(info['tif'])
         print(number_samples)
         out_file.flush()

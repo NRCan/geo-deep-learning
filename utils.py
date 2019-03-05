@@ -9,6 +9,7 @@ import gdal
 import warnings
 from ruamel_yaml import YAML
 from osgeo import gdal, ogr
+import fiona
 import csv
 try:
     import boto3
@@ -50,7 +51,7 @@ def create_new_raster_from_base(input_raster, output_raster, band_count, write_a
         input_raster: input raster path and name
         output_raster: raster name and path to be created with info from input
         band_count: number of bands in the input raster
-        write_array (optional): array to write into the new raster
+        write_array (optional):np array to write into the new raster
     """
     input_image = gdal.Open(input_raster)
     src = input_image
@@ -73,8 +74,9 @@ def create_new_raster_from_base(input_raster, output_raster, band_count, write_a
 
     return new_raster
 
+    """
     gtiff = 'GTiff'
-    in_image = rasterio.open(input_raster, 'r', driver = gtiff)
+    iwithterio.open(input_raster, 'r', driver = gtiff) as in_image
 
     # Create new raster with same image properties as in image
     new_raster = rasterio.open(output_raster, 'w',
@@ -85,27 +87,21 @@ def create_new_raster_from_base(input_raster, output_raster, band_count, write_a
                                dtype=inmage.dtype,
                                crs=in_image.crs,
                                transform=in_image.transform,
-                               nodatat=-9999)
+                               nodata=-9999)
 
     for i in range(in_image.count):
         band = in_image,read(i+1) # In rasterio first image in 1 not 0
 
         if write_array is not none:
             band = write_array(:, :, band_num)
+            
+    in_image.close
+    
+    retuirn np_
+            
+    """
 
 
-
-
-
-
-
-
-
-
-
-#    import rasterio
-#
-#    input_image = rasterio.open(input_raster)
 
 
 
@@ -157,6 +153,9 @@ def image_reader_as_array(file_name):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
         file_name: full file path of the image
+
+    Return:
+        numm_py_array of the image read
     """
     """
     raster = gdal.Open(file_name)
@@ -174,36 +173,38 @@ def image_reader_as_array(file_name):
     return np_array
     """
 
-    dataset = rasterio.open(file_name)
-    band_num = dataset.count
-    rows = dataset.height
-    columns = dataset.width
-
-    np_array = np.empty([rows, columns, band_num], dtype=np.float32)
-
-    for i in range(band_num):
-        band = dataset.read(i+1)  # Bands starts at 1 in rasterio not 0
-        np_array[:, :, i] = band
-
-    dataset.close()
+    with rasterio.open(file_name, 'r') as src:
+        np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
+        for i in range(src.count):
+            band = src.read(i+1)  # Bands starts at 1 in rasterio not 0
+            np_array[:, :, i] = band
 
     return np_array
 
 
 def validate_num_classes(vector_file, num_classes, value_field):
-    """Validate that the number of classes in the .shp corresponds to the expected number
+    """Validate that the number of classes in the vector file corresponds to the expected number
     Args:
         vector_file: full file path of the vector image
         num_classes: number of classes set in config.yaml
         value_field: name of the value field representing the required classes in the vector image file
     """
-    source_ds = ogr.Open(vector_file)
-    source_layer = source_ds.GetLayer()
-    name_lyr = source_layer.GetLayerDefn().GetName()
-    vector_classes = source_ds.ExecuteSQL("SELECT DISTINCT " + value_field + " FROM " + name_lyr).GetFeatureCount()
-    if vector_classes + 1 != num_classes:
+#    source_ds = ogr.Open(vector_file)
+#    source_layer = source_ds.GetLayer()
+#    name_lyr = source_layer.GetLayerDefn().GetName()
+#    vector_classes = source_ds.ExecuteSQL("SELECT DISTINCT " + value_field + " FROM " + name_lyr).GetFeatureCount()
+#    if vector_classes + 1 != num_classes:
+#        raise ValueError('The number of classes in the yaml.config (%d) is different than the number of classes in '
+#                         'the file %s (%d)' % (num_classes, vector_file, vector_classes))
+
+    distinct_att = set()
+    with fiona.open (vector_file, 'r') as src:
+        for feature in src:
+            distinct_att.add(feature['properties'][value_field])  # Use property of set to store unique values
+
+    if len(distinct_att)+1 != num_classes:
         raise ValueError('The number of classes in the yaml.config (%d) is different than the number of classes in '
-                         'the file %s (%d)' % (num_classes, vector_file, vector_classes))
+                         'the file %s (%d)' % (num_classes, vector_file, distinct_att))
 
 
 def list_s3_subfolders(bucket, data_path):
