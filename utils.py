@@ -1,14 +1,10 @@
 import torch
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
 import os
-import subprocess
 import numpy as np
-# import matplotlib.pyplot as plt
 import rasterio
-import gdal
 import warnings
 from ruamel_yaml import YAML
-from osgeo import gdal, ogr
 import fiona
 import csv
 try:
@@ -45,34 +41,34 @@ def read_parameters(param_file):
     return params
 
 
-def create_new_raster_from_base(input_raster, output_raster, band_count, write_array=None):
-    """Function to use info from input raster to create new one.
-    Args:
-        input_raster: input raster path and name
-        output_raster: raster name and path to be created with info from input
-        band_count: number of bands in the input raster
-        write_array (optional):np array to write into the new raster
-    """
-    input_image = gdal.Open(input_raster)
-    src = input_image
-    cols = src.RasterXSize
-    rows = src.RasterYSize
-    projection = src.GetProjection()
-    geotransform = src.GetGeoTransform()
-
-    new_raster = gdal.GetDriverByName('GTiff').Create(output_raster, cols, rows, band_count, gdal.GDT_Byte)
-    new_raster.SetProjection(projection)
-    new_raster.SetGeoTransform(geotransform)
-
-    for band_num in range(0, band_count):
-        band = new_raster.GetRasterBand(band_num + 1)
-        band.SetNoDataValue(-9999)
-        # Write array if provided. If not, the image is filled with NoDataValues
-        if write_array is not None:
-            band.WriteArray(write_array[:, :, band_num])
-            band.FlushCache()
-
-    return new_raster
+#def create_new_raster_from_base(input_raster, output_raster, band_count, write_array=None):
+#    """Function to use info from input raster to create new one.
+#    Args:
+#        input_raster: input raster path and name
+#        output_raster: raster name and path to be created with info from input
+#        band_count: number of bands in the input raster
+#        write_array (optional):np array to write into the new raster
+#    """
+#    input_image = gdal.Open(input_raster)
+#    src = input_image
+#    cols = src.RasterXSize
+#    rows = src.RasterYSize
+#    projection = src.GetProjection()
+#    geotransform = src.GetGeoTransform()
+#
+#    new_raster = gdal.GetDriverByName('GTiff').Create(output_raster, cols, rows, band_count, gdal.GDT_Byte)
+#    new_raster.SetProjection(projection)
+#    new_raster.SetGeoTransform(geotransform)
+#
+#    for band_num in range(0, band_count):
+#        band = new_raster.GetRasterBand(band_num + 1)
+#        band.SetNoDataValue(-9999)
+#        # Write array if provided. If not, the image is filled with NoDataValues
+#        if write_array is not None:
+#            band.WriteArray(write_array[:, :, band_num])
+#            band.FlushCache()
+#
+#    return new_raster
 
     """
     gtiff = 'GTiff'
@@ -157,21 +153,6 @@ def image_reader_as_array(file_name):
     Return:
         numm_py_array of the image read
     """
-    """
-    raster = gdal.Open(file_name)
-    band_num = raster.RasterCount
-    band = raster.GetRasterBand(1)
-    rows, columns = (band.XSize, band.YSize)
-
-    np_array = np.empty([columns, rows, band_num], dtype=np.float32)
-
-    for i in range(0, band_num):
-        band = raster.GetRasterBand(i + 1)
-        arr = band.ReadAsArray()
-        np_array[:, :, i] = arr
-    
-    return np_array
-    """
 
     with rasterio.open(file_name, 'r') as src:
         np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
@@ -188,14 +169,10 @@ def validate_num_classes(vector_file, num_classes, value_field):
         vector_file: full file path of the vector image
         num_classes: number of classes set in config.yaml
         value_field: name of the value field representing the required classes in the vector image file
+
+    Return:
+        None
     """
-#    source_ds = ogr.Open(vector_file)
-#    source_layer = source_ds.GetLayer()
-#    name_lyr = source_layer.GetLayerDefn().GetName()
-#    vector_classes = source_ds.ExecuteSQL("SELECT DISTINCT " + value_field + " FROM " + name_lyr).GetFeatureCount()
-#    if vector_classes + 1 != num_classes:
-#        raise ValueError('The number of classes in the yaml.config (%d) is different than the number of classes in '
-#                         'the file %s (%d)' % (num_classes, vector_file, vector_classes))
 
     distinct_att = set()
     with fiona.open (vector_file, 'r') as src:
