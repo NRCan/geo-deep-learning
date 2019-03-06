@@ -41,66 +41,6 @@ def read_parameters(param_file):
     return params
 
 
-#def create_new_raster_from_base(input_raster, output_raster, band_count, write_array=None):
-#    """Function to use info from input raster to create new one.
-#    Args:
-#        input_raster: input raster path and name
-#        output_raster: raster name and path to be created with info from input
-#        band_count: number of bands in the input raster
-#        write_array (optional):np array to write into the new raster
-#    """
-#    input_image = gdal.Open(input_raster)
-#    src = input_image
-#    cols = src.RasterXSize
-#    rows = src.RasterYSize
-#    projection = src.GetProjection()
-#    geotransform = src.GetGeoTransform()
-#
-#    new_raster = gdal.GetDriverByName('GTiff').Create(output_raster, cols, rows, band_count, gdal.GDT_Byte)
-#    new_raster.SetProjection(projection)
-#    new_raster.SetGeoTransform(geotransform)
-#
-#    for band_num in range(0, band_count):
-#        band = new_raster.GetRasterBand(band_num + 1)
-#        band.SetNoDataValue(-9999)
-#        # Write array if provided. If not, the image is filled with NoDataValues
-#        if write_array is not None:
-#            band.WriteArray(write_array[:, :, band_num])
-#            band.FlushCache()
-#
-#    return new_raster
-
-    """
-    gtiff = 'GTiff'
-    iwithterio.open(input_raster, 'r', driver = gtiff) as in_image
-
-    # Create new raster with same image properties as in image
-    new_raster = rasterio.open(output_raster, 'w',
-                               driver=gtiff,
-                               height=in_image.height,
-                               width=in_image.width,
-                               count=in_image.count,
-                               dtype=inmage.dtype,
-                               crs=in_image.crs,
-                               transform=in_image.transform,
-                               nodata=-9999)
-
-    for i in range(in_image.count):
-        band = in_image,read(i+1) # In rasterio first image in 1 not 0
-
-        if write_array is not none:
-            band = write_array(:, :, band_num)
-            
-    in_image.close
-    
-    retuirn np_
-            
-    """
-
-
-
-
-
 def assert_band_number(in_image, band_count_yaml):
     """Verify if provided image has the same number of bands as described in the .yaml
     Args:
@@ -175,7 +115,7 @@ def validate_num_classes(vector_file, num_classes, value_field):
     """
 
     distinct_att = set()
-    with fiona.open (vector_file, 'r') as src:
+    with fiona.open(vector_file, 'r') as src:
         for feature in src:
             distinct_att.add(feature['properties'][value_field])  # Use property of set to store unique values
 

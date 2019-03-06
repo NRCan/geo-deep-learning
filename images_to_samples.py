@@ -71,8 +71,6 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
     """
 
     # read input and reference images as array
-#    in_img_array = image_reader_as_array(sat_img)
-#    label_array = image_reader_as_array(ref_img)
 
     h, w, num_bands = in_img_array.shape
 
@@ -142,8 +140,8 @@ def vector_to_raster(vector_file, input_image, attribute_name):
     return burned_raster
 
 
-def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
-         remove_background, mask_input_image, mask_reference):
+def main( bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
+          remove_background, mask_input_image, mask_reference):
     gpkg_file = []
     if bucket_name:
         s3 = boto3.resource('s3')
@@ -152,10 +150,8 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
         list_data_prep = read_csv('samples_prep.csv')
         if data_path:
             final_samples_folder = os.path.join(data_path, "samples")
-            final_out_label_folder = os.path.join(data_path, "label")
         else:
             final_samples_folder = "samples"
-            final_out_label_folder = "label"
         samples_folder = "samples"
         out_label_folder = "label"
 
@@ -174,13 +170,13 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
     val_hdf5 = h5py.File(os.path.join(samples_folder, "val_samples.hdf5"), "w")
 
     trn_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
-                                maxshape=(None, samples_size, samples_size, number_of_bands))
+                            maxshape=(None, samples_size, samples_size, number_of_bands))
     trn_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
-                                maxshape=(None, samples_size, samples_size))
+                            maxshape=(None, samples_size, samples_size))
     val_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
-                                maxshape=(None, samples_size, samples_size, number_of_bands))
+                            maxshape=(None, samples_size, samples_size, number_of_bands))
     val_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
-                                maxshape=(None, samples_size, samples_size))
+                            maxshape=(None, samples_size, samples_size))
     for info in list_data_prep:
 
         if bucket_name:
@@ -192,29 +188,29 @@ def main(bucket_name, data_path, samples_size, num_classes, number_of_bands, csv
             info['gpkg'] = info['gpkg'].split('/')[-1]
         assert_band_number(info['tif'], number_of_bands)
 
+        # Read the input raster image
+        np_input_image = image_reader_as_array(info['tif'])
+
         # Validate the number of class in the vector file
         validate_num_classes(info['gpkg'], num_classes, info['attribute_name'])
 
+        # Burn vector file in a raster file
+        np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
+
         # Mask the zeros from input image into label raster.
         if mask_reference:
-            # Burn vector file in a raster file
-            np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
-            np_input_image = mask_image(image_reader_as_array(info['tif']), np_label_raster)
-        else:
-            np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
+            np_label_raster = mask_image(np_input_image, np_label_raster)
 
         # Mask zeros from label raster into input image otherwise use original image
         if mask_input_image:
-            np_input_image = mask_image(np_label_raster, image_reader_as_array(info['tif']))
-        else:
-            np_input_image = image_reader_as_array(info['tif'])
+            np_input_image = mask_image(np_label_raster, np_input_image)
 
         if info['dataset'] == 'trn':
             out_file = trn_hdf5
         elif info['dataset'] == 'val':
             out_file = val_hdf5
 
-        np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1],1))
+        np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
         number_samples, number_classes = samples_preparation(np_input_image, np_label_raster, samples_size, samples_dist,
                                                              number_samples, number_classes, out_file, info['dataset'],
                                                              remove_background)
