@@ -90,7 +90,7 @@ def samples_preparation(sat_img, ref_img, sample_size, dist_samples, samples_cou
             data = (pad_in_img_array[row:row + sample_size, column:column + sample_size, :])
             target = np.squeeze(pad_label_array[row:row + sample_size, column:column + sample_size, :], axis=2)
 
-            target_class_num = max(target.ravel())
+            target_class_num = target.max()
 
             if (background_switch and target_class_num != 0) or (not background_switch):
                 resize_datasets(samples_file)
