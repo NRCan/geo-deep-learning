@@ -120,8 +120,8 @@ def validate_num_classes(vector_file, num_classes, value_field):
             distinct_att.add(feature['properties'][value_field])  # Use property of set to store unique values
 
     if len(distinct_att)+1 != num_classes:
-        raise ValueError('The number of classes in the yaml.config (%d) is different than the number of classes in '
-                         'the file %s (%d)' % (num_classes, vector_file, distinct_att))
+        raise ValueError('The number of classes in the yaml.config {} is different than the number of classes in '
+                         'the file {} {}'.format (num_classes, vector_file, str(list(distinct_att))))
 
 
 def list_s3_subfolders(bucket, data_path):

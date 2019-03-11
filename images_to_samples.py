@@ -55,8 +55,8 @@ def resize_datasets(hdf5_file):
     hdf5_file['map_img'].resize(new_size, axis=0)
 
 
-def samples_preparation(in_img_array, label_array, sample_size, dist_samples, samples_count, num_classes, samples_file, dataset,
-                        background_switch):
+def samples_preparation(in_img_array, label_array, sample_size, dist_samples, samples_count, num_classes, samples_file,
+                        dataset, background_switch):
     """Extract and write samples from input image and reference image
     Args:
         sat_img: num py array of to the input image
@@ -122,12 +122,12 @@ def vector_to_raster(vector_file, input_image, attribute_name):
     """
 
     # Extract vector features to burn in the raster image
-    with fiona.open (vector_file, 'r') as src:
+    with fiona.open(vector_file, 'r') as src:
         lst_vector = [vector for vector in src]
 
     # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
     lst_vector.sort(key=lambda vector : vector['properties'][attribute_name])
-    lst_vector_tuple = [(vector['geometry'], vector['properties'][attribute_name]) for vector in lst_vector]
+    lst_vector_tuple = [(vector['geometry'], int(vector['properties'][attribute_name])) for vector in lst_vector]
 
     # Open input raster image to have access to number of rows, column, crs...
     with rasterio.open(input_image, 'r') as src:
@@ -135,7 +135,7 @@ def vector_to_raster(vector_file, input_image, attribute_name):
                                     fill = 0,
                                     out_shape=src.shape,
                                     transform=src.transform,
-                                    dtype=np.float32)
+                                    dtype=np.uint8)
 
     return burned_raster
 
@@ -239,6 +239,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     params = read_parameters(args.ParamFile)
 
+    import time
+    start_time = time.time()
+
+
     main(params['global']['bucket_name'],
          params['global']['data_path'],
          params['global']['samples_size'],
@@ -249,3 +253,6 @@ if __name__ == '__main__':
          params['sample']['remove_background'],
          params['sample']['mask_input_image'],
          params['sample']['mask_reference'])
+
+    print ("Le temps:{}".format(time.time() - start_time))
+
