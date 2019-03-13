@@ -84,10 +84,7 @@ def assert_band_number(in_image, band_count_yaml):
         print(e)
 
     msg = "The number of bands in the input image and the parameter 'number_of_bands' in the yaml file must be the same"
-    if band_count_yaml == 1:
-        assert len(in_array.shape) == 2, msg
-    else:
-        assert in_array.shape[2] == band_count_yaml, msg
+    assert in_array.shape[2] == band_count_yaml, msg
 
 
 def load_from_checkpoint(filename, model, optimizer=None):
