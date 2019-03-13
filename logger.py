@@ -21,9 +21,11 @@ class InformationLogger(object):
         self.losses_values.flush()
 
 
-def save_logs_to_bucket(bucket, bucket_output_path, output_path, now):
-    list_log_file = ['trn_classes_score', 'trn_averaged_score', 'trn_losses_values',
-                     'val_classes_score', 'val_averaged_score', 'val_losses_values']
+def save_logs_to_bucket(bucket, bucket_output_path, output_path, now, batch_metrics=None):
+    if batch_metrics is not None:
+        list_log_file = ['trn_losses_values', 'val_classes_score', 'val_averaged_score', 'val_losses_values']
+    else:
+        list_log_file = ['trn_losses_values', 'val_losses_values']
     for i in list_log_file:
         if bucket_output_path:
             log_file = os.path.join(output_path, f"{i}.log")

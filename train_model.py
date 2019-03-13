@@ -283,7 +283,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                 bucket.upload_file(filename, bucket_filename)
 
         if bucket_name:
-            save_logs_to_bucket(bucket, bucket_output_path, output_path, now)
+            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, batch_metrics)
 
         cur_elapsed = time.time() - since
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
