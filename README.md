@@ -90,6 +90,7 @@ training:
   gamma: 0.9                                    # Multiple for learning rate decay
   step_size: 4                                  # Apply gamma every step_size
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
+  batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
 
 # Inference parameters; used in inference.py --------
 
@@ -207,6 +208,7 @@ training:
   gamma: 0.9                                    # Multiple for learning rate decay
   step_size: 4                                  # Apply gamma every step_size
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
+  batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
 ```
 
 Inputs:
@@ -314,6 +316,7 @@ training:
   gamma: 0.9                                    # Multiple for learning rate decay
   step_size: 4                                  # Apply gamma every step_size
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
+  batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
 ```
 Note: ```data_path``` must always have a value for classification tasks
 
@@ -365,5 +368,3 @@ Outputs:
 Process:
 - The process will load trained weights to the specified architecture and perform a classification task on all the images contained in the ```working_folder```.
 - The full file path of the classified image, the class identified, as well as the top 5 most likely classes and their value will be displayed on the screen
-
-

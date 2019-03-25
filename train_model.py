@@ -134,7 +134,8 @@ def get_local_classes(num_classes, data_path, output_path):
 
 
 def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs,
-         learning_rate, weight_decay, step_size, gamma, num_classes, class_weights, model, classifier, model_name):
+         learning_rate, weight_decay, step_size, gamma, num_classes, class_weights, batch_metrics, model, classifier,
+         model_name):
     """Function to train and validate a models for semantic segmentation.
     Args:
         bucket_name: bucket in which data is stored if using AWS S3
@@ -151,6 +152,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         gamma: multiplicative factor of learning rate decay
         num_classes: number of classes
         class_weights: weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class
+        batch_metrics:(int) Metrics computed every (int) batches. If left blank, will not perform metrics.
         model: CNN model (tensor)
         classifier: True if doing image classification, False if doing semantic segmentation.
         model_name: name of the model used for training.
@@ -259,9 +261,12 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                            classifier)
         trn_log.add_values(trn_report, epoch)
 
-        val_report = validation(val_dataloader, model, criterion, num_classes, batch_size, classifier)
+        val_report = validation(val_dataloader, model, criterion, num_classes, batch_size, classifier, batch_metrics)
         val_loss = val_report['loss'].avg
-        val_log.add_values(val_report, epoch)
+        if batch_metrics is not None:
+            val_log.add_values(val_report, epoch, log_metrics=True)
+        else:
+            val_log.add_values(val_report, epoch)
 
         if val_loss < best_loss:
             print("save checkpoint")
@@ -278,7 +283,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                 bucket.upload_file(filename, bucket_filename)
 
         if bucket_name:
-            save_logs_to_bucket(bucket, bucket_output_path, output_path, now)
+            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, batch_metrics)
 
         cur_elapsed = time.time() - since
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
@@ -345,23 +350,11 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
         loss.backward()
         optimizer.step()
 
-        # Compute accuracy and iou every 2 batches and average values. Time consuming.
-        if index % 2 == 0:
-            a, segmentation = torch.max(outputs_flatten, dim=1)
-
-            train_metrics = report_classification(segmentation, labels, batch_size, train_metrics)
-            train_metrics = iou(segmentation, labels, batch_size, train_metrics)
-
     print('Training Loss: {:.4f}'.format(train_metrics['loss'].avg))
-    print('Training iou: {:.4f}'.format(train_metrics['iou'].avg))
-    print('Training precision: {:.4f}'.format(train_metrics['precision'].avg))
-    print('Training recall: {:.4f}'.format(train_metrics['recall'].avg))
-    print('Training f1-score: {:.4f}'.format(train_metrics['fscore'].avg))
-
     return train_metrics
 
 
-def validation(valid_loader, model, criterion, num_classes, batch_size, classifier):
+def validation(valid_loader, model, criterion, num_classes, batch_size, classifier, batch_metrics=None):
     """Args:
         valid_loader: validation data loader
         model: model to validate
@@ -369,6 +362,7 @@ def validation(valid_loader, model, criterion, num_classes, batch_size, classifi
         num_classes: number of classes
         batch_size: number of samples to process simultaneously
         classifier: True if doing a classification task, False if doing semantic segmentation
+        batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
     """
 
     valid_metrics = create_metrics_dict(num_classes)
@@ -399,16 +393,16 @@ def validation(valid_loader, model, criterion, num_classes, batch_size, classifi
             valid_metrics['loss'].update(loss.item(), batch_size)
 
             # Compute metrics every 2 batches. Time consuming.
-            if index % 2 == 0:
-                a, segmentation = torch.max(outputs_flatten, dim=1)
-                valid_metrics = report_classification(segmentation, labels, batch_size, valid_metrics)
-                valid_metrics = iou(segmentation, labels, batch_size, valid_metrics)
+            if batch_metrics is not None:
+                if index % batch_metrics == 0:
+                    a, segmentation = torch.max(outputs_flatten, dim=1)
+                    valid_metrics = report_classification(segmentation, labels, batch_size, valid_metrics)
 
     print('Validation Loss: {:.4f}'.format(valid_metrics['loss'].avg))
-    print('Validation iou: {:.4f}'.format(valid_metrics['iou'].avg))
-    print('Validation precision: {:.4f}'.format(valid_metrics['precision'].avg))
-    print('Validation recall: {:.4f}'.format(valid_metrics['recall'].avg))
-    print('Validation f1-score: {:.4f}'.format(valid_metrics['fscore'].avg))
+    if batch_metrics is not None:
+        print('Validation precision: {:.4f}'.format(valid_metrics['precision'].avg))
+        print('Validation recall: {:.4f}'.format(valid_metrics['recall'].avg))
+        print('Validation f1-score: {:.4f}'.format(valid_metrics['fscore'].avg))
 
     return valid_metrics
 
@@ -436,6 +430,7 @@ if __name__ == '__main__':
          params['training']['gamma'],
          params['global']['num_classes'],
          params['training']['class_weights'],
+         params['training']['batch_metrics'],
          cnn_model,
          params['global']['classify'],
          model_name)

@@ -39,6 +39,7 @@ training:
   step_size: 4
   gamma: 0.9
   class_weights: False
+  batch_metrics: 2
 
 # Inference parameters; used in inference.py --------
 
