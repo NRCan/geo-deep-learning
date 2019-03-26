@@ -71,7 +71,7 @@ class DecodingBlock(nn.Module):
             output2 = checkpoint_sequential(self.up_modules, segments, input2)
         else:
             output2 = self.up(input2)
-        output1 = nn.functional.upsample(input1, output2.size()[2:], mode='bilinear', align_corners=True)
+        output1 = nn.functional.interpolate(input1, output2.size()[2:], mode='bilinear', align_corners=True)
         return checkpoint_sequential(self.conv_modules, segments, torch.cat([output1, output2], 1))
 
 
@@ -118,7 +118,7 @@ class UNet(nn.Module):
         decode2 = self.decode2(conv2, decode3)
         decode1 = self.decode1(conv1, decode2)
 
-        final = nn.functional.upsample(self.final(decode1), input_data.size()[2:], mode='bilinear')
+        final = nn.functional.interpolate(self.final(decode1), input_data.size()[2:], mode='bilinear')
         return final
 
 
@@ -157,7 +157,7 @@ class UNetSmall(nn.Module):
         decode2 = self.decode2(conv2, decode3)
         decode1 = self.decode1(conv1, decode2)
 
-        final = nn.functional.upsample(self.final(decode1), input_data.size()[2:], mode='bilinear', align_corners=True)
+        final = nn.functional.interpolate(self.final(decode1), input_data.size()[2:], mode='bilinear', align_corners=True)
         return final
 
 

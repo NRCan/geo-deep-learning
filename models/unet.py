@@ -57,7 +57,7 @@ class DecodingBlock(nn.Module):
 
     def forward(self, input1, input2):
         output2 = self.up(input2)
-        output1 = nn.functional.upsample(input1, output2.size()[2:], mode='bilinear', align_corners=True)
+        output1 = nn.functional.interpolate(input1, output2.size()[2:], mode='bilinear', align_corners=True)
         return self.conv(torch.cat([output1, output2], 1))
 
 
@@ -102,7 +102,7 @@ class UNet(nn.Module):
         decode2 = self.decode2(conv2, decode3)
         decode1 = self.decode1(conv1, decode2)
 
-        final = nn.functional.upsample(self.final(decode1), input_data.size()[2:], mode='bilinear')
+        final = nn.functional.interpolate(self.final(decode1), input_data.size()[2:], mode='bilinear')
 
         return final
 
@@ -142,6 +142,6 @@ class UNetSmall(nn.Module):
         decode2 = self.decode2(conv2, decode3)
         decode1 = self.decode1(conv1, decode2)
 
-        final = nn.functional.upsample(self.final(decode1), input_data.size()[2:], mode='bilinear', align_corners=True)
+        final = nn.functional.interpolate(self.final(decode1), input_data.size()[2:], mode='bilinear', align_corners=True)
 
         return final
