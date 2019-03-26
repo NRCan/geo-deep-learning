@@ -7,8 +7,8 @@ import time
 import argparse
 import heapq
 import rasterio
-#from PIL import Image
-#import torchvision
+from PIL import Image
+import torchvision
 from models.model_choice import net, maxpool_level
 from utils import read_parameters, assert_band_number, load_from_checkpoint, \
     image_reader_as_array, read_csv
@@ -70,7 +70,7 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
 
         assert_band_number(local_img, number_of_bands)
         if classify:
-#            outputs, predicted = classifier(bucket, model, img['tif'])
+            outputs, predicted = classifier(bucket, model, img['tif'])
             top5 = heapq.nlargest(5, outputs.cpu().numpy()[0])
             top5_loc = []
             for i in top5:
@@ -195,27 +195,27 @@ def sem_seg_inference(bucket, model, image, overlay):
         print("Error classifying image : Image shape of {:1} is not recognized".format(len(input_image.shape)))
 
 
-# def classifier(bucket, model, image):
-#     """Classify images by class
-#         Args:
-#             bucket: bucket in which data is stored if using AWS S3
-#             model: model to use for classification
-#             image: image to classify
-#         """
-#     model.eval()
-#     if bucket:
-#         img = Image.open(f"Images/{os.path.basename(image)}").resize((299, 299), resample=Image.BILINEAR)
-#     else:
-#         img = Image.open(image).resize((299, 299), resample=Image.BILINEAR)
-#     to_tensor = torchvision.transforms.ToTensor()
-#     img = to_tensor(img)
-#     img = img.unsqueeze(0)
-#     with torch.no_grad():
-#         if torch.cuda.is_available():
-#             img = img.cuda()
-#         outputs = model(img)
-#         _, predicted = torch.max(outputs, 1)
-#     return outputs, predicted
+def classifier(bucket, model, image):
+    """Classify images by class
+        Args:
+            bucket: bucket in which data is stored if using AWS S3
+            model: model to use for classification
+            image: image to classify
+        """
+    model.eval()
+    if bucket:
+        img = Image.open(f"Images/{os.path.basename(image)}").resize((299, 299), resample=Image.BILINEAR)
+    else:
+        img = Image.open(image).resize((299, 299), resample=Image.BILINEAR)
+    to_tensor = torchvision.transforms.ToTensor()
+    img = to_tensor(img)
+    img = img.unsqueeze(0)
+    with torch.no_grad():
+        if torch.cuda.is_available():
+            img = img.cuda()
+        outputs = model(img)
+        _, predicted = torch.max(outputs, 1)
+    return outputs, predicted
 
 
 if __name__ == '__main__':
