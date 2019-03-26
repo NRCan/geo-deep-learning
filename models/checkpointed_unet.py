@@ -45,11 +45,12 @@ class EncodingBlock(nn.Module):
         return checkpoint_sequential(modules, segments, input_data)
 
 class Upsample(nn.Module):
-    def __init__(self,  scale_factor):
+    def __init__(self,  mode, scale_factor):
         super(Upsample, self).__init__()
+        self.mode = mode
         self.scale_factor = scale_factor
     def forward(self, x):
-        return F.interpolate(x, mode=self.mode, scale_factor=self.scale_factor)
+        return nn.functional.interpolate(x, mode=self.mode, scale_factor=self.scale_factor)
 
 class DecodingBlock(nn.Module):
     """Module in the decoding section of the UNet"""
