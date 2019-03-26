@@ -6,10 +6,11 @@ import csv
 import time
 import argparse
 import heapq
+import rasterio
 from PIL import Image
 import torchvision
 from models.model_choice import net, maxpool_level
-from utils import read_parameters, create_new_raster_from_base, assert_band_number, load_from_checkpoint, \
+from utils import read_parameters, assert_band_number, load_from_checkpoint, \
     image_reader_as_array, read_csv
 
 try:
@@ -83,7 +84,7 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
             print()
         else:
             sem_seg_results = sem_seg_inference(bucket, model, img['tif'], overlay)
-            create_new_raster_from_base(local_img, inference_image, 1, sem_seg_results)
+            create_new_raster_from_base(local_img, inference_image, sem_seg_results)
             print(f"Semantic segmentation of image {img_name} completed")
 
         if bucket:
@@ -100,6 +101,29 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
 
     time_elapsed = time.time() - since
     print('Inference completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+
+
+def create_new_raster_from_base(input_raster, output_raster, write_array):
+    """Function to use info from input raster to create new one.
+    Args:
+        input_raster: input raster path and name
+        output_raster: raster name and path to be created with info from input
+        write_array (optional): array to write into the new raster
+
+    Return:
+        none
+    """
+
+    with rasterio.open(input_raster, 'r') as src:
+        with rasterio.open( output_raster, 'w',
+                            driver=src.driver,
+                            width=src.width,
+                            height=src.height,
+                            count=1,
+                            crs=src.crs,
+                            dtype=np.uint8,
+                            transform=src.transform) as dst:
+            dst.write(write_array[:,:,0], 1)
 
 
 def sem_seg_inference(bucket, model, image, overlay):
