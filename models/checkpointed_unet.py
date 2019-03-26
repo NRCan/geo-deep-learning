@@ -44,6 +44,12 @@ class EncodingBlock(nn.Module):
         modules = get_modules(self.encoding_block)
         return checkpoint_sequential(modules, segments, input_data)
 
+class Upsample(nn.Module):
+    def __init__(self,  scale_factor):
+        super(Upsample, self).__init__()
+        self.scale_factor = scale_factor
+    def forward(self, x):
+        return F.interpolate(x, mode=self.mode, scale_factor=self.scale_factor)
 
 class DecodingBlock(nn.Module):
     """Module in the decoding section of the UNet"""
@@ -52,7 +58,7 @@ class DecodingBlock(nn.Module):
         super().__init__()
         up_modules = []
         if upsampling:
-            self.up = nn.Sequential(nn.functional.interpolate(self, mode='bilinear', scale_factor=2),
+            self.up = nn.Sequential(Upsample(mode='bilinear', scale_factor=2),
                                     nn.Conv2d(in_size, out_size, kernel_size=1))
             self.upsampling = True
         else:
