@@ -52,7 +52,7 @@ class DecodingBlock(nn.Module):
         super().__init__()
         up_modules = []
         if upsampling:
-            self.up = nn.Sequential(nn.functional.interpolate(mode='bilinear', scale_factor=2),
+            self.up = nn.Sequential(nn.functional.interpolate(self, mode='bilinear', scale_factor=2),
                                     nn.Conv2d(in_size, out_size, kernel_size=1))
             self.upsampling = True
         else:
