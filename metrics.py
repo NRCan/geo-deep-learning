@@ -53,7 +53,7 @@ def report_classification(pred, label, batch_size, metrics_dict):
     """Computes precision, recall and f-score for each class and average of all classes.
     http://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
     """
-    class_report = classification_report(label, pred, output_dict=True)
+    class_report = classification_report(label.cpu(), pred.cpu(), output_dict=True)
 
     class_score = {}
     for key, value in class_report.items():
@@ -75,6 +75,6 @@ def iou(pred, target, batch_size, metrics_dict):
     """Calculate the intersection over union (or Jaccard index) between two datasets.
     The Jaccard distance (or dissimilarity) would be 1-iou.
     """
-    iou = jaccard_similarity_score(target, pred, normalize=True)
+    iou = jaccard_similarity_score(target.cpu(), pred.cpu(), normalize=True)
     metrics_dict['iou'].update(iou, batch_size)
     return metrics_dict
