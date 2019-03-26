@@ -254,5 +254,5 @@ if __name__ == '__main__':
          params['sample']['mask_input_image'],
          params['sample']['mask_reference'])
 
-    print ("Le temps:{}".format(time.time() - start_time))
+    print ("Elapsed time:{}".format(time.time() - start_time))
 
