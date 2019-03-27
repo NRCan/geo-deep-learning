@@ -6,16 +6,15 @@ The overall learning process comprises three broad stages: data preparation, tra
 
 > The term `classification` in this project is used as it has been traditionally used in the remote sensing community: a process of assigning land cover classes to pixels.  The meaning of the word in the deep learning community differs somewhat, where classification is simply to assign a label to the whole input image. This usage of the term classification will always be referred to as a ```classification task``` in the context of this project. Other uses of the term classification refer to the final phase of the learning process when a trained model is applied to new images, regardless of whether `semantic segmentation`, ["the process of assigning a label to every pixel in an image"](https://en.wikipedia.org/wiki/Image_segmentation), or a `classification task` is being used.
 
-After installing the required computing environment (see next section), one needs to replace the config.yaml file boilerplate path and other items to point to images and other data.  The full sequence of steps is described in the sections below. 
+After installing the required computing environment (see next section), one needs to replace the config.yaml file boilerplate path and other items to point to images and other data.  The full sequence of steps is described in the sections below.
 
 > This project comprises a set of commands to be run at a shell command prompt.  Examples used here are for a bash shell in an Ubuntu GNU/Linux environment.
 
 
 ## Requirements  
 - Python 3.6 with the following libraries:
-    - pytorch 0.4.1
-    - torchvision 0.2.1
-    - numpy
+    - pytorch 1.0.1 # With your choice of CUDA toolkit
+    - torchvision
     - rasterio
     - fiona
     - ruamel_yaml
@@ -27,14 +26,14 @@ After installing the required computing environment (see next section), one need
 
 ## Installation on your workstation
 1. Using conda, you can set and activate your python environment with the following commands:  
-    With GPU:
+    With GPU (with CUDA 9.0; defaults to CUDA 10.0 if `cudatoolkit=9.0` is not specified):
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch=0.4.0 torchvision cuda80 ruamel_yaml h5py fiona rasterio scikit-image scikit-learn=0.20 -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch=1.0.1 torchvision cudatoolkit=9.0 ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
     source activate YOUR_ENV
     ```
     CPU only:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch-cpu=0.4.0 torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn=0.20 -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch-cpu=1.0.1 torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
     source activate YOUR_ENV
     ```
 1. Set your parameters in the `config.yaml` (see section bellow)
@@ -48,7 +47,7 @@ After installing the required computing environment (see next section), one need
 
 ## config.yaml
 
-The `config.yaml` file is located in the `conf` directory.  It stores the values of all parameters needed by the deep learning algorithms for all phases.  It is shown below: 
+The `config.yaml` file is located in the `conf` directory.  It stores the values of all parameters needed by the deep learning algorithms for all phases.  It is shown below:
 
 ```yaml
 # Deep learning configuration file ------------------------------------------------
@@ -96,7 +95,7 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on 
+  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on
   working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
 
@@ -111,7 +110,7 @@ models:
     <<: *unet001
   ternausnet:
     pretrained: ./models/TernausNet.pt    # Mandatory
-  checkpointed_unet: 
+  checkpointed_unet:
     <<: *unet001
   inception:
     pretrained: False   # optional
@@ -243,7 +242,7 @@ global:
   model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
 inference:
-  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on 
+  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on
   working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
 ```
@@ -354,7 +353,7 @@ global:
   bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
   classify: True			# Set to True for classification tasks and False for semantic segmentation
 inference:
-  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on 
+  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on
   working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
 ```
