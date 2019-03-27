@@ -16,7 +16,8 @@ After installing the required computing environment (see next section), one need
     - pytorch 0.4.1
     - torchvision 0.2.1
     - numpy
-    - gdal
+    - rasterio
+    - fiona
     - ruamel_yaml
     - scikit-image
     - scikit-learn
@@ -28,12 +29,12 @@ After installing the required computing environment (see next section), one need
 1. Using conda, you can set and activate your python environment with the following commands:  
     With GPU:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch=0.4.0 torchvision cuda80 ruamel_yaml h5py gdal=2.2.2 scikit-image scikit-learn=0.20 -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch=0.4.0 torchvision cuda80 ruamel_yaml h5py fiona rasterio scikit-image scikit-learn=0.20 -c pytorch
     source activate YOUR_ENV
     ```
     CPU only:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch-cpu=0.4.0 torchvision ruamel_yaml h5py gdal=2.2.2 scikit-image scikit-learn=0.20 -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch-cpu=0.4.0 torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn=0.20 -c pytorch
     source activate YOUR_ENV
     ```
 1. Set your parameters in the `config.yaml` (see section bellow)
@@ -90,6 +91,7 @@ training:
   gamma: 0.9                                    # Multiple for learning rate decay
   step_size: 4                                  # Apply gamma every step_size
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
+  batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
 
 # Inference parameters; used in inference.py --------
 
@@ -207,6 +209,7 @@ training:
   gamma: 0.9                                    # Multiple for learning rate decay
   step_size: 4                                  # Apply gamma every step_size
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
+  batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
 ```
 
 Inputs:
@@ -314,6 +317,7 @@ training:
   gamma: 0.9                                    # Multiple for learning rate decay
   step_size: 4                                  # Apply gamma every step_size
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
+  batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
 ```
 Note: ```data_path``` must always have a value for classification tasks
 
@@ -365,5 +369,3 @@ Outputs:
 Process:
 - The process will load trained weights to the specified architecture and perform a classification task on all the images contained in the ```working_folder```.
 - The full file path of the classified image, the class identified, as well as the top 5 most likely classes and their value will be displayed on the screen
-
-

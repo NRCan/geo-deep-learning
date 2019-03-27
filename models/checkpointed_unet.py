@@ -1,4 +1,4 @@
-import torch
+import torch, utils
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
 from torch.utils.checkpoint import checkpoint_sequential
@@ -44,7 +44,6 @@ class EncodingBlock(nn.Module):
         modules = get_modules(self.encoding_block)
         return checkpoint_sequential(modules, segments, input_data)
 
-
 class DecodingBlock(nn.Module):
     """Module in the decoding section of the UNet"""
 
@@ -52,7 +51,7 @@ class DecodingBlock(nn.Module):
         super().__init__()
         up_modules = []
         if upsampling:
-            self.up = nn.Sequential(nn.Upsample(mode='bilinear', scale_factor=2),
+            self.up = nn.Sequential(utils.Interpolate(mode='bilinear', scale_factor=2),
                                     nn.Conv2d(in_size, out_size, kernel_size=1))
             self.upsampling = True
         else:
@@ -71,7 +70,7 @@ class DecodingBlock(nn.Module):
             output2 = checkpoint_sequential(self.up_modules, segments, input2)
         else:
             output2 = self.up(input2)
-        output1 = nn.functional.upsample(input1, output2.size()[2:], mode='bilinear', align_corners=True)
+        output1 = nn.functional.interpolate(input1, output2.size()[2:], mode='bilinear', align_corners=True)
         return checkpoint_sequential(self.conv_modules, segments, torch.cat([output1, output2], 1))
 
 
@@ -118,7 +117,7 @@ class UNet(nn.Module):
         decode2 = self.decode2(conv2, decode3)
         decode1 = self.decode1(conv1, decode2)
 
-        final = nn.functional.upsample(self.final(decode1), input_data.size()[2:], mode='bilinear')
+        final = nn.functional.interpolate(self.final(decode1), input_data.size()[2:], mode='bilinear')
         return final
 
 
@@ -157,7 +156,7 @@ class UNetSmall(nn.Module):
         decode2 = self.decode2(conv2, decode3)
         decode1 = self.decode1(conv1, decode2)
 
-        final = nn.functional.upsample(self.final(decode1), input_data.size()[2:], mode='bilinear', align_corners=True)
+        final = nn.functional.interpolate(self.final(decode1), input_data.size()[2:], mode='bilinear', align_corners=True)
         return final
 
 
