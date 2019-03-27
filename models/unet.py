@@ -1,4 +1,4 @@
-import torch
+import torch, utils
 from torch import nn
 
 
@@ -48,7 +48,7 @@ class DecodingBlock(nn.Module):
     def __init__(self, in_size, out_size, batch_norm=False, upsampling=True):
         super().__init__()
         if upsampling:
-            self.up = nn.Sequential(nn.Upsample(mode='bilinear', scale_factor=2),
+            self.up = nn.Sequential(utils.Interpolate(mode='bilinear', scale_factor=2),
                                     nn.Conv2d(in_size, out_size, kernel_size=1))
         else:
             self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
