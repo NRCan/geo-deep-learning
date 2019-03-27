@@ -13,6 +13,17 @@ except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
 
+class Interpolate(torch.nn.Module):
+    def __init__(self, mode, scale_factor):
+        super(Interpolate, self).__init__()
+        self.interp = torch.nn.functional.interpolate
+        self.scale_factor = scale_factor
+        self.mode = mode
+
+    def forward(self, x):
+        x = self.interp(x, scale_factor=self.scale_factor, mode=self.mode, align_corners=False)
+        return x
+
 
 def create_or_empty_folder(folder):
     """Empty an existing folder or create it if it doesn't exist.

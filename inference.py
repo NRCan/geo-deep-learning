@@ -186,7 +186,7 @@ def sem_seg_inference(bucket, model, image, overlay):
                     col_to = col + chunk_size - overlay
 
                     useful_sem_seg = segmentation[overlay:chunk_size - overlay, overlay:chunk_size - overlay]
-                    output_np[row_from:row_to, col_from:col_to, 0] = useful_sem_seg
+                    output_np[row_from:row_to, col_from:col_to, 0] = useful_sem_seg.cpu()
 
             # Resize the output array to the size of the input image and write it
             output_np = output_np[overlay:h + overlay, overlay:w + overlay]
