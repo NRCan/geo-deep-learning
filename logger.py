@@ -54,10 +54,11 @@ class InformationLogger(object):
 
 def save_logs_to_bucket(bucket, bucket_output_path, output_path, now, batch_metrics=None):
     if batch_metrics is not None:
-        # TODO update this
-        list_log_file = ['trn_losses_values', 'val_classes_score', 'val_averaged_score', 'val_losses_values']
+        list_log_file = ['metric_val_fscore_averaged', 'metric_val_fscore', 'metric_val_iou',
+                         'metric_val_precision_averaged', 'metric_val_precision', 'metric_val_recall_averaged',
+                         'metric_val_recall']
     else:
-        list_log_file = ['trn_losses_values', 'val_losses_values']
+        list_log_file = ['metric_trn_loss', 'metric_val_loss']
     for i in list_log_file:
         if bucket_output_path:
             log_file = os.path.join(output_path, f"{i}.log")
