@@ -1,28 +1,60 @@
 import os
+import warnings
+
+
+def tsv_line(*args):
+    return '\t'.join(map(str, args)) + '\n'
 
 
 class InformationLogger(object):
     def __init__(self, log_folder, mode):
+        # List of metrics names
+        self.metrics = ['loss']
+        self.metrics_classwise = []
         if mode == 'val':
-            self.class_scores = open(os.path.join(log_folder, mode + "_classes_score.log"), "a")
-            self.averaged_scores = open(os.path.join(log_folder, mode + "_averaged_score.log"), "a")
-        self.losses_values = open(os.path.join(log_folder, mode + "_losses_values.log"), "a")
+            self.metrics += ['iou']
+            self.metrics_classwise += ['precision', 'recall', 'fscore']
 
-    def add_values(self, info, epoch, log_metrics=False):
+        # Dicts of logs
+        def open_log(metric_name, fmt_str="metric_{}_{}.log"):
+            filename = fmt_str.format(mode, metric_name)
+            return open(os.path.join(log_folder, filename), "a", buffering=1)
+        self.metric_values = {m: open_log(m) for m in self.metrics}
+        self.class_scores = {m: open_log(m) for m in self.metrics_classwise}
+        self.averaged_scores = {m: open_log(m, fmt_str="metric_{}_{}_averaged.log") for m in self.metrics_classwise}
+
+    def add_values(self, info, epoch, ignore: list = None):
         """Add new information to the logs."""
-        self.losses_values.write(f"{epoch} {info['loss'].avg}\n")
-        if log_metrics:
-            self.averaged_scores.write(f"{epoch} {info['precision'].avg} {info['recall'].avg} {info['fscore'].avg}\n")
-            del info['precision'], info['recall'], info['fscore'], info['loss']
-            for key, value in info.items():
-                self.class_scores.write(f"{epoch} {key} {info[key].avg}\n")
-            self.class_scores.flush()
-            self.averaged_scores.flush()
-        self.losses_values.flush()
+
+        ignore = [] if ignore is None else ignore
+
+        for composite_name, value in info.items():
+            tokens = composite_name.split('_')
+            if len(tokens) == 1:
+                # Ordinary metric (non-classwise); e.g. loss, iou, precision
+                name = composite_name
+                if name in ignore:
+                    continue
+                elif name in self.metrics:
+                    self.metric_values[name].write(tsv_line(epoch, value.avg))
+                elif name in self.metrics_classwise:  # Metrics averaged over classes
+                    self.averaged_scores[name].write(tsv_line(epoch, value.avg))
+                else:
+                    warnings.warn(f'Unknown metric {name}')
+            elif len(tokens) == 2:
+                # Classwise metric; e.g. precision_0, recall_1
+                name, class_idx = tokens
+                if name in ignore:
+                    continue
+                elif name in self.metrics_classwise:
+                    self.class_scores[name].write(tsv_line(epoch, class_idx, value.avg))
+                else:
+                    warnings.warn(f'Unknown metric {name}')
 
 
 def save_logs_to_bucket(bucket, bucket_output_path, output_path, now, batch_metrics=None):
     if batch_metrics is not None:
+        # TODO update this
         list_log_file = ['trn_losses_values', 'val_classes_score', 'val_averaged_score', 'val_losses_values']
     else:
         list_log_file = ['trn_losses_values', 'val_losses_values']

@@ -259,14 +259,14 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
 
         trn_report = train(trn_dataloader, model, criterion, optimizer, lr_scheduler, num_classes, batch_size,
                            classifier)
-        trn_log.add_values(trn_report, epoch)
+        trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         val_report = validation(val_dataloader, model, criterion, num_classes, batch_size, classifier, batch_metrics)
         val_loss = val_report['loss'].avg
         if batch_metrics is not None:
-            val_log.add_values(val_report, epoch, log_metrics=True)
-        else:
             val_log.add_values(val_report, epoch)
+        else:
+            val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         if val_loss < best_loss:
             print("save checkpoint")
