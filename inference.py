@@ -43,12 +43,13 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
             dst.write(write_array[:, :, 0], 1)
 
 
-def sem_seg_inference(model, nd_array, overlay, chunk_size):
+def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes):
     """Inference on images using semantic segmentation
     Args:
         model: model to use for inference
         nd_array: nd_array
         overlay: amount of overlay to apply
+        num_classes: number of different classes that may be predicted by the model
 
         returns a numpy array of the same size (h,w) as the input image, where each value is the predicted output.
     """
@@ -68,14 +69,19 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size):
         w = 0
         padded_array = None
 
-    output_np = np.empty([h + overlay + chunk_size, w + overlay + chunk_size, 1], dtype=np.uint8)
+    output_probs = np.empty([num_classes, h + overlay + chunk_size, w + overlay + chunk_size], dtype=np.float32)
+    output_counts = np.zeros([output_probs.shape[0], output_probs.shape[1]], dtype=np.int32)
 
     if padded_array.any():
         with torch.no_grad():
-            for row in range(0, h, chunk_size - (2 * overlay)):
-                for col in range(0, w, chunk_size - (2 * overlay)):
+            for row in range(overlay, h, chunk_size - overlay):
+                row_start = row - overlay
+                row_end = row_start + chunk_size
+                for col in range(overlay, w, chunk_size - overlay):
+                    col_start = col - overlay
+                    col_end = col_start + chunk_size
 
-                    chunk_input = padded_array[row:row + chunk_size, col:col + chunk_size, :]
+                    chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
                     inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
                     inputs.unsqueeze_(0)
@@ -85,20 +91,12 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size):
                     # forward
                     outputs = model(inputs)
 
-                    a, pred = torch.max(outputs, dim=1)
-                    segmentation = torch.squeeze(pred)
+                    output_counts[row_start:row_end, col_start:col_end] += 1
+                    output_probs[row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(), axis=0)
 
-                    row_from = row + overlay
-                    row_to = row + chunk_size - overlay
-                    col_from = col + overlay
-                    col_to = col + chunk_size - overlay
-
-                    useful_sem_seg = segmentation[overlay:chunk_size - overlay, overlay:chunk_size - overlay]
-                    output_np[row_from:row_to, col_from:col_to, 0] = useful_sem_seg.cpu()
-
+            output_mask = np.argmax(np.divide(output_probs, np.maximum(output_counts, 1)), axis=0)
             # Resize the output array to the size of the input image and write it
-            output_np = output_np[overlay:h + overlay, overlay:w + overlay]
-            return output_np
+            return output_mask[overlay:(h + overlay), overlay:(w + overlay)]
     else:
         print("Error classifying image : Image shape of {:1} is not recognized".format(len(nd_array.shape)))
 
@@ -224,7 +222,7 @@ def main(params):
             model = load_from_checkpoint(state_dict_path, model)
 
         chunk_size, nbr_pix_overlap = calc_overlap(params)
-
+        num_classes = params['global']['num_classes']
         for img in list_img:
             img_name = os.path.basename(img['tif'])
             if bucket:
@@ -239,7 +237,7 @@ def main(params):
             assert_band_number(local_img, params['global']['number_of_bands'])
 
             nd_array_tif = image_reader_as_array(local_img)
-            sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size)
+            sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes)
             create_new_raster_from_base(local_img, inference_image, sem_seg_results)
             print(f"Semantic segmentation of image {img_name} completed")
             if bucket:
