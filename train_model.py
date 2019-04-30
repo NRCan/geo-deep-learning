@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
@@ -16,7 +18,7 @@ from PIL import Image
 
 import CreateDataset
 import augmentation as aug
-from logger import InformationLogger, save_logs_to_bucket
+from logger import InformationLogger, save_logs_to_bucket, tsv_line
 from metrics import report_classification, iou, create_metrics_dict
 from models.model_choice import net
 from utils import read_parameters, load_from_checkpoint, list_s3_subfolders
@@ -199,6 +201,11 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     since = time.time()
     best_loss = 999
 
+    progress_log = Path(output_path) / 'progress.log'
+    if not progress_log.exists():
+        # Add header
+        progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))
+
     trn_log = InformationLogger(output_path, 'trn')
     val_log = InformationLogger(output_path, 'val')
 
@@ -258,15 +265,16 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         print('-' * 20)
 
         trn_report = train(trn_dataloader, model, criterion, optimizer, lr_scheduler, num_classes, batch_size,
-                           classifier)
-        trn_log.add_values(trn_report, epoch)
+                           classifier, epoch, progress_log)
+        trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-        val_report = validation(val_dataloader, model, criterion, num_classes, batch_size, classifier, batch_metrics)
+        val_report = validation(val_dataloader, model, criterion, num_classes, batch_size, classifier, epoch,
+                                progress_log, batch_metrics)
         val_loss = val_report['loss'].avg
         if batch_metrics is not None:
-            val_log.add_values(val_report, epoch, log_metrics=True)
-        else:
             val_log.add_values(val_report, epoch)
+        else:
+            val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         if val_loss < best_loss:
             print("save checkpoint")
@@ -305,7 +313,8 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
-def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, classifier):
+def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, classifier, ep_idx,
+          progress_log):
     """ Train the model and return the metrics of the training phase.
     Args:
         train_loader: training data loader
@@ -316,12 +325,16 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
         num_classes: number of classes
         batch_size: number of samples to process simultaneously
         classifier: True if doing a classification task, False if doing semantic segmentation
+        ep_idx: epoch idx (for hypertrainer log)
+        progress_log: progress log file (for hypertrainer log)
     """
     model.train()
     scheduler.step()
     train_metrics = create_metrics_dict(num_classes)
 
     for index, data in enumerate(train_loader):
+        progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', index, len(train_loader), time.time()))
+
         if classifier:
             inputs, labels = data
             if torch.cuda.is_available():
@@ -354,7 +367,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     return train_metrics
 
 
-def validation(valid_loader, model, criterion, num_classes, batch_size, classifier, batch_metrics=None):
+def validation(valid_loader, model, criterion, num_classes, batch_size, classifier, ep_idx, progress_log,
+               batch_metrics=None):
     """Args:
         valid_loader: validation data loader
         model: model to validate
@@ -362,6 +376,8 @@ def validation(valid_loader, model, criterion, num_classes, batch_size, classifi
         num_classes: number of classes
         batch_size: number of samples to process simultaneously
         classifier: True if doing a classification task, False if doing semantic segmentation
+        ep_idx: epoch idx (for hypertrainer log)
+        progress_log: progress log file (for hypertrainer log)
         batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
     """
 
@@ -369,6 +385,8 @@ def validation(valid_loader, model, criterion, num_classes, batch_size, classifi
     model.eval()
 
     for index, data in enumerate(valid_loader):
+        progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'val', index, len(valid_loader), time.time()))
+
         with torch.no_grad():
             if classifier:
                 inputs, labels = data
