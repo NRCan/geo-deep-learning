@@ -19,7 +19,7 @@ except ModuleNotFoundError:
     pass
 
 
-def main(bucket, work_folder, img_list, weights_file_name, model, number_of_bands, overlay, classify, num_classes):
+def main(bucket, work_folder, img_list, weights_file_name, model, number_of_bands, overlay, task, num_classes):
     """Identify the class to which each image belongs.
     Args:
         bucket: bucket in which data is stored if using AWS S3
@@ -29,14 +29,15 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
         model: loaded model with which inference should be done
         number_of_bands: number of bands in the input rasters
         overlay: amount of overlay to apply
-        classify: True if doing a classification task, False if doing semantic segmentation
+        task: Either 'segmentation' or 'classification'
+        num_classes: Number of classes
     """
     if torch.cuda.is_available():
         model = model.cuda()
     if bucket:
         bucket.download_file(weights_file_name, "saved_model.pth.tar")
         model = load_from_checkpoint("saved_model.pth.tar", model)
-        if classify:
+        if task == 'classification':
             classes_file = weights_file_name.split('/')[:-1]
             class_csv = ''
             for folder in classes_file:
@@ -47,7 +48,7 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
                 classes = list(reader)
     else:
         model = load_from_checkpoint(weights_file_name, model)
-        if classify:
+        if task == 'classification':
             classes_file = weights_file_name.split('/')[:-1]
             class_path = ''
             for c in classes_file:
@@ -69,7 +70,7 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
             inference_image = os.path.join(work_folder, f"{img_name.split('.')[0]}_inference.tif")
 
         assert_band_number(local_img, number_of_bands)
-        if classify:
+        if task == 'classification':
             outputs, predicted = classifier(bucket, model, img['tif'])
             top5 = heapq.nlargest(5, outputs.cpu().numpy()[0])
             top5_loc = []
@@ -82,16 +83,17 @@ def main(bucket, work_folder, img_list, weights_file_name, model, number_of_band
             classified_results = np.append(classified_results, [np.append([img['tif'], classes[0][predicted]],
                                                                           outputs.cpu().numpy()[0])], axis=0)
             print()
-        else:
+        elif task == 'segmentation':
             sem_seg_results = sem_seg_inference(bucket, model, img['tif'], overlay)
             create_new_raster_from_base(local_img, inference_image, sem_seg_results)
             print(f"Semantic segmentation of image {img_name} completed")
+            if bucket:
+                bucket.upload_file(inference_image,
+                                   os.path.join(work_folder, f"{img_name.split('.')[0]}_inference.tif"))
+        else:
+            raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
-        if bucket:
-            if not classify:
-                bucket.upload_file(inference_image, os.path.join(work_folder, f"{img_name.split('.')[0]}_inference.tif"))
-
-    if classify:
+    if task == 'classification':
         csv_results = 'classification_results.csv'
         if bucket:
             np.savetxt(csv_results, classified_results, fmt='%s', delimiter=',')
