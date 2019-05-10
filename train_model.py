@@ -456,6 +456,6 @@ if __name__ == '__main__':
          params['training']['class_weights'],
          params['training']['batch_metrics'],
          cnn_model,
-         params['global']['classify'],
+         params['global']['task'],
          model_name)
     print('End of training')

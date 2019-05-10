@@ -231,7 +231,7 @@ if __name__ == '__main__':
     working_folder = params['inference']['working_folder']
     csv_file = params['inference']['img_csv_file']
 
-    if params['global']['classify']:
+    if params['global']['task']:
         model, sdp, model_name = net(params)
         model_depth = maxpool_level(model, params['global']['number_of_bands'], 299)['MaxPoolCount']
     else:
@@ -254,6 +254,6 @@ if __name__ == '__main__':
          model,
          params['global']['number_of_bands'],
          nbr_pix_overlay,
-         params['global']['classify'],
+         params['global']['task'],
          params['global']['num_classes'])
 

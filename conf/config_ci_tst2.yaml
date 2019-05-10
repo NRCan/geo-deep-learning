@@ -15,7 +15,7 @@ global:
   number_of_bands: 4
   model_name: inception     # One of unet, unetsmall or ternausnet
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
-  classify: True # False for semantic segmentation, True for classification
+  task: classification  # Task to perform. Either segmentation or classification
 
 # Sample parameters; used in images_to_samples.py -------------------
 

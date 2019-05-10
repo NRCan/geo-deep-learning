@@ -15,7 +15,7 @@ global:
   number_of_bands: 3
   model_name: checkpointed_unet     # One of unet, unetsmall or ternausnet
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
-  classify: False #False for semantic segmentation, True for classification
+  task: segmentation  # Task to perform. Either segmentation or classification
 
 # Sample parameters; used in images_to_samples.py -------------------
 
