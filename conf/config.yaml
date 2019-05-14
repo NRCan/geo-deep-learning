@@ -17,6 +17,17 @@ global:
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
 
+wcs_parameters:
+  service_url: https://dy0a51yzxbhxw.cloudfront.net/ows?service=wcs
+  version: 1.0.0
+  layer_name:
+  crs:
+  aoi_file: D:\Travail\GDL_et_WCS\data_tst\aois.gpkg
+  attribute: dataset
+  res:
+  maxsize:
+  output_format:
+
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
