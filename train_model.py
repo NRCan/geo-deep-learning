@@ -233,7 +233,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     if pretrained != '':
         model, optimizer = load_from_checkpoint(pretrained, model, optimizer)
 
-    if task == 'clasification':
+    if task == 'classification':
         trn_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "trn"),
                                                        transform=transforms.Compose(
                                                            [transforms.RandomRotation((0, 275)),

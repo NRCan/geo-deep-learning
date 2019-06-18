@@ -138,7 +138,7 @@ def classifier(params, img_list, model):
     classified_results = np.empty((0, 2 + num_classes))
 
     for image in img_list:
-        img_name = os.path.basename(img['tif'])
+        img_name = os.path.basename(image['tif'])
         model.eval()
         if bucket:
             img = Image.open(f"Images/{img_name}").resize((299, 299), resample=Image.BILINEAR)
@@ -197,7 +197,7 @@ def main(params):
     else:
         list_img = read_csv(csv_file, inference=True)
 
-    model, state_dict_path, model_name = net(params)
+    model, state_dict_path, model_name = net(params, inference=True)
     if torch.cuda.is_available():
         model = model.cuda()
 

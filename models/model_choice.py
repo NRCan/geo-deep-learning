@@ -1,7 +1,7 @@
 from models import TernausNet, unet, checkpointed_unet, inception
 
 
-def net(net_params):
+def net(net_params, inference=False):
     """Define the neural net"""
     model_name = net_params['global']['model_name'].lower()
     state_dict_path = ''
@@ -36,5 +36,7 @@ def net(net_params):
             state_dict_path = net_params['models']['inception']['pretrained']
     else:
         raise ValueError('The model name in the config.yaml is not defined.')
+    if inference:
+        state_dict_path = net_params['inference']['state_dict_path']
 
     return model, state_dict_path, model_name
