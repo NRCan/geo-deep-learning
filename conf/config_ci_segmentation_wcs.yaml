@@ -11,9 +11,9 @@
 global:
   samples_size: 256
   num_classes: 2
-  data_path: /path/to/data/
+  data_path: ./data
   number_of_bands: 3
-  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet or ternausnet
+  model_name: checkpointed_unet     # One of unet, unetsmall or ternausnet
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   source: wcs # wcs or local files. If wcs, 'wcs_parameters' must be filled.
@@ -21,21 +21,21 @@ global:
 # WCS parameters; used in inference.py, when the source is specified to wcs.
 
 wcs_parameters:
-  service_url: https://dy0a51yzxbhxw.cloudfront.net/ows?service=wcs
-  version: 1.0.0
+  service_url:
+  version:
   coverage:
-  attribute: dataset
+  attribute:
   resx:
   resy:
   maxsize:
   format:
   # AOI file includes: bbox and crs
-  aoi_file: D:\Travail\GDL_et_WCS\data_tst\aois.gpkg
+  aoi_file:
 
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
-  prep_csv_file: /path/to/csv/file.csv
+  prep_csv_file: ./data/images_to_samples_ci_csv.csv
   samples_dist: 200
   remove_background: True
   mask_input_image: False
@@ -44,24 +44,24 @@ sample:
 # Training parameters; used in train_model.py ----------------------
 
 training:
-  output_path: /path/to/model/weights/output/folder
-  num_trn_samples: 4960
-  num_val_samples: 2208
-  batch_size: 32
-  num_epochs: 100
+  output_path: ./data
+  num_trn_samples: 24
+  num_val_samples: 24
+  batch_size: 4
+  num_epochs: 2
   learning_rate: 0.0001
   weight_decay: 0
   step_size: 4
   gamma: 0.9
   class_weights: [1.0, 2.0]
-  batch_metrics:    # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
+  batch_metrics: 2
 
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_csv_file: /path/to/csv/containing/images/list.csv
-  working_folder: /path/to/folder/with/resulting/images
-  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
+  img_csv_file: ./data/inference_sem_seg_ci_csv.csv
+  working_folder: ./data
+  state_dict_path: ./data/checkpoint.pth.tar
 
 # Models parameters; used in train_model.py and inference.py
 
@@ -74,7 +74,7 @@ models:
     <<: *unet001
   ternausnet:
     pretrained: ./models/TernausNet.pt    # Mandatory
-  checkpointed_unet: 
+  checkpointed_unet:
     <<: *unet001
   inception:
     pretrained: False   # optional

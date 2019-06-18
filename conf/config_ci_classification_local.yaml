@@ -1,6 +1,6 @@
 # Deep learning configuration file ------------------------------------------------
 # Five sections :
-#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
+#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and classification)
 #   2) Sampling parameters
 #   3) Training parameters
 #   4) Inference parameters
@@ -9,13 +9,28 @@
 # Global parameters
 
 global:
-  samples_size: 256
-  num_classes: 2
+  samples_size: 299
+  num_classes: 6
   data_path: ./data
-  number_of_bands: 3
-  model_name: checkpointed_unet     # One of unet, unetsmall or ternausnet
+  number_of_bands: 4
+  model_name: inception     # One of unet, unetsmall or ternausnet
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
-  task: segmentation  # Task to perform. Either segmentation or classification
+  task: classification  # Task to perform. Either segmentation or classification
+  source: local # wcs or local files. If wcs, 'wcs_parameters' must be filled.
+
+# WCS parameters; used in inference.py, when the source is specified to wcs.
+
+wcs_parameters:
+  service_url:
+  version:
+  coverage:
+  attribute:
+  resx:
+  resy:
+  maxsize:
+  format:
+  # AOI file includes: bbox and crs
+  aoi_file:
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -38,14 +53,14 @@ training:
   weight_decay: 0
   step_size: 4
   gamma: 0.9
-  class_weights: [1.0, 2.0]
+  class_weights: False
   batch_metrics: 2
 
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_csv_file: ./data/inference_sem_seg_ci_csv.csv
-  working_folder: ./data
+  img_csv_file: ./data/inference_classif_ci_csv.csv
+  working_folder: ./data/classification
   state_dict_path: ./data/checkpoint.pth.tar
 
 # Models parameters; used in train_model.py and inference.py

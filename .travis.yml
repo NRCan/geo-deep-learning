@@ -16,9 +16,9 @@ before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
   - unzip ./data/classification_data.zip -d ./data
 script:
-  - python images_to_samples.py ./conf/config_ci_tst.yaml
-  - python train_model.py ./conf/config_ci_tst.yaml
-  - python inference.py ./conf/config_ci_tst.yaml
-  - python train_model.py ./conf/config_ci_tst2.yaml
-  - python inference.py ./conf/config_ci_tst2.yaml
+  - python images_to_samples.py ./conf/config_ci_segmentation_local.yaml
+  - python train_model.py ./conf/config_ci_segmentation_local.yaml
+  - python inference.py ./conf/config_ci_segmentation_local.yaml
+  - python train_model.py ./conf/config_ci_classification_local.yaml
+  - python inference.py ./conf/config_ci_classification_local.yaml
   
