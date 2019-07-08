@@ -136,7 +136,7 @@ def get_local_classes(num_classes, data_path, output_path):
 
 
 def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs,
-         learning_rate, weight_decay, step_size, gamma, num_classes, class_weights, batch_metrics, model, classifier,
+         learning_rate, weight_decay, step_size, gamma, num_classes, class_weights, batch_metrics, model, task,
          model_name):
     """Function to train and validate a models for semantic segmentation.
     Args:
@@ -156,7 +156,8 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         class_weights: weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class
         batch_metrics:(int) Metrics computed every (int) batches. If left blank, will not perform metrics.
         model: CNN model (tensor)
-        classifier: True if doing image classification, False if doing semantic segmentation.
+        ## classifier: True if doing image classification, False if doing semantic segmentation.
+        task: Either 'segmentation' or 'classification'.
         model_name: name of the model used for training.
     Returns:
         Files 'checkpoint.pth.tar' and 'last_epoch.pth.tar' containing trained weight
@@ -173,7 +174,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
             pass
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
-        if classifier:
+        if task == 'classification':
             for i in ['trn', 'val']:
                 get_s3_classification_images(i, bucket, bucket_name, data_path, output_path, num_classes)
                 class_file = os.path.join(output_path, 'classes.csv')
@@ -182,7 +183,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                 else:
                     bucket.upload_file(class_file, 'classes.csv')
             data_path = 'Images'
-        else:
+        elif task == 'segmentation':
             if data_path:
                 bucket.download_file(os.path.join(data_path, 'samples/trn_samples.hdf5'),
                                      'samples/trn_samples.hdf5')
@@ -192,10 +193,15 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                 bucket.download_file('samples/trn_samples.hdf5', 'samples/trn_samples.hdf5')
                 bucket.download_file('samples/val_samples.hdf5', 'samples/val_samples.hdf5')
             verify_sample_count(num_trn_samples, num_val_samples, data_path, bucket_name)
-    elif classifier:
+        else:
+            raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
+    elif task == 'classification':
         get_local_classes(num_classes, data_path, output_path)
-    else:
+    elif task == 'segmentation':
         verify_sample_count(num_trn_samples, num_val_samples, data_path, bucket_name)
+    else:
+        raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
+
     verify_weights(num_classes, class_weights)
 
     since = time.time()
@@ -227,7 +233,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     if pretrained != '':
         model, optimizer = load_from_checkpoint(pretrained, model, optimizer)
 
-    if classifier:
+    if task == 'classification':
         trn_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "trn"),
                                                        transform=transforms.Compose(
                                                            [transforms.RandomRotation((0, 275)),
@@ -238,7 +244,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
                                                        transform=transforms.Compose(
                                                            [transforms.Resize(299), transforms.ToTensor()]),
                                                        loader=loader)
-    else:
+    elif task == 'segmentation':
         if not bucket_name:
             trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn",
                                                             transform=transforms.Compose([aug.RandomRotationTarget(),
@@ -265,10 +271,10 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         print('-' * 20)
 
         trn_report = train(trn_dataloader, model, criterion, optimizer, lr_scheduler, num_classes, batch_size,
-                           classifier, epoch, progress_log)
+                           task, epoch, progress_log)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-        val_report = validation(val_dataloader, model, criterion, num_classes, batch_size, classifier, epoch,
+        val_report = validation(val_dataloader, model, criterion, num_classes, batch_size, task, epoch,
                                 progress_log, batch_metrics)
         val_loss = val_report['loss'].avg
         if batch_metrics is not None:
@@ -313,7 +319,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
-def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, classifier, ep_idx,
+def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx,
           progress_log):
     """ Train the model and return the metrics of the training phase.
     Args:
@@ -324,7 +330,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
         scheduler: learning rate scheduler
         num_classes: number of classes
         batch_size: number of samples to process simultaneously
-        classifier: True if doing a classification task, False if doing semantic segmentation
+        task: Either 'segmentation' or 'classification'.
         ep_idx: epoch idx (for hypertrainer log)
         progress_log: progress log file (for hypertrainer log)
     """
@@ -335,7 +341,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     for index, data in enumerate(train_loader):
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', index, len(train_loader), time.time()))
 
-        if classifier:
+        if task == 'classification':
             inputs, labels = data
             if torch.cuda.is_available():
                 inputs = inputs.cuda()
@@ -343,7 +349,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             optimizer.zero_grad()
             outputs = model(inputs)
             outputs_flatten = outputs
-        else:
+        elif task == 'segmentation':
             if torch.cuda.is_available():
                 inputs = data['sat_img'].cuda()
                 labels = flatten_labels(data['map_img']).cuda()
@@ -367,7 +373,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     return train_metrics
 
 
-def validation(valid_loader, model, criterion, num_classes, batch_size, classifier, ep_idx, progress_log,
+def validation(valid_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log,
                batch_metrics=None):
     """Args:
         valid_loader: validation data loader
@@ -375,7 +381,7 @@ def validation(valid_loader, model, criterion, num_classes, batch_size, classifi
         criterion: loss criterion
         num_classes: number of classes
         batch_size: number of samples to process simultaneously
-        classifier: True if doing a classification task, False if doing semantic segmentation
+        task: Either 'segmentation' or 'classification'.
         ep_idx: epoch idx (for hypertrainer log)
         progress_log: progress log file (for hypertrainer log)
         batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
@@ -388,7 +394,7 @@ def validation(valid_loader, model, criterion, num_classes, batch_size, classifi
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'val', index, len(valid_loader), time.time()))
 
         with torch.no_grad():
-            if classifier:
+            if task == 'classification':
                 inputs, labels = data
                 if torch.cuda.is_available():
                     inputs = inputs.cuda()
@@ -396,7 +402,7 @@ def validation(valid_loader, model, criterion, num_classes, batch_size, classifi
 
                 outputs = model(inputs)
                 outputs_flatten = outputs
-            else:
+            elif task == 'segmentation':
                 if torch.cuda.is_available():
                     inputs = data['sat_img'].cuda()
                     labels = flatten_labels(data['map_img']).cuda()
@@ -450,6 +456,6 @@ if __name__ == '__main__':
          params['training']['class_weights'],
          params['training']['batch_metrics'],
          cnn_model,
-         params['global']['classify'],
+         params['global']['task'],
          model_name)
     print('End of training')
