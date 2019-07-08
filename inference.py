@@ -32,15 +32,15 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     """
 
     with rasterio.open(input_raster, 'r') as src:
-        with rasterio.open( output_raster, 'w',
-                            driver=src.driver,
-                            width=src.width,
-                            height=src.height,
-                            count=1,
-                            crs=src.crs,
-                            dtype=np.uint8,
-                            transform=src.transform) as dst:
-            dst.write(write_array[:,:,0], 1)
+        with rasterio.open(output_raster, 'w',
+                           driver=src.driver,
+                           width=src.width,
+                           height=src.height,
+                           count=1,
+                           crs=src.crs,
+                           dtype=np.uint8,
+                           transform=src.transform) as dst:
+            dst.write(write_array[:, :, 0], 1)
 
 
 def sem_seg_inference(model, nd_array, overlay):
@@ -181,7 +181,7 @@ def main(params):
 
     """
     since = time.time()
-    csv_file = params['inference']['img_csv_file']
+    csv_file = params['inference']['local_parameters']['img_csv_file']
 
     model_depth = 5  # TODO: change fixed value for parameter in config file.
     nbr_pix_overlay = 2 ** (model_depth + 1)
@@ -189,19 +189,18 @@ def main(params):
     bucket = None
     bucket_name = params['global']['bucket_name']
 
-    if bucket_name:
-        s3 = boto3.resource('s3')
-        bucket = s3.Bucket(bucket_name)
-        bucket.download_file(csv_file, 'img_csv_file.csv')
-        list_img = read_csv('img_csv_file.csv', inference=True)
-    else:
-        list_img = read_csv(csv_file, inference=True)
-
     model, state_dict_path, model_name = net(params, inference=True)
     if torch.cuda.is_available():
         model = model.cuda()
 
     if params['global']['task'] == 'classification':
+        if bucket_name:
+            s3 = boto3.resource('s3')
+            bucket = s3.Bucket(bucket_name)
+            bucket.download_file(csv_file, 'img_csv_file.csv')
+            list_img = read_csv('img_csv_file.csv', inference=True)
+        else:
+            list_img = read_csv(csv_file, inference=True)
         classifier(params, list_img, model)
 
     elif params['global']['task'] == 'segmentation':
@@ -211,43 +210,48 @@ def main(params):
         else:
             model = load_from_checkpoint(state_dict_path, model)
 
-        if params['global']['source'] == 'wcs':
+        if params['inference']['source'] == 'wcs':
             if bucket:
-                bucket.download_file(params['wcs_parameters']['aoi_file'], "aoi_file.gpkg")
+                bucket.download_file(params['inference']['wcs_parameters']['aoi_file'], "aoi_file.gpkg")
                 lst_bbox = create_bbox_from_pol("aoi_file.gpkg")
             else:
-                lst_bbox = create_bbox_from_pol(params['wcs_parameters']['aoi_file'])
+                lst_bbox = create_bbox_from_pol(params['inference']['wcs_parameters']['aoi_file'])
             for elem in lst_bbox:
                 lst_sub_bboxes = cut_bbox_from_maxsize(elem['bbox'],
-                                                       params['wcs_parameters']['maxsize'],
-                                                       params['wcs_parameters']['resx'],
-                                                       params['wcs_parameters']['resy'])
+                                                       params['inference']['wcs_parameters']['maxsize'],
+                                                       params['inference']['wcs_parameters']['resolution'])
                 lst_tmpfiles = []
                 for bbox in lst_sub_bboxes:
                     lst_tmpfiles.append(wcs_request(sub_bbox=bbox,
-                                                    service_url=params['wcs_parameters']['service_url'],
-                                                    version=params['wcs_parameters']['version'],
-                                                    coverage=params['wcs_parameters']['coverage'],
-                                                    epsg=params['wcs_parameters']['epsg'],
-                                                    resx=params['wcs_parameters']['resx'],
-                                                    resy=params['wcs_parameters']['resy'],
-                                                    output_format=params['wcs_parameters']['format']))
-                ndarray_wcs, out_trans = merge_wcs_tiles(lst_tmpfiles, params['wcs_parameters']['epsg'])
+                                                    service_url=params['inference']['wcs_parameters']['service_url'],
+                                                    version=params['inference']['wcs_parameters']['version'],
+                                                    coverage=params['inference']['wcs_parameters']['coverage'],
+                                                    epsg=params['inference']['wcs_parameters']['epsg'],
+                                                    resolution=params['inference']['wcs_parameters']['resolution'],
+                                                    output_format=params['inference']['wcs_parameters']['format']))
+                ndarray_wcs, out_trans = merge_wcs_tiles(lst_tmpfiles)
 
-                sem_seg_results = sem_seg_inference(model, ndarray_wcs, nbr_pix_overlay)
+                sem_seg_results = sem_seg_inference(model, np.transpose(ndarray_wcs, (1, 2, 0)), nbr_pix_overlay)
 
                 output_raster = os.path.join(params['inference']['working_folder'], f'{lst_bbox.index(elem)}.tif')
                 with rasterio.open(output_raster, 'w',
-                                   driver=params['wcs_parameters']['format'],
-                                   width=ndarray_wcs.shape[1],
-                                   height=ndarray_wcs.shape[2],
+                                   driver='GTiff',
+                                   width=ndarray_wcs.shape[2],
+                                   height=ndarray_wcs.shape[1],
                                    count=1,
-                                   crs=params['wcs_parameters']['epsg'],
+                                   crs=params['inference']['wcs_parameters']['epsg'],
                                    dtype=np.uint8,
                                    transform=out_trans) as dst:
                     dst.write(sem_seg_results[:, :, 0], 1)
 
-        elif params['global']['source'] == 'local':
+        elif params['inference']['source'] == 'local':
+            if bucket_name:
+                s3 = boto3.resource('s3')
+                bucket = s3.Bucket(bucket_name)
+                bucket.download_file(csv_file, 'img_csv_file.csv')
+                list_img = read_csv('img_csv_file.csv', inference=True)
+            else:
+                list_img = read_csv(csv_file, inference=True)
             for img in list_img:
                 img_name = os.path.basename(img['tif'])
                 if bucket:
@@ -268,6 +272,8 @@ def main(params):
                 if bucket:
                     bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
                                                                      f"{img_name.split('.')[0]}_inference.tif"))
+        else:
+            raise ValueError(f"The source for inference should be either wcs or local. The provided value is {params['inference']['source']}")
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {params['global']['task']}")
 
@@ -284,5 +290,3 @@ if __name__ == '__main__':
     params = read_parameters(args.param_file)
 
     main(params)
-
-

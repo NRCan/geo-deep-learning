@@ -16,21 +16,6 @@ global:
   model_name: checkpointed_unet     # One of unet, unetsmall or ternausnet
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
-  source: wcs # wcs or local files. If wcs, 'wcs_parameters' must be filled.
-
-# WCS parameters; used in inference.py, when the source is specified to wcs.
-
-wcs_parameters:
-  service_url:
-  version:
-  coverage:
-  attribute:
-  resx:
-  resy:
-  maxsize:
-  format:
-  # AOI file includes: bbox and crs
-  aoi_file:
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -59,9 +44,21 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
+  source: wcs
   img_csv_file: ./data/inference_sem_seg_ci_csv.csv
   working_folder: ./data
   state_dict_path: ./data/checkpoint.pth.tar
+
+# WCS parameters; used in inference.py, when the source is specified to wcs.
+
+wcs_parameters:
+  service_url:
+  version:
+  coverage:
+  resolution:
+  maxsize:
+  format:
+  aoi_file: /path/to/aois.gpkg
 
 # Models parameters; used in train_model.py and inference.py
 
