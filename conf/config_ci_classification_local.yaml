@@ -44,21 +44,12 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  source: local # wcs or local files. If wcs, 'wcs_parameters' must be filled.
   img_csv_file: ./data/inference_classif_ci_csv.csv
   working_folder: ./data/classification
   state_dict_path: ./data/checkpoint.pth.tar
+  chunk_size:
+  overlap:
 
-# WCS parameters; used in inference.py, when the source is specified to wcs.
-
-wcs_parameters:
-  service_url:
-  version:
-  coverage:
-  resolution:
-  maxsize:
-  format:
-  aoi_file:
 # Models parameters; used in train_model.py and inference.py
 
 models:

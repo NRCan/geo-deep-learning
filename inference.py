@@ -9,10 +9,10 @@ import heapq
 import rasterio
 from PIL import Image
 import torchvision
+import math
 from models.model_choice import net
 from utils import read_parameters, assert_band_number, load_from_checkpoint, \
     image_reader_as_array, read_csv
-from wcs import create_bbox_from_pol, cut_bbox_from_maxsize, wcs_request, merge_wcs_tiles
 
 try:
     import boto3
@@ -43,7 +43,7 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
             dst.write(write_array[:, :, 0], 1)
 
 
-def sem_seg_inference(model, nd_array, overlay):
+def sem_seg_inference(model, nd_array, overlay, chunk_size):
     """Inference on images using semantic segmentation
     Args:
         model: model to use for inference
@@ -52,9 +52,6 @@ def sem_seg_inference(model, nd_array, overlay):
 
         returns a numpy array of the same size (h,w) as the input image, where each value is the predicted output.
     """
-    # Chunk size. Should not be modified often. We want the biggest chunk to be process at a time but,
-    # a too large image chunk will bust the GPU memory when processing.
-    chunk_size = 512  # TODO parametrize this.
 
     # switch to evaluate mode
     model.eval()
@@ -174,6 +171,24 @@ def classifier(params, img_list, model):
         np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s', delimiter=',')
 
 
+def calc_overlap(params):
+    """
+    Function to calculate the number of pixels requires in overlap, based on chunk_size and overlap percentage,
+    if provided in the config file
+    :param params: (dict) Parameters found in the yaml config file.
+    :return: (int) number of pixel required for overlap
+    """
+    chunk_size = 512
+    overlap = 10
+
+    if params['inference']['chunk_size']:
+        chunk_size = int(params['inference']['chunk_size'])
+    if params['inference']['overlap']:
+        overlap = int(params['inference']['overlap'])
+    nbr_pix_overlap = int(math.floor(overlap / 100 * chunk_size))
+    return chunk_size, nbr_pix_overlap
+
+
 def main(params):
     """
     Identify the class to which each image belongs.
@@ -181,10 +196,7 @@ def main(params):
 
     """
     since = time.time()
-    csv_file = params['inference']['local_parameters']['img_csv_file']
-
-    model_depth = 5  # TODO: change fixed value for parameter in config file.
-    nbr_pix_overlay = 2 ** (model_depth + 1)
+    csv_file = params['inference']['img_csv_file']
 
     bucket = None
     bucket_name = params['global']['bucket_name']
@@ -193,14 +205,15 @@ def main(params):
     if torch.cuda.is_available():
         model = model.cuda()
 
+    if bucket_name:
+        s3 = boto3.resource('s3')
+        bucket = s3.Bucket(bucket_name)
+        bucket.download_file(csv_file, 'img_csv_file.csv')
+        list_img = read_csv('img_csv_file.csv', inference=True)
+    else:
+        list_img = read_csv(csv_file, inference=True)
+
     if params['global']['task'] == 'classification':
-        if bucket_name:
-            s3 = boto3.resource('s3')
-            bucket = s3.Bucket(bucket_name)
-            bucket.download_file(csv_file, 'img_csv_file.csv')
-            list_img = read_csv('img_csv_file.csv', inference=True)
-        else:
-            list_img = read_csv(csv_file, inference=True)
         classifier(params, list_img, model)
 
     elif params['global']['task'] == 'segmentation':
@@ -210,70 +223,28 @@ def main(params):
         else:
             model = load_from_checkpoint(state_dict_path, model)
 
-        if params['inference']['source'] == 'wcs':
+        chunk_size, nbr_pix_overlap = calc_overlap(params)
+
+        for img in list_img:
+            img_name = os.path.basename(img['tif'])
             if bucket:
-                bucket.download_file(params['inference']['wcs_parameters']['aoi_file'], "aoi_file.gpkg")
-                lst_bbox = create_bbox_from_pol("aoi_file.gpkg")
+                local_img = f"Images/{img_name}"
+                bucket.download_file(img['tif'], local_img)
+                inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
             else:
-                lst_bbox = create_bbox_from_pol(params['inference']['wcs_parameters']['aoi_file'])
-            for elem in lst_bbox:
-                lst_sub_bboxes = cut_bbox_from_maxsize(elem['bbox'],
-                                                       params['inference']['wcs_parameters']['maxsize'],
-                                                       params['inference']['wcs_parameters']['resolution'])
-                lst_tmpfiles = []
-                for bbox in lst_sub_bboxes:
-                    lst_tmpfiles.append(wcs_request(sub_bbox=bbox,
-                                                    service_url=params['inference']['wcs_parameters']['service_url'],
-                                                    version=params['inference']['wcs_parameters']['version'],
-                                                    coverage=params['inference']['wcs_parameters']['coverage'],
-                                                    epsg=params['inference']['wcs_parameters']['epsg'],
-                                                    resolution=params['inference']['wcs_parameters']['resolution'],
-                                                    output_format=params['inference']['wcs_parameters']['format']))
-                ndarray_wcs, out_trans = merge_wcs_tiles(lst_tmpfiles)
+                local_img = img['tif']
+                inference_image = os.path.join(params['inference']['working_folder'],
+                                               f"{img_name.split('.')[0]}_inference.tif")
 
-                sem_seg_results = sem_seg_inference(model, np.transpose(ndarray_wcs, (1, 2, 0)), nbr_pix_overlay)
+            assert_band_number(local_img, params['global']['number_of_bands'])
 
-                output_raster = os.path.join(params['inference']['working_folder'], f'{lst_bbox.index(elem)}.tif')
-                with rasterio.open(output_raster, 'w',
-                                   driver='GTiff',
-                                   width=ndarray_wcs.shape[2],
-                                   height=ndarray_wcs.shape[1],
-                                   count=1,
-                                   crs=params['inference']['wcs_parameters']['epsg'],
-                                   dtype=np.uint8,
-                                   transform=out_trans) as dst:
-                    dst.write(sem_seg_results[:, :, 0], 1)
-
-        elif params['inference']['source'] == 'local':
-            if bucket_name:
-                s3 = boto3.resource('s3')
-                bucket = s3.Bucket(bucket_name)
-                bucket.download_file(csv_file, 'img_csv_file.csv')
-                list_img = read_csv('img_csv_file.csv', inference=True)
-            else:
-                list_img = read_csv(csv_file, inference=True)
-            for img in list_img:
-                img_name = os.path.basename(img['tif'])
-                if bucket:
-                    local_img = f"Images/{img_name}"
-                    bucket.download_file(img['tif'], local_img)
-                    inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-                else:
-                    local_img = img['tif']
-                    inference_image = os.path.join(params['inference']['working_folder'],
-                                                   f"{img_name.split('.')[0]}_inference.tif")
-
-                assert_band_number(local_img, params['global']['number_of_bands'])
-
-                nd_array_tif = image_reader_as_array(local_img)
-                sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlay)
-                create_new_raster_from_base(local_img, inference_image, sem_seg_results)
-                print(f"Semantic segmentation of image {img_name} completed")
-                if bucket:
-                    bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
-                                                                     f"{img_name.split('.')[0]}_inference.tif"))
-        else:
-            raise ValueError(f"The source for inference should be either wcs or local. The provided value is {params['inference']['source']}")
+            nd_array_tif = image_reader_as_array(local_img)
+            sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size)
+            create_new_raster_from_base(local_img, inference_image, sem_seg_results)
+            print(f"Semantic segmentation of image {img_name} completed")
+            if bucket:
+                bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
+                                                                 f"{img_name.split('.')[0]}_inference.tif"))
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {params['global']['task']}")
 

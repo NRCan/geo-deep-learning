@@ -44,21 +44,11 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  source: wcs # wcs or local files. If wcs, 'wcs_parameters' must be filled.
   img_csv_file: /path/to/csv/containing/images/list.csv
   working_folder: /path/to/folder/with/resulting/images
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
-
-# WCS parameters; used in inference.py, when the source is specified to wcs.
-
-wcs_parameters:
-  service_url:
-  version:
-  coverage:
-  resolution:
-  maxsize:
-  format:
-  aoi_file: /path/to/aois.gpkg
+  chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
+  overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
 
 # Models parameters; used in train_model.py and inference.py
 
