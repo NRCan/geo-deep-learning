@@ -168,6 +168,3 @@ def read_csv(csv_file_name, inference=False):
         return list_values
     else:
         return sorted(list_values, key=lambda k: k['dataset'])
-
-def check_available_gpu():
-    boubou = ''
