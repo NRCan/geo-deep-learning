@@ -9,7 +9,8 @@ import heapq
 import rasterio
 from PIL import Image
 import torchvision
-from models.model_choice import net, maxpool_level
+import math
+from models.model_choice import net
 from utils import read_parameters, assert_band_number, load_from_checkpoint, \
     image_reader_as_array, read_csv
 
@@ -17,90 +18,6 @@ try:
     import boto3
 except ModuleNotFoundError:
     pass
-
-
-def main(bucket, work_folder, img_list, weights_file_name, model, number_of_bands, overlay, classify, num_classes):
-    """Identify the class to which each image belongs.
-    Args:
-        bucket: bucket in which data is stored if using AWS S3
-        work_folder: full file path of the folder containing images
-        img_list: list containing images to classify
-        weights_file_name: full file path of the file containing weights
-        model: loaded model with which inference should be done
-        number_of_bands: number of bands in the input rasters
-        overlay: amount of overlay to apply
-        classify: True if doing a classification task, False if doing semantic segmentation
-    """
-    if torch.cuda.is_available():
-        model = model.cuda()
-    if bucket:
-        bucket.download_file(weights_file_name, "saved_model.pth.tar")
-        model = load_from_checkpoint("saved_model.pth.tar", model)
-        if classify:
-            classes_file = weights_file_name.split('/')[:-1]
-            class_csv = ''
-            for folder in classes_file:
-                class_csv = os.path.join(class_csv, folder)
-            bucket.download_file(os.path.join(class_csv, 'classes.csv'), 'classes.csv')
-            with open('classes.csv', 'rt') as file:
-                reader = csv.reader(file)
-                classes = list(reader)
-    else:
-        model = load_from_checkpoint(weights_file_name, model)
-        if classify:
-            classes_file = weights_file_name.split('/')[:-1]
-            class_path = ''
-            for c in classes_file:
-                class_path = class_path + c + '/'
-            with open(class_path + 'classes.csv', 'rt') as f:
-                reader = csv.reader(f)
-                classes = list(reader)
-    since = time.time()
-    classified_results = np.empty((0, 2 + num_classes))
-
-    for img in img_list:
-        img_name = os.path.basename(img['tif'])
-        if bucket:
-            local_img = f"Images/{img_name}"
-            bucket.download_file(img['tif'], local_img)
-            inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-        else:
-            local_img = img['tif']
-            inference_image = os.path.join(work_folder, f"{img_name.split('.')[0]}_inference.tif")
-
-        assert_band_number(local_img, number_of_bands)
-        if classify:
-            outputs, predicted = classifier(bucket, model, img['tif'])
-            top5 = heapq.nlargest(5, outputs.cpu().numpy()[0])
-            top5_loc = []
-            for i in top5:
-                top5_loc.append(np.where(outputs.cpu().numpy()[0] == i)[0][0])
-            print(f"Image {img_name} classified as {classes[0][predicted]}")
-            print('Top 5 classes:')
-            for i in range(0, 5):
-                print(f"\t{classes[0][top5_loc[i]]} : {top5[i]}")
-            classified_results = np.append(classified_results, [np.append([img['tif'], classes[0][predicted]],
-                                                                          outputs.cpu().numpy()[0])], axis=0)
-            print()
-        else:
-            sem_seg_results = sem_seg_inference(bucket, model, img['tif'], overlay)
-            create_new_raster_from_base(local_img, inference_image, sem_seg_results)
-            print(f"Semantic segmentation of image {img_name} completed")
-
-        if bucket:
-            if not classify:
-                bucket.upload_file(inference_image, os.path.join(work_folder, f"{img_name.split('.')[0]}_inference.tif"))
-
-    if classify:
-        csv_results = 'classification_results.csv'
-        if bucket:
-            np.savetxt(csv_results, classified_results, fmt='%s', delimiter=',')
-            bucket.upload_file(csv_results, os.path.join(work_folder, csv_results))
-        else:
-            np.savetxt(os.path.join(work_folder, csv_results), classified_results, fmt='%s', delimiter=',')
-
-    time_elapsed = time.time() - since
-    print('Inference completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
 def create_new_raster_from_base(input_raster, output_raster, write_array):
@@ -115,45 +32,36 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     """
 
     with rasterio.open(input_raster, 'r') as src:
-        with rasterio.open( output_raster, 'w',
-                            driver=src.driver,
-                            width=src.width,
-                            height=src.height,
-                            count=1,
-                            crs=src.crs,
-                            dtype=np.uint8,
-                            transform=src.transform) as dst:
-            dst.write(write_array[:,:,0], 1)
+        with rasterio.open(output_raster, 'w',
+                           driver=src.driver,
+                           width=src.width,
+                           height=src.height,
+                           count=1,
+                           crs=src.crs,
+                           dtype=np.uint8,
+                           transform=src.transform) as dst:
+            dst.write(write_array[:, :, 0], 1)
 
 
-def sem_seg_inference(bucket, model, image, overlay):
+def sem_seg_inference(model, nd_array, overlay, chunk_size):
     """Inference on images using semantic segmentation
     Args:
-        bucket: bucket in which data is stored if using AWS S3
         model: model to use for inference
-        image: full path of the image to infer on
+        nd_array: nd_array
         overlay: amount of overlay to apply
 
         returns a numpy array of the same size (h,w) as the input image, where each value is the predicted output.
     """
-    # Chunk size. Should not be modified often. We want the biggest chunk to be process at a time but,
-    # a too large image chunk will bust the GPU memory when processing.
-    chunk_size = 512
 
     # switch to evaluate mode
     model.eval()
 
-    if bucket:
-        input_image = image_reader_as_array(f"Images/{os.path.basename(image)}")
-    else:
-        input_image = image_reader_as_array(image)
-
-    if len(input_image.shape) == 3:
-        h, w, nb = input_image.shape
-        padded_array = np.pad(input_image, ((overlay, chunk_size), (overlay, chunk_size), (0, 0)), mode='constant')
-    elif len(input_image.shape) == 2:
-        h, w = input_image.shape
-        padded_array = np.expand_dims(np.pad(input_image, ((overlay, chunk_size), (overlay, chunk_size)),
+    if len(nd_array.shape) == 3:
+        h, w, nb = nd_array.shape
+        padded_array = np.pad(nd_array, ((overlay, chunk_size), (overlay, chunk_size), (0, 0)), mode='constant')
+    elif len(nd_array.shape) == 2:
+        h, w = nd_array.shape
+        padded_array = np.expand_dims(np.pad(nd_array, ((overlay, chunk_size), (overlay, chunk_size)),
                                              mode='constant'), axis=0)
     else:
         h = 0
@@ -192,51 +100,110 @@ def sem_seg_inference(bucket, model, image, overlay):
             output_np = output_np[overlay:h + overlay, overlay:w + overlay]
             return output_np
     else:
-        print("Error classifying image : Image shape of {:1} is not recognized".format(len(input_image.shape)))
+        print("Error classifying image : Image shape of {:1} is not recognized".format(len(nd_array.shape)))
 
 
-def classifier(bucket, model, image):
-    """Classify images by class
-        Args:
-            bucket: bucket in which data is stored if using AWS S3
-            model: model to use for classification
-            image: image to classify
-        """
-    model.eval()
+def classifier(params, img_list, model):
+    """
+    Classify images by class
+    :param params:
+    :param img_list:
+    :param model:
+    :return:
+    """
+    weights_file_name = params['inference']['state_dict_path']
+    num_classes = params['global']['num_classes']
+    bucket = params['global']['bucket_name']
+
+    classes_file = weights_file_name.split('/')[:-1]
     if bucket:
-        img = Image.open(f"Images/{os.path.basename(image)}").resize((299, 299), resample=Image.BILINEAR)
+        class_csv = ''
+        for folder in classes_file:
+            class_csv = os.path.join(class_csv, folder)
+        bucket.download_file(os.path.join(class_csv, 'classes.csv'), 'classes.csv')
+        with open('classes.csv', 'rt') as file:
+            reader = csv.reader(file)
+            classes = list(reader)
     else:
-        img = Image.open(image).resize((299, 299), resample=Image.BILINEAR)
-    to_tensor = torchvision.transforms.ToTensor()
-    img = to_tensor(img)
-    img = img.unsqueeze(0)
-    with torch.no_grad():
-        if torch.cuda.is_available():
-            img = img.cuda()
-        outputs = model(img)
-        _, predicted = torch.max(outputs, 1)
-    return outputs, predicted
+        class_csv = ''
+        for c in classes_file:
+            class_csv = class_csv + c + '/'
+        with open(class_csv + 'classes.csv', 'rt') as f:
+            reader = csv.reader(f)
+            classes = list(reader)
+
+    classified_results = np.empty((0, 2 + num_classes))
+
+    for image in img_list:
+        img_name = os.path.basename(image['tif'])
+        model.eval()
+        if bucket:
+            img = Image.open(f"Images/{img_name}").resize((299, 299), resample=Image.BILINEAR)
+        else:
+            img = Image.open(image['tif']).resize((299, 299), resample=Image.BILINEAR)
+        to_tensor = torchvision.transforms.ToTensor()
+
+        img = to_tensor(img)
+        img = img.unsqueeze(0)
+        with torch.no_grad():
+            if torch.cuda.is_available():
+                img = img.cuda()
+            outputs = model(img)
+            _, predicted = torch.max(outputs, 1)
+
+        top5 = heapq.nlargest(5, outputs.cpu().numpy()[0])
+        top5_loc = []
+        for i in top5:
+            top5_loc.append(np.where(outputs.cpu().numpy()[0] == i)[0][0])
+        print(f"Image {img_name} classified as {classes[0][predicted]}")
+        print('Top 5 classes:')
+        for i in range(0, 5):
+            print(f"\t{classes[0][top5_loc[i]]} : {top5[i]}")
+        classified_results = np.append(classified_results, [np.append([image['tif'], classes[0][predicted]],
+                                                                      outputs.cpu().numpy()[0])], axis=0)
+        print()
+
+    csv_results = 'classification_results.csv'
+    if bucket:
+        np.savetxt(csv_results, classified_results, fmt='%s', delimiter=',')
+        bucket.upload_file(csv_results, os.path.join(params['inference']['working_folder'], csv_results))
+    else:
+        np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s', delimiter=',')
 
 
-if __name__ == '__main__':
-    print('Start: ')
-    parser = argparse.ArgumentParser(description='Inference on images using trained model')
-    parser.add_argument('param_file', metavar='file',
-                        help='Path to training parameters stored in yaml')
-    args = parser.parse_args()
-    bucket = None
-    params = read_parameters(args.param_file)
-    working_folder = params['inference']['working_folder']
+def calc_overlap(params):
+    """
+    Function to calculate the number of pixels requires in overlap, based on chunk_size and overlap percentage,
+    if provided in the config file
+    :param params: (dict) Parameters found in the yaml config file.
+    :return: (int) number of pixel required for overlap
+    """
+    chunk_size = 512
+    overlap = 10
+
+    if params['inference']['chunk_size']:
+        chunk_size = int(params['inference']['chunk_size'])
+    if params['inference']['overlap']:
+        overlap = int(params['inference']['overlap'])
+    nbr_pix_overlap = int(math.floor(overlap / 100 * chunk_size))
+    return chunk_size, nbr_pix_overlap
+
+
+def main(params):
+    """
+    Identify the class to which each image belongs.
+    :param params: (dict) Parameters found in the yaml config file.
+
+    """
+    since = time.time()
     csv_file = params['inference']['img_csv_file']
 
-    if params['global']['classify']:
-        model, sdp, model_name = net(params)
-        model_depth = maxpool_level(model, params['global']['number_of_bands'], 299)['MaxPoolCount']
-    else:
-        model, sdp, model_depth = net(params, rtn_level=True)
-    nbr_pix_overlay = 2 ** (model_depth + 1)
-
+    bucket = None
     bucket_name = params['global']['bucket_name']
+
+    model, state_dict_path, model_name = net(params, inference=True)
+    if torch.cuda.is_available():
+        model = model.cuda()
 
     if bucket_name:
         s3 = boto3.resource('s3')
@@ -245,13 +212,52 @@ if __name__ == '__main__':
         list_img = read_csv('img_csv_file.csv', inference=True)
     else:
         list_img = read_csv(csv_file, inference=True)
-    main(bucket,
-         params['inference']['working_folder'],
-         list_img,
-         params['inference']['state_dict_path'],
-         model,
-         params['global']['number_of_bands'],
-         nbr_pix_overlay,
-         params['global']['classify'],
-         params['global']['num_classes'])
 
+    if params['global']['task'] == 'classification':
+        classifier(params, list_img, model)
+
+    elif params['global']['task'] == 'segmentation':
+        if bucket:
+            bucket.download_file(state_dict_path, "saved_model.pth.tar")
+            model = load_from_checkpoint("saved_model.pth.tar", model)
+        else:
+            model = load_from_checkpoint(state_dict_path, model)
+
+        chunk_size, nbr_pix_overlap = calc_overlap(params)
+
+        for img in list_img:
+            img_name = os.path.basename(img['tif'])
+            if bucket:
+                local_img = f"Images/{img_name}"
+                bucket.download_file(img['tif'], local_img)
+                inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
+            else:
+                local_img = img['tif']
+                inference_image = os.path.join(params['inference']['working_folder'],
+                                               f"{img_name.split('.')[0]}_inference.tif")
+
+            assert_band_number(local_img, params['global']['number_of_bands'])
+
+            nd_array_tif = image_reader_as_array(local_img)
+            sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size)
+            create_new_raster_from_base(local_img, inference_image, sem_seg_results)
+            print(f"Semantic segmentation of image {img_name} completed")
+            if bucket:
+                bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
+                                                                 f"{img_name.split('.')[0]}_inference.tif"))
+    else:
+        raise ValueError(f"The task should be either classification or segmentation. The provided value is {params['global']['task']}")
+
+    time_elapsed = time.time() - since
+    print('Inference completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+
+
+if __name__ == '__main__':
+    print('Start: ')
+    parser = argparse.ArgumentParser(description='Inference on images using trained model')
+    parser.add_argument('param_file', metavar='file',
+                        help='Path to training parameters stored in yaml')
+    args = parser.parse_args()
+    params = read_parameters(args.param_file)
+
+    main(params)

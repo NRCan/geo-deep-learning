@@ -67,7 +67,7 @@ global:
   number_of_bands: 3                # Number of bands in input images
   model_name: unetsmall				# One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:                      # Name of the S3 bucket where data is stored. Leave blank if using local files
-  classify: False					# Set to True for image inference and False for semantic segmentation
+  task: segmentation                # Task to perform. Either segmentation or classification.
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -194,7 +194,7 @@ global:
   number_of_bands: 3                # Number of bands in input images
   model_name: unetsmall             # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
-  classify: False					# Set to True for a inference task and False for semantic segmentation
+  task: segmentation                # Task to perform. Either segmentation or classification
 
 
 training:
@@ -241,6 +241,8 @@ global:
   number_of_bands: 3        # Number of bands in input images
   model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
+  task: segmentation        # Task to perform. Either segmentation or classification
+
 inference:
   img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on
   working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
@@ -304,8 +306,7 @@ global:
   number_of_bands: 3                # Number of bands in input images
   model_name: inception             # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
-  classify: True					# Set to True for classification tasks and False for semantic segmentation
-
+  task: classification               # Task to perform. Either segmentation or classification
 
 training:
   output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
@@ -351,7 +352,8 @@ global:
   number_of_bands: 3        # Number of bands in input images
   model_name: inception     # One of unet, unetsmall, checkpointed_unet or ternausnet
   bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
-  classify: True			# Set to True for classification tasks and False for semantic segmentation
+  task: classification        # Task to perform. Either segmentation or classification
+
 inference:
   img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on
   working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
