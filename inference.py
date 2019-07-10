@@ -40,7 +40,7 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
                            crs=src.crs,
                            dtype=np.uint8,
                            transform=src.transform) as dst:
-            dst.write(write_array[:, :, 0], 1)
+            dst.write(write_array[:, :], 1)
 
 
 def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes):
@@ -70,7 +70,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes):
         padded_array = None
 
     output_probs = np.empty([num_classes, h + overlay + chunk_size, w + overlay + chunk_size], dtype=np.float32)
-    output_counts = np.zeros([output_probs.shape[0], output_probs.shape[1]], dtype=np.int32)
+    output_counts = np.zeros([output_probs.shape[1], output_probs.shape[2]], dtype=np.int32)
 
     if padded_array.any():
         with torch.no_grad():
@@ -92,11 +92,11 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes):
                     outputs = model(inputs)
 
                     output_counts[row_start:row_end, col_start:col_end] += 1
-                    output_probs[row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(), axis=0)
+                    output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(), axis=0)
 
             output_mask = np.argmax(np.divide(output_probs, np.maximum(output_counts, 1)), axis=0)
             # Resize the output array to the size of the input image and write it
-            return output_mask[overlay:(h + overlay), overlay:(w + overlay)]
+            return output_mask[overlay:(h + overlay), overlay:(w + overlay)].astype(np.uint8)
     else:
         print("Error classifying image : Image shape of {:1} is not recognized".format(len(nd_array.shape)))
 
