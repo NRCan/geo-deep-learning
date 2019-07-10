@@ -1,7 +1,6 @@
 import argparse
 import os
 import numpy as np
-import h5py
 import warnings
 import fiona
 import rasterio
@@ -57,7 +56,7 @@ def resize_datasets(hdf5_file):
 
 
 def samples_preparation(in_img_array, label_array, sample_size, dist_samples, samples_count, num_classes, samples_file,
-                        dataset, background_switch):
+                        dataset, min_annotated_percent=0):
     """
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
@@ -68,7 +67,7 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
     :param num_classes: (dict) Number of classes in reference data (will be appended and return)
     :param samples_file: (hdf5 dataset) hdfs file where samples will be written
     :param dataset: (str) Type of dataset where the samples will be written. Can be 'trn' or 'val' or 'tst'
-    :param background_switch: Indicate if samples containing only background pixels will be written or discarded
+    :param min_annotated_percent: (int) Minimum % of non background pixels in sample, in order to store it
     :return: updated samples count and number of classes.
     """
 
@@ -97,8 +96,10 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
             target = np.squeeze(pad_label_array[row:row + sample_size, column:column + sample_size, :], axis=2)
 
             target_class_num = target.max()
+            u, count = np.unique(target, return_counts=True)
+            target_background_percent = count[0] / np.sum(count) * 100
 
-            if (background_switch and target_class_num != 0) or (not background_switch):
+            if target_background_percent >= min_annotated_percent:
                 resize_datasets(samples_file)
                 samples_file["sat_img"][idx_samples, ...] = data
                 samples_file["map_img"][idx_samples, ...] = target
@@ -132,7 +133,7 @@ def vector_to_raster(vector_file, input_image, attribute_name):
         lst_vector = [vector for vector in src]
 
     # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
-    lst_vector.sort(key=lambda vector : vector['properties'][attribute_name])
+    lst_vector.sort(key=lambda vector: vector['properties'][attribute_name])
     lst_vector_tuple = [(vector['geometry'], int(vector['properties'][attribute_name])) for vector in lst_vector]
 
     # Open input raster image to have access to number of rows, column, crs...
@@ -155,8 +156,6 @@ def main(params):
     gpkg_file = []
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
-    samples_size = params['global']['samples_size']
-    number_of_bands = params['global']['number_of_bands']
     csv_file = params['sample']['prep_csv_file']
 
     if bucket_name:
@@ -193,7 +192,8 @@ def main(params):
                 gpkg_file.append(info['gpkg'])
                 bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
             info['gpkg'] = info['gpkg'].split('/')[-1]
-        assert_band_number(info['tif'], number_of_bands)
+
+        assert_band_number(info['tif'], params['global']['number_of_bands'])
 
         # Read the input raster image
         np_input_image = image_reader_as_array(info['tif'])
@@ -215,18 +215,18 @@ def main(params):
         elif info['dataset'] == 'tst':
             out_file = tst_hdf5
         else:
-            raise ValueError(f"Dataset value must be trn or val. Provided value is {info['dataset']}")
+            raise ValueError(f"Dataset value must be trn or val or tst. Provided value is {info['dataset']}")
 
         np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
         number_samples, number_classes = samples_preparation(np_input_image,
                                                              np_label_raster,
-                                                             samples_size,
+                                                             params['global']['samples_size'],
                                                              params['sample']['samples_dist'],
                                                              number_samples,
                                                              number_classes,
                                                              out_file,
                                                              info['dataset'],
-                                                             params['sample']['remove_background'])
+                                                             params['sample']['min_annotated_percent'])
 
         print(info['tif'])
         print(number_samples)
@@ -242,6 +242,7 @@ def main(params):
         print('Transfering Samples to the bucket')
         bucket.upload_file(samples_folder + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
         bucket.upload_file(samples_folder + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
+        bucket.upload_file(samples_folder + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
 
     print("End of process")
 
@@ -258,4 +259,3 @@ if __name__ == '__main__':
     main(params)
 
     print("Elapsed time:{}".format(time.time() - start_time))
-

@@ -22,8 +22,7 @@ global:
 sample:
   prep_csv_file: /path/to/csv/file.csv
   samples_dist: 200
-  remove_background: True
-  mask_input_image: False
+  min_annotated_percent: 10 # Min % of non background pixels in stored samples. Default: 0
   mask_reference: False
 
 # Training parameters; used in train_model.py ----------------------
