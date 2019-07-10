@@ -6,7 +6,8 @@ import warnings
 import fiona
 import rasterio
 from rasterio import features
-
+import time
+from CreateDataset import create_files_and_datasets
 from utils import read_parameters, assert_band_number, image_reader_as_array, \
     create_or_empty_folder, validate_num_classes, read_csv
 
@@ -57,17 +58,18 @@ def resize_datasets(hdf5_file):
 
 def samples_preparation(in_img_array, label_array, sample_size, dist_samples, samples_count, num_classes, samples_file,
                         dataset, background_switch):
-    """Extract and write samples from input image and reference image
-    Args:
-        sat_img: num py array of to the input image
-        ref_img: num py array the reference image
-        sample_size: Size (in pixel) of the samples to create
-        dist_samples: Distance (in pixel) between samples in both images
-        samples_count: Current number of samples created (will be appended and return)
-        num_classes: Number of classes in reference data (will be appended and return)
-        samples_file: hdfs file where samples will be written
-        dataset: Type of dataset where the samples will be written. Can be either of 'trn' or 'val'
-        background_switch: Indicate if samples containing only background pixels will be written or discarded
+    """
+    Extract and write samples from input image and reference image
+    :param in_img_array: numpy array of the input image
+    :param label_array: numpy array of the annotation image
+    :param sample_size: (int) Size (in pixel) of the samples to create
+    :param dist_samples: (int) Distance (in pixel) between samples in both images
+    :param samples_count: (dict) Current number of samples created (will be appended and return)
+    :param num_classes: (dict) Number of classes in reference data (will be appended and return)
+    :param samples_file: (hdf5 dataset) hdfs file where samples will be written
+    :param dataset: (str) Type of dataset where the samples will be written. Can be 'trn' or 'val' or 'tst'
+    :param background_switch: Indicate if samples containing only background pixels will be written or discarded
+    :return: updated samples count and number of classes.
     """
 
     # read input and reference images as array
@@ -78,6 +80,10 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
         idx_samples = samples_count['trn']
     elif dataset == 'val':
         idx_samples = samples_count['val']
+    elif dataset == 'tst':
+        idx_samples = samples_count['tst']
+    else:
+        raise ValueError(f"Dataset value must be trn or val. Provided value is {dataset}")
 
     # half tile padding
     half_tile = int(sample_size / 2)
@@ -105,20 +111,20 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
         samples_count['trn'] = idx_samples
     elif dataset == 'val':
         samples_count['val'] = idx_samples
+    elif dataset == 'tst':
+        samples_count['tst'] = idx_samples
 
     # return the appended samples count and number of classes.
     return samples_count, num_classes
 
 
 def vector_to_raster(vector_file, input_image, attribute_name):
-    """Function to rasterize vector data.
-    Args:
-        vector_file: Path and name of reference GeoPackage
-        input_image: Path and name of the input raster image
-        attribute_name: Attribute containing the pixel value to write
-
-    Return
-        num py array of the burned image
+    """
+    Function to rasterize vector data.
+    :param vector_file: (str) Path and name of reference GeoPackage
+    :param input_image: (str) Path and name of the input raster image
+    :param attribute_name: (str) Attribute containing the pixel value to write
+    :return: numpy array of the burned image
     """
 
     # Extract vector features to burn in the raster image
@@ -131,18 +137,28 @@ def vector_to_raster(vector_file, input_image, attribute_name):
 
     # Open input raster image to have access to number of rows, column, crs...
     with rasterio.open(input_image, 'r') as src:
-        burned_raster = rasterio.features.rasterize( (vector_tuple for vector_tuple in lst_vector_tuple),
-                                    fill = 0,
-                                    out_shape=src.shape,
-                                    transform=src.transform,
-                                    dtype=np.uint8)
+        burned_raster = rasterio.features.rasterize((vector_tuple for vector_tuple in lst_vector_tuple),
+                                                    fill=0,
+                                                    out_shape=src.shape,
+                                                    transform=src.transform,
+                                                    dtype=np.uint8)
 
     return burned_raster
 
 
-def main( bucket_name, data_path, samples_size, num_classes, number_of_bands, csv_file, samples_dist,
-          remove_background, mask_input_image, mask_reference):
+def main(params):
+    """
+    Training and validation datasets preparation.
+    :param params: (dict) Parameters found in the yaml config file.
+
+    """
     gpkg_file = []
+    bucket_name = params['global']['bucket_name']
+    data_path = params['global']['data_path']
+    samples_size = params['global']['samples_size']
+    number_of_bands = params['global']['number_of_bands']
+    csv_file = params['sample']['prep_csv_file']
+
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
@@ -163,20 +179,11 @@ def main( bucket_name, data_path, samples_size, num_classes, number_of_bands, cs
     create_or_empty_folder(samples_folder)
     create_or_empty_folder(out_label_folder)
 
-    number_samples = {'trn': 0, 'val': 0}
+    number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 
-    trn_hdf5 = h5py.File(os.path.join(samples_folder, "trn_samples.hdf5"), "w")
-    val_hdf5 = h5py.File(os.path.join(samples_folder, "val_samples.hdf5"), "w")
+    trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
 
-    trn_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
-                            maxshape=(None, samples_size, samples_size, number_of_bands))
-    trn_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
-                            maxshape=(None, samples_size, samples_size))
-    val_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
-                            maxshape=(None, samples_size, samples_size, number_of_bands))
-    val_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
-                            maxshape=(None, samples_size, samples_size))
     for info in list_data_prep:
 
         if bucket_name:
@@ -192,28 +199,34 @@ def main( bucket_name, data_path, samples_size, num_classes, number_of_bands, cs
         np_input_image = image_reader_as_array(info['tif'])
 
         # Validate the number of class in the vector file
-        validate_num_classes(info['gpkg'], num_classes, info['attribute_name'])
+        validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'])
 
         # Burn vector file in a raster file
         np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
 
         # Mask the zeros from input image into label raster.
-        if mask_reference:
+        if params['sample']['mask_reference']:
             np_label_raster = mask_image(np_input_image, np_label_raster)
-
-        # Mask zeros from label raster into input image otherwise use original image
-        if mask_input_image:
-            np_input_image = mask_image(np_label_raster, np_input_image)
 
         if info['dataset'] == 'trn':
             out_file = trn_hdf5
         elif info['dataset'] == 'val':
             out_file = val_hdf5
+        elif info['dataset'] == 'tst':
+            out_file = tst_hdf5
+        else:
+            raise ValueError(f"Dataset value must be trn or val. Provided value is {info['dataset']}")
 
         np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
-        number_samples, number_classes = samples_preparation(np_input_image, np_label_raster, samples_size, samples_dist,
-                                                             number_samples, number_classes, out_file, info['dataset'],
-                                                             remove_background)
+        number_samples, number_classes = samples_preparation(np_input_image,
+                                                             np_label_raster,
+                                                             samples_size,
+                                                             params['sample']['samples_dist'],
+                                                             number_samples,
+                                                             number_classes,
+                                                             out_file,
+                                                             info['dataset'],
+                                                             params['sample']['remove_background'])
 
         print(info['tif'])
         print(number_samples)
@@ -221,6 +234,7 @@ def main( bucket_name, data_path, samples_size, num_classes, number_of_bands, cs
 
     trn_hdf5.close()
     val_hdf5.close()
+    tst_hdf5.close()
 
     print("Number of samples created: ", number_samples)
 
@@ -239,20 +253,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     params = read_parameters(args.ParamFile)
 
-    import time
     start_time = time.time()
 
+    main(params)
 
-    main(params['global']['bucket_name'],
-         params['global']['data_path'],
-         params['global']['samples_size'],
-         params['global']['num_classes'],
-         params['global']['number_of_bands'],
-         params['sample']['prep_csv_file'],
-         params['sample']['samples_dist'],
-         params['sample']['remove_background'],
-         params['sample']['mask_input_image'],
-         params['sample']['mask_reference'])
-
-    print ("Elapsed time:{}".format(time.time() - start_time))
+    print("Elapsed time:{}".format(time.time() - start_time))
 
