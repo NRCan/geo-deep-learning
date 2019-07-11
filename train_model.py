@@ -19,7 +19,7 @@ from PIL import Image
 import CreateDataset
 import augmentation as aug
 from logger import InformationLogger, save_logs_to_bucket, tsv_line
-from metrics import report_classification, iou, create_metrics_dict
+from metrics import report_classification, create_metrics_dict
 from models.model_choice import net
 from utils import read_parameters, load_from_checkpoint, list_s3_subfolders
 
@@ -42,39 +42,6 @@ def verify_weights(num_classes, weights):
                              'classes')
 
 
-def verify_sample_count(num_trn_samples, num_val_samples, hdf5_folder, bucket=None):
-    """Verifies that the number of training and validation samples defined in the configuration file is less or equal to
-     the number of training and validation samples in the hdf5 file
-     Args:
-         num_trn_samples: number of training samples defined in the configuration file
-         num_val_samples: number of validation samples defined in the configuration file
-         hdf5_folder: data path in which the samples are saved
-         bucket: aws s3 bucket where data is stored. '' if not on AWS
-     """
-    if not bucket:
-        with h5py.File(os.path.join(hdf5_folder + '/samples', "trn_samples.hdf5"), 'r') as f:
-            train_samples = len(f['map_img'])
-        if num_trn_samples > train_samples:
-            raise IndexError('The number of training samples in the configuration file exceeds the number of '
-                             'samples in the hdf5 training dataset.')
-        with h5py.File(os.path.join(hdf5_folder + '/samples', "val_samples.hdf5"), 'r') as f:
-            valid_samples = len(f['map_img'])
-        if num_val_samples > valid_samples:
-            raise IndexError('The number of validation samples in the configuration file exceeds the number of '
-                             'samples in the hdf5 validation dataset.')
-    else:
-        with h5py.File('samples/trn_samples.hdf5', 'r') as f:
-            train_samples = len(f['map_img'])
-        if num_trn_samples > train_samples:
-            raise IndexError('The number of training samples in the configuration file exceeds the number of '
-                             'samples in the hdf5 training dataset.')
-        with h5py.File('samples/val_samples.hdf5', 'r') as f:
-            valid_samples = len(f['map_img'])
-        if num_val_samples > valid_samples:
-            raise IndexError('The number of training samples in the configuration file exceeds the number of '
-                             'samples in the hdf5 validation dataset.')
-
-
 def flatten_labels(annotations):
     """Flatten labels"""
     flatten = annotations.view(-1)
@@ -87,11 +54,6 @@ def flatten_outputs(predictions, number_of_classes):
     logits_permuted_cont = logits_permuted.contiguous()
     outputs_flatten = logits_permuted_cont.view(-1, number_of_classes)
     return outputs_flatten
-
-
-def save_checkpoint(state, filename):
-    """Save the model's state"""
-    torch.save(state, filename)
 
 
 def loader(path):
@@ -135,75 +97,138 @@ def get_local_classes(num_classes, data_path, output_path):
         wr.writerow(classes)
 
 
-def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, pretrained, batch_size, num_epochs,
-         learning_rate, weight_decay, step_size, gamma, num_classes, class_weights, batch_metrics, model, task,
-         model_name):
-    """Function to train and validate a models for semantic segmentation.
-    Args:
-        bucket_name: bucket in which data is stored if using AWS S3
-        data_path: full file path of the folder containing h5py files
-        output_path: full file path in which the model will be saved
-        num_trn_samples: number of training samples
-        num_val_samples: number of validation samples
-        pretrained: booleam indicating if the model is pretrained
-        batch_size: number of samples to process simultaneously
-        num_epochs: number of epochs
-        learning_rate: learning rate
-        weight_decay: weight decay
-        step_size: step size
-        gamma: multiplicative factor of learning rate decay
-        num_classes: number of classes
-        class_weights: weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class
-        batch_metrics:(int) Metrics computed every (int) batches. If left blank, will not perform metrics.
-        model: CNN model (tensor)
-        ## classifier: True if doing image classification, False if doing semantic segmentation.
-        task: Either 'segmentation' or 'classification'.
-        model_name: name of the model used for training.
-    Returns:
-        Files 'checkpoint.pth.tar' and 'last_epoch.pth.tar' containing trained weight
+def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
     """
-    if bucket_name:
-        if output_path is None:
-            bucket_output_path = None
-        else:
-            bucket_output_path = output_path
-        output_path = 'output_path'
-        try:
-            os.mkdir(output_path)
-        except FileExistsError:
-            pass
-        s3 = boto3.resource('s3')
-        bucket = s3.Bucket(bucket_name)
-        if task == 'classification':
-            for i in ['trn', 'val']:
-                get_s3_classification_images(i, bucket, bucket_name, data_path, output_path, num_classes)
-                class_file = os.path.join(output_path, 'classes.csv')
-                if bucket_output_path:
-                    bucket.upload_file(class_file, os.path.join(bucket_output_path, 'classes.csv'))
-                else:
-                    bucket.upload_file(class_file, 'classes.csv')
-            data_path = 'Images'
-        elif task == 'segmentation':
-            if data_path:
-                bucket.download_file(os.path.join(data_path, 'samples/trn_samples.hdf5'),
-                                     'samples/trn_samples.hdf5')
-                bucket.download_file(os.path.join(data_path, 'samples/val_samples.hdf5'),
-                                     'samples/val_samples.hdf5')
-            else:
-                bucket.download_file('samples/trn_samples.hdf5', 'samples/trn_samples.hdf5')
-                bucket.download_file('samples/val_samples.hdf5', 'samples/val_samples.hdf5')
-            verify_sample_count(num_trn_samples, num_val_samples, data_path, bucket_name)
-        else:
-            raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
-    elif task == 'classification':
-        get_local_classes(num_classes, data_path, output_path)
+    Function to download the required training files from s3 bucket and sets ec2 paths.
+    :param bucket_name: (str) bucket in which data is stored if using AWS S3
+    :param data_path: (str) EC2 file path of the folder containing h5py files
+    :param output_path: (str) EC2 file path in which the model will be saved
+    :param num_classes: (int) number of classes
+    :param task: (str) classification or segmentation
+    :return: (S3 object) bucket, (str) bucket_output_path, (str) local_output_path, (str) data_path
+    """
+    bucket_output_path = output_path
+    local_output_path = 'output_path'
+    try:
+        os.mkdir(output_path)
+    except FileExistsError:
+        pass
+    s3 = boto3.resource('s3')
+    bucket = s3.Bucket(bucket_name)
+
+    if task == 'classification':
+        for i in ['trn', 'val']:
+            get_s3_classification_images(i, bucket, bucket_name, data_path, output_path, num_classes)
+            class_file = os.path.join(output_path, 'classes.csv')
+            bucket.upload_file(class_file, os.path.join(bucket_output_path, 'classes.csv'))
+        data_path = 'Images'
+
     elif task == 'segmentation':
-        verify_sample_count(num_trn_samples, num_val_samples, data_path, bucket_name)
+        if data_path:
+            bucket.download_file(os.path.join(data_path, 'samples/trn_samples.hdf5'),
+                                 'samples/trn_samples.hdf5')
+            bucket.download_file(os.path.join(data_path, 'samples/val_samples.hdf5'),
+                                 'samples/val_samples.hdf5')
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
-    verify_weights(num_classes, class_weights)
+    return bucket, bucket_output_path, local_output_path, data_path
 
+
+def create_dataloader(data_path, num_trn_samples, num_val_samples, num_tst_samples, batch_size, task):
+    """
+    Function to create dataloader objects for training, validation and test datasets.
+    :param data_path: (str) path to the samples folder
+    :param num_trn_samples: (int) number of samples for training
+    :param num_val_samples: (int) number of sampels for validation
+    :param num_tst_samples: (int) number of samples for test
+    :param batch_size: (int) batch size
+    :param task: (str) classification or segmentation
+    :return: trn_dataloader, val_dataloader, tst_dataloader
+    """
+    if task == 'classification':
+        trn_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "trn"),
+                                                       transform=transforms.Compose(
+                                                           [transforms.RandomRotation((0, 275)),
+                                                            transforms.RandomHorizontalFlip(),
+                                                            transforms.Resize(299), transforms.ToTensor()]),
+                                                       loader=loader)
+        val_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "val"),
+                                                       transform=transforms.Compose(
+                                                           [transforms.Resize(299), transforms.ToTensor()]),
+                                                       loader=loader)
+        tst_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "tst"),
+                                                       transform=transforms.Compose(
+                                                           [transforms.Resize(299), transforms.ToTensor()]),
+                                                       loader=loader)
+    elif task == 'segmentation':
+        trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn",
+                                                        transform=transforms.Compose([aug.RandomRotationTarget(),
+                                                                                      aug.HorizontalFlip(),
+                                                                                      aug.ToTensorTarget()]))
+        val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_val_samples, "val",
+                                                        transform=transforms.Compose([aug.ToTensorTarget()]))
+        tst_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_tst_samples, "tst",
+                                                        transform=transforms.Compose([aug.ToTensorTarget()]))
+    else:
+        raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
+
+    # Shuffle must be set to True.
+    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
+    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
+    return trn_dataloader, val_dataloader, tst_dataloader
+
+
+def get_num_samples(data_path, params):
+    """
+    Function to retrieve number of samples, either from config file or directly from hdf5 file.
+    :param data_path: (str) Path to samples folder
+    :param params: (dict) Parameters found in the yaml config file.
+    :return: (dict) number of samples for trn, val and tst.
+    """
+    num_samples = {'trn': 0, 'val': 0, 'tst': 0}
+    for i in ['trn', 'val', 'tst']:
+        if params['training'][f"num_{i}_samples"]:
+            num_samples[i] = params['training'][f"num_{i}_samples"]
+            with h5py.File(os.path.join(data_path, 'samples', f"{i}_samples.hdf5"), 'r') as hdf5_file:
+                train_samples = len(hdf5_file['map_img'])
+            if num_samples[i] > train_samples:
+                raise IndexError(f"The number of training samples in the configuration file ({num_samples[i]}) "
+                                 f"exceeds the number of samples in the hdf5 training dataset ({num_samples[i]}).")
+        else:
+            with h5py.File(os.path.join(data_path, "samples", f"{i}_samples.hdf5"), "r"), as hdf5_file:
+                num_samples[i] = len(hdf5_file['map_img'])
+
+    return num_samples
+
+
+def main(params):
+    """
+    Function to train and validate a models for semantic segmentation or classification.
+    :param params: (dict) Parameters found in the yaml config file.
+
+    """
+    model, state_dict_path, model_name = net(params)
+    bucket_name = params['global']['bucket_name']
+    output_path = params['training']['output_path']
+    data_path = params['global']['data_path']
+    task = params['global']['task']
+    num_classes = params['global']['num_classes']
+    class_weights = params['training']['class_weights']
+    batch_size = params['training']['batch_size']
+
+    if bucket_name:
+        bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
+                                                                               data_path=data_path,
+                                                                               output_path=output_path,
+                                                                               num_classes=num_classes,
+                                                                               task=task)
+
+    elif not bucket_name and task == 'classification':
+        get_local_classes(num_classes, data_path, output_path)
+
+    verify_weights(num_classes, class_weights)
     since = time.time()
     best_loss = 999
 
@@ -214,6 +239,7 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
 
     trn_log = InformationLogger(output_path, 'trn')
     val_log = InformationLogger(output_path, 'val')
+    tst_log = InformationLogger(output_path, 'tst')
 
     if torch.cuda.is_available():
         model = model.cuda()
@@ -227,57 +253,54 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
         else:
             criterion = nn.CrossEntropyLoss()
 
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)  # learning rate decay
+    optimizer = optim.Adam(model.parameters(),
+                           lr=params['training']['learning_rate'],
+                           weight_decay=params['training']['weight_decay'])
+    # learning rate decay
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer,
+                                             step_size=params['training']['step_size'],
+                                             gamma=params['training']['gamma'])
 
-    if pretrained != '':
-        model, optimizer = load_from_checkpoint(pretrained, model, optimizer)
+    if state_dict_path != '':
+        model, optimizer = load_from_checkpoint(state_dict_path, model, optimizer)
 
-    if task == 'classification':
-        trn_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "trn"),
-                                                       transform=transforms.Compose(
-                                                           [transforms.RandomRotation((0, 275)),
-                                                            transforms.RandomHorizontalFlip(),
-                                                            transforms.Resize(299), transforms.ToTensor()]),
-                                                       loader=loader)
-        val_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "val"),
-                                                       transform=transforms.Compose(
-                                                           [transforms.Resize(299), transforms.ToTensor()]),
-                                                       loader=loader)
-    elif task == 'segmentation':
-        if not bucket_name:
-            trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn",
-                                                            transform=transforms.Compose([aug.RandomRotationTarget(),
-                                                                                          aug.HorizontalFlip(),
-                                                                                          aug.ToTensorTarget()]))
-            val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_val_samples, "val",
-                                                            transform=transforms.Compose([aug.ToTensorTarget()]))
-        else:
-            trn_dataset = CreateDataset.SegmentationDataset('samples', num_trn_samples, "trn",
-                                                            transform=transforms.Compose([aug.RandomRotationTarget(),
-                                                                                          aug.HorizontalFlip(),
-                                                                                          aug.ToTensorTarget()]))
-            val_dataset = CreateDataset.SegmentationDataset("samples", num_val_samples, "val",
-                                                            transform=transforms.Compose([aug.ToTensorTarget()]))
-
-    # Shuffle must be set to True.
-    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
+    num_samples = get_num_samples(data_path=data_path, params=params)
+    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
+                                                                       num_trn_samples=num_samples['trn'],
+                                                                       num_val_samples=num_samples['val'],
+                                                                       num_tst_samples=num_samples['tst'],
+                                                                       batch_size=batch_size,
+                                                                       task=task)
 
     now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M ")
-    for epoch in range(0, num_epochs):
+    for epoch in range(0, params['training']['num_epochs']):
         print()
-        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
+        print('Epoch {}/{}'.format(epoch, params['training']['num_epochs'] - 1))
         print('-' * 20)
 
-        trn_report = train(trn_dataloader, model, criterion, optimizer, lr_scheduler, num_classes, batch_size,
-                           task, epoch, progress_log)
+        trn_report = train(train_loader=trn_dataloader,
+                           model=model,
+                           criterion=criterion,
+                           optimizer=optimizer,
+                           scheduler=lr_scheduler,
+                           num_classes=num_classes,
+                           batch_size=batch_size,
+                           task=task,
+                           ep_idx=epoch,
+                           progress_log=progress_log)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-        val_report = validation(val_dataloader, model, criterion, num_classes, batch_size, task, epoch,
-                                progress_log, batch_metrics)
+        val_report = evaluation(eval_loader=val_dataloader,
+                                model=model,
+                                criterion=criterion,
+                                num_classes=num_classes,
+                                batch_size=batch_size,
+                                task=task,
+                                ep_idx=epoch,
+                                progress_log=progress_log,
+                                batch_metrics=params['training']['batch_metrics'])
         val_loss = val_report['loss'].avg
-        if batch_metrics is not None:
+        if params['training']['batch_metrics'] is not None:
             val_log.add_values(val_report, epoch)
         else:
             val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
@@ -286,33 +309,37 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
             print("save checkpoint")
             filename = os.path.join(output_path, 'checkpoint.pth.tar')
             best_loss = val_loss
-            save_checkpoint({'epoch': epoch, 'arch': model_name, 'model': model.state_dict(), 'best_loss':
-                best_loss, 'optimizer': optimizer.state_dict()}, filename)
+            torch.save({'epoch': epoch,
+                             'arch': model_name,
+                             'model': model.state_dict(),
+                             'best_loss': best_loss,
+                             'optimizer': optimizer.state_dict()}, filename)
 
             if bucket_name:
-                if bucket_output_path:
-                    bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
-                else:
-                    bucket_filename = 'checkpoint.pth.tar'
+                bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
 
         if bucket_name:
-            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, batch_metrics)
+            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
 
         cur_elapsed = time.time() - since
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
 
-    filename = os.path.join(output_path, 'last_epoch.pth.tar')
-    save_checkpoint({'epoch': epoch, 'arch': model_name, 'model': model.state_dict(), 'best_loss': best_loss,
-                     'optimizer': optimizer.state_dict()}, filename)
+    # Evaluation on test data.
+    tst_report = evaluation(eval_loader=tst_dataloader,
+                            model=model,
+                            criterion=criterion,
+                            num_classes=num_classes,
+                            batch_size=batch_size,
+                            task=task,
+                            ep_idx=params['training']['num_epochs'],
+                            progress_log=progress_log,
+                            batch_metrics=params['training']['batch_metrics'])
+    tst_log.add_values(tst_report, params['training']['num_epochs'])
 
     if bucket_name:
-        if bucket_output_path:
-            bucket_filename = os.path.join(bucket_output_path, 'last_epoch.pth.tar')
-            bucket.upload_file("output.txt", os.path.join(bucket_output_path, f"Logs/{now}_output.txt"))
-        else:
-            bucket_filename = 'last_epoch.pth.tar'
-            bucket.upload_file("output.txt", f"Logs/{now}_output.txt")
+        bucket_filename = os.path.join(bucket_output_path, 'last_epoch.pth.tar')
+        bucket.upload_file("output.txt", os.path.join(bucket_output_path, f"Logs/{now}_output.txt"))
         bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
@@ -321,18 +348,19 @@ def main(bucket_name, data_path, output_path, num_trn_samples, num_val_samples, 
 
 def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx,
           progress_log):
-    """ Train the model and return the metrics of the training phase.
-    Args:
-        train_loader: training data loader
-        model: model to train
-        criterion: loss criterion
-        optimizer: optimizer to use
-        scheduler: learning rate scheduler
-        num_classes: number of classes
-        batch_size: number of samples to process simultaneously
-        task: Either 'segmentation' or 'classification'.
-        ep_idx: epoch idx (for hypertrainer log)
-        progress_log: progress log file (for hypertrainer log)
+    """
+    Train the model and return the metrics of the training epoch
+    :param train_loader: training data loader
+    :param model: model to train
+    :param criterion: loss criterion
+    :param optimizer: optimizer to use
+    :param scheduler: learning rate scheduler
+    :param num_classes: number of classes
+    :param batch_size: number of samples to process simultaneously
+    :param task: segmentation or classification
+    :param ep_idx: epoch index (for hypertrainer log)
+    :param progress_log: progress log file (for hypertrainer log)
+    :return: Updated training loss
     """
     model.train()
     scheduler.step()
@@ -373,25 +401,27 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     return train_metrics
 
 
-def validation(valid_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log,
-               batch_metrics=None):
-    """Args:
-        valid_loader: validation data loader
-        model: model to validate
-        criterion: loss criterion
-        num_classes: number of classes
-        batch_size: number of samples to process simultaneously
-        task: Either 'segmentation' or 'classification'.
-        ep_idx: epoch idx (for hypertrainer log)
-        progress_log: progress log file (for hypertrainer log)
-        batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log,
+               batch_metrics=None, dataset='val'):
     """
-
-    valid_metrics = create_metrics_dict(num_classes)
+    Evaluate the model and return the updated metrics
+    :param eval_loader: data loader
+    :param model: model to evaluate
+    :param criterion: loss criterion
+    :param num_classes: number of classes
+    :param batch_size: number of samples to process simultaneously
+    :param task: segmentation or classification
+    :param ep_idx: epoch index (for hypertrainer log)
+    :param progress_log: progress log file (for hypertrainer log)
+    :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
+    :param dataset: (str) 'val or 'tst'
+    :return: (dict) eval_metrics
+    """
+    eval_metrics = create_metrics_dict(num_classes)
     model.eval()
 
-    for index, data in enumerate(valid_loader):
-        progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'val', index, len(valid_loader), time.time()))
+    for index, data in enumerate(eval_loader):
+        progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, index, len(eval_loader), time.time()))
 
         with torch.no_grad():
             if task == 'classification':
@@ -414,21 +444,24 @@ def validation(valid_loader, model, criterion, num_classes, batch_size, task, ep
                 outputs_flatten = flatten_outputs(outputs, num_classes)
 
             loss = criterion(outputs_flatten, labels)
-            valid_metrics['loss'].update(loss.item(), batch_size)
+            eval_metrics['loss'].update(loss.item(), batch_size)
 
-            # Compute metrics every 2 batches. Time consuming.
-            if batch_metrics is not None:
+            if (dataset == 'val') and (batch_metrics is not None):
+                # Compute metrics every n batches. Time consuming.
                 if index % batch_metrics == 0:
                     a, segmentation = torch.max(outputs_flatten, dim=1)
-                    valid_metrics = report_classification(segmentation, labels, batch_size, valid_metrics)
+                    eval_metrics = report_classification(segmentation, labels, batch_size, eval_metrics)
+            elif dataset == 'tst':
+                a, segmentation = torch.max(outputs_flatten, dim=1)
+                eval_metrics = report_classification(segmentation, labels, batch_size, eval_metrics)
 
-    print('Validation Loss: {:.4f}'.format(valid_metrics['loss'].avg))
+    print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
     if batch_metrics is not None:
-        print('Validation precision: {:.4f}'.format(valid_metrics['precision'].avg))
-        print('Validation recall: {:.4f}'.format(valid_metrics['recall'].avg))
-        print('Validation f1-score: {:.4f}'.format(valid_metrics['fscore'].avg))
+        print(f"{dataset} precision: {eval_metrics['precision'].avg}")
+        print(f"{dataset} recall: {eval_metrics['recall'].avg}")
+        print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
 
-    return valid_metrics
+    return eval_metrics
 
 
 if __name__ == '__main__':
@@ -438,24 +471,6 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
-    cnn_model, state_dict_path, model_name = net(params)
 
-    main(params['global']['bucket_name'],
-         params['global']['data_path'],
-         params['training']['output_path'],
-         params['training']['num_trn_samples'],
-         params['training']['num_val_samples'],
-         state_dict_path,
-         params['training']['batch_size'],
-         params['training']['num_epochs'],
-         params['training']['learning_rate'],
-         params['training']['weight_decay'],
-         params['training']['step_size'],
-         params['training']['gamma'],
-         params['global']['num_classes'],
-         params['training']['class_weights'],
-         params['training']['batch_metrics'],
-         cnn_model,
-         params['global']['task'],
-         model_name)
+    main(params)
     print('End of training')

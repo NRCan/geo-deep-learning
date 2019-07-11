@@ -31,6 +31,7 @@ training:
   output_path: ./data
   num_trn_samples: 24
   num_val_samples: 24
+  num_tst_samples: 1000
   batch_size: 4
   num_epochs: 2
   learning_rate: 0.0001
@@ -38,7 +39,8 @@ training:
   step_size: 4
   gamma: 0.9
   class_weights: [1.0, 2.0]
-  batch_metrics: 2
+  batch_metrics: 1
+  ignore_index: 0 # Specifies a target value that is ignored and does not contribute to the input gradient
 
 # Inference parameters; used in inference.py --------
 

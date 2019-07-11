@@ -31,6 +31,7 @@ training:
   output_path: /path/to/model/weights/output/folder
   num_trn_samples: 4960
   num_val_samples: 2208
+  num_tst_samples: 1000
   batch_size: 32
   num_epochs: 100
   learning_rate: 0.0001
@@ -39,6 +40,7 @@ training:
   gamma: 0.9
   class_weights: [1.0, 2.0]
   batch_metrics:    # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
+  ignore_index: 0 # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
 
 # Inference parameters; used in inference.py --------
 
