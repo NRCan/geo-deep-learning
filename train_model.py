@@ -117,7 +117,7 @@ def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
     bucket = s3.Bucket(bucket_name)
 
     if task == 'classification':
-        for i in ['trn', 'val']:
+        for i in ['trn', 'val', 'tst']:
             get_s3_classification_images(i, bucket, bucket_name, data_path, output_path, num_classes)
             class_file = os.path.join(output_path, 'classes.csv')
             bucket.upload_file(class_file, os.path.join(bucket_output_path, 'classes.csv'))
