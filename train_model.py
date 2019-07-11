@@ -197,7 +197,7 @@ def get_num_samples(data_path, params):
                 raise IndexError(f"The number of training samples in the configuration file ({num_samples[i]}) "
                                  f"exceeds the number of samples in the hdf5 training dataset ({num_samples[i]}).")
         else:
-            with h5py.File(os.path.join(data_path, "samples", f"{i}_samples.hdf5"), "r"), as hdf5_file:
+            with h5py.File(os.path.join(data_path, "samples", f"{i}_samples.hdf5"), "r") as hdf5_file:
                 num_samples[i] = len(hdf5_file['map_img'])
 
     return num_samples
@@ -265,6 +265,7 @@ def main(params):
         model, optimizer = load_from_checkpoint(state_dict_path, model, optimizer)
 
     num_samples = get_num_samples(data_path=data_path, params=params)
+    print(f"Number of samples : {num_samples}")
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
                                                                        num_trn_samples=num_samples['trn'],
                                                                        num_val_samples=num_samples['val'],
@@ -273,6 +274,8 @@ def main(params):
                                                                        task=task)
 
     now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M ")
+    filename = os.path.join(output_path, 'checkpoint.pth.tar')
+
     for epoch in range(0, params['training']['num_epochs']):
         print()
         print('Epoch {}/{}'.format(epoch, params['training']['num_epochs'] - 1))
@@ -307,7 +310,6 @@ def main(params):
 
         if val_loss < best_loss:
             print("save checkpoint")
-            filename = os.path.join(output_path, 'checkpoint.pth.tar')
             best_loss = val_loss
             torch.save({'epoch': epoch,
                              'arch': model_name,
@@ -325,7 +327,8 @@ def main(params):
         cur_elapsed = time.time() - since
         print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
 
-    # Evaluation on test data.
+    # load checkpoint model and evaluate it on test dataset.
+    model = load_from_checkpoint(filename, model)
     tst_report = evaluation(eval_loader=tst_dataloader,
                             model=model,
                             criterion=criterion,
@@ -334,7 +337,8 @@ def main(params):
                             task=task,
                             ep_idx=params['training']['num_epochs'],
                             progress_log=progress_log,
-                            batch_metrics=params['training']['batch_metrics'])
+                            batch_metrics=params['training']['batch_metrics'],
+                            dataset='tst')
     tst_log.add_values(tst_report, params['training']['num_epochs'])
 
     if bucket_name:
