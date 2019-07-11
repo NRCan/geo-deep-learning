@@ -57,7 +57,7 @@ def report_classification(pred, label, batch_size, metrics_dict):
 
     class_score = {}
     for key, value in class_report.items():
-        if key not in ['micro avg', 'macro avg', 'weighted avg']:
+        if key not in ['micro avg', 'macro avg', 'weighted avg', 'accuracy']:
             class_score[key] = value
 
             metrics_dict['precision_' + key].update(class_score[key]['precision'], batch_size)
