@@ -11,7 +11,7 @@ class InformationLogger(object):
         # List of metrics names
         self.metrics = ['loss']
         self.metrics_classwise = []
-        if mode == 'val':
+        if mode == 'val' or mode == 'tst':
             self.metrics += ['iou']
             self.metrics_classwise += ['precision', 'recall', 'fscore']
 
