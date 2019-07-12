@@ -22,16 +22,16 @@ global:
 sample:
   prep_csv_file: ./data/images_to_samples_ci_csv.csv
   samples_dist: 200
-  remove_background: True
-  mask_input_image: False
+  min_annotated_percent: 10 # Min % of non background pixels in stored samples. Default: 0
   mask_reference: False
 
 # Training parameters; used in train_model.py ----------------------
 
 training:
   output_path: ./data
-  num_trn_samples: 24
-  num_val_samples: 24
+  num_trn_samples:
+  num_val_samples:
+  num_tst_samples: 
   batch_size: 4
   num_epochs: 2
   learning_rate: 0.0001
@@ -39,7 +39,8 @@ training:
   step_size: 4
   gamma: 0.9
   class_weights: [1.0, 2.0]
-  batch_metrics: 2
+  batch_metrics: 1
+  ignore_index: 0 # Specifies a target value that is ignored and does not contribute to the input gradient
 
 # Inference parameters; used in inference.py --------
 
