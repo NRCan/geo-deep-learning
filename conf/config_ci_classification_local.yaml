@@ -38,7 +38,7 @@ training:
   weight_decay: 0
   step_size: 4
   gamma: 0.9
-  class_weights: False
+  class_weights:
   batch_metrics: 1
   ignore_index: # Specifies a target value that is ignored and does not contribute to the input gradient
 
