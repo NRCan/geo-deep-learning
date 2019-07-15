@@ -36,10 +36,8 @@ def verify_weights(num_classes, weights):
         num_classes: number of classes defined in the configuration file
         weights: weights defined in the configuration file
     """
-    if weights:
-        if num_classes != len(weights):
-            raise ValueError('The number of class weights in the configuration file is different than the number of '
-                             'classes')
+    if num_classes != len(weights):
+        raise ValueError('The number of class weights in the configuration file is different than the number of classes')
 
 
 def flatten_labels(annotations):
@@ -216,7 +214,7 @@ def set_hyperparameters(params, model, state_dict_path):
     :return: model, criterion, optimizer, lr_scheduler
     """
     class_weights = None
-    ignore_index = None
+    ignore_index = -100  # Default value for pytorch's ignore_index implementation.
     lr = None
     weight_decay = None
     step_size = None
