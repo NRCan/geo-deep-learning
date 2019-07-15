@@ -1,4 +1,21 @@
-# geo-deep-learning
+### Table of Contents
+- [Geo-Deep-Learning overview](#Geo-Deep-Learning-overview)
+  * [Requirements](#requirements)
+  * [Installation on your workstation](#installation-on-your-workstation)
+  * [config.yaml](#configyaml)
+- [Semantic segmentation](#semantic-segmentation)
+    * [Models available](#models-available)
+    * [csv preparation](#csv-preparation)
+    * [images_to_samples.py](#images_to_samplespy)
+    * [train_model.py](#train_modelpy)
+    * [inference.py](#inferencepy)
+- [Classification Task](#Classification-Task)
+    * [Models available](#models-available-1)
+    * [Data preparation](#Data-preparation)
+    * [train_model.py](#train_modelpy-1)
+    * [inference.py](#inferencepy-1)
+    
+# Geo-Deep-Learning overview
 
 The `geo-deep-learning` project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced data sets.
 
@@ -74,15 +91,16 @@ global:
 sample:
   prep_csv_file: /path/to/csv/file_name.csv     # Path to CSV file used in preparation.
   samples_dist: 200                             # Distance (in pixel) between samples
-  remove_background: True                       # When True, does not write samples containing only "0" values.
-  mask_input_image: False                       # When True, mask the input image where there is no reference data.
+  min_annotated_percent: 10                     # Min % of non background pixels in stored samples. Default: 0
+  mask_reference: False                         # When True, mask the input image where there is no reference data.
 
 # Training parameters; used in train_model.py ----------------------
 
 training:
   output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
-  num_trn_samples: 4960                         # Number of samples to use for training (should be a multiple of batch_size)
-  num_val_samples: 2208                         # Number of samples to use for validation (should be a multiple of batch_size)
+  num_trn_samples: 4960                         # Number of samples to use for training. (default: all samples in hdfs file are taken)
+  num_val_samples: 2208                         # Number of samples to use for validation. (default: all samples in hdfs file are taken)
+  num_tst_samples:                              # Number of samples to use for test. (default: all samples in hdfs file are taken)
   batch_size: 32                                # Size of each batch
   num_epochs: 150                               # Number of epochs
   learning_rate: 0.0001                         # Initial learning rate
@@ -91,6 +109,7 @@ training:
   step_size: 4                                  # Apply gamma every step_size
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
   batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
+  ignore_index: 0                               # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
 
 # Inference parameters; used in inference.py --------
 
@@ -98,6 +117,8 @@ inference:
   img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on
   working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
+  chunk_size: 512                                                             # (int) Size (height and width) of each prediction patch. Default: 512
+  overlap: 10                                                                 # (int) Percentage of overlap between 2 chunks. Default: 10
 
 # Models parameters; used in train_model.py and inference.py
 
@@ -115,30 +136,31 @@ models:
   inception:
     pretrained: False   # optional
 ```
-## Semantic segmentation
-### Models available
+# Semantic segmentation
+## Models available
 - [Unet](https://arxiv.org/abs/1505.04597)
 - Unet small (less deep version of Unet)
 - Checkpointed Unet (same as Unet small, but uses less GPU memory and recomputes data during the backward pass)
 - [Ternausnet](https://arxiv.org/abs/1801.05746)
-### `csv` preparation
+## `csv` preparation
 The `csv` specifies the input images and the reference vector data that will be use during the training.
 Each row in the `csv` file must contain 4 comma-separated items:
 - input image file (tif)
 - reference vector data (GeoPackage)
 - attribute of the GeoPackage to use as classes values
-- dataset (either of 'trn' for training or 'val' for validation) where the sample will be used  
+- dataset (one of 'trn' for training, 'val' for validation or 'tst' for test) where the sample will be used  
 
 Each image is a new line in the csv file.  For example:  
 
 ```
 \path\to\input\image1.tif,\path\to\reference\vector1.gpkg,attribute,trn
 \path\to\input\image2.tif,\path\to\reference\vector2.gpkg,attribute,val
+\path\to\input\image3.tif,\path\to\reference\vector2.gpkg,attribute,tst
 ```
 
-### images_to_samples.py
+## images_to_samples.py
 
-The first phase of the process is to determine sub-images (samples) to be used for training and validation.  Images to be used must be of the geotiff type.  Sample locations in each image must be stored in a GeoPackage.
+The first phase of the process is to determine sub-images (samples) to be used for training, validation and test.  Images to be used must be of the geotiff type.  Sample locations in each image must be stored in a GeoPackage.
 
 To launch the program:  
 
@@ -159,14 +181,15 @@ global:
 sample:
   prep_csv_file: /path/to/csv/file_name.csv     # Path to CSV file used in preparation.
   samples_dist: 200                             # Distance (in pixel) between samples
-  remove_background: True                       # When True, does not write samples containing only "0" values.
-  mask_input_image: False                       # When True, mask the input image where there is no reference data.
+  min_annotated_percent: 10                     # Min % of non background pixels in stored samples. Default: 0
+  mask_reference: False                         # When True, mask the input image where there is no reference data.
 ```
 
 Outputs:
-- 2 .hdfs files with input images and reference data, stored as arrays
+- 3 .hdfs files with input images and reference data, stored as arrays
     - trn_samples.hdfs
     - val_samples.hdfs
+    - tst_samples.hdfs
 
 Process:
 - Read csv file and for each line in the file, do the following:
@@ -174,12 +197,11 @@ Process:
     - Convert GeoPackage vector information into the "label" raster. The pixel value is determined by the attribute in the csv file
     - Convert both input and label images to arrays
     - Divide images in smaller samples of size and distance specified in the configuration file. Visual representation of this is provided [here](https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f)
-    - Write samples into the "val" or "trn" hdfs file, depending on the value contained in the csv file
-- Samples are then shuffled to avoid bias in the data.
+    - Write samples into the "val", "trn" or "tst" hdfs file, depending on the value contained in the csv file.
 
-### train_model.py
+## train_model.py
 
-The crux of the learning process is in this phase : training.  Samples labeled "trn" as per above are used to train the neural network.  Samples labeled "val" are used to estimate the training error on a set of sub-images not used for training.
+The crux of the learning process is in this phase : training.  Samples labeled "trn" as per above are used to train the neural network.  Samples labeled "val" are used to estimate the training error on a set of sub-images not used for training, after every epoch. At the end of all epochs, the model with the lowest error on validation data is loaded and samples labeled "tst" are used to estimate the accuracy of the model on sub-images not used during training or validation.
 
 To launch the program:
 ```
@@ -199,8 +221,9 @@ global:
 
 training:
   output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
-  num_trn_samples: 4960                         # Number of samples to use for training (should be a multiple of batch_size)
-  num_val_samples: 2208                         # Number of samples to use for validation (should be a multiple of batch_size)
+  num_trn_samples: 4960                         # Number of samples to use for training. (default: all samples in hdfs file are taken)
+  num_val_samples: 2208                         # Number of samples to use for validation. (default: all samples in hdfs file are taken)
+  num_tst_samples:                              # Number of samples to use for test. (default: all samples in hdfs file are taken)
   batch_size: 32                                # Size of each batch
   num_epochs: 150                               # Number of epochs
   learning_rate: 0.0001                         # Initial learning rate
@@ -209,26 +232,29 @@ training:
   step_size: 4                                  # Apply gamma every step_size
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
   batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
+  ignore_index: 0                               # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
 ```
 
 Inputs:
 - 1 hdfs file with input images and reference data as arrays used for training (prepared with `images_to_samples.py`)
 - 1 hdfs file with input images and reference data as arrays used for validation (prepared with `images_to_samples.py`)
+- 1 hdfs file with input images and reference data as arrays used for test (prepared with `images_to_samples.py`)
 
 Output:
 - Trained model weights
     - checkpoint.pth.tar        Corresponding to the training state where the validation loss was the lowest during the training process.
-    - last_epoch.pth.tar         Corresponding to the training state after the last epoch.
 
 Process:
-- The application loads the UNet model located in unet_pytorch.py
-- Using the hyperparameters provided in `config.yaml` , the application will try to minimize the cross entropy loss on the training and validation data
-- For every epoch, the application shows the loss, accuracy, recall and f-score for both datasets (trn and val)
-- The application also log the accuracy, recall and f-score for each classes of both the datasets
+- The application loads the model
+- Using the hyperparameters provided in `config.yaml` , the application will try to minimize the cross entropy loss on the training data and evaluate every epoch on the validation data.
+- For every epoch, the application shows and log the loss on "trn" and "val" datasets.
+- For every epoch, the application shows and log the accuracy, recall and f-score on "val" dataset. Those metrics are also computed on each classes.  
+- At the end of the training process, the application shows and log the accuracy, recall and f-score on "tst" dataset. Those metrics are also computed on each classes.  
 
-### inference.py
 
-The final step in the process if to assign very pixel in the original image a value corresponding to the most probable class.
+## inference.py
+
+The final step in the process is to assign very pixel in the original image a value corresponding to the most probable class.
 
 To launch the program:
 ```
@@ -247,17 +273,19 @@ inference:
   img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on
   working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
+  chunk_size: 512                                                             # (int) Size (height and width) of each prediction patch. Default: 512
+  overlap: 10                                                                 # (int) Percentage of overlap between 2 chunks. Default: 10
 ```
 Process:
-- The process will load trained weights to the UNet architecture and perform a per-pixel inference task on all the images contained in the working_folder
+- The process will load trained weights to the chosen model and perform a per-pixel inference task on all the images contained in the working_folder
 
-## Classification Task
+# Classification Task
 The classification task allows images to be recognized as a whole rather than identifying the class of each pixel individually as is done in semantic segmentation.
 
 Currently, Inception-v3 is the only model available for classification tasks in our deep learning process. Other model architectures may be added in the future.
-### Models available
+## Models available
 - [Inception-v3](https://arxiv.org/abs/1512.00567)
-### Data preparation
+## Data preparation
 The images used for training the model must be split into folders for training and validation samples within the ```data_path``` global parameter from the configuration file. Each of these folders must be divided into subfolders by class in a structure like ImageNet-like structure. Torchvision's ```ImageLoader``` is used as the dataset for training and thus running ```images_to_samples.py``` isn't necessary when performing classification tasks. An example of the required file structure is provided below:
 
 ```
@@ -290,7 +318,7 @@ data_path
 ```
 
 
-### train_model.py
+## train_model.py
 Samples in the "trn" folder are used to train the model. Samples in the  "val" folder are used to estimate the training error on a set of images not used for training.
 
 During this phase of the classification task, a list of classes is made based on the subfolders in the trn path. The list of classes is saved in a csv file in the same folder as the trained model so that it can be referenced during the classification step.
@@ -336,7 +364,7 @@ Process:
 - The application also log the accuracy, recall and f-score for each classes of both the datasets
 
 
-### inference.py
+## inference.py
 The final step of a classification task is to associate a label to each image that needs to be classified. The associations will be displayed on the screen and be saved in a csv file.
 
 The classes.csv file must be saved in the same folder as the trained model weights file.

@@ -15,6 +15,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
+import inspect
 
 import CreateDataset
 import augmentation as aug
@@ -36,10 +37,8 @@ def verify_weights(num_classes, weights):
         num_classes: number of classes defined in the configuration file
         weights: weights defined in the configuration file
     """
-    if weights:
-        if num_classes != len(weights):
-            raise ValueError('The number of class weights in the configuration file is different than the number of '
-                             'classes')
+    if num_classes != len(weights):
+        raise ValueError('The number of class weights in the configuration file is different than the number of classes')
 
 
 def flatten_labels(annotations):
@@ -129,6 +128,8 @@ def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
                                  'samples/trn_samples.hdf5')
             bucket.download_file(os.path.join(data_path, 'samples/val_samples.hdf5'),
                                  'samples/val_samples.hdf5')
+            bucket.download_file(os.path.join(data_path, 'samples/tst_samples.hdf5'),
+                                 'samples/tst_samples.hdf5')
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
@@ -192,15 +193,66 @@ def get_num_samples(data_path, params):
         if params['training'][f"num_{i}_samples"]:
             num_samples[i] = params['training'][f"num_{i}_samples"]
             with h5py.File(os.path.join(data_path, 'samples', f"{i}_samples.hdf5"), 'r') as hdf5_file:
-                train_samples = len(hdf5_file['map_img'])
-            if num_samples[i] > train_samples:
+                file_num_samples = len(hdf5_file['map_img'])
+            if num_samples[i] > file_num_samples:
                 raise IndexError(f"The number of training samples in the configuration file ({num_samples[i]}) "
-                                 f"exceeds the number of samples in the hdf5 training dataset ({num_samples[i]}).")
+                                 f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
         else:
             with h5py.File(os.path.join(data_path, "samples", f"{i}_samples.hdf5"), "r") as hdf5_file:
                 num_samples[i] = len(hdf5_file['map_img'])
 
     return num_samples
+
+
+def set_hyperparameters(params, model, state_dict_path):
+    """
+    Function to set hyperparameters based on values provided in yaml config file.
+    Will also set model to GPU, if available.
+    If none provided, default functions values are used.
+    :param params: (dict) Parameters found in the yaml config file
+    :param model: Model loaded from model_choice.py
+    :param state_dict_path: (str) Full file path to the state dict
+    :return: model, criterion, optimizer, lr_scheduler
+    """
+    loss_signature = inspect.signature(nn.CrossEntropyLoss).parameters
+    adam_signature = inspect.signature(optim.Adam).parameters
+    lr_scheduler_signature = inspect.signature(optim.lr_scheduler.StepLR).parameters
+    class_weights = loss_signature['weight'].default
+    ignore_index = loss_signature['ignore_index'].default
+    lr = adam_signature['lr'].default
+    weight_decay = adam_signature['weight_decay'].default
+    step_size = lr_scheduler_signature['step_size'].default
+    if not isinstance(step_size, int):
+        step_size = params['training']['num_epochs'] + 1
+    gamma = lr_scheduler_signature['gamma'].default
+
+    if params['training']['class_weights'] is not None:
+        class_weights = torch.tensor(params['training']['class_weights'])
+        verify_weights(params['global']['num_classes'], class_weights)
+    if params['training']['ignore_index'] is not None:
+        ignore_index = params['training']['ignore_index']
+    if params['training']['learning_rate'] is not None:
+        lr = params['training']['learning_rate']
+    if params['training']['weight_decay'] is not None:
+        weight_decay = params['training']['weight_decay']
+    if params['training']['step_size'] is not None:
+        step_size = params['training']['step_size']
+    if params['training']['gamma'] is not None:
+        gamma = params['training']['gamma']
+
+    if torch.cuda.is_available():
+        model = model.cuda()
+        criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index).cuda()
+    else:
+        criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index)
+
+    optimizer = optim.Adam(params=model.parameters(), lr=lr, weight_decay=weight_decay)
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
+
+    if state_dict_path != '':
+        model, optimizer = load_from_checkpoint(state_dict_path, model, optimizer=True)
+
+    return model, criterion, optimizer, lr_scheduler
 
 
 def main(params):
@@ -215,7 +267,6 @@ def main(params):
     data_path = params['global']['data_path']
     task = params['global']['task']
     num_classes = params['global']['num_classes']
-    class_weights = params['training']['class_weights']
     batch_size = params['training']['batch_size']
 
     if bucket_name:
@@ -228,7 +279,6 @@ def main(params):
     elif not bucket_name and task == 'classification':
         get_local_classes(num_classes, data_path, output_path)
 
-    verify_weights(num_classes, class_weights)
     since = time.time()
     best_loss = 999
 
@@ -241,28 +291,7 @@ def main(params):
     val_log = InformationLogger(output_path, 'val')
     tst_log = InformationLogger(output_path, 'tst')
 
-    if torch.cuda.is_available():
-        model = model.cuda()
-        if class_weights:
-            criterion = nn.CrossEntropyLoss(weight=torch.tensor(class_weights)).cuda()
-        else:
-            criterion = nn.CrossEntropyLoss().cuda()
-    else:
-        if class_weights:
-            criterion = nn.CrossEntropyLoss(weight=torch.tensor(class_weights))
-        else:
-            criterion = nn.CrossEntropyLoss()
-
-    optimizer = optim.Adam(model.parameters(),
-                           lr=params['training']['learning_rate'],
-                           weight_decay=params['training']['weight_decay'])
-    # learning rate decay
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer,
-                                             step_size=params['training']['step_size'],
-                                             gamma=params['training']['gamma'])
-
-    if state_dict_path != '':
-        model, optimizer = load_from_checkpoint(state_dict_path, model, optimizer)
+    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, model, state_dict_path)
 
     num_samples = get_num_samples(data_path=data_path, params=params)
     print(f"Number of samples : {num_samples}")
@@ -312,10 +341,10 @@ def main(params):
             print("save checkpoint")
             best_loss = val_loss
             torch.save({'epoch': epoch,
-                             'arch': model_name,
-                             'model': model.state_dict(),
-                             'best_loss': best_loss,
-                             'optimizer': optimizer.state_dict()}, filename)
+                        'arch': model_name,
+                        'model': model.state_dict(),
+                        'best_loss': best_loss,
+                        'optimizer': optimizer.state_dict()}, filename)
 
             if bucket_name:
                 bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
