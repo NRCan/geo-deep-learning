@@ -1,21 +1,21 @@
 ### Table of Contents
-- [geo-deep-learning](#geo-deep-learning)
+- [Geo-Deep-Learning overview](#Geo-Deep-Learning-overview)
   * [Requirements](#requirements)
   * [Installation on your workstation](#installation-on-your-workstation)
   * [config.yaml](#configyaml)
-  * [Semantic segmentation](#semantic-segmentation)
+- [Semantic segmentation](#semantic-segmentation)
     * [Models available](#models-available)
     * [csv preparation](#csv-preparation)
     * [images_to_samples.py](#images_to_samplespy)
     * [train_model.py](#train_modelpy)
     * [inference.py](#inferencepy)
-  * [Classification Task](#Classification-Task)
+- [Classification Task](#Classification-Task)
     * [Models available](#models-available-1)
     * [Data preparation](#Data-preparation)
     * [train_model.py](#train_modelpy-1)
     * [inference.py](#inferencepy-1)
     
-# geo-deep-learning
+# Geo-Deep-Learning overview
 
 The `geo-deep-learning` project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced data sets.
 
@@ -136,13 +136,13 @@ models:
   inception:
     pretrained: False   # optional
 ```
-## Semantic segmentation
-### Models available
+# Semantic segmentation
+## Models available
 - [Unet](https://arxiv.org/abs/1505.04597)
 - Unet small (less deep version of Unet)
 - Checkpointed Unet (same as Unet small, but uses less GPU memory and recomputes data during the backward pass)
 - [Ternausnet](https://arxiv.org/abs/1801.05746)
-### `csv` preparation
+## `csv` preparation
 The `csv` specifies the input images and the reference vector data that will be use during the training.
 Each row in the `csv` file must contain 4 comma-separated items:
 - input image file (tif)
@@ -158,7 +158,7 @@ Each image is a new line in the csv file.  For example:
 \path\to\input\image3.tif,\path\to\reference\vector2.gpkg,attribute,tst
 ```
 
-### images_to_samples.py
+## images_to_samples.py
 
 The first phase of the process is to determine sub-images (samples) to be used for training, validation and test.  Images to be used must be of the geotiff type.  Sample locations in each image must be stored in a GeoPackage.
 
@@ -199,7 +199,7 @@ Process:
     - Divide images in smaller samples of size and distance specified in the configuration file. Visual representation of this is provided [here](https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f)
     - Write samples into the "val", "trn" or "tst" hdfs file, depending on the value contained in the csv file.
 
-### train_model.py
+## train_model.py
 
 The crux of the learning process is in this phase : training.  Samples labeled "trn" as per above are used to train the neural network.  Samples labeled "val" are used to estimate the training error on a set of sub-images not used for training, after every epoch. At the end of all epochs, the model with the lowest error on validation data is loaded and samples labeled "tst" are used to estimate the accuracy of the model on sub-images not used during training or validation.
 
@@ -252,7 +252,7 @@ Process:
 - At the end of the training process, the application shows and log the accuracy, recall and f-score on "tst" dataset. Those metrics are also computed on each classes.  
 
 
-### inference.py
+## inference.py
 
 The final step in the process is to assign very pixel in the original image a value corresponding to the most probable class.
 
@@ -279,13 +279,13 @@ inference:
 Process:
 - The process will load trained weights to the chosen model and perform a per-pixel inference task on all the images contained in the working_folder
 
-## Classification Task
+# Classification Task
 The classification task allows images to be recognized as a whole rather than identifying the class of each pixel individually as is done in semantic segmentation.
 
 Currently, Inception-v3 is the only model available for classification tasks in our deep learning process. Other model architectures may be added in the future.
-### Models available
+## Models available
 - [Inception-v3](https://arxiv.org/abs/1512.00567)
-### Data preparation
+## Data preparation
 The images used for training the model must be split into folders for training and validation samples within the ```data_path``` global parameter from the configuration file. Each of these folders must be divided into subfolders by class in a structure like ImageNet-like structure. Torchvision's ```ImageLoader``` is used as the dataset for training and thus running ```images_to_samples.py``` isn't necessary when performing classification tasks. An example of the required file structure is provided below:
 
 ```
@@ -318,7 +318,7 @@ data_path
 ```
 
 
-### train_model.py
+## train_model.py
 Samples in the "trn" folder are used to train the model. Samples in the  "val" folder are used to estimate the training error on a set of images not used for training.
 
 During this phase of the classification task, a list of classes is made based on the subfolders in the trn path. The list of classes is saved in a csv file in the same folder as the trained model so that it can be referenced during the classification step.
@@ -364,7 +364,7 @@ Process:
 - The application also log the accuracy, recall and f-score for each classes of both the datasets
 
 
-### inference.py
+## inference.py
 The final step of a classification task is to associate a label to each image that needs to be classified. The associations will be displayed on the screen and be saved in a csv file.
 
 The classes.csv file must be saved in the same folder as the trained model weights file.
