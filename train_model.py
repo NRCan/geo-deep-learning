@@ -15,6 +15,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
+import inspect
 
 import CreateDataset
 import augmentation as aug
@@ -213,17 +214,17 @@ def set_hyperparameters(params, model, state_dict_path):
     :param state_dict_path: (str) Full file path to the state dict
     :return: model, criterion, optimizer, lr_scheduler
     """
-    import inspect
     loss_signature = inspect.signature(nn.CrossEntropyLoss).parameters
-    adam_signature = inspect.Signature(optim.Adam).parameters
-    lr_scheduler_signature = inspect.Signature(optim.lr_scheduler).parameters
-    # print(param)
-    class_weights = loss_signature['weight']
-    ignore_index = loss_signature['ignore_index']  # Default value for pytorch's ignore_index implementation.
-    lr = adam_signature['lr']
-    weight_decay = adam_signature['weight_decay']
-    step_size = adam_signature['']
-    gamma = None
+    adam_signature = inspect.signature(optim.Adam).parameters
+    lr_scheduler_signature = inspect.signature(optim.lr_scheduler.StepLR).parameters
+    class_weights = loss_signature['weight'].default
+    ignore_index = loss_signature['ignore_index'].default
+    lr = adam_signature['lr'].default
+    weight_decay = adam_signature['weight_decay'].default
+    step_size = lr_scheduler_signature['step_size'].default
+    if not isinstance(step_size, int):
+        step_size = params['training']['num_epochs'] + 1
+    gamma = lr_scheduler_signature['gamma'].default
 
     if params['training']['class_weights'] is not None:
         class_weights = torch.tensor(params['training']['class_weights'])
