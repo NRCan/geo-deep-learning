@@ -213,25 +213,30 @@ def set_hyperparameters(params, model, state_dict_path):
     :param state_dict_path: (str) Full file path to the state dict
     :return: model, criterion, optimizer, lr_scheduler
     """
-    class_weights = None
-    ignore_index = -100  # Default value for pytorch's ignore_index implementation.
-    lr = None
-    weight_decay = None
-    step_size = None
+    import inspect
+    loss_signature = inspect.signature(nn.CrossEntropyLoss).parameters
+    adam_signature = inspect.Signature(optim.Adam).parameters
+    lr_scheduler_signature = inspect.Signature(optim.lr_scheduler).parameters
+    # print(param)
+    class_weights = loss_signature['weight']
+    ignore_index = loss_signature['ignore_index']  # Default value for pytorch's ignore_index implementation.
+    lr = adam_signature['lr']
+    weight_decay = adam_signature['weight_decay']
+    step_size = adam_signature['']
     gamma = None
 
-    if params['training']['class_weights']:
+    if params['training']['class_weights'] is not None:
         class_weights = torch.tensor(params['training']['class_weights'])
         verify_weights(params['global']['num_classes'], class_weights)
-    if params['training']['ignore_index']:
+    if params['training']['ignore_index'] is not None:
         ignore_index = params['training']['ignore_index']
-    if params['training']['learning_rate']:
+    if params['training']['learning_rate'] is not None:
         lr = params['training']['learning_rate']
-    if params['training']['weight_decay']:
+    if params['training']['weight_decay'] is not None:
         weight_decay = params['training']['weight_decay']
-    if params['training']['step_size']:
+    if params['training']['step_size'] is not None:
         step_size = params['training']['step_size']
-    if params['training']['gamma']:
+    if params['training']['gamma'] is not None:
         gamma = params['training']['gamma']
 
     if torch.cuda.is_available():
