@@ -136,13 +136,11 @@ def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(data_path, num_trn_samples, num_val_samples, num_tst_samples, batch_size, task):
+def create_dataloader(data_path, num_samples, batch_size, task):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param data_path: (str) path to the samples folder
-    :param num_trn_samples: (int) number of samples for training
-    :param num_val_samples: (int) number of sampels for validation
-    :param num_tst_samples: (int) number of samples for test
+    :param num_samples: (dict) number of samples for training, validation and test
     :param batch_size: (int) batch size
     :param task: (str) classification or segmentation
     :return: trn_dataloader, val_dataloader, tst_dataloader
@@ -163,14 +161,12 @@ def create_dataloader(data_path, num_trn_samples, num_val_samples, num_tst_sampl
                                                            [transforms.Resize(299), transforms.ToTensor()]),
                                                        loader=loader)
     elif task == 'segmentation':
-        trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_trn_samples, "trn",
-                                                        transform=transforms.Compose([aug.RandomRotationTarget(),
-                                                                                      aug.HorizontalFlip(),
-                                                                                      aug.ToTensorTarget()]))
-        val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_val_samples, "val",
-                                                        transform=transforms.Compose([aug.ToTensorTarget()]))
-        tst_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_tst_samples, "tst",
-                                                        transform=transforms.Compose([aug.ToTensorTarget()]))
+        trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_samples['trn'], "trn",
+                                                        transform=aug.compose_transforms(params, 'trn'))
+        val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_samples['val'], "val",
+                                                        transform=aug.compose_transforms(params, 'tst'))
+        tst_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_samples['tst'], "tst",
+                                                        transform=aug.compose_transforms(params, 'tst'))
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
@@ -296,9 +292,7 @@ def main(params):
     num_samples = get_num_samples(data_path=data_path, params=params)
     print(f"Number of samples : {num_samples}")
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
-                                                                       num_trn_samples=num_samples['trn'],
-                                                                       num_val_samples=num_samples['val'],
-                                                                       num_tst_samples=num_samples['tst'],
+                                                                       num_samples=num_samples,
                                                                        batch_size=batch_size,
                                                                        task=task)
 
@@ -396,7 +390,6 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     :return: Updated training loss
     """
     model.train()
-    scheduler.step()
     train_metrics = create_metrics_dict(num_classes)
 
     for index, data in enumerate(train_loader):
@@ -430,6 +423,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
         loss.backward()
         optimizer.step()
 
+    scheduler.step()
     print('Training Loss: {:.4f}'.format(train_metrics['loss'].avg))
     return train_metrics
 
