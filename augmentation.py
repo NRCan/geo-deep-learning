@@ -49,7 +49,9 @@ class HorizontalFlip(object):
 
     def __call__(self, sample):
         if random.random() < self.prob:
+            print(sample['sat_img'].shape)
             sat_img = sample['sat_img'][:, ::-1]
+            print(sat_img.shape)
             map_img = sample['map_img'][:, ::-1]
             return {'sat_img': sat_img, 'map_img': map_img}
         else:
