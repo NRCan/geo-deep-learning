@@ -48,7 +48,7 @@ class HorizontalFlip(object):
         self.prob = prob
 
     def __call__(self, sample):
-        if random.random() < 0.5:
+        if random.random() < self.prob:
             sat_img = sample['sat_img'][:, ::-1]
             map_img = sample['map_img'][:, ::-1]
             return {'sat_img': sat_img, 'map_img': map_img}
