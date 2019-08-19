@@ -30,7 +30,7 @@ After installing the required computing environment (see next section), one need
 
 ## Requirements  
 - Python 3.6 with the following libraries:
-    - pytorch 1.2.0 # With your choice of CUDA toolkit
+    - pytorch # With your choice of CUDA toolkit
     - torchvision
     - rasterio
     - fiona
@@ -45,12 +45,12 @@ After installing the required computing environment (see next section), one need
 1. Using conda, you can set and activate your python environment with the following commands:  
     With GPU (defaults to CUDA 10.0 if `cudatoolkit=X.0` is not specified):
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch=1.2.0 torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
     source activate YOUR_ENV
     ```
     CPU only:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch-cpu=1.2.0 torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
     source activate YOUR_ENV
     ```
 1. Set your parameters in the `config.yaml` (see section bellow)
