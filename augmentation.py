@@ -4,6 +4,7 @@ import random
 import numpy as np
 from skimage import transform
 from torchvision import transforms
+import matplotlib.pyplot as plt
 
 
 def compose_transforms(params, dataset):
@@ -34,8 +35,10 @@ class RandomRotationTarget(object):
 
     def __call__(self, sample):
         if random.random() < self.prob:
+            # plt.imshow(sample['sat_img'])
             angle = np.random.uniform(-self.limit, self.limit)
             sat_img = transform.rotate(sample['sat_img'], angle, preserve_range=True)
+            # plt.imshow(sat_img)
             map_img = transform.rotate(sample['map_img'], angle, preserve_range=True)
             return {'sat_img': sat_img, 'map_img': map_img}
         else:
@@ -49,10 +52,10 @@ class HorizontalFlip(object):
 
     def __call__(self, sample):
         if random.random() < self.prob:
-            print(sample['sat_img'].shape)
-            sat_img = sample['sat_img'][:, ::-1]
-            print(sat_img.shape)
-            map_img = sample['map_img'][:, ::-1]
+            # plt.imshow(sample['sat_img'])
+            sat_img = np.ascontiguousarray(sample['sat_img'][:, ::-1, ...])
+            map_img = np.ascontiguousarray(sample['map_img'][:, ::-1, ...])
+            # plt.imshow(sat_img)
             return {'sat_img': sat_img, 'map_img': map_img}
         else:
             return sample
