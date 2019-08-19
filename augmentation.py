@@ -2,37 +2,55 @@ import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import random
 import numpy as np
-from skimage import transform, exposure
+from skimage import transform
+from torchvision import transforms
+
+
+def compose_transforms(params, dataset):
+    """
+    Function to compose the transformations to be applied on every batches.
+    :param params: (dict) Parameters found in the yaml config file
+    :param dataset (str) One of 'trn', 'val', 'tst'
+    :return: (obj) PyTorch's compose object of the transformations to be applied.
+    """
+    lst_trans = []
+    if dataset == 'trn':
+        if params['training']['augmentation']['hflip_prob']:
+            lst_trans.append(HorizontalFlip(prob=params['training']['augmentation']['hflip_prob']))
+
+        if params['training']['augmentation']['rotate_limit'] and params['training']['augmentation']['rotate_prob']:
+            lst_trans.append(RandomRotationTarget(limit=params['training']['augmentation']['rotate_limit'],
+                                                  prob=params['training']['augmentation']['rotate_prob']))
+
+    lst_trans.append(ToTensorTarget())
+    return transforms.Compose(lst_trans)
 
 
 class RandomRotationTarget(object):
-    """ Rotate the image and target randomly. The rotation degree is between -90 and 90 deg."""
+    """Rotate the image and target randomly."""
+    def __init__(self, limit, prob):
+        self.limit = limit
+        self.prob = prob
 
     def __call__(self, sample):
-        angle = np.random.uniform(-90, 90)
-        sat_img = transform.rotate(sample['sat_img'], angle, preserve_range=True)
-        map_img = transform.rotate(sample['map_img'], angle, preserve_range=True)
-        return {'sat_img': sat_img, 'map_img': map_img}
-
-
-class ContrastStretching(object):
-    """Rescale intensity of input image using contrast stretching.
-    http://scikit-image.org/docs/dev/auto_examples/color_exposure/plot_equalize.html#sphx-glr-auto-examples-color-exposure-plot-equalize-py
-    """
-
-    def __call__(self, sample):
-        v_min, v_max = np.percentile(sample['sat_img'], (2, 98))
-        sat_img = np.nan_to_num(exposure.rescale_intensity(sample['sat_img'], in_range=(v_min, v_max)))
-        return {'sat_img': sat_img, 'map_img': sample['map_img']}
+        if random.random() < self.prob:
+            angle = np.random.uniform(-self.limit, self.limit)
+            sat_img = transform.rotate(sample['sat_img'], angle, preserve_range=True)
+            map_img = transform.rotate(sample['map_img'], angle, preserve_range=True)
+            return {'sat_img': sat_img, 'map_img': map_img}
+        else:
+            return sample
 
 
 class HorizontalFlip(object):
-    """Flip the input image and reference map horizontally, with a probability of 0.5."""
+    """Flip the input image and reference map horizontally, with a probability."""
+    def __init__(self, prob):
+        self.prob = prob
 
     def __call__(self, sample):
-        if random.random() < 0.5:
-            sat_img = sample['sat_img'][:, ::-1]
-            map_img = sample['map_img'][:, ::-1]
+        if random.random() < self.prob:
+            sat_img = np.ascontiguousarray(sample['sat_img'][:, ::-1, ...])
+            map_img = np.ascontiguousarray(sample['map_img'][:, ::-1, ...])
             return {'sat_img': sat_img, 'map_img': map_img}
         else:
             return sample

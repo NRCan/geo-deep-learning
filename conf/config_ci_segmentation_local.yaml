@@ -41,6 +41,10 @@ training:
   class_weights: [1.0, 2.0]
   batch_metrics: 1
   ignore_index: 0 # Specifies a target value that is ignored and does not contribute to the input gradient
+  augmentation:
+    rotate_limit: 45
+    rotate_prob: 0.5
+    hflip_prob: 0.5
 
 # Inference parameters; used in inference.py --------
 

@@ -30,7 +30,7 @@ After installing the required computing environment (see next section), one need
 
 ## Requirements  
 - Python 3.6 with the following libraries:
-    - pytorch 1.0.1 # With your choice of CUDA toolkit
+    - pytorch # With your choice of CUDA toolkit
     - torchvision
     - rasterio
     - fiona
@@ -43,14 +43,14 @@ After installing the required computing environment (see next section), one need
 
 ## Installation on your workstation
 1. Using conda, you can set and activate your python environment with the following commands:  
-    With GPU (with CUDA 9.0; defaults to CUDA 10.0 if `cudatoolkit=9.0` is not specified):
+    With GPU (defaults to CUDA 10.0 if `cudatoolkit=X.0` is not specified):
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch=1.0.1 torchvision cudatoolkit=9.0 ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
     source activate YOUR_ENV
     ```
     CPU only:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch-cpu=1.0.1 torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
     source activate YOUR_ENV
     ```
 1. Set your parameters in the `config.yaml` (see section bellow)
@@ -110,7 +110,11 @@ training:
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
   batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
   ignore_index: 0                               # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
-
+  augmentation:
+    rotate_limit: 45                            # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
+    rotate_prob: 0.5                            # Specifies the probability for data rotation. If not specified, no rotation will be performed.
+    hflip_prob: 0.5                             # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.
+    
 # Inference parameters; used in inference.py --------
 
 inference:
@@ -233,6 +237,10 @@ training:
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
   batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
   ignore_index: 0                               # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
+  augmentation:
+    rotate_limit: 45                            # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
+    rotate_prob: 0.5                            # Specifies the probability for data rotation. If not specified, no rotation will be performed.
+    hflip_prob: 0.5                             # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.    
 ```
 
 Inputs:
