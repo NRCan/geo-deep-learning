@@ -16,6 +16,7 @@ global:
   model_name: checkpointed_unet     # One of unet, unetsmall or ternausnet
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
+  num_gpus: 0
 
 # Sample parameters; used in images_to_samples.py -------------------
 

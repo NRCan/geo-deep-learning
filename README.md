@@ -38,6 +38,7 @@ After installing the required computing environment (see next section), one need
     - scikit-image
     - scikit-learn
     - h5py
+    - nvidia-ml-py3
 - nvidia GPU highly recommended
 - The system can be used on your workstation or cluster and on [AWS](https://aws.amazon.com/).
 
@@ -47,6 +48,7 @@ After installing the required computing environment (see next section), one need
     ```shell
     conda create -p YOUR_PATH python=3.6 pytorch torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
     source activate YOUR_ENV
+    conda install nvidia-ml-py3 -c fastai
     ```
     CPU only:
     ```shell
@@ -85,6 +87,7 @@ global:
   model_name: unetsmall				# One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:                      # Name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation                # Task to perform. Either segmentation or classification.
+  num_gpus: 0                       # Number of GPU device(s) to use. Default: 0
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -221,6 +224,7 @@ global:
   model_name: unetsmall             # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation                # Task to perform. Either segmentation or classification
+  num_gpus: 0                       # Number of GPU device(s) to use. Default: 0
 
 
 training:
