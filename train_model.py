@@ -22,7 +22,7 @@ import augmentation as aug
 from logger import InformationLogger, save_logs_to_bucket, tsv_line
 from metrics import report_classification, create_metrics_dict
 from models.model_choice import net
-from utils import read_parameters, load_from_checkpoint, list_s3_subfolders
+from utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids
 
 try:
     import boto3
@@ -208,7 +208,7 @@ def set_hyperparameters(params, model, state_dict_path):
     :param params: (dict) Parameters found in the yaml config file
     :param model: Model loaded from model_choice.py
     :param state_dict_path: (str) Full file path to the state dict
-    :return: model, criterion, optimizer, lr_scheduler
+    :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
     loss_signature = inspect.signature(nn.CrossEntropyLoss).parameters
     adam_signature = inspect.signature(optim.Adam).parameters
@@ -221,6 +221,7 @@ def set_hyperparameters(params, model, state_dict_path):
     if not isinstance(step_size, int):
         step_size = params['training']['num_epochs'] + 1
     gamma = lr_scheduler_signature['gamma'].default
+    num_devices = 0
 
     if params['training']['class_weights'] is not None:
         class_weights = torch.tensor(params['training']['class_weights'])
@@ -235,11 +236,27 @@ def set_hyperparameters(params, model, state_dict_path):
         step_size = params['training']['step_size']
     if params['training']['gamma'] is not None:
         gamma = params['training']['gamma']
+    if params['global']['num_gpus'] is not None:
+        num_devices = params['global']['num_gpus']
 
     if torch.cuda.is_available():
+        lst_device_ids = get_device_ids(num_devices)
+    else:
+        lst_device_ids = []
+    if lst_device_ids:
+        if len(lst_device_ids) == 1:
+            print(f"Using Cuda device {lst_device_ids[0]}")
+            torch.cuda.set_device(lst_device_ids[0])
+
         model = model.cuda()
         criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index).cuda()
+        num_devices = len(lst_device_ids)
+        if len(lst_device_ids) > 1:
+            print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}")
+            model = nn.DataParallel(model, device_ids=lst_device_ids)
     else:
+        warnings.warn(f"No Cuda device available. This process will only run on CPU")
+        num_devices = 0
         criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index)
 
     optimizer = optim.Adam(params=model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -248,7 +265,7 @@ def set_hyperparameters(params, model, state_dict_path):
     if state_dict_path != '':
         model, optimizer = load_from_checkpoint(state_dict_path, model, optimizer=True)
 
-    return model, criterion, optimizer, lr_scheduler
+    return model, criterion, optimizer, lr_scheduler, num_devices
 
 
 def main(params):
@@ -287,7 +304,7 @@ def main(params):
     val_log = InformationLogger(output_path, 'val')
     tst_log = InformationLogger(output_path, 'tst')
 
-    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, model, state_dict_path)
+    model, criterion, optimizer, lr_scheduler, num_devices = set_hyperparameters(params, model, state_dict_path)
 
     num_samples = get_num_samples(data_path=data_path, params=params)
     print(f"Number of samples : {num_samples}")
@@ -313,7 +330,8 @@ def main(params):
                            batch_size=batch_size,
                            task=task,
                            ep_idx=epoch,
-                           progress_log=progress_log)
+                           progress_log=progress_log,
+                           num_devices=num_devices)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         val_report = evaluation(eval_loader=val_dataloader,
@@ -324,7 +342,9 @@ def main(params):
                                 task=task,
                                 ep_idx=epoch,
                                 progress_log=progress_log,
-                                batch_metrics=params['training']['batch_metrics'])
+                                batch_metrics=params['training']['batch_metrics'],
+                                dataset='val',
+                                num_devices=num_devices)
         val_loss = val_report['loss'].avg
         if params['training']['batch_metrics'] is not None:
             val_log.add_values(val_report, epoch)
@@ -361,7 +381,8 @@ def main(params):
                             ep_idx=params['training']['num_epochs'],
                             progress_log=progress_log,
                             batch_metrics=params['training']['batch_metrics'],
-                            dataset='tst')
+                            dataset='tst',
+                            num_devices=num_devices)
     tst_log.add_values(tst_report, params['training']['num_epochs'])
 
     if bucket_name:
@@ -373,8 +394,7 @@ def main(params):
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
-def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx,
-          progress_log):
+def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx, progress_log, num_devices):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -387,6 +407,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     :param task: segmentation or classification
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
+    :param num_devices: (int) number of GPU devices to use.
     :return: Updated training loss
     """
     model.train()
@@ -404,7 +425,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             outputs = model(inputs)
             outputs_flatten = outputs
         elif task == 'segmentation':
-            if torch.cuda.is_available():
+            if num_devices > 0:
                 inputs = data['sat_img'].cuda()
                 labels = flatten_labels(data['map_img']).cuda()
             else:
@@ -428,8 +449,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     return train_metrics
 
 
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log,
-               batch_metrics=None, dataset='val'):
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log, batch_metrics=None, dataset='val', num_devices=0):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -442,6 +462,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     :param progress_log: progress log file (for hypertrainer log)
     :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
     :param dataset: (str) 'val or 'tst'
+    :param num_devices: (int) Number of GPU devices to use.
     :return: (dict) eval_metrics
     """
     eval_metrics = create_metrics_dict(num_classes)
@@ -460,7 +481,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                 outputs = model(inputs)
                 outputs_flatten = outputs
             elif task == 'segmentation':
-                if torch.cuda.is_available():
+                if num_devices > 0:
                     inputs = data['sat_img'].cuda()
                     labels = flatten_labels(data['map_img']).cuda()
                 else:

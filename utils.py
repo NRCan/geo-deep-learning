@@ -7,11 +7,18 @@ import warnings
 from ruamel_yaml import YAML
 import fiona
 import csv
+
+try:
+    from pynvml import *
+except ModuleNotFoundError:
+    warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
+
 try:
     import boto3
 except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
+
 
 class Interpolate(torch.nn.Module):
     def __init__(self, mode, scale_factor):
@@ -168,3 +175,32 @@ def read_csv(csv_file_name, inference=False):
         return list_values
     else:
         return sorted(list_values, key=lambda k: k['dataset'])
+
+
+def get_device_ids(number_requested):
+    """
+    Function to check which GPU devices are available and unused.
+    :param number_requested: (int) Number of devices requested.
+    :return: (list) Unused GPU devices.
+    """
+    lst_free_devices = []
+    try:
+        nvmlInit()
+        if number_requested > 0:
+            device_count = nvmlDeviceGetCount()
+            for i in range(device_count):
+                handle = nvmlDeviceGetHandleByIndex(i)
+                info = nvmlDeviceGetMemoryInfo(handle)
+                if round(info.used / 1024 ** 3, 1) == 0.0:
+                    lst_free_devices.append(i)
+                if len(lst_free_devices) == number_requested:
+                    break
+            if len(lst_free_devices) < number_requested:
+                warnings.warn(f"You requested {number_requested} devices. {device_count} devices are available on this computer and "
+                              f"other processes are using {device_count-len(lst_free_devices)} device(s).")
+    except NameError as error:
+        raise NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
+    except NVMLError as error:
+        raise ValueError(f"{error}. Make sure that the latest NVIDIA driver is installed and running.")
+
+    return lst_free_devices
