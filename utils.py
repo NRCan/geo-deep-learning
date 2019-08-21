@@ -10,9 +10,9 @@ import csv
 
 try:
     from pynvml import *
-    nvmlInit()
 except ModuleNotFoundError:
     warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
+
 try:
     import boto3
 except ModuleNotFoundError:
@@ -185,6 +185,7 @@ def get_device_ids(number_requested):
     """
     lst_free_devices = []
     try:
+        nvmlInit()
         if number_requested > 0:
             device_count = nvmlDeviceGetCount()
             for i in range(device_count):
@@ -197,7 +198,9 @@ def get_device_ids(number_requested):
             if len(lst_free_devices) < number_requested:
                 warnings.warn(f"You requested {number_requested} devices. {device_count} devices are available on this computer and "
                               f"other processes are using {device_count-len(lst_free_devices)} device(s).")
+    except NameError as error:
+        raise NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
     except NVMLError as error:
-        raise ValueError(error)
+        raise ValueError(f"{error}. Make sure that the latest NVIDIA driver is installed and running.")
 
     return lst_free_devices
