@@ -24,6 +24,8 @@ from metrics import report_classification, create_metrics_dict
 from models.model_choice import net
 from utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids
 
+#this is a test for checking if i understand git
+
 try:
     import boto3
 except ModuleNotFoundError:
