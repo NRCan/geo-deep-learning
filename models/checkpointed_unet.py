@@ -1,4 +1,5 @@
-import torch, utils
+import torch
+from utils import utils
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
 from torch.utils.checkpoint import checkpoint_sequential

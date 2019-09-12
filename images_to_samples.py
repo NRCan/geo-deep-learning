@@ -6,8 +6,8 @@ import fiona
 import rasterio
 from rasterio import features
 import time
-from CreateDataset import create_files_and_datasets
-from utils import read_parameters, assert_band_number, image_reader_as_array, \
+from utils.CreateDataset import create_files_and_datasets
+from utils.utils import read_parameters, assert_band_number, image_reader_as_array, \
     create_or_empty_folder, validate_num_classes, read_csv
 
 try:
@@ -255,6 +255,8 @@ if __name__ == '__main__':
     params = read_parameters(args.ParamFile)
 
     start_time = time.time()
+
+    debug = True if params['global']['debug_mode'] else False # TODO: check if ok with one-line if statement
 
     main(params)
 

@@ -11,7 +11,7 @@ from PIL import Image
 import torchvision
 import math
 from models.model_choice import net
-from utils import read_parameters, assert_band_number, load_from_checkpoint, \
+from utils.utils import read_parameters, assert_band_number, load_from_checkpoint, \
     image_reader_as_array, read_csv
 
 try:

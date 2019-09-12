@@ -10,7 +10,7 @@ import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
 from torchvision import models
-from utils import load_from_checkpoint
+from utils.utils import load_from_checkpoint
 
 
 def conv3x3(in_, out):

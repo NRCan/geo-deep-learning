@@ -9,6 +9,10 @@ import time
 import h5py
 import datetime
 import warnings
+from tqdm import tqdm
+from collections import OrderedDict
+import nvidia_smi
+
 import torchvision
 import torch.optim as optim
 from torch import nn
@@ -17,20 +21,32 @@ from torchvision import transforms
 from PIL import Image
 import inspect
 
-import CreateDataset
-import augmentation as aug
-from logger import InformationLogger, save_logs_to_bucket, tsv_line
-from metrics import report_classification, create_metrics_dict
+from utils import augmentation as aug, CreateDataset
+from utils.optimizer import create_optimizer
+from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
+from utils.metrics import report_classification, create_metrics_dict
 from models.model_choice import net
-from utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids
-
-#this is a test for checking if i understand git
+from losses.multi import MultiClassCriterion
+from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids
 
 try:
     import boto3
 except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
+
+
+def gpu_stats(): #TODO: check if should be sent to utils
+    """
+    Provides GPU RAM and utilization usage
+    :return: res.gpu, res.memory
+    """
+    nvidia_smi.nvmlInit()
+    handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
+    # card id 0 hardcoded here, there is also a call to get all available card ids, so we could iterate
+
+    res = nvidia_smi.nvmlDeviceGetUtilizationRates(handle)
+    return res.gpu, res.memory
 
 
 def verify_weights(num_classes, weights):
@@ -202,6 +218,22 @@ def get_num_samples(data_path, params):
     return num_samples
 
 
+def create_loss_fn(loss_type='CrossEntropy'):
+    """
+    Create loss function
+    :param loss_type: (str) loss function found in the yaml config file. Defaults to "CrossEntropy"
+    :return: (nn.Module) loss_fun
+    """
+    if loss_type == 'CrossEntropy':
+        loss_fn = nn.CrossEntropyLoss
+    elif loss_type == 'Lovasz':
+        loss_fn = MultiClassCriterion(loss_type='Lovasz')
+    else:
+        raise ValueError(f"The loss function should be either CrossEntropy or Lovasz."
+                         f"The provided value is {params['global']['loss_fn']}")
+    return loss_fn
+
+
 def set_hyperparameters(params, model, state_dict_path):
     """
     Function to set hyperparameters based on values provided in yaml config file.
@@ -212,19 +244,30 @@ def set_hyperparameters(params, model, state_dict_path):
     :param state_dict_path: (str) Full file path to the state dict
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
-    loss_signature = inspect.signature(nn.CrossEntropyLoss).parameters
-    adam_signature = inspect.signature(optim.Adam).parameters
+    # Loss function
+    # TODO: check position relative to next block and make adjustements if necessary
+    # TODO: check if we should send loss_fn .to(device) ?
+    loss_fn = create_loss_fn(params['global']['loss_fn'])
+
+    # assign default values to hyperparameters
+    loss_signature = inspect.signature(loss_fn).parameters
+    optim_signature = inspect.signature(optim.Adam).parameters
     lr_scheduler_signature = inspect.signature(optim.lr_scheduler.StepLR).parameters
     class_weights = loss_signature['weight'].default
     ignore_index = loss_signature['ignore_index'].default
-    lr = adam_signature['lr'].default
-    weight_decay = adam_signature['weight_decay'].default
+    lr = optim_signature['lr'].default
+    weight_decay = optim_signature['weight_decay'].default
     step_size = lr_scheduler_signature['step_size'].default
     if not isinstance(step_size, int):
         step_size = params['training']['num_epochs'] + 1
     gamma = lr_scheduler_signature['gamma'].default
     num_devices = 0
 
+    # Optimizer
+    loss_type = params['training']['optimizer']
+    optimizer = create_optimizer(params=model.parameters(), mode=loss_type, base_lr=lr, weight_decay=weight_decay)
+
+    # replace default values if present in config yaml
     if params['training']['class_weights'] is not None:
         class_weights = torch.tensor(params['training']['class_weights'])
         verify_weights(params['global']['num_classes'], class_weights)
@@ -250,7 +293,9 @@ def set_hyperparameters(params, model, state_dict_path):
             print(f"Using Cuda device {lst_device_ids[0]}")
             torch.cuda.set_device(lst_device_ids[0])
 
+        #TODO: load model without logits. set logits' output channels to num_classes
         model = model.cuda()
+
         criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index).cuda()
         num_devices = len(lst_device_ids)
         if len(lst_device_ids) > 1:
@@ -261,7 +306,6 @@ def set_hyperparameters(params, model, state_dict_path):
         num_devices = 0
         criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index)
 
-    optimizer = optim.Adam(params=model.parameters(), lr=lr, weight_decay=weight_decay)
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
     if state_dict_path != '':
@@ -370,7 +414,7 @@ def main(params):
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
 
         cur_elapsed = time.time() - since
-        print('Current elapsed time {:.0f}m {:.0f}s'.format(cur_elapsed // 60, cur_elapsed % 60))
+        print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
     model = load_from_checkpoint(filename, model)
@@ -415,39 +459,44 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     model.train()
     train_metrics = create_metrics_dict(num_classes)
 
-    for index, data in enumerate(train_loader):
-        progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', index, len(train_loader), time.time()))
+    with tqdm(train_loader) as _tqdm:
+        for index, data in enumerate(_tqdm):
+            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', index, len(train_loader), time.time()))
 
-        if task == 'classification':
-            inputs, labels = data
-            if torch.cuda.is_available():
-                inputs = inputs.cuda()
-                labels = labels.cuda()
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            outputs_flatten = outputs
-        elif task == 'segmentation':
-            if num_devices > 0:
-                inputs = data['sat_img'].cuda()
-                labels = flatten_labels(data['map_img']).cuda()
-            else:
-                inputs = data['sat_img']
-                labels = flatten_labels(data['map_img'])
-            # forward
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            outputs_flatten = flatten_outputs(outputs, num_classes)
+            if task == 'classification':
+                inputs, labels = data
+                if torch.cuda.is_available():
+                    inputs = inputs.cuda()
+                    labels = labels.cuda()
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                outputs_flatten = outputs
+            elif task == 'segmentation':
+                if num_devices > 0:
+                    inputs = data['sat_img'].cuda()
+                    labels = flatten_labels(data['map_img']).cuda()
+                else:
+                    inputs = data['sat_img']
+                    labels = flatten_labels(data['map_img'])
+                # forward
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                outputs_flatten = flatten_outputs(outputs, num_classes)
 
-        del outputs
-        del inputs
-        loss = criterion(outputs_flatten, labels)
-        train_metrics['loss'].update(loss.item(), batch_size)
+            del outputs
+            del inputs
+            loss = criterion(outputs_flatten, labels)
+            train_metrics['loss'].update(loss.item(), batch_size)
 
-        loss.backward()
-        optimizer.step()
+            if debug:
+                gpu, gpu_mem = gpu_stats()
+                _tqdm.set_postfix(OrderedDict(train_loss=f'{train_metrics["loss"].val:.4f}', gpu0_perc=gpu, gpu0_RAM=gpu_mem))
+
+            loss.backward()
+            optimizer.step()
 
     scheduler.step()
-    print('Training Loss: {:.4f}'.format(train_metrics['loss'].avg))
+    print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
     return train_metrics
 
 
@@ -470,46 +519,52 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
 
-    for index, data in enumerate(eval_loader):
-        progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, index, len(eval_loader), time.time()))
+    with tqdm(eval_loader) as _tqdm:
+        for index, data in enumerate(_tqdm):
+            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, index, len(eval_loader), time.time()))
 
-        with torch.no_grad():
-            if task == 'classification':
-                inputs, labels = data
-                if torch.cuda.is_available():
-                    inputs = inputs.cuda()
-                    labels = labels.cuda()
+            with torch.no_grad():
+                if task == 'classification':
+                    inputs, labels = data
+                    if torch.cuda.is_available():
+                        inputs = inputs.cuda()
+                        labels = labels.cuda()
 
-                outputs = model(inputs)
-                outputs_flatten = outputs
-            elif task == 'segmentation':
-                if num_devices > 0:
-                    inputs = data['sat_img'].cuda()
-                    labels = flatten_labels(data['map_img']).cuda()
-                else:
-                    inputs = data['sat_img']
-                    labels = flatten_labels(data['map_img'])
+                    outputs = model(inputs)
+                    outputs_flatten = outputs
+                elif task == 'segmentation':
+                    if num_devices > 0:
+                        inputs = data['sat_img'].cuda()
+                        labels = flatten_labels(data['map_img']).cuda()
+                    else:
+                        inputs = data['sat_img']
+                        labels = flatten_labels(data['map_img'])
 
-                outputs = model(inputs)
-                outputs_flatten = flatten_outputs(outputs, num_classes)
+                    outputs = model(inputs)
+                    outputs_flatten = flatten_outputs(outputs, num_classes)
 
-            loss = criterion(outputs_flatten, labels)
-            eval_metrics['loss'].update(loss.item(), batch_size)
+                loss = criterion(outputs_flatten, labels)
+                eval_metrics['loss'].update(loss.item(), batch_size)
 
-            if (dataset == 'val') and (batch_metrics is not None):
-                # Compute metrics every n batches. Time consuming.
-                if index % batch_metrics == 0:
+                if (dataset == 'val') and (batch_metrics is not None):
+                    # Compute metrics every n batches. Time consuming.
+                    if index % batch_metrics == 0:
+                        a, segmentation = torch.max(outputs_flatten, dim=1)
+                        eval_metrics = report_classification(segmentation, labels, batch_size, eval_metrics)
+                elif dataset == 'tst':
                     a, segmentation = torch.max(outputs_flatten, dim=1)
                     eval_metrics = report_classification(segmentation, labels, batch_size, eval_metrics)
-            elif dataset == 'tst':
-                a, segmentation = torch.max(outputs_flatten, dim=1)
-                eval_metrics = report_classification(segmentation, labels, batch_size, eval_metrics)
 
-    print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
-    if batch_metrics is not None:
-        print(f"{dataset} precision: {eval_metrics['precision'].avg}")
-        print(f"{dataset} recall: {eval_metrics['recall'].avg}")
-        print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
+                _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
+
+                if batch_metrics is not None:
+                    _tqdm.set_postfix(OrderedDict(precision=f'{eval_metrics["precision"].avg:.4f}',
+                                                  recall=f'{eval_metrics["recall"].avg:.4f}',
+                                                  fscore=f'{eval_metrics["fscore"].avg:.4f}'))
+
+                if debug:
+                    gpu, gpu_mem = gpu_stats()
+                    _tqdm.set_postfix(OrderedDict(gpu0_perc=gpu, gpu0_RAM=gpu_mem))
 
     return eval_metrics
 
@@ -521,6 +576,8 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
+
+    debug = True if params['global']['debug_mode'] else False # TODO: check if ok with one-line if statement
 
     main(params)
     print('End of training')
