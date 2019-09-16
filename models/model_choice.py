@@ -4,6 +4,8 @@ from utils.utils import chop_layer, load_from_checkpoint
 
 # TODO: add in read me that parameter 'pretrained' means user provides his own .pth. Otherwise, will load pretrained weight (ex.:COCO2017)
 # TODO: check config.yaml structure. Could be simplified (ex.: single line for pretrained path
+
+
 def net(net_params, inference=False):
     """Define the neural net"""
     model_name = net_params['global']['model_name'].lower()
@@ -41,14 +43,22 @@ def net(net_params, inference=False):
             state_dict_path = net_params['models']['inception']['pretrained']
     elif model_name == 'fcn_resnet101':
         assert net_params['global']['number_of_bands'], msg
-        model = models.segmentation.fcn_resnet50(pretrained=True, progress=True, num_classes=num_classes, aux_loss=None)
-
+        # TODO: is this best implementation? At least should become a function.
+        coco_model = models.segmentation.fcn_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
+        model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_classes,
+                                                  aux_loss=None)
+        chopped_dict = chop_layer(coco_model.state_dict(), layer_name='classifier.4')
+        model.load_state_dict(chopped_dict, strict=False)    # load the new state dict
         if net_params['models']['fcn_resnet101']['pretrained']:
             state_dict_path = net_params['models']['fcn_resnet101']['pretrained']
     elif model_name == 'deeplabv3_resnet50':
         assert net_params['global']['number_of_bands'], msg
-        model = models.segmentation.deeplabv3_resnet50(pretrained=True, progress=True,
+        coco_model = models.segmentation.deeplabv3_resnet50(pretrained=True, progress=True,
                                                        num_classes=num_classes, aux_loss=None)
+        model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True,
+                                                        num_classes=num_classes, aux_loss=None)
+        chopped_dict = chop_layer(coco_model.state_dict(), layer_name='classifier.4')
+        model.load_state_dict(chopped_dict, strict=False)    # load the new state dict
         if net_params['models']['deeplabv3_resnet50']['pretrained']:
             state_dict_path = net_params['models']['deeplabv3_resnet50']['pretrained']
     elif model_name == 'deeplabv3_resnet101':
@@ -58,16 +68,10 @@ def net(net_params, inference=False):
                                                         num_classes=21, aux_loss=None)
         model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True,
                                                         num_classes=num_classes, aux_loss=None)
-
-        # TODO: START HERE
-        # TODO: is this best implementation? At least should become a function.
         chopped_dict = chop_layer(coco_model.state_dict(), layer_name='classifier.4')
-        chopped_dict = chop_layer(coco_model.state_dict(), layer_name='aux_classifier.4')
-
-        model_dict = model.state_dict()
-        model_dict.update(chopped_dict)
         # load the new state dict
-        model.load_state_dict(model_dict)
+        model.load_state_dict(chopped_dict, strict=False)    # When strict=False, allows to load only the variables that
+        # are identical between the two models irrespective of whether one is subset/superset of the other.
 
         if net_params['models']['deeplabv3_resnet101']['pretrained']:
             state_dict_path = net_params['models']['deeplabv3_resnet101']['pretrained']

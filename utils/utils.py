@@ -59,7 +59,7 @@ def read_parameters(param_file):
     return params
 
 
-def chop_layer(state_dict, layer_name="logits"):
+def chop_layer(pretrained_dict, layer_name="logits"):   #https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2
     """
     Removes keys from a layer in state dictionary of model architecture.
     :param model: (nn.Module) model with original architecture
@@ -67,10 +67,9 @@ def chop_layer(state_dict, layer_name="logits"):
     :return: (nn.Module) model
     """
     #model_dict = model.state_dict()
-    #chopped_dict = {k: v for k, v in state_dict.items() if k.find(layer_name) == -1}
 
-    # filter out unnecessary keys
-    chopped_dict = {k: v for k, v in state_dict.items() if k.find(layer_name) == -1}  # TODO: softcode to other than ternausNet
+    # 1. filter out unnecessary keys
+    chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer_name) == -1}  # TODO: softcode to other than ternausNet
     #model_dict.update(pretrained_dict)
     #model.load_state_dict(model_dict)
     return chopped_dict

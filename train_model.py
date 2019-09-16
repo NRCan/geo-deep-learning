@@ -1,3 +1,5 @@
+# TODO: create plots with train/val loss and metrics
+
 from pathlib import Path
 
 import torch
@@ -36,7 +38,7 @@ except ModuleNotFoundError:
     pass
 
 
-def gpu_stats(device=0): #TODO: check if should be sent to utils
+def gpu_stats(device=0): #TODO: check if function should be moved to utils
     """
     Provides GPU utilization (%) and RAM usage
     :return: res.gpu, res.memory
@@ -191,7 +193,7 @@ def create_dataloader(data_path, num_samples, batch_size, task):
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
     # Shuffle must be set to True.
-    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
+    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=8, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     return trn_dataloader, val_dataloader, tst_dataloader
@@ -480,17 +482,17 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                     labels = labels.cuda()
                 optimizer.zero_grad()
                 outputs = model(inputs)
+                outputs_flatten = outputs
             elif task == 'segmentation':
-                if num_devices > 0:
-                    inputs = data['sat_img'].cuda()
-                    labels = data['map_img'].cuda()
-                    labels_flatten = flatten_labels(data['map_img']).cuda()
-                else:
-                    inputs = data['sat_img']
-                    labels_flatten = data['map_img']
+                inputs = data['sat_img'].cuda() if num_devices > 0 else data['sat_img']
+                labels = data['map_img'].cuda() if num_devices > 0 else data['map_img']
+                labels_flatten = flatten_labels(labels)
+
                 # forward
                 optimizer.zero_grad()
                 outputs = model(inputs)
+                if isinstance(outputs, OrderedDict):   # TODO: check why deeplab outputs an Ordereddict, not a tensor...
+                    outputs = outputs['out']
                 outputs_flatten = flatten_outputs(outputs, num_classes)
 
             if params['global']['loss_fn'] == 'Lovasz' and task=='segmentation':
@@ -501,13 +503,10 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                 raise NotImplementedError(
                     'Current verison of geo-deep-learning only implements CrossEntropy and Lovasz loss')
 
-            del outputs    # TODO: keep these delete statements?
-            del inputs
-
             train_metrics['loss'].update(loss.item(), batch_size)
 
             if debug and torch.cuda.is_available():
-                res, mem = gpu_stats(device=torch.cuda.current_device()) #TODO: may bug if more than one device
+                res, mem = gpu_stats(device=torch.cuda.current_device())
                 _tqdm.set_postfix(OrderedDict(train_loss=f'{train_metrics["loss"].val:.4f}',
                                               device=torch.cuda.current_device(),
                                               gpu_perc=f'{res.gpu} %',
@@ -559,7 +558,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                 elif task == 'segmentation':
                     inputs = data['sat_img'].cuda() if num_devices > 0 else data['sat_img']
                     labels = data['map_img'].cuda() if num_devices > 0 else data['map_img']
-                    labels_flatten = flatten_labels(data['map_img'])
+                    labels_flatten = flatten_labels(labels)
 
                     outputs = model(inputs)
                     outputs_flatten = flatten_outputs(outputs, num_classes)
@@ -579,22 +578,29 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     # TODO: here, we should see index+1. No need to run val loop at beginning, right?
                     if index % batch_metrics == 0:
                         a, segmentation = torch.max(outputs_flatten, dim=1)
-                        eval_metrics = report_classification(segmentation, labels, batch_size, eval_metrics)
+                        eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics)
                 elif dataset == 'tst':
                     a, segmentation = torch.max(outputs_flatten, dim=1)
-                    eval_metrics = report_classification(segmentation, labels, batch_size, eval_metrics)
+                    eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics)
 
                 _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
-                if batch_metrics is not None:
-                    _tqdm.set_postfix(OrderedDict(precision=f'{eval_metrics["precision"].avg:.4f}',
-                                                  recall=f'{eval_metrics["recall"].avg:.4f}',
-                                                  fscore=f'{eval_metrics["fscore"].avg:.4f}'))
+                # TODO:
+                #if batch_metrics is not None:
+                #    _tqdm.set_postfix(OrderedDict(precision=f'{eval_metrics["precision"].avg:.4f}',
+                #                                  recall=f'{eval_metrics["recall"].avg:.4f}',
+                #                                  fscore=f'{eval_metrics["fscore"].avg:.4f}'))
 
                 if debug and torch.cuda.is_available():
                     res, mem = gpu_stats(device=torch.cuda.current_device())
                     _tqdm.set_postfix(OrderedDict(device=torch.cuda.current_device(), gpu_perc=f'{res.gpu} %',
                                                   gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
+
+    print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
+    if batch_metrics is not None:
+        print(f"{dataset} precision: {eval_metrics['precision'].avg}")
+        print(f"{dataset} recall: {eval_metrics['recall'].avg}")
+        print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
 
     return eval_metrics
 

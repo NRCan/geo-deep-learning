@@ -23,7 +23,7 @@ def lovasz_softmax_flat(prb, lbl, ignore_index, only_present):
       only_present: average only on classes present in ground truth
     """
     C = prb.shape[0]
-    prb = prb.permute(1, 2, 0).contiguous().view(-1, C)  # H * W, C # TODO: why is prb coming in with ndim=0 rather than ndim=3 (H, W, C)
+    prb = prb.permute(1, 2, 0).contiguous().view(-1, C)  # H * W, C
     lbl = lbl.view(-1)  # H * W
     if ignore_index is not None:
         valid_index = lbl != ignore_index
