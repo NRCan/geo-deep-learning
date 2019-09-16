@@ -1,0 +1,85 @@
+# Deep learning configuration file ------------------------------------------------
+# Five sections :
+#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
+#   2) Sampling parameters
+#   3) Training parameters
+#   4) Inference parameters
+#   5) Model parameters
+
+# Global parameters
+
+global:
+  samples_size: 512
+  num_classes: 5
+  data_path: /wspace/disk01/dataset_kingston_rgb
+  number_of_bands: 3
+  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
+  bucket_name:
+  task: segmentation   # Set to True for image classification and False for semantic segmentation
+  loss_fn: Lovasz #One of CrossEntropy or Lovasz
+  num_gpus: 2
+  debug_mode: True
+
+# Sample parameters; used in images_to_samples.py -------------------
+
+sample:
+  prep_csv_file: /wspace/disk01/dataset_kingston_rgb/trn_val_kingston_workstation.csv
+  samples_dist: 256
+  min_annotated_percent: 10
+  mask_reference: False
+
+# Training parameters; used in train_model.py ----------------------
+
+training:
+  output_path: /home/rtavon/Documents/kingston-test/model
+  num_trn_samples: 35125
+  num_val_samples: 26183
+  num_tst_samples: 19571
+  batch_size: 18
+  num_epochs: 5
+  optimizer: adam # One of adam, sgd or adabound
+  learning_rate: 0.0001
+  weight_decay: 0
+  step_size: 10
+  gamma: 0.9
+  class_weights:
+  batch_metrics: 5
+  ignore_index:
+  augmentation:
+    hflip_prob: 0.5
+    rotate_prob: 0.5
+    rotate_limit: 45
+
+# Inference parameters; used in inference.py --------
+
+inference:
+  img_csv_file: /wspace/disk01/dataset_kingston_rgb/tst_kingston_workstation.csv
+  working_folder: /home/rtavon/Documents/kingston-test/inference_2
+  state_dict_path: /wspace/disk01/dataset_kingston_rgb/model/checkpoint.pth.tar
+  chunk_size: 512
+  overlap: 75
+
+metadata:
+  mapping_file: /wspace/disk01/dataset_kingston_rgb/mapping_file.csv
+  
+# Models parameters; used in train_model.py and inference.py
+
+models:
+  unet:   &unet001
+    dropout: False
+    probability: 0.2    # Set with dropout
+    pretrained: False   # optional
+  unetsmall:
+    <<: *unet001
+  ternausnet:
+    pretrained: ./models/TernausNet.pt    # Mandatory
+  checkpointed_unet: 
+    <<: *unet001
+  fcn_resnet101:   # only for 3 band data
+    pretrained: False   # optional
+  deeplabv3_resnet50:   # only for 3 band data
+    pretrained: False   # optional
+  deeplabv3_resnet101:   # only for 3 band data
+    pretrained: False   # optional
+  inception:
+  pretrained: False   # optional

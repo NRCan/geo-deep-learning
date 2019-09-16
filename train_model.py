@@ -191,7 +191,7 @@ def create_dataloader(data_path, num_samples, batch_size, task):
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
     # Shuffle must be set to True.
-    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=8, shuffle=True) # TODO: check speed increase with 8 workers rather than 4
+    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     return trn_dataloader, val_dataloader, tst_dataloader
