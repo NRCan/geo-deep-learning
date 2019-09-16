@@ -193,9 +193,14 @@ def create_dataloader(data_path, num_samples, batch_size, task):
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
     # Shuffle must be set to True.
-    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=8, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
-    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
+    if torch.cuda.device_count() > 1:
+        num_workers = torch.cuda.device_count() * 4
+    else:
+        num_workers = 4
+
+    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True)
+    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True)
     return trn_dataloader, val_dataloader, tst_dataloader
 
 

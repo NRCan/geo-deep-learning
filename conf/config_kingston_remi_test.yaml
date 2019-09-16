@@ -13,7 +13,7 @@ global:
   num_classes: 5
   data_path: /wspace/disk01/dataset_kingston_rgb
   number_of_bands: 3
-  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
+  model_name: fcn_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
   bucket_name:
   task: segmentation   # Set to True for image classification and False for semantic segmentation
   loss_fn: Lovasz #One of CrossEntropy or Lovasz (*Lovasz for segmentation tasks only)
