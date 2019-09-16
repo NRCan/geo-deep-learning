@@ -469,7 +469,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     model.train()
     train_metrics = create_metrics_dict(num_classes)
 
-    with tqdm(train_loader) as _tqdm:
+    with tqdm(train_loader, dynamic_ncols=True) as _tqdm:    # TODO: why is tqdm not generating dynamic colons?
         for index, data in enumerate(_tqdm):
             progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', index, len(train_loader), time.time()))
 
@@ -480,28 +480,30 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                     labels = labels.cuda()
                 optimizer.zero_grad()
                 outputs = model(inputs)
-                outputs_flatten = outputs
             elif task == 'segmentation':
                 if num_devices > 0:
                     inputs = data['sat_img'].cuda()
                     labels = data['map_img'].cuda()
+                    labels_flatten = flatten_labels(data['map_img']).cuda()
                 else:
                     inputs = data['sat_img']
-                    labels = data['map_img']
+                    labels_flatten = data['map_img']
                 # forward
                 optimizer.zero_grad()
                 outputs = model(inputs)
+                outputs_flatten = flatten_outputs(outputs, num_classes)
 
-            if params['global']['loss_fn'] == 'Lovasz':
+            if params['global']['loss_fn'] == 'Lovasz' and task=='segmentation':
                 loss = criterion(outputs, labels)
             elif params['global']['loss_fn'] == 'CrossEntropy':
-                labels = flatten_labels(labels)
-                outputs_flatten = flatten_outputs(outputs, num_classes)
-                loss = criterion(outputs_flatten, labels)
+                loss = criterion(outputs_flatten, labels_flatten)
             else:
-                raise NotImplementedError('Current verison of geo-deep-learning only implements CrossEntropy and Lovasz loss')
-            del outputs
+                raise NotImplementedError(
+                    'Current verison of geo-deep-learning only implements CrossEntropy and Lovasz loss')
+
+            del outputs    # TODO: keep these delete statements?
             del inputs
+
             train_metrics['loss'].update(loss.item(), batch_size)
 
             if debug and torch.cuda.is_available():
@@ -512,7 +514,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                                               gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB',
                                               img_size=data['sat_img'].numpy().shape,
                                               sample_size=data['map_img'].numpy().shape,
-                                              batch_size=batch_size))
+                                              batch_size=batch_size))   # TODO: add optimizer learning rate
 
             loss.backward()
             optimizer.step()
@@ -541,7 +543,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
 
-    with tqdm(eval_loader) as _tqdm:
+    with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
         for index, data in enumerate(_tqdm):
             progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, index, len(eval_loader), time.time()))
 
@@ -555,17 +557,21 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     outputs = model(inputs)
                     outputs_flatten = outputs
                 elif task == 'segmentation':
-                    if num_devices > 0:
-                        inputs = data['sat_img'].cuda()
-                        labels = flatten_labels(data['map_img']).cuda()
-                    else:
-                        inputs = data['sat_img']
-                        labels = flatten_labels(data['map_img'])
+                    inputs = data['sat_img'].cuda() if num_devices > 0 else data['sat_img']
+                    labels = data['map_img'].cuda() if num_devices > 0 else data['map_img']
+                    labels_flatten = flatten_labels(data['map_img'])
 
                     outputs = model(inputs)
                     outputs_flatten = flatten_outputs(outputs, num_classes)
 
-                loss = criterion(outputs_flatten, labels)
+                if params['global']['loss_fn'] == 'Lovasz' and task == 'segmentation':
+                    loss = criterion(outputs, labels)
+                elif params['global']['loss_fn'] == 'CrossEntropy':
+                    loss = criterion(outputs_flatten, labels_flatten)
+                else:
+                    raise NotImplementedError(
+                        'Current verison of geo-deep-learning only implements CrossEntropy and Lovasz loss')
+
                 eval_metrics['loss'].update(loss.item(), batch_size)
 
                 if (dataset == 'val') and (batch_metrics is not None):

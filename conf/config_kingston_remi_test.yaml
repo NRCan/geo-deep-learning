@@ -16,7 +16,7 @@ global:
   model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
   bucket_name:
   task: segmentation   # Set to True for image classification and False for semantic segmentation
-  loss_fn: Lovasz #One of CrossEntropy or Lovasz
+  loss_fn: Lovasz #One of CrossEntropy or Lovasz (*Lovasz for segmentation tasks only)
   num_gpus: 2
   debug_mode: True
 
@@ -35,9 +35,9 @@ training:
   num_trn_samples: 35125
   num_val_samples: 26183
   num_tst_samples: 19571
-  batch_size: 18
-  num_epochs: 5
-  optimizer: adam # One of adam, sgd or adabound
+  batch_size: 36
+  num_epochs: 50
+  optimizer: adabound # One of adam, sgd or adabound
   learning_rate: 0.0001
   weight_decay: 0
   step_size: 10
