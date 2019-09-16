@@ -59,6 +59,23 @@ def read_parameters(param_file):
     return params
 
 
+def chop_layer(state_dict, layer_name="logits"):
+    """
+    Removes keys from a layer in state dictionary of model architecture.
+    :param model: (nn.Module) model with original architecture
+    :param layer_name: name of layer to be chopped  # TODO: exception handling. this layer must be the terminal layer (no hidden layer)
+    :return: (nn.Module) model
+    """
+    #model_dict = model.state_dict()
+    #chopped_dict = {k: v for k, v in state_dict.items() if k.find(layer_name) == -1}
+
+    # filter out unnecessary keys
+    chopped_dict = {k: v for k, v in state_dict.items() if k.find(layer_name) == -1}  # TODO: softcode to other than ternausNet
+    #model_dict.update(pretrained_dict)
+    #model.load_state_dict(model_dict)
+    return chopped_dict
+
+
 def assert_band_number(in_image, band_count_yaml):
     """Verify if provided image has the same number of bands as described in the .yaml
     Args:
@@ -74,7 +91,7 @@ def assert_band_number(in_image, band_count_yaml):
     assert in_array.shape[2] == band_count_yaml, msg
 
 
-def load_from_checkpoint(filename, model, optimizer=None):
+def load_from_checkpoint(filename, model, optimizer=None, final_layer_name='final'):
     """Load weights from a previous checkpoint
     Args:
         filename: full file path of file containing checkpoint
@@ -88,7 +105,27 @@ def load_from_checkpoint(filename, model, optimizer=None):
             checkpoint = torch.load(filename)
         else:
             checkpoint = torch.load(filename, map_location='cpu')
-        model.load_state_dict(checkpoint['model'])
+
+        try:
+            # TODO: must be better way to write next line. Careful: hardcoded for ternausnet
+            #if checkpoint['model'][str(final_layer_name+'.weight')].shape != model.state_dict()[str(final_layer_name+'.weight')].shape: #for ternausnet only
+
+            if checkpoint[str(final_layer_name + '.weight')].shape != model.state_dict()[
+                str(final_layer_name + '.weight')].shape:
+                # 1. filter out unnecessary keys
+                chopped_checkpt = chop_layer(checkpoint, layer_name=final_layer_name)
+                # 2. overwrite entries in the existing state dict
+                model_dict = model.state_dict()
+                model_dict.update(chopped_checkpt)
+                # 3. load the new state dict
+                model.load_state_dict(model_dict)
+
+            else:
+                model.load_state_dict(checkpoint['model'])
+
+        except KeyError as error:
+            raise KeyError(f'{error}. The specified layer name {final_layer_name} to chop does not exist in state dictionary. '
+                           f'N.B. Enter first part of name, e.g. "final" as opposed to "final.weight"')
 
         print("=> loaded model '{}'".format(filename))
         if optimizer:

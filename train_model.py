@@ -36,17 +36,19 @@ except ModuleNotFoundError:
     pass
 
 
-def gpu_stats(): #TODO: check if should be sent to utils
+def gpu_stats(device=0): #TODO: check if should be sent to utils
     """
-    Provides GPU RAM and utilization usage
+    Provides GPU utilization (%) and RAM usage
     :return: res.gpu, res.memory
     """
     nvidia_smi.nvmlInit()
-    handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
-    # card id 0 hardcoded here, there is also a call to get all available card ids, so we could iterate
-
+    handle = nvidia_smi.nvmlDeviceGetHandleByIndex(device)
     res = nvidia_smi.nvmlDeviceGetUtilizationRates(handle)
-    return res.gpu, res.memory
+    mem = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
+    # TODO: card id 0 hardcoded here, there is also a call to get all available card ids, so we could iterate
+
+    #return res, mem
+    return res, mem
 
 
 def verify_weights(num_classes, weights):
@@ -244,13 +246,9 @@ def set_hyperparameters(params, model, state_dict_path):
     :param state_dict_path: (str) Full file path to the state dict
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
-    # Loss function
-    # TODO: check position relative to next block and make adjustements if necessary
-    # TODO: check if we should send loss_fn .to(device) ?
-    loss_fn = create_loss_fn(params['global']['loss_fn'])
 
     # assign default values to hyperparameters
-    loss_signature = inspect.signature(loss_fn).parameters
+    loss_signature = inspect.signature(nn.CrossEntropyLoss).parameters
     optim_signature = inspect.signature(optim.Adam).parameters
     lr_scheduler_signature = inspect.signature(optim.lr_scheduler.StepLR).parameters
     class_weights = loss_signature['weight'].default
@@ -262,6 +260,9 @@ def set_hyperparameters(params, model, state_dict_path):
         step_size = params['training']['num_epochs'] + 1
     gamma = lr_scheduler_signature['gamma'].default
     num_devices = 0
+
+    # Loss function
+    loss_fn = create_loss_fn(params['global']['loss_fn'])
 
     # Optimizer
     loss_type = params['training']['optimizer']
@@ -364,7 +365,7 @@ def main(params):
 
     for epoch in range(0, params['training']['num_epochs']):
         print()
-        print('Epoch {}/{}'.format(epoch, params['training']['num_epochs'] - 1))
+        print('Epoch {}/{}'.format(epoch, params['training']['num_epochs'] - 1)) # TODO: epoch + 1 rather than params[...] -1 ?
         print('-' * 20)
 
         trn_report = train(train_loader=trn_dataloader,
@@ -488,9 +489,14 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             loss = criterion(outputs_flatten, labels)
             train_metrics['loss'].update(loss.item(), batch_size)
 
-            if debug:
-                gpu, gpu_mem = gpu_stats()
-                _tqdm.set_postfix(OrderedDict(train_loss=f'{train_metrics["loss"].val:.4f}', gpu0_perc=gpu, gpu0_RAM=gpu_mem))
+            if debug and torch.cuda.is_available():
+                res, mem = gpu_stats(device=torch.cuda.current_device()) #TODO: may bug if more than one device
+                _tqdm.set_postfix(OrderedDict(img_size=data['sat_img'].numpy().shape,
+                                              sample_size=data['map_img'].numpy().shape,
+                                              train_loss=f'{train_metrics["loss"].val:.4f}',
+                                              device=torch.cuda.current_device(),
+                                              gpu_perc=f'{res.gpu} %',
+                                              gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
 
             loss.backward()
             optimizer.step()
@@ -548,7 +554,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
                 if (dataset == 'val') and (batch_metrics is not None):
                     # Compute metrics every n batches. Time consuming.
-                    if index % batch_metrics == 0:
+                    if index % batch_metrics == 0: # TODO: here, we should see index+1. No need to run val loop at beginning.
                         a, segmentation = torch.max(outputs_flatten, dim=1)
                         eval_metrics = report_classification(segmentation, labels, batch_size, eval_metrics)
                 elif dataset == 'tst':
@@ -562,9 +568,10 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                                                   recall=f'{eval_metrics["recall"].avg:.4f}',
                                                   fscore=f'{eval_metrics["fscore"].avg:.4f}'))
 
-                if debug:
-                    gpu, gpu_mem = gpu_stats()
-                    _tqdm.set_postfix(OrderedDict(gpu0_perc=gpu, gpu0_RAM=gpu_mem))
+                if debug and torch.cuda.is_available():
+                    res, mem = gpu_stats(device=torch.cuda.current_device())
+                    _tqdm.set_postfix(OrderedDict(device=torch.cuda.current_device(), gpu_perc=f'{res.gpu} %',
+                                                  gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
 
     return eval_metrics
 
