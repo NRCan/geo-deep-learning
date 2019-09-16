@@ -191,7 +191,7 @@ def create_dataloader(data_path, num_samples, batch_size, task):
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
     # Shuffle must be set to True.
-    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
+    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=8, shuffle=True) # TODO: check speed increase with 8 workers rather than 4
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=4, shuffle=True)
     return trn_dataloader, val_dataloader, tst_dataloader
@@ -220,20 +220,29 @@ def get_num_samples(data_path, params):
     return num_samples
 
 
-def create_loss_fn(loss_type='CrossEntropy'):
+def create_loss_fn(loss_type='CrossEntropy', weight=None, ignore_index=-100):
     """
-    Create loss function
+    Creates loss function
     :param loss_type: (str) loss function found in the yaml config file. Defaults to "CrossEntropy"
-    :return: (nn.Module) loss_fun
+    :param weight: (Tensor, optional) a manual rescaling weight given to each class.
+            If given, has to be a Tensor of size `C`
+    :param ignore_index: (int, optional) Specifies a target value that is ignored
+            and does not contribute to the input gradient. When :attr:`size_average` is
+            ``True``, the loss is averaged over non-ignored targets.
+    :return:
     """
     if loss_type == 'CrossEntropy':
-        loss_fn = nn.CrossEntropyLoss
+        criterion = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
     elif loss_type == 'Lovasz':
-        loss_fn = MultiClassCriterion(loss_type='Lovasz')
+        if weight is not None:
+            raise ValueError("The Lovasz function does not take weight parameter. "
+                             "It inherently deals with class imbalance. See original article.")
+        else:
+            criterion = MultiClassCriterion(loss_type='Lovasz', ignore_index=ignore_index)
     else:
         raise ValueError(f"The loss function should be either CrossEntropy or Lovasz."
                          f"The provided value is {params['global']['loss_fn']}")
-    return loss_fn
+    return criterion
 
 
 def set_hyperparameters(params, model, state_dict_path):
@@ -261,13 +270,6 @@ def set_hyperparameters(params, model, state_dict_path):
     gamma = lr_scheduler_signature['gamma'].default
     num_devices = 0
 
-    # Loss function
-    loss_fn = create_loss_fn(params['global']['loss_fn'])
-
-    # Optimizer
-    loss_type = params['training']['optimizer']
-    optimizer = create_optimizer(params=model.parameters(), mode=loss_type, base_lr=lr, weight_decay=weight_decay)
-
     # replace default values if present in config yaml
     if params['training']['class_weights'] is not None:
         class_weights = torch.tensor(params['training']['class_weights'])
@@ -285,6 +287,13 @@ def set_hyperparameters(params, model, state_dict_path):
     if params['global']['num_gpus'] is not None:
         num_devices = params['global']['num_gpus']
 
+    # Loss function
+    criterion = create_loss_fn(params['global']['loss_fn'])
+
+    # Optimizer
+    loss_type = params['training']['optimizer']
+    optimizer = create_optimizer(params=model.parameters(), mode=loss_type, base_lr=lr, weight_decay=weight_decay)
+
     if torch.cuda.is_available():
         lst_device_ids = get_device_ids(num_devices)
     else:
@@ -296,8 +305,8 @@ def set_hyperparameters(params, model, state_dict_path):
 
         #TODO: load model without logits. set logits' output channels to num_classes
         model = model.cuda()
-
-        criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index).cuda()
+        #criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index).cuda()    #TODO: remove
+        criterion.cuda()
         num_devices = len(lst_device_ids)
         if len(lst_device_ids) > 1:
             print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}")
@@ -305,7 +314,7 @@ def set_hyperparameters(params, model, state_dict_path):
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU")
         num_devices = 0
-        criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index)
+        #criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index)    #TODO: remove
 
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
@@ -326,7 +335,7 @@ def main(params):
     output_path = params['training']['output_path']
     data_path = params['global']['data_path']
     task = params['global']['task']
-    num_classes = params['global']['num_classes']
+    num_classes = params['global']['num_classes'] # TODO: assert type int? IDEM for batch_size, batch_metrics, etc. ?
     batch_size = params['training']['batch_size']
 
     if bucket_name:
@@ -475,28 +484,35 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             elif task == 'segmentation':
                 if num_devices > 0:
                     inputs = data['sat_img'].cuda()
-                    labels = flatten_labels(data['map_img']).cuda()
+                    labels = data['map_img'].cuda()
                 else:
                     inputs = data['sat_img']
-                    labels = flatten_labels(data['map_img'])
+                    labels = data['map_img']
                 # forward
                 optimizer.zero_grad()
                 outputs = model(inputs)
-                outputs_flatten = flatten_outputs(outputs, num_classes)
 
+            if params['global']['loss_fn'] == 'Lovasz':
+                loss = criterion(outputs, labels)
+            elif params['global']['loss_fn'] == 'CrossEntropy':
+                labels = flatten_labels(labels)
+                outputs_flatten = flatten_outputs(outputs, num_classes)
+                loss = criterion(outputs_flatten, labels)
+            else:
+                raise NotImplementedError('Current verison of geo-deep-learning only implements CrossEntropy and Lovasz loss')
             del outputs
             del inputs
-            loss = criterion(outputs_flatten, labels)
             train_metrics['loss'].update(loss.item(), batch_size)
 
             if debug and torch.cuda.is_available():
                 res, mem = gpu_stats(device=torch.cuda.current_device()) #TODO: may bug if more than one device
-                _tqdm.set_postfix(OrderedDict(img_size=data['sat_img'].numpy().shape,
-                                              sample_size=data['map_img'].numpy().shape,
-                                              train_loss=f'{train_metrics["loss"].val:.4f}',
+                _tqdm.set_postfix(OrderedDict(train_loss=f'{train_metrics["loss"].val:.4f}',
                                               device=torch.cuda.current_device(),
                                               gpu_perc=f'{res.gpu} %',
-                                              gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
+                                              gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB',
+                                              img_size=data['sat_img'].numpy().shape,
+                                              sample_size=data['map_img'].numpy().shape,
+                                              batch_size=batch_size))
 
             loss.backward()
             optimizer.step()
@@ -554,7 +570,8 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
                 if (dataset == 'val') and (batch_metrics is not None):
                     # Compute metrics every n batches. Time consuming.
-                    if index % batch_metrics == 0: # TODO: here, we should see index+1. No need to run val loop at beginning.
+                    # TODO: here, we should see index+1. No need to run val loop at beginning, right?
+                    if index % batch_metrics == 0:
                         a, segmentation = torch.max(outputs_flatten, dim=1)
                         eval_metrics = report_classification(segmentation, labels, batch_size, eval_metrics)
                 elif dataset == 'tst':
