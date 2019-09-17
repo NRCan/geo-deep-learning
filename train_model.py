@@ -49,7 +49,6 @@ def gpu_stats(device=0): #TODO: check if function should be moved to utils
     mem = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
     # TODO: card id 0 hardcoded here, there is also a call to get all available card ids, so we could iterate
 
-    #return res, mem
     return res, mem
 
 
@@ -566,6 +565,8 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     labels_flatten = flatten_labels(labels)
 
                     outputs = model(inputs)
+                    if isinstance(outputs, OrderedDict):  # TODO: check why deeplab outputs an Ordereddict, not a tensor...
+                        outputs = outputs['out']
                     outputs_flatten = flatten_outputs(outputs, num_classes)
 
                 if params['global']['loss_fn'] == 'Lovasz' and task == 'segmentation':
