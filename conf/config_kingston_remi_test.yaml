@@ -9,14 +9,13 @@
 # Global parameters
 
 global:
-  samples_size: 512
+  samples_size: 256
   num_classes: 5
   data_path: /wspace/disk01/dataset_kingston_rgb
   number_of_bands: 3
-  model_name: fcn_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
+  model_name: deeplabv3_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
   bucket_name:
   task: segmentation   # Set to True for image classification and False for semantic segmentation
-  loss_fn: Lovasz #One of CrossEntropy or Lovasz (*Lovasz for segmentation tasks only)
   num_gpus: 2
   debug_mode: True
 
@@ -35,8 +34,9 @@ training:
   num_trn_samples: 35125
   num_val_samples: 26183
   num_tst_samples: 19571
-  batch_size: 36
+  batch_size: 32
   num_epochs: 50
+  loss_fn: Lovasz #One of CrossEntropy or Lovasz (*Lovasz for segmentation tasks only)
   optimizer: adabound # One of adam, sgd or adabound
   learning_rate: 0.0001
   weight_decay: 0
@@ -78,8 +78,8 @@ models:
   fcn_resnet101:   # only for 3 band data
     pretrained: False   # optional
   deeplabv3_resnet50:   # only for 3 band data
-    pretrained: False   # optional
+    pretrained:    # optional
   deeplabv3_resnet101:   # only for 3 band data
-    pretrained: False   # optional
+    pretrained:    # optional
   inception:
   pretrained: False   # optional

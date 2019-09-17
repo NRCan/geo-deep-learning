@@ -569,9 +569,9 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                         outputs = outputs['out']
                     outputs_flatten = flatten_outputs(outputs, num_classes)
 
-                if params['global']['loss_fn'] == 'Lovasz' and task == 'segmentation':
+                if params['training']['loss_fn'] == 'Lovasz' and task == 'segmentation':
                     loss = criterion(outputs, labels)
-                elif params['global']['loss_fn'] == 'CrossEntropy':
+                elif params['training']['loss_fn'] == 'CrossEntropy':
                     loss = criterion(outputs_flatten, labels_flatten)
                 else:
                     raise NotImplementedError(
