@@ -10,6 +10,9 @@ import rasterio
 from PIL import Image
 import torchvision
 import math
+from collections import OrderedDict
+from tqdm import tqdm
+
 from models.model_choice import net
 from utils.utils import read_parameters, assert_band_number, load_from_checkpoint, \
     image_reader_as_array, read_csv
@@ -74,7 +77,8 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes):
 
     if padded_array.any():
         with torch.no_grad():
-            for row in range(overlay, h, chunk_size - overlay):
+            # TODO: BUG. tqdm's second loop printing on multiple lines...
+            for row in tqdm(range(overlay, h, chunk_size - overlay), position=1, leave=False):
                 row_start = row - overlay
                 row_end = row_start + chunk_size
                 for col in range(overlay, w, chunk_size - overlay):
@@ -90,6 +94,9 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes):
                         inputs = inputs.cuda()
                     # forward
                     outputs = model(inputs)
+
+                    if isinstance(outputs, OrderedDict) and 'out' in outputs.keys(): # TODO: temporarily fixing bug with deeplabv3
+                        outputs = outputs['out']
 
                     output_counts[row_start:row_end, col_start:col_end] += 1
                     output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(), axis=0)
@@ -223,7 +230,7 @@ def main(params):
 
         chunk_size, nbr_pix_overlap = calc_overlap(params)
         num_classes = params['global']['num_classes']
-        for img in list_img:
+        for img in tqdm(list_img, desc='image list', position=0):
             img_name = os.path.basename(img['tif'])
             if bucket:
                 local_img = f"Images/{img_name}"
@@ -239,7 +246,8 @@ def main(params):
             nd_array_tif = image_reader_as_array(local_img)
             sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes)
             create_new_raster_from_base(local_img, inference_image, sem_seg_results)
-            print(f"Semantic segmentation of image {img_name} completed")
+            tqdm.write(f"Semantic segmentation of image {img_name} completed")
+            #print(f"Semantic segmentation of image {img_name} completed")
             if bucket:
                 bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
                                                                  f"{img_name.split('.')[0]}_inference.tif"))
