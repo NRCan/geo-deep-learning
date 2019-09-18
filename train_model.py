@@ -499,9 +499,9 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                     outputs = outputs['out']
                 outputs_flatten = flatten_outputs(outputs, num_classes)
 
-            if params['global']['loss_fn'] == 'Lovasz' and task=='segmentation':
+            if params['training']['loss_fn'] == 'Lovasz' and task=='segmentation':
                 loss = criterion(outputs, labels)
-            elif params['global']['loss_fn'] == 'CrossEntropy':
+            elif params['training']['loss_fn'] == 'CrossEntropy':
                 loss = criterion(outputs_flatten, labels_flatten)
             else:
                 raise NotImplementedError(
