@@ -49,7 +49,6 @@ def gpu_stats(device=0): #TODO: check if function should be moved to utils
     mem = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
     # TODO: card id 0 hardcoded here, there is also a call to get all available card ids, so we could iterate
 
-    #return res, mem
     return res, mem
 
 
@@ -476,7 +475,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     model.train()
     train_metrics = create_metrics_dict(num_classes)
 
-    with tqdm(train_loader, dynamic_ncols=True) as _tqdm:    # TODO: why is tqdm not generating dynamic colons?
+    with tqdm(train_loader, dynamic_ncols=True) as _tqdm:    # TODO: why is tqdm not generating dynamic columns?
         for index, data in enumerate(_tqdm):
             progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', index, len(train_loader), time.time()))
 

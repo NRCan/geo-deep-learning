@@ -9,11 +9,11 @@
 # Global parameters
 
 global:
-  samples_size: 512
+  samples_size: 256
   num_classes: 5
   data_path: /wspace/disk01/dataset_kingston_rgb
   number_of_bands: 3
-  model_name: fcn_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
+  model_name: deeplabv3_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
   bucket_name:
   task: segmentation   # Set to True for image classification and False for semantic segmentation
   loss_fn: Lovasz #One of CrossEntropy or Lovasz (*Lovasz for segmentation tasks only)
@@ -37,7 +37,7 @@ training:
   num_tst_samples: 19571
   batch_size: 36
   num_epochs: 50
-  optimizer: adabound # One of adam, sgd or adabound
+  optimizer: adam # One of adam, sgd or adabound
   learning_rate: 0.0001
   weight_decay: 0
   step_size: 10
@@ -53,9 +53,9 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_csv_file: /wspace/disk01/dataset_kingston_rgb/tst_kingston_workstation.csv
+  img_csv_file: /export/sata01/wspace/dataset_kingston_rgb/tst_kingston_workstation.csv
   working_folder: /home/rtavon/Documents/kingston-test/inference_2
-  state_dict_path: /wspace/disk01/dataset_kingston_rgb/model/checkpoint.pth.tar
+  state_dict_path: /export/sata01/wspace/dataset_kingston_rgb/deeplabv3_lovasz/checkpoint.pth.tar
   chunk_size: 512
   overlap: 75
 

@@ -10,6 +10,9 @@ import rasterio
 from PIL import Image
 import torchvision
 import math
+from collections import OrderedDict
+from tqdm import tqdm
+
 from models.model_choice import net
 from utils.utils import read_parameters, assert_band_number, load_from_checkpoint, \
     image_reader_as_array, read_csv
@@ -74,25 +77,30 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes):
 
     if padded_array.any():
         with torch.no_grad():
-            for row in range(overlay, h, chunk_size - overlay):
-                row_start = row - overlay
-                row_end = row_start + chunk_size
-                for col in range(overlay, w, chunk_size - overlay):
-                    col_start = col - overlay
-                    col_end = col_start + chunk_size
+            with tqdm(range(overlay, h, chunk_size - overlay), position=4) as _tqdm:
+                for row in _tqdm:
+                    # for row in range(overlay, h, chunk_size - overlay):
+                    row_start = row - overlay
+                    row_end = row_start + chunk_size
+                    for col in range(overlay, w, chunk_size - overlay):
+                        col_start = col - overlay
+                        col_end = col_start + chunk_size
 
-                    chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
-                    inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
+                        chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
+                        inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
-                    inputs.unsqueeze_(0)
+                        inputs.unsqueeze_(0)
 
-                    if torch.cuda.is_available():
-                        inputs = inputs.cuda()
-                    # forward
-                    outputs = model(inputs)
+                        if torch.cuda.is_available():
+                            inputs = inputs.cuda()
+                        # forward
+                        outputs = model(inputs)
 
-                    output_counts[row_start:row_end, col_start:col_end] += 1
-                    output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(), axis=0)
+                        if isinstance(outputs, OrderedDict) and 'out' in outputs.keys(): # TODO: temporarily fixing bug with deeplabv3
+                            outputs = outputs['out']
+
+                        output_counts[row_start:row_end, col_start:col_end] += 1
+                        output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(), axis=0)
 
             output_mask = np.argmax(np.divide(output_probs, np.maximum(output_counts, 1)), axis=0)
             # Resize the output array to the size of the input image and write it
@@ -223,26 +231,27 @@ def main(params):
 
         chunk_size, nbr_pix_overlap = calc_overlap(params)
         num_classes = params['global']['num_classes']
-        for img in list_img:
-            img_name = os.path.basename(img['tif'])
-            if bucket:
-                local_img = f"Images/{img_name}"
-                bucket.download_file(img['tif'], local_img)
-                inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-            else:
-                local_img = img['tif']
-                inference_image = os.path.join(params['inference']['working_folder'],
-                                               f"{img_name.split('.')[0]}_inference.tif")
+        with tqdm(list_img, dynamic_ncols=True) as _tqdm:
+            for img in _tqdm:
+                img_name = os.path.basename(img['tif'])
+                if bucket:
+                    local_img = f"Images/{img_name}"
+                    bucket.download_file(img['tif'], local_img)
+                    inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
+                else:
+                    local_img = img['tif']
+                    inference_image = os.path.join(params['inference']['working_folder'],
+                                                   f"{img_name.split('.')[0]}_inference.tif")
 
-            assert_band_number(local_img, params['global']['number_of_bands'])
+                assert_band_number(local_img, params['global']['number_of_bands'])
 
-            nd_array_tif = image_reader_as_array(local_img)
-            sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes)
-            create_new_raster_from_base(local_img, inference_image, sem_seg_results)
-            print(f"Semantic segmentation of image {img_name} completed")
-            if bucket:
-                bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
-                                                                 f"{img_name.split('.')[0]}_inference.tif"))
+                nd_array_tif = image_reader_as_array(local_img)
+                sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes)
+                create_new_raster_from_base(local_img, inference_image, sem_seg_results)
+                print(f"Semantic segmentation of image {img_name} completed")
+                if bucket:
+                    bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
+                                                                     f"{img_name.split('.')[0]}_inference.tif"))
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {params['global']['task']}")
 
