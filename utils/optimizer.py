@@ -1,5 +1,5 @@
 import torch.optim as optim
-# from .scheduler import CosineWithRestarts # TODO: check if scheduler if useful. will have to merge with current implementation
+# from .scheduler import CosineWithRestarts # TODO: check if chosing between different schedulers if useful. will have to merge with current implementation
 from .adabound import AdaBound
 
 

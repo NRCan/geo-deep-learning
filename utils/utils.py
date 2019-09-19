@@ -1,6 +1,7 @@
 import torch
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
 import os
+from torch import nn
 import numpy as np
 import rasterio
 import warnings
@@ -106,21 +107,13 @@ def load_from_checkpoint(filename, model, optimizer=None, chop_layer_name=None):
         else:
             checkpoint = torch.load(filename, map_location='cpu')
 
-        if 'model' not in checkpoint.keys(): #TODO: let's rethink this one...
+        # TODO: let's rethink this one... Loading external models with different structure in state dict
+        if 'model' not in checkpoint.keys():
             checkpoint['model'] = checkpoint
 
-        # TODO: fixing bug when importing model with keys starting with 'module. ...'
-        if list(checkpoint['model'].keys())[0].startswith('module'):
-            # create new OrderedDict that does not contain `module.`
-            new_state_dict = checkpoint.copy()
-            new_state_dict['model'] = {k[7:]: v for k, v in checkpoint['model'].items()}
-            checkpoint['model'] = new_state_dict['model']
-
         try:
-            # TODO: must be better way to write next line. Careful: hardcoded for ternausnet
-            #if checkpoint['model'][str(final_layer_name+'.weight')].shape != model.state_dict()[str(final_layer_name+'.weight')].shape: #for ternausnet only
-
-            # TODO: this is prone to generating bufs. check.
+            # TODO: this is prone to generating exceptions. check.
+            # automatically chop out classifier if num_classes is different in chosen model and loaded checkpoint.
             if chop_layer_name \
                     and checkpoint['model'][str(chop_layer_name + '.weight')].shape != \
                     model.state_dict()[str(chop_layer_name + '.weight')].shape:
@@ -131,9 +124,14 @@ def load_from_checkpoint(filename, model, optimizer=None, chop_layer_name=None):
                 checkpoint['model'].update(chopped_checkpt)
 
         except KeyError as error:
-            raise KeyError(f'{error}. The specified layer name {chop_layer_name} to chop does not exist in state dictionary. '
+            raise KeyError(f'{error}. The specified layer name {chop_layer_name} to chop might not exist in state dictionary. '
                            f'N.B. Enter first part of name, e.g. "final" as opposed to "final.weight"')
 
+        # TODO: corrects exception with test loop using Data. Not cool at all.
+        if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
+            new_state_dict = model.state_dict().copy()
+            new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}
+            checkpoint['model'] = new_state_dict['model']
         model.load_state_dict(checkpoint['model'])
 
         print("=> loaded model '{}'".format(filename))

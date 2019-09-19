@@ -247,7 +247,7 @@ def create_loss_fn(loss_type='CrossEntropy', weight=None, ignore_index=-100):
             criterion = MultiClassCriterion(loss_type='Lovasz', ignore_index=ignore_index)
     else:
         raise ValueError(f"The loss function should be either CrossEntropy or Lovasz."
-                         f"The provided value is {params['global']['loss_fn']}")
+                         f"The provided value is {params['training']['loss_fn']}")
     return criterion
 
 
@@ -294,11 +294,15 @@ def set_hyperparameters(params, model, state_dict_path):
         num_devices = params['global']['num_gpus']
 
     # Loss function
-    criterion = create_loss_fn(params['global']['loss_fn'])
+    criterion = create_loss_fn(params['training']['loss_fn'], weight=class_weights, ignore_index=ignore_index)
 
     # Optimizer
-    loss_type = params['training']['optimizer']
-    optimizer = create_optimizer(params=model.parameters(), mode=loss_type, base_lr=lr, weight_decay=weight_decay)
+    opt_fn = params['training']['optimizer']
+    optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
+
+    if state_dict_path != '':
+        model, optimizer = load_from_checkpoint(state_dict_path, model, optimizer=optimizer)  # TODO: test this.
 
     if torch.cuda.is_available():
         lst_device_ids = get_device_ids(num_devices)
@@ -309,23 +313,16 @@ def set_hyperparameters(params, model, state_dict_path):
             print(f"Using Cuda device {lst_device_ids[0]}")
             torch.cuda.set_device(lst_device_ids[0])
 
-        #TODO: load model without logits. set logits' output channels to num_classes
-        model = model.cuda()
-        #criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index).cuda()    #TODO: remove
-        criterion.cuda()
         num_devices = len(lst_device_ids)
         if len(lst_device_ids) > 1:
             print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}")
-            model = nn.DataParallel(model, device_ids=lst_device_ids)
+            model = nn.DataParallel(model, device_ids=lst_device_ids)    #add prefix 'module.' to state_dict keys
+        criterion = criterion.to(device)
+        model = model.to(device)
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU")
         num_devices = 0
         #criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index)    #TODO: remove
-
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
-
-    if state_dict_path != '':
-        model, optimizer = load_from_checkpoint(state_dict_path, model, optimizer=True)
 
     return model, criterion, optimizer, lr_scheduler, num_devices
 
@@ -416,9 +413,12 @@ def main(params):
         if val_loss < best_loss:
             print("save checkpoint")
             best_loss = val_loss
+            # TODO: is this the preferred implementation? see link below
+            # https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
+            state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
             torch.save({'epoch': epoch,
                         'arch': model_name,
-                        'model': model.state_dict(),
+                        'model': state_dict,
                         'best_loss': best_loss,
                         'optimizer': optimizer.state_dict()}, filename)
 
@@ -481,15 +481,14 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
             if task == 'classification':
                 inputs, labels = data
-                if torch.cuda.is_available():
-                    inputs = inputs.cuda()
-                    labels = labels.cuda()
+                inputs = inputs.to(device)
+                labels = labels.to(device)
                 optimizer.zero_grad()
                 outputs = model(inputs)
                 outputs_flatten = outputs
             elif task == 'segmentation':
-                inputs = data['sat_img'].cuda() if num_devices > 0 else data['sat_img']
-                labels = data['map_img'].cuda() if num_devices > 0 else data['map_img']
+                inputs = data['sat_img'].to(device)
+                labels = data['map_img'].to(device)
                 labels_flatten = flatten_labels(labels)
 
                 # forward
@@ -520,6 +519,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                                               batch_size=batch_size))   # TODO: add optimizer learning rate
 
             loss.backward()
+            # TODO: fix bug. RuntimeError: expected device cpu and dtype Float but got device cuda:1 and dtype Float
+            # when using optimizer from pretrained path.
             optimizer.step()
 
     scheduler.step()
@@ -553,15 +554,14 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
             with torch.no_grad():
                 if task == 'classification':
                     inputs, labels = data
-                    if torch.cuda.is_available():
-                        inputs = inputs.cuda()
-                        labels = labels.cuda()
+                    inputs = inputs.to(device)
+                    labels = labels.to(device)
 
                     outputs = model(inputs)
                     outputs_flatten = outputs
                 elif task == 'segmentation':
-                    inputs = data['sat_img'].cuda() if num_devices > 0 else data['sat_img']
-                    labels = data['map_img'].cuda() if num_devices > 0 else data['map_img']
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
                     labels_flatten = flatten_labels(labels)
 
                     outputs = model(inputs)
@@ -582,6 +582,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                 if (dataset == 'val') and (batch_metrics is not None):
                     # Compute metrics every n batches. Time consuming.
                     # TODO: here, we should see index+1. No need to run val loop at beginning, right?
+                    # TODO: why is there val run every training run even though batch_metrics > 1...
                     if index % batch_metrics == 0:
                         a, segmentation = torch.max(outputs_flatten, dim=1)
                         eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics)
@@ -590,12 +591,6 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics)
 
                 _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
-
-                # TODO:
-                #if batch_metrics is not None:
-                #    _tqdm.set_postfix(OrderedDict(precision=f'{eval_metrics["precision"].avg:.4f}',
-                #                                  recall=f'{eval_metrics["recall"].avg:.4f}',
-                #                                  fscore=f'{eval_metrics["fscore"].avg:.4f}'))
 
                 if debug and torch.cuda.is_available():
                     res, mem = gpu_stats(device=torch.cuda.current_device())
@@ -618,6 +613,8 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
+
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     debug = True if params['global']['debug_mode'] else False # TODO: check if ok with one-line if statement
 
