@@ -91,11 +91,11 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes):
                     inputs.unsqueeze_(0)
 
                     if torch.cuda.is_available():
-                        inputs = inputs.cuda()
+                        inputs = inputs.cuda()    # TODO: change to .to(device) notation?
                     # forward
                     outputs = model(inputs)
 
-                    if isinstance(outputs, OrderedDict) and 'out' in outputs.keys(): # TODO: temporarily fixing bug with deeplabv3
+                    if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():    # TODO: temporarily fixing bug with deeplabv3
                         outputs = outputs['out']
 
                     output_counts[row_start:row_end, col_start:col_end] += 1
