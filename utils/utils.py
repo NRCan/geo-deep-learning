@@ -250,7 +250,7 @@ def get_device_ids(number_requested):
     return lst_free_devices
 
 
-def minmax_normalize(img, scale_range=(0, 1), orig_range=(0, 255)):
+def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     """
 
     :param img: (numpy array) Image to be scaled

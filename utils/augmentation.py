@@ -4,7 +4,7 @@ import random
 import numpy as np
 from skimage import transform
 from torchvision import transforms
-from utils.utils import minmax_normalize
+from utils.utils import minmax_scale
 
 
 def compose_transforms(params, dataset):
@@ -62,6 +62,6 @@ class ToTensorTarget(object):
 
     def __call__(self, sample):
         sat_img = np.float32(np.transpose(sample['sat_img'], (2, 0, 1)))
-        sat_img = minmax_normalize(sat_img, scale_range=(0, 1), orig_range=(0, 255))    # TODO: hardcoded to 8bit images
+        sat_img = minmax_scale(sat_img, scale_range=(0, 1), orig_range=(0, 255))    # TODO: hardcoded to 8bit images
         map_img = np.int64(sample['map_img'])
         return {'sat_img': torch.from_numpy(sat_img), 'map_img': torch.from_numpy(map_img)}
