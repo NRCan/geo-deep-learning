@@ -1,0 +1,74 @@
+# Deep learning configuration file ------------------------------------------------
+# Five sections :
+#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
+#   2) Sampling parameters
+#   3) Training parameters
+#   4) Inference parameters
+#   5) Model parameters
+
+# Global parameters
+
+global:
+  samples_size: 256
+  num_classes: 5
+  data_path: ./data/kingston_wv2_40cm/images
+  number_of_bands: 3
+  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet or ternausnet
+  bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
+  task: segmentation  # Task to perform. Either segmentation or classification
+  num_gpus: 1
+  metadata_file: ./data/kingston_wv2_40cm/kingston_wv2_40cm.yml
+
+# Sample parameters; used in images_to_samples.py -------------------
+
+sample:
+  prep_csv_file: ./data/trn_val_tst_kingston.csv
+  samples_dist: 200
+  min_annotated_percent: 10 # Min % of non background pixels in stored samples. Default: 0
+  mask_reference: False
+
+# Training parameters; used in train_model.py ----------------------
+
+training:
+  output_path: ./data/output
+  num_trn_samples: 10
+  num_val_samples: 10
+  num_tst_samples: 10
+  batch_size: 16
+  num_epochs: 100
+  learning_rate: 0.0001
+  weight_decay: 0
+  step_size: 4
+  gamma: 0.9
+  class_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  batch_metrics:    # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
+  ignore_index:     # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
+  augmentation:
+    rotate_limit: 45
+    rotate_prob: 0.5
+    hflip_prob: 0.5
+
+# Inference parameters; used in inference.py --------
+
+inference:
+  img_csv_file: /path/to/csv/containing/images/list.csv
+  working_folder: /path/to/folder/with/resulting/images
+  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
+  chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
+  overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
+
+# Models parameters; used in train_model.py and inference.py
+
+models:
+  unet:   &unet001
+    dropout: False
+    probability: 0.2    # Set with dropout
+    pretrained: False   # optional
+  unetsmall:
+    <<: *unet001
+  ternausnet:
+    pretrained: ./models/TernausNet.pt    # Mandatory
+  checkpointed_unet:
+    <<: *unet001
+  inception:
+    pretrained: False   # optional

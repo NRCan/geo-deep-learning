@@ -1,7 +1,6 @@
 import argparse
 import os
 from pathlib import Path
-
 import numpy as np
 import warnings
 import fiona
@@ -12,14 +11,15 @@ from tqdm import tqdm
 from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets
-from utils.utils import read_parameters, assert_band_number, image_reader_as_array, \
-    create_or_empty_folder, validate_num_classes, read_csv
+from utils import (
+    read_parameters, assert_band_number, image_reader_as_array, create_or_empty_folder, validate_num_classes, read_csv
+)
 from utils.preprocess import minmax_scale
 
 try:
     import boto3
 except ModuleNotFoundError:
-    warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
+    warnings.warn("The boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
     pass
 
 
@@ -62,7 +62,7 @@ def resize_datasets(hdf5_file):
 
 
 def samples_preparation(in_img_array, label_array, sample_size, dist_samples, samples_count, num_classes, samples_file,
-                        dataset, min_annotated_percent=0):
+                        dataset, min_annotated_percent=0, image_metadata=None):
     """
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
@@ -74,6 +74,7 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
     :param samples_file: (hdf5 dataset) hdfs file where samples will be written
     :param dataset: (str) Type of dataset where the samples will be written. Can be 'trn' or 'val' or 'tst'
     :param min_annotated_percent: (int) Minimum % of non background pixels in sample, in order to store it
+    :param image_metadata: (Ruamel) list of optionnal metadata specified in the associated metadata file
     :return: updated samples count and number of classes.
     """
 
@@ -113,6 +114,18 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
 
             if num_classes < target_class_num:
                 num_classes = target_class_num
+
+    # add metadata
+    if image_metadata:
+        try:
+            properties = image_metadata['properties']
+            if properties:
+                for p in ['eo:gsd', 'eo:azimuth', 'eo:sun_azimuth', 'eo:sun_elevation']:
+                    if properties.get(p):
+                        samples_file.attrs[p] = properties[p]
+        except KeyError:
+            warnings.warn('Information missing in the metadata file: ')
+            raise
 
     if dataset == 'trn':
         samples_count['trn'] = idx_samples
@@ -164,8 +177,15 @@ def main(params):
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
     Path.mkdir(Path(data_path), exist_ok=True)
+    metadata_file = params['global']['metadata_file']
     csv_file = params['sample']['prep_csv_file']
 
+    if metadata_file:
+        image_metadata = read_parameters(metadata_file)
+    else:
+        image_metadata = None
+
+    final_samples_folder = None
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
@@ -202,10 +222,7 @@ def main(params):
                     bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
                 info['gpkg'] = info['gpkg'].split('/')[-1]
 
-            if os.path.isfile(info['tif']):
-                assert_band_number(info['tif'], params['global']['number_of_bands'])
-            else:
-                raise IOError(f'Could not locate "{info["tif"]}". Make sure file exists in this directory.')
+            assert_band_number(info['tif'], params['global']['number_of_bands'])
 
             _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
 
@@ -224,7 +241,7 @@ def main(params):
                 sc_min, sc_max = params['global']['scale_data']
                 np_input_image = minmax_scale(np_input_image,
                                               orig_range=(np.min(np_input_image), np.max(np_input_image)),
-                                              scale_range=(sc_min,sc_max))
+                                              scale_range=(sc_min, sc_max))
 
             # Mask the zeros from input image into label raster.
             if params['sample']['mask_reference']:
@@ -248,7 +265,8 @@ def main(params):
                                                                  number_classes,
                                                                  out_file,
                                                                  info['dataset'],
-                                                                 params['sample']['min_annotated_percent'])
+                                                                 params['sample']['min_annotated_percent'],
+                                                                 image_metadata)
 
             _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
             out_file.flush()
@@ -259,7 +277,7 @@ def main(params):
 
     print("Number of samples created: ", number_samples)
 
-    if bucket_name:
+    if bucket_name and final_samples_folder:
         print('Transfering Samples to the bucket')
         bucket.upload_file(samples_folder + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
         bucket.upload_file(samples_folder + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
