@@ -1,3 +1,4 @@
+# Source: https://github.com/Luolc/AdaBound/blob/master/adabound/adabound.py
 import math
 import torch
 from torch.optim import Optimizer
