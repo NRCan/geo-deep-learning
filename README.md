@@ -39,6 +39,8 @@ After installing the required computing environment (see next section), one need
     - scikit-learn
     - h5py
     - nvidia-ml-py3
+    - tqdm
+    - collections
 - nvidia GPU highly recommended
 - The system can be used on your workstation or cluster and on [AWS](https://aws.amazon.com/).
 
@@ -46,13 +48,13 @@ After installing the required computing environment (see next section), one need
 1. Using conda, you can set and activate your python environment with the following commands:  
     With GPU (defaults to CUDA 10.0 if `cudatoolkit=X.0` is not specified):
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm collections -c pytorch
     source activate YOUR_ENV
     conda install nvidia-ml-py3 -c fastai
     ```
     CPU only:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm collections -c pytorch
     source activate YOUR_ENV
     ```
 1. Set your parameters in the `config.yaml` (see section bellow)

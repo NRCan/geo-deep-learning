@@ -12,7 +12,6 @@ import torchvision
 import math
 from collections import OrderedDict
 import warnings
-from torch import nn
 from tqdm import tqdm
 
 from models.model_choice import net
