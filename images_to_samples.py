@@ -11,7 +11,8 @@ from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets
 from utils.utils import read_parameters, assert_band_number, image_reader_as_array, \
-    create_or_empty_folder, validate_num_classes, read_csv, minmax_scale
+    create_or_empty_folder, validate_num_classes, read_csv
+from utils.preprocess import minmax_scale
 
 try:
     import boto3
@@ -210,14 +211,14 @@ def main(params):
             # Burn vector file in a raster file
             np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
 
-            # Scale arrays to values [0,1]. Default: will scale.
+            # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
+            # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
             scale = params['sample']['scale_data'] if params['sample']['scale_data'] else True
             if scale:
                 min, max = params['sample']['scale_data']
                 np_input_image = minmax_scale(np_input_image,
                                               orig_range=(np.min(np_input_image), np.max(np_input_image)),
                                               scale_range=(min,max))
-                # TODO should we normalize images to values in https://pytorch.org/docs/stable/torchvision/models.html#semantic-segmentation
 
             # Mask the zeros from input image into label raster.
             if params['sample']['mask_reference']:

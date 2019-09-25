@@ -16,7 +16,8 @@ from tqdm import tqdm
 
 from models.model_choice import net
 from utils.utils import read_parameters, assert_band_number, load_from_checkpoint, \
-    image_reader_as_array, read_csv, get_device_ids, minmax_scale
+    image_reader_as_array, read_csv, get_device_ids
+from utils.preprocess import minmax_scale
 
 try:
     import boto3
@@ -256,7 +257,8 @@ def main(params):
             assert_band_number(local_img, params['global']['number_of_bands'])
 
             nd_array_tif = image_reader_as_array(local_img)
-            # Scale arrays to values [0,1]
+            # See: http://cs231n.github.io/neural-networks-2/#datapre
+            # e.g. Scale arrays from [0,255] to [0,1]
             if params['sample']['scale_data']:
                 min, max = params['sample']['scale_data']
                 nd_array_tif = minmax_scale(nd_array_tif,
@@ -265,7 +267,6 @@ def main(params):
             sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes, device)
             create_new_raster_from_base(local_img, inference_image, sem_seg_results)
             tqdm.write(f"Semantic segmentation of image {img_name} completed")
-            #print(f"Semantic segmentation of image {img_name} completed")
             if bucket:
                 bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
                                                                  f"{img_name.split('.')[0]}_inference.tif"))

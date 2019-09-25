@@ -8,7 +8,7 @@ import random
 import numpy as np
 from skimage import transform
 from torchvision import transforms
-from utils.utils import minmax_scale
+from utils.preprocess import minmax_scale
 
 
 def compose_transforms(params, dataset):
