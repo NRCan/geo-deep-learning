@@ -1,5 +1,6 @@
 import torch
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
+import os
 from torch import nn
 import numpy as np
 import rasterio
