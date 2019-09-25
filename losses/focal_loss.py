@@ -1,3 +1,4 @@
+# Source: https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/65938
 import torch
 import torch.nn as nn
 
