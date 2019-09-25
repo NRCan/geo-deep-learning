@@ -84,10 +84,11 @@ global:
   num_classes: 2                    # Number of classes
   data_path: /path/to/data/folder   # Path to folder containing samples
   number_of_bands: 3                # Number of bands in input images
-  model_name: unetsmall				# One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
+  model_name: unetsmall             # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101 or inception
   bucket_name:                      # Name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation                # Task to perform. Either segmentation or classification.
   num_gpus: 0                       # Number of GPU device(s) to use. Default: 0
+  debug_mode: True                  # if True, displays useful info for debugging
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -106,6 +107,8 @@ training:
   num_tst_samples:                              # Number of samples to use for test. (default: all samples in hdfs file are taken)
   batch_size: 32                                # Size of each batch
   num_epochs: 150                               # Number of epochs
+  loss_fn: CrossEntropy                         # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
+  optimizer: adabound                           # One of adam, sgd or adabound
   learning_rate: 0.0001                         # Initial learning rate
   weight_decay: 0                               # Value for weight decay (each epoch)
   gamma: 0.9                                    # Multiple for learning rate decay
@@ -127,21 +130,25 @@ inference:
   chunk_size: 512                                                             # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10                                                                 # (int) Percentage of overlap between 2 chunks. Default: 10
 
-# Models parameters; used in train_model.py and inference.py
+# Models parameters; used in train_model.py and inference.py TODO could this section be simplified? 
 
 models:
   unet:   &unet001
     dropout: False
-    probability: 0.2    # Set with dropout
-    pretrained: False   # optional
+    probability: 0.2                      # Set with dropout
+    pretrained: False                     # boolean (optional)
   unetsmall:
     <<: *unet001
   ternausnet:
     pretrained: ./models/TernausNet.pt    # Mandatory
   checkpointed_unet:
-    <<: *unet001
+  fcn_resnet101:                          # torchvision model. only for 3 band data. TODO check if applies to other models
+    pretrained:                           # path (optional)
+  deeplabv3_resnet101:                    # torchvision model. only for 3 band data.
+    pretrained:                           # path (optional)
   inception:
-    pretrained: False   # optional
+    pretrained: False                     # boolean (optional)
+
 ```
 # Semantic segmentation
 ## Models available

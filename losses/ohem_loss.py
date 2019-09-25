@@ -43,12 +43,12 @@ class OhemCrossEntropy2d(nn.Module):
                     threshold = pred[threshold_index]
             kept_flag = pred <= threshold
             valid_inds = valid_inds[kept_flag]
-            print('hard ratio: {} = {} / {} '.format(round(len(valid_inds)/num_valid, 4), len(valid_inds), num_valid))
+            #print('hard ratio: {} = {} / {} '.format(round(len(valid_inds)/num_valid, 4), len(valid_inds), num_valid))
 
         label = input_label[valid_inds].copy()
         input_label.fill(self.ignore_label)
         input_label[valid_inds] = label
-        print(np.sum(input_label != self.ignore_label))
+        #print(np.sum(input_label != self.ignore_label))
         target = torch.from_numpy(input_label.reshape(target.size())).long().cuda()
 
         return self.criterion(predict, target)

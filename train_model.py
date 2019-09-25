@@ -1,11 +1,8 @@
-# TODO: create plots with train/val loss and metrics
-
 from pathlib import Path
 
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
-import os
 import csv
 import time
 import h5py
@@ -13,7 +10,11 @@ import datetime
 import warnings
 from tqdm import tqdm
 from collections import OrderedDict
-import nvidia_smi
+
+try:
+    from pynvml import *
+except ModuleNotFoundError:
+    warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 import torchvision
 import torch.optim as optim
@@ -28,7 +29,7 @@ from utils.optimizer import create_optimizer
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict
 from models.model_choice import net
-from losses.multi import MultiClassCriterion
+from losses import MultiClassCriterion
 from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids
 
 try:
@@ -38,16 +39,15 @@ except ModuleNotFoundError:
     pass
 
 
-def gpu_stats(device=0): #TODO: check if function should be moved to utils
+def gpu_stats(device=0):
     """
     Provides GPU utilization (%) and RAM usage
     :return: res.gpu, res.memory
     """
-    nvidia_smi.nvmlInit()
-    handle = nvidia_smi.nvmlDeviceGetHandleByIndex(device)
-    res = nvidia_smi.nvmlDeviceGetUtilizationRates(handle)
-    mem = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
-    # TODO: card id 0 hardcoded here, there is also a call to get all available card ids, so we could iterate
+    nvmlInit()
+    handle = nvmlDeviceGetHandleByIndex(device)
+    res = nvmlDeviceGetUtilizationRates(handle)
+    mem = nvmlDeviceGetMemoryInfo(handle)
 
     return res, mem
 
@@ -192,6 +192,7 @@ def create_dataloader(data_path, num_samples, batch_size, task):
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
     # Shuffle must be set to True.
+    # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
     if torch.cuda.device_count() > 1:
         num_workers = torch.cuda.device_count() * 4
     else:
@@ -226,31 +227,6 @@ def get_num_samples(data_path, params):
     return num_samples
 
 
-def create_loss_fn(loss_type='CrossEntropy', weight=None, ignore_index=-100):
-    """
-    Creates loss function
-    :param loss_type: (str) loss function found in the yaml config file. Defaults to "CrossEntropy"
-    :param weight: (Tensor, optional) a manual rescaling weight given to each class.
-            If given, has to be a Tensor of size `C`
-    :param ignore_index: (int, optional) Specifies a target value that is ignored
-            and does not contribute to the input gradient. When :attr:`size_average` is
-            ``True``, the loss is averaged over non-ignored targets.
-    :return:
-    """
-    if loss_type == 'CrossEntropy':
-        criterion = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
-    elif loss_type == 'Lovasz':
-        if weight is not None:
-            raise ValueError("The Lovasz function does not take weight parameter. "
-                             "It inherently deals with class imbalance. See original article.")
-        else:
-            criterion = MultiClassCriterion(loss_type='Lovasz', ignore_index=ignore_index)
-    else:
-        raise ValueError(f"The loss function should be either CrossEntropy or Lovasz."
-                         f"The provided value is {params['training']['loss_fn']}")
-    return criterion
-
-
 def set_hyperparameters(params, model, state_dict_path):
     """
     Function to set hyperparameters based on values provided in yaml config file.
@@ -276,25 +252,41 @@ def set_hyperparameters(params, model, state_dict_path):
     gamma = lr_scheduler_signature['gamma'].default
     num_devices = 0
 
-    # replace default values if present in config yaml
-    if params['training']['class_weights'] is not None:
+    # replace default values by those in config file if they exist
+    if params['training']['class_weights']:
         class_weights = torch.tensor(params['training']['class_weights'])
         verify_weights(params['global']['num_classes'], class_weights)
-    if params['training']['ignore_index'] is not None:
+    if params['training']['ignore_index']:
         ignore_index = params['training']['ignore_index']
-    if params['training']['learning_rate'] is not None:
+    if params['training']['learning_rate']:
         lr = params['training']['learning_rate']
-    if params['training']['weight_decay'] is not None:
+    if params['training']['weight_decay']:
         weight_decay = params['training']['weight_decay']
-    if params['training']['step_size'] is not None:
+    if params['training']['step_size']:
         step_size = params['training']['step_size']
-    if params['training']['gamma'] is not None:
+    if params['training']['gamma']:
         gamma = params['training']['gamma']
-    if params['global']['num_gpus'] is not None:
+    if params['global']['num_gpus']:
         num_devices = params['global']['num_gpus']
 
     # Loss function
-    criterion = create_loss_fn(params['training']['loss_fn'], weight=class_weights, ignore_index=ignore_index)
+    criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
+
+    # list of GPU devices that are available and unused. If no GPUs, returns empty list
+    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
+    num_devices = len(lst_device_ids) if lst_device_ids else 0
+    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+
+    if num_devices == 1:
+        print(f"Using Cuda device {lst_device_ids[0]}")
+    elif num_devices > 1:
+        print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}")
+        model = nn.DataParallel(model, device_ids=lst_device_ids)    # adds prefix 'module.' to state_dict keys
+    else:
+        warnings.warn(f"No Cuda device available. This process will only run on CPU")
+
+    criterion = criterion.to(device)
+    model = model.to(device)
 
     # Optimizer
     opt_fn = params['training']['optimizer']
@@ -302,29 +294,9 @@ def set_hyperparameters(params, model, state_dict_path):
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
     if state_dict_path != '':
-        model, optimizer = load_from_checkpoint(state_dict_path, model, optimizer=optimizer)  # TODO: test this.
+        model, optimizer = load_from_checkpoint(state_dict_path, model, optimizer=optimizer)
 
-    if torch.cuda.is_available():
-        lst_device_ids = get_device_ids(num_devices)
-    else:
-        lst_device_ids = []
-    if lst_device_ids:
-        if len(lst_device_ids) == 1:
-            print(f"Using Cuda device {lst_device_ids[0]}")
-            torch.cuda.set_device(lst_device_ids[0])
-
-        num_devices = len(lst_device_ids)
-        if len(lst_device_ids) > 1:
-            print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}")
-            model = nn.DataParallel(model, device_ids=lst_device_ids)    #add prefix 'module.' to state_dict keys
-        criterion = criterion.to(device)
-        model = model.to(device)
-    else:
-        warnings.warn(f"No Cuda device available. This process will only run on CPU")
-        num_devices = 0
-        #criterion = nn.CrossEntropyLoss(weight=class_weights, ignore_index=ignore_index)    #TODO: remove
-
-    return model, criterion, optimizer, lr_scheduler, num_devices
+    return model, criterion, optimizer, lr_scheduler, device, num_devices
 
 
 def main(params):
@@ -338,7 +310,7 @@ def main(params):
     output_path = params['training']['output_path']
     data_path = params['global']['data_path']
     task = params['global']['task']
-    num_classes = params['global']['num_classes'] # TODO: assert type int? IDEM for batch_size, batch_metrics, etc. ?
+    num_classes = params['global']['num_classes']
     batch_size = params['training']['batch_size']
 
     if bucket_name:
@@ -363,7 +335,7 @@ def main(params):
     val_log = InformationLogger(output_path, 'val')
     tst_log = InformationLogger(output_path, 'tst')
 
-    model, criterion, optimizer, lr_scheduler, num_devices = set_hyperparameters(params, model, state_dict_path)
+    model, criterion, optimizer, lr_scheduler, device, num_devices = set_hyperparameters(params, model, state_dict_path)
 
     num_samples = get_num_samples(data_path=data_path, params=params)
     print(f"Number of samples : {num_samples}")
@@ -376,9 +348,7 @@ def main(params):
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
     for epoch in range(0, params['training']['num_epochs']):
-        print()
-        print('Epoch {}/{}'.format(epoch, params['training']['num_epochs'] - 1)) # TODO: epoch + 1 rather than params[...] -1 ?
-        print('-' * 20)
+        print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
 
         trn_report = train(train_loader=trn_dataloader,
                            model=model,
@@ -390,7 +360,7 @@ def main(params):
                            task=task,
                            ep_idx=epoch,
                            progress_log=progress_log,
-                           num_devices=num_devices)
+                           device=device)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         val_report = evaluation(eval_loader=val_dataloader,
@@ -403,7 +373,7 @@ def main(params):
                                 progress_log=progress_log,
                                 batch_metrics=params['training']['batch_metrics'],
                                 dataset='val',
-                                num_devices=num_devices)
+                                device=device)
         val_loss = val_report['loss'].avg
         if params['training']['batch_metrics'] is not None:
             val_log.add_values(val_report, epoch)
@@ -413,8 +383,7 @@ def main(params):
         if val_loss < best_loss:
             print("save checkpoint")
             best_loss = val_loss
-            # TODO: is this the preferred implementation? see link below
-            # https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
+            # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
             torch.save({'epoch': epoch,
                         'arch': model_name,
@@ -444,7 +413,7 @@ def main(params):
                             progress_log=progress_log,
                             batch_metrics=params['training']['batch_metrics'],
                             dataset='tst',
-                            num_devices=num_devices)
+                            device=device)
     tst_log.add_values(tst_report, params['training']['num_epochs'])
 
     if bucket_name:
@@ -456,7 +425,7 @@ def main(params):
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
-def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx, progress_log, num_devices):
+def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx, progress_log, device):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -469,13 +438,13 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     :param task: segmentation or classification
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
-    :param num_devices: (int) number of GPU devices to use.
+    :param device: device used by pytorch (cpu ou cuda)
     :return: Updated training loss
     """
     model.train()
     train_metrics = create_metrics_dict(num_classes)
 
-    with tqdm(train_loader, dynamic_ncols=True) as _tqdm:    # TODO: why is tqdm not generating dynamic colons?
+    with tqdm(train_loader) as _tqdm:
         for index, data in enumerate(_tqdm):
             progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', index, len(train_loader), time.time()))
 
@@ -485,42 +454,34 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                 labels = labels.to(device)
                 optimizer.zero_grad()
                 outputs = model(inputs)
-                outputs_flatten = outputs
             elif task == 'segmentation':
                 inputs = data['sat_img'].to(device)
                 labels = data['map_img'].to(device)
-                labels_flatten = flatten_labels(labels)
 
                 # forward
                 optimizer.zero_grad()
                 outputs = model(inputs)
-                if isinstance(outputs, OrderedDict):   # TODO: check why deeplab outputs an Ordereddict, not a tensor...
+                # added for torchvision models that output an OrderedDict with outputs in 'out' key.
+                # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
+                if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
-                outputs_flatten = flatten_outputs(outputs, num_classes)
 
-            if params['training']['loss_fn'] == 'Lovasz' and task=='segmentation':
-                loss = criterion(outputs, labels)
-            elif params['training']['loss_fn'] == 'CrossEntropy':
-                loss = criterion(outputs_flatten, labels_flatten)
-            else:
-                raise NotImplementedError(
-                    'Current verison of geo-deep-learning only implements CrossEntropy and Lovasz loss')
+            # TODO: labels and outputs not flattened. should test on classification task
+            loss = criterion(outputs, labels)
 
             train_metrics['loss'].update(loss.item(), batch_size)
 
             if debug and torch.cuda.is_available():
-                res, mem = gpu_stats(device=torch.cuda.current_device())
+                res, mem = gpu_stats(device=device.index)
                 _tqdm.set_postfix(OrderedDict(train_loss=f'{train_metrics["loss"].val:.4f}',
-                                              device=torch.cuda.current_device(),
+                                              device=device,
                                               gpu_perc=f'{res.gpu} %',
                                               gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB',
                                               img_size=data['sat_img'].numpy().shape,
                                               sample_size=data['map_img'].numpy().shape,
-                                              batch_size=batch_size))   # TODO: add optimizer learning rate
+                                              batch_size=batch_size))
 
             loss.backward()
-            # TODO: fix bug. RuntimeError: expected device cpu and dtype Float but got device cuda:1 and dtype Float
-            # when using optimizer from pretrained path.
             optimizer.step()
 
     scheduler.step()
@@ -528,7 +489,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     return train_metrics
 
 
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log, batch_metrics=None, dataset='val', num_devices=0):
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log, batch_metrics=None, dataset='val', device=None):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -541,7 +502,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     :param progress_log: progress log file (for hypertrainer log)
     :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
     :param dataset: (str) 'val or 'tst'
-    :param num_devices: (int) Number of GPU devices to use.
+    :param device: device used by pytorch (cpu ou cuda)
     :return: (dict) eval_metrics
     """
     eval_metrics = create_metrics_dict(num_classes)
@@ -565,25 +526,16 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     labels_flatten = flatten_labels(labels)
 
                     outputs = model(inputs)
-                    if isinstance(outputs, OrderedDict):  # TODO: check why deeplab outputs an Ordereddict, not a tensor...
+                    if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
-                    outputs_flatten = flatten_outputs(outputs, num_classes)
 
-                if params['training']['loss_fn'] == 'Lovasz' and task == 'segmentation':
-                    loss = criterion(outputs, labels)
-                elif params['training']['loss_fn'] == 'CrossEntropy':
-                    loss = criterion(outputs_flatten, labels_flatten)
-                else:
-                    raise NotImplementedError(
-                        'Current verison of geo-deep-learning only implements CrossEntropy and Lovasz loss')
+                loss = criterion(outputs, labels)
 
                 eval_metrics['loss'].update(loss.item(), batch_size)
 
                 if (dataset == 'val') and (batch_metrics is not None):
                     # Compute metrics every n batches. Time consuming.
-                    # TODO: here, we should see index+1. No need to run val loop at beginning, right?
-                    # TODO: why is there val run every training run even though batch_metrics > 1...
-                    if index % batch_metrics == 0:
+                    if index+1 % batch_metrics == 0:   # +1 to skip val loop at very beginning
                         a, segmentation = torch.max(outputs_flatten, dim=1)
                         eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics)
                 elif dataset == 'tst':
@@ -593,8 +545,8 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                 _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
                 if debug and torch.cuda.is_available():
-                    res, mem = gpu_stats(device=torch.cuda.current_device())
-                    _tqdm.set_postfix(OrderedDict(device=torch.cuda.current_device(), gpu_perc=f'{res.gpu} %',
+                    res, mem = gpu_stats(device=device.index)
+                    _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
                                                   gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
 
     print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
@@ -614,9 +566,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     params = read_parameters(args.param_file)
 
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
-    debug = True if params['global']['debug_mode'] else False # TODO: check if ok with one-line if statement
+    debug = True if params['global']['debug_mode'] else False
 
     main(params)
     print('End of training')

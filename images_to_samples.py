@@ -11,7 +11,7 @@ from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets
 from utils.utils import read_parameters, assert_band_number, image_reader_as_array, \
-    create_or_empty_folder, validate_num_classes, read_csv
+    create_or_empty_folder, validate_num_classes, read_csv, minmax_scale
 
 try:
     import boto3
@@ -199,7 +199,7 @@ def main(params):
 
             assert_band_number(info['tif'], params['global']['number_of_bands'])
 
-            _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size'])) # TODO: where to position this?
+            _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
 
             # Read the input raster image
             np_input_image = image_reader_as_array(info['tif'])
@@ -209,6 +209,14 @@ def main(params):
 
             # Burn vector file in a raster file
             np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
+
+            # Scale arrays to values [0,1]
+            if params['sample']['scale_data']:
+                min, max = params['sample']['scale_data']
+                np_input_image = minmax_scale(np_input_image,
+                                              orig_range=(np.min(np_input_image), np.max(np_input_image)),
+                                              scale_range=(min,max))
+                # TODO should we normalize images to values in https://pytorch.org/docs/stable/torchvision/models.html#semantic-segmentation
 
             # Mask the zeros from input image into label raster.
             if params['sample']['mask_reference']:
@@ -261,7 +269,7 @@ if __name__ == '__main__':
 
     start_time = time.time()
 
-    debug = True if params['global']['debug_mode'] else False # TODO: check if ok with one-line if statement
+    debug = True if params['global']['debug_mode'] else False
 
     main(params)
 

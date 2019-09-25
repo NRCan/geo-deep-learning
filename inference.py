@@ -11,11 +11,13 @@ from PIL import Image
 import torchvision
 import math
 from collections import OrderedDict
+import warnings
+from torch import nn
 from tqdm import tqdm
 
 from models.model_choice import net
 from utils.utils import read_parameters, assert_band_number, load_from_checkpoint, \
-    image_reader_as_array, read_csv
+    image_reader_as_array, read_csv, get_device_ids, minmax_scale
 
 try:
     import boto3
@@ -46,13 +48,14 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
             dst.write(write_array[:, :], 1)
 
 
-def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes):
+def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device):
     """Inference on images using semantic segmentation
     Args:
         model: model to use for inference
         nd_array: nd_array
         overlay: amount of overlay to apply
         num_classes: number of different classes that may be predicted by the model
+        device: device used by pytorch (cpu ou cuda)
 
         returns a numpy array of the same size (h,w) as the input image, where each value is the predicted output.
     """
@@ -77,7 +80,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes):
 
     if padded_array.any():
         with torch.no_grad():
-            # TODO: BUG. tqdm's second loop printing on multiple lines...
+            # TODO: BUG. tqdm's second loop printing on multiple lines.
             for row in tqdm(range(overlay, h, chunk_size - overlay), position=1, leave=False):
                 row_start = row - overlay
                 row_end = row_start + chunk_size
@@ -90,12 +93,12 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes):
 
                     inputs.unsqueeze_(0)
 
-                    if torch.cuda.is_available():
-                        inputs = inputs.cuda()    # TODO: change to .to(device) notation?
+                    inputs = inputs.to(device)
                     # forward
                     outputs = model(inputs)
 
-                    if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():    # TODO: temporarily fixing bug with deeplabv3
+                    # torchvision models give output it 'out' key. May cause problems in future versions of torchvision.
+                    if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
                         outputs = outputs['out']
 
                     output_counts[row_start:row_end, col_start:col_end] += 1
@@ -207,8 +210,18 @@ def main(params):
     bucket_name = params['global']['bucket_name']
 
     model, state_dict_path, model_name = net(params, inference=True)
-    if torch.cuda.is_available():
-        model = model.cuda()
+
+    num_devices = params['global']['num_gpus'] if params['global']['num_gpus'] else 0
+    # list of GPU devices that are available and unused. If no GPUs, returns empty list
+    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
+    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+
+    if lst_device_ids:
+        print(f"Using Cuda device {lst_device_ids[0]}")
+    else:
+        warnings.warn(f"No Cuda device available. This process will only run on CPU")
+
+    model.to(device)
 
     if bucket_name:
         s3 = boto3.resource('s3')
@@ -244,7 +257,13 @@ def main(params):
             assert_band_number(local_img, params['global']['number_of_bands'])
 
             nd_array_tif = image_reader_as_array(local_img)
-            sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes)
+            # Scale arrays to values [0,1]
+            if params['sample']['scale_data']:
+                min, max = params['sample']['scale_data']
+                nd_array_tif = minmax_scale(nd_array_tif,
+                                              orig_range=(np.min(nd_array_tif), np.max(nd_array_tif)),
+                                              scale_range=(min,max))
+            sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes, device)
             create_new_raster_from_base(local_img, inference_image, sem_seg_results)
             tqdm.write(f"Semantic segmentation of image {img_name} completed")
             #print(f"Semantic segmentation of image {img_name} completed")

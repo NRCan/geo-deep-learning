@@ -1,6 +1,5 @@
 import torch
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
-import os
 from torch import nn
 import numpy as np
 import rasterio
@@ -8,7 +7,6 @@ import warnings
 from ruamel_yaml import YAML
 import fiona
 import csv
-from collections import OrderedDict
 
 try:
     from pynvml import *
@@ -65,13 +63,13 @@ def chop_layer(pretrained_dict, layer_name="logits"):   #https://discuss.pytorch
     """
     Removes keys from a layer in state dictionary of model architecture.
     :param model: (nn.Module) model with original architecture
-    :param layer_name: name of layer to be chopped  # TODO: exception handling. this layer must be the terminal layer (no hidden layer)
+    :param layer_name: name of layer to be chopped. Must be the terminal layer (not hidden layer)
     :return: (nn.Module) model
     """
     #model_dict = model.state_dict()
 
     # 1. filter out unnecessary keys
-    chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer_name) == -1}  # TODO: softcode to other than ternausNet
+    chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer_name) == -1}
     #model_dict.update(pretrained_dict)
     #model.load_state_dict(model_dict)
     return chopped_dict
@@ -107,13 +105,13 @@ def load_from_checkpoint(filename, model, optimizer=None, chop_layer_name=None):
         else:
             checkpoint = torch.load(filename, map_location='cpu')
 
-        # TODO: let's rethink this one... Loading external models with different structure in state dict
+        # For loading external models with different structure in state dict
         if 'model' not in checkpoint.keys():
             checkpoint['model'] = checkpoint
 
         try:
-            # TODO: this is prone to generating exceptions. check.
-            # automatically chop out classifier if num_classes is different in chosen model and loaded checkpoint.
+            # Automatically chop out classifier if num_classes is different in chosen model and loaded checkpoint.
+            # prone to generating exceptions. Is there a better solution?
             if chop_layer_name \
                     and checkpoint['model'][str(chop_layer_name + '.weight')].shape != \
                     model.state_dict()[str(chop_layer_name + '.weight')].shape:
@@ -127,7 +125,9 @@ def load_from_checkpoint(filename, model, optimizer=None, chop_layer_name=None):
             raise KeyError(f'{error}. The specified layer name {chop_layer_name} to chop might not exist in state dictionary. '
                            f'N.B. Enter first part of name, e.g. "final" as opposed to "final.weight"')
 
-        # TODO: corrects exception with test loop using Data. Not cool at all.
+        # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
+        # https://github.com/bearpaw/pytorch-classification/issues/27
+        # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
         if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
             new_state_dict = model.state_dict().copy()
             new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}
@@ -162,7 +162,7 @@ def image_reader_as_array(file_name):
     return np_array
 
 
-def validate_num_classes(vector_file, num_classes, value_field):
+def validate_num_classes(vector_file, num_classes, value_field):    # used only in images_to_samples.py
     """Validate that the number of classes in the vector file corresponds to the expected number
     Args:
         vector_file: full file path of the vector image

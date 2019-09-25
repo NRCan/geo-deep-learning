@@ -1,3 +1,7 @@
+# WARNING: data being augmented may be scaled to (0,1) rather, for example, (0,255). Therefore, implementing radiometric
+# augmentations (ex.: changing hue, saturation, brightness, contrast) may give undesired results.
+# Scaling process is donc in images_to_samples.py l.215
+
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import random
@@ -62,6 +66,5 @@ class ToTensorTarget(object):
 
     def __call__(self, sample):
         sat_img = np.float32(np.transpose(sample['sat_img'], (2, 0, 1)))
-        sat_img = minmax_scale(sat_img, scale_range=(0, 1), orig_range=(0, 255))    # TODO: hardcoded to 8bit images
         map_img = np.int64(sample['map_img'])
         return {'sat_img': torch.from_numpy(sat_img), 'map_img': torch.from_numpy(map_img)}
