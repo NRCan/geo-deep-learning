@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import warnings
 
 
 def lovasz_grad(gt_sorted):
@@ -62,7 +63,7 @@ class LovaszSoftmax(nn.Module):
         self.only_present = only_present
         self.weight = weight
         if weight is not None:
-            raise ValueError("The Lovasz function does not take weight parameter. "
+            warnings.warn("The Lovasz function does not take weight parameter. "
                              "It inherently deals with class imbalance. See: https://arxiv.org/abs/1705.08790.")
 
     def forward(self, logits, labels):
