@@ -527,7 +527,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     labels_flatten = flatten_labels(labels)
 
                     outputs = model(inputs)
-                    outputs_flatten = flatten_labels(outputs)
+                    outputs_flatten = flatten_outputs(outputs, num_classes)
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
 
