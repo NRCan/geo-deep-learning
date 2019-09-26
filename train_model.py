@@ -518,6 +518,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     inputs, labels = data
                     inputs = inputs.to(device)
                     labels = labels.to(device)
+                    labels_flatten = labels
 
                     outputs = model(inputs)
                     outputs_flatten = outputs
