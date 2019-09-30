@@ -467,7 +467,6 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
-            # TODO: labels and outputs not flattened. should test on classification task
             loss = criterion(outputs, labels)
 
             train_metrics['loss'].update(loss.item(), batch_size)

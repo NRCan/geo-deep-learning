@@ -99,6 +99,7 @@ sample:
   samples_dist: 200                             # Distance (in pixel) between samples
   min_annotated_percent: 10                     # Min % of non background pixels in stored samples. Default: 0
   mask_reference: False                         # When True, mask the input image where there is no reference data.
+  scale_data: [0, 1]                            # Min and Max for input data rescaling. Default: [0, 1]. Enter False if no rescaling is desired.
 
 # Training parameters; used in train_model.py ----------------------
 
@@ -144,9 +145,9 @@ models:
   ternausnet:
     pretrained: ./models/TernausNet.pt    # Mandatory
   checkpointed_unet:
-  fcn_resnet101:                          # torchvision model. only for 3 band data. TODO check if applies to other models
+  fcn_resnet101:                          # torchvision model pretrained on coco dataset. only for 3 band data. TODO check if applies to other models
     pretrained:                           # path (optional)
-  deeplabv3_resnet101:                    # torchvision model. only for 3 band data.
+  deeplabv3_resnet101:                    # torchvision model pretrained on coco dataset. only for 3 band data.
     pretrained:                           # path (optional)
   inception:
     pretrained: False                     # boolean (optional)
