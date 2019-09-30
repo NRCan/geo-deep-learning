@@ -6,9 +6,13 @@ import fiona
 import rasterio
 from rasterio import features
 import time
-from CreateDataset import create_files_and_datasets
-from utils import read_parameters, assert_band_number, image_reader_as_array, \
+from tqdm import tqdm
+from collections import OrderedDict
+
+from utils.CreateDataset import create_files_and_datasets
+from utils.utils import read_parameters, assert_band_number, image_reader_as_array, \
     create_or_empty_folder, validate_num_classes, read_csv
+from utils.preprocess import minmax_scale
 
 try:
     import boto3
@@ -183,54 +187,65 @@ def main(params):
 
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
 
-    for info in list_data_prep:
+    with tqdm(list_data_prep) as _tqdm:
+        for info in _tqdm:
 
-        if bucket_name:
-            bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
-            info['tif'] = "Images/" + info['tif'].split('/')[-1]
-            if info['gpkg'] not in gpkg_file:
-                gpkg_file.append(info['gpkg'])
-                bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
-            info['gpkg'] = info['gpkg'].split('/')[-1]
+            if bucket_name:
+                bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
+                info['tif'] = "Images/" + info['tif'].split('/')[-1]
+                if info['gpkg'] not in gpkg_file:
+                    gpkg_file.append(info['gpkg'])
+                    bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
+                info['gpkg'] = info['gpkg'].split('/')[-1]
 
-        assert_band_number(info['tif'], params['global']['number_of_bands'])
+            assert_band_number(info['tif'], params['global']['number_of_bands'])
 
-        # Read the input raster image
-        np_input_image = image_reader_as_array(info['tif'])
+            _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
 
-        # Validate the number of class in the vector file
-        validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'])
+            # Read the input raster image
+            np_input_image = image_reader_as_array(info['tif'])
 
-        # Burn vector file in a raster file
-        np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
+            # Validate the number of class in the vector file
+            validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'])
 
-        # Mask the zeros from input image into label raster.
-        if params['sample']['mask_reference']:
-            np_label_raster = mask_image(np_input_image, np_label_raster)
+            # Burn vector file in a raster file
+            np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
 
-        if info['dataset'] == 'trn':
-            out_file = trn_hdf5
-        elif info['dataset'] == 'val':
-            out_file = val_hdf5
-        elif info['dataset'] == 'tst':
-            out_file = tst_hdf5
-        else:
-            raise ValueError(f"Dataset value must be trn or val or tst. Provided value is {info['dataset']}")
+            # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
+            # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
+            scale = params['global']['scale_data'] if params['global']['scale_data'] else True
+            if scale:
+                sc_min, sc_max = params['global']['scale_data']
+                np_input_image = minmax_scale(np_input_image,
+                                              orig_range=(np.min(np_input_image), np.max(np_input_image)),
+                                              scale_range=(sc_min,sc_max))
 
-        np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
-        number_samples, number_classes = samples_preparation(np_input_image,
-                                                             np_label_raster,
-                                                             params['global']['samples_size'],
-                                                             params['sample']['samples_dist'],
-                                                             number_samples,
-                                                             number_classes,
-                                                             out_file,
-                                                             info['dataset'],
-                                                             params['sample']['min_annotated_percent'])
+            # Mask the zeros from input image into label raster.
+            if params['sample']['mask_reference']:
+                np_label_raster = mask_image(np_input_image, np_label_raster)
 
-        print(info['tif'])
-        print(number_samples)
-        out_file.flush()
+            if info['dataset'] == 'trn':
+                out_file = trn_hdf5
+            elif info['dataset'] == 'val':
+                out_file = val_hdf5
+            elif info['dataset'] == 'tst':
+                out_file = tst_hdf5
+            else:
+                raise ValueError(f"Dataset value must be trn or val or tst. Provided value is {info['dataset']}")
+
+            np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
+            number_samples, number_classes = samples_preparation(np_input_image,
+                                                                 np_label_raster,
+                                                                 params['global']['samples_size'],
+                                                                 params['sample']['samples_dist'],
+                                                                 number_samples,
+                                                                 number_classes,
+                                                                 out_file,
+                                                                 info['dataset'],
+                                                                 params['sample']['min_annotated_percent'])
+
+            _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
+            out_file.flush()
 
     trn_hdf5.close()
     val_hdf5.close()
@@ -255,6 +270,8 @@ if __name__ == '__main__':
     params = read_parameters(args.ParamFile)
 
     start_time = time.time()
+
+    debug = True if params['global']['debug_mode'] else False
 
     main(params)
 

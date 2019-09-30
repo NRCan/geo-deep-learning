@@ -10,7 +10,7 @@ install:
   - conda update -q conda
   - conda info -a
 
-  - conda create -q -n ci_env python=3.6 pytorch-cpu torchvision-cpu torchvision ruamel_yaml h5py scikit-image scikit-learn fiona rasterio -c pytorch
+  - conda create -q -n ci_env python=3.6 pytorch-cpu torchvision-cpu torchvision ruamel_yaml h5py scikit-image scikit-learn fiona rasterio tqdm -c pytorch
   - source activate ci_env
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data

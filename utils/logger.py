@@ -20,7 +20,7 @@ class InformationLogger(object):
             filename = fmt_str.format(mode, metric_name)
             return open(os.path.join(log_folder, filename), "a", buffering=1)
         self.metric_values = {m: open_log(m) for m in self.metrics}
-        self.class_scores = {m: open_log(m) for m in self.metrics_classwise}
+        self.class_scores = {m: open_log(m, fmt_str="metric_classwise_{}_{}.log") for m in self.metrics_classwise}
         self.averaged_scores = {m: open_log(m, fmt_str="metric_{}_{}_averaged.log") for m in self.metrics_classwise}
 
     def add_values(self, info, epoch, ignore: list = None):

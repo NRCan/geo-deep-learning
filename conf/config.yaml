@@ -13,10 +13,12 @@ global:
   num_classes: 2
   data_path: /path/to/data/
   number_of_bands: 3
-  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet or ternausnet
+  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 2
+  scale_data: [0,1]
+  debug_mode: True
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -35,6 +37,8 @@ training:
   num_tst_samples: 1000
   batch_size: 32
   num_epochs: 100
+  loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
+  optimizer: adabound # One of adam, sgd or adabound
   learning_rate: 0.0001
   weight_decay: 0
   step_size: 4
@@ -65,9 +69,14 @@ models:
     pretrained: False   # optional
   unetsmall:
     <<: *unet001
+    pretrained:
   ternausnet:
     pretrained: ./models/TernausNet.pt    # Mandatory
-  checkpointed_unet: 
+  checkpointed_unet:
     <<: *unet001
+  fcn_resnet101:   # pretrained on coco dataset. Use only for 3 band data.
+    pretrained:    # optional
+  deeplabv3_resnet101:   # pretrained on coco dataset. Use only for 3 band data.
+    pretrained:    # optional
   inception:
-    pretrained: False   # optional
+    pretrained:    # optional

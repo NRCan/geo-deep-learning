@@ -39,6 +39,7 @@ After installing the required computing environment (see next section), one need
     - scikit-learn
     - h5py
     - nvidia-ml-py3
+    - tqdm
 - nvidia GPU highly recommended
 - The system can be used on your workstation or cluster and on [AWS](https://aws.amazon.com/).
 
@@ -46,16 +47,16 @@ After installing the required computing environment (see next section), one need
 1. Using conda, you can set and activate your python environment with the following commands:  
     With GPU (defaults to CUDA 10.0 if `cudatoolkit=X.0` is not specified):
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c pytorch
     source activate YOUR_ENV
     conda install nvidia-ml-py3 -c fastai
     ```
     CPU only:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c pytorch
     source activate YOUR_ENV
     ```
-1. Set your parameters in the `config.yaml` (see section bellow)
+1. Set your parameters in the `config.yaml` (see section below)
 1. Prepare your data and `csv` file
 1. Start your task using one of the following command:
     ```shell
@@ -66,7 +67,7 @@ After installing the required computing environment (see next section), one need
 
 ## config.yaml
 
-The `config.yaml` file is located in the `conf` directory.  It stores the values of all parameters needed by the deep learning algorithms for all phases.  It is shown below:
+The `config.yaml` file is located in the `conf` directory.  It stores the values of all parameters needed by the deep learning algorithms for all phases.  It contains the following 5 sections:
 
 ```yaml
 # Deep learning configuration file ------------------------------------------------
@@ -76,79 +77,31 @@ The `config.yaml` file is located in the `conf` directory.  It stores the values
 #   3) Training parameters
 #   4) Inference parameters
 #   5) Model parameters
-
-# Global parameters
-
-global:
-  samples_size: 256                 # Size (in pixel) of the samples
-  num_classes: 2                    # Number of classes
-  data_path: /path/to/data/folder   # Path to folder containing samples
-  number_of_bands: 3                # Number of bands in input images
-  model_name: unetsmall				# One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
-  bucket_name:                      # Name of the S3 bucket where data is stored. Leave blank if using local files
-  task: segmentation                # Task to perform. Either segmentation or classification.
-  num_gpus: 0                       # Number of GPU device(s) to use. Default: 0
-
-# Sample parameters; used in images_to_samples.py -------------------
-
-sample:
-  prep_csv_file: /path/to/csv/file_name.csv     # Path to CSV file used in preparation.
-  samples_dist: 200                             # Distance (in pixel) between samples
-  min_annotated_percent: 10                     # Min % of non background pixels in stored samples. Default: 0
-  mask_reference: False                         # When True, mask the input image where there is no reference data.
-
-# Training parameters; used in train_model.py ----------------------
-
-training:
-  output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
-  num_trn_samples: 4960                         # Number of samples to use for training. (default: all samples in hdfs file are taken)
-  num_val_samples: 2208                         # Number of samples to use for validation. (default: all samples in hdfs file are taken)
-  num_tst_samples:                              # Number of samples to use for test. (default: all samples in hdfs file are taken)
-  batch_size: 32                                # Size of each batch
-  num_epochs: 150                               # Number of epochs
-  learning_rate: 0.0001                         # Initial learning rate
-  weight_decay: 0                               # Value for weight decay (each epoch)
-  gamma: 0.9                                    # Multiple for learning rate decay
-  step_size: 4                                  # Apply gamma every step_size
-  class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
-  batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
-  ignore_index: 0                               # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
-  augmentation:
-    rotate_limit: 45                            # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
-    rotate_prob: 0.5                            # Specifies the probability for data rotation. If not specified, no rotation will be performed.
-    hflip_prob: 0.5                             # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.
-    
-# Inference parameters; used in inference.py --------
-
-inference:
-  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on
-  working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
-  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
-  chunk_size: 512                                                             # (int) Size (height and width) of each prediction patch. Default: 512
-  overlap: 10                                                                 # (int) Percentage of overlap between 2 chunks. Default: 10
-
-# Models parameters; used in train_model.py and inference.py
-
-models:
-  unet:   &unet001
-    dropout: False
-    probability: 0.2    # Set with dropout
-    pretrained: False   # optional
-  unetsmall:
-    <<: *unet001
-  ternausnet:
-    pretrained: ./models/TernausNet.pt    # Mandatory
-  checkpointed_unet:
-    <<: *unet001
-  inception:
-    pretrained: False   # optional
 ```
+
+Specific parameters in each section are shown below, where relevant. For more information about config.yaml, view file directly: [conf/config.yaml](https://github.com/NRCan/geo-deep-learning/blob/master/conf/config.yaml)
+
 # Semantic segmentation
 ## Models available
 - [Unet](https://arxiv.org/abs/1505.04597)
 - Unet small (less deep version of Unet)
 - Checkpointed Unet (same as Unet small, but uses less GPU memory and recomputes data during the backward pass)
 - [Ternausnet](https://arxiv.org/abs/1801.05746)
+- [FCN (backbone: resnet101)](https://people.eecs.berkeley.edu/~jonlong/long_shelhamer_fcn.pdf)
+- [Deeplabv3 (backbone: resnet101)](https://arxiv.org/abs/1706.05587)
+
+The `config.yaml` contains parameters for each model. Here's an example:
+
+```yaml
+# Models parameters; used in train_model.py and inference.py
+
+models:
+  unet: unet001
+    dropout: False                                   # Set dropout regularization
+    probability: 0.2                                 # Set with dropout
+    pretrained: /path/to/model/checkpoint.pth.tar    # Optional
+```    
+
 ## `csv` preparation
 The `csv` specifies the input images and the reference vector data that will be use during the training.
 Each row in the `csv` file must contain 4 comma-separated items:
@@ -184,6 +137,8 @@ global:
   number_of_bands: 3                # Number of bands in input images
   model_name: unetsmall             # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
+  debug_mode: True                  # Prints detailed progress bar 
+  scale_data: [0, 1]                # Min and Max for input data rescaling. Default: [0, 1]. Enter False if no rescaling is desired.
 
 sample:
   prep_csv_file: /path/to/csv/file_name.csv     # Path to CSV file used in preparation.
@@ -225,6 +180,7 @@ global:
   bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation                # Task to perform. Either segmentation or classification
   num_gpus: 0                       # Number of GPU device(s) to use. Default: 0
+  debug_mode: True                  # Prints detailed progress bar with sample loss, GPU stats (RAM, % of use) and information about current samples.
 
 
 training:
@@ -234,6 +190,8 @@ training:
   num_tst_samples:                              # Number of samples to use for test. (default: all samples in hdfs file are taken)
   batch_size: 32                                # Size of each batch
   num_epochs: 150                               # Number of epochs
+  loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
+  optimizer: adabound # One of adam, sgd or adabound
   learning_rate: 0.0001                         # Initial learning rate
   weight_decay: 0                               # Value for weight decay (each epoch)
   gamma: 0.9                                    # Multiple for learning rate decay
@@ -258,11 +216,21 @@ Output:
 
 Process:
 - The application loads the model
-- Using the hyperparameters provided in `config.yaml` , the application will try to minimize the cross entropy loss on the training data and evaluate every epoch on the validation data.
+- Using the hyperparameters provided in `config.yaml` , the application will try to minimize the loss on the training data and evaluate every epoch on the validation data.
 - For every epoch, the application shows and log the loss on "trn" and "val" datasets.
-- For every epoch, the application shows and log the accuracy, recall and f-score on "val" dataset. Those metrics are also computed on each classes.  
-- At the end of the training process, the application shows and log the accuracy, recall and f-score on "tst" dataset. Those metrics are also computed on each classes.  
+- For every epoch (if `batch_metrics: 1`), the application shows and log the accuracy, recall and f-score on "val" dataset. Those metrics are also computed on each classes.  
+- At the end of the training process, the application shows and log the accuracy, recall and f-score on "tst" dataset. Those metrics are also computed on each classes.
 
+Loss functions:
+- Cross-Entropy (standard loss functions as implemented in [torch.nn](https://pytorch.org/docs/stable/_modules/torch/nn/modules/loss.html))
+- [Multi-class Lovasz-Softmax loss](https://arxiv.org/abs/1705.08790)
+- Ohem Cross Entropy. Adapted from [OCNet Repository](https://github.com/PkuRainBow/OCNet)
+- [Focal Loss](https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/65938) 
+
+Optimizers:
+- Adam (standard optimizer in [torch.optim](https://pytorch.org/docs/stable/optim.html))
+- SGD (standard optimizer in [torch.optim](https://pytorch.org/docs/stable/optim.html)
+- [Adabound/AdaboundW](https://openreview.net/forum?id=Bkg3g2R9FX)
 
 ## inference.py
 
@@ -280,6 +248,9 @@ global:
   model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation        # Task to perform. Either segmentation or classification
+  debug_mode: True          # Prints detailed progress bar   
+  scale_data: [0, 1]        # Min and Max for input data rescaling. Default: [0, 1]. Enter False if no rescaling is desired.
+
 
 inference:
   img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on
@@ -346,7 +317,8 @@ global:
   number_of_bands: 3                # Number of bands in input images
   model_name: inception             # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
-  task: classification               # Task to perform. Either segmentation or classification
+  task: classification              # Task to perform. Either segmentation or classification
+  debug_mode: True                  # Prints detailed progress bar with sample loss, GPU stats (RAM, % of use) and information about current samples.
 
 training:
   output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
@@ -375,6 +347,15 @@ Process:
 - For every epoch, the application shows the loss, accuracy, recall and f-score for both datasets (trn and val)
 - The application also log the accuracy, recall and f-score for each classes of both the datasets
 
+Loss functions:
+- Cross-Entropy (standard loss functions as implemented in [torch.nn](https://pytorch.org/docs/stable/_modules/torch/nn/modules/loss.html))
+- Ohem Cross Entropy. Adapted from [OCNet Repository](https://github.com/PkuRainBow/OCNet)
+- [Focal Loss](https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/65938) 
+
+Optimizers:
+- Adam (standard optimizer in [torch.optim](https://pytorch.org/docs/stable/optim.html))
+- SGD (standard optimizer in [torch.optim](https://pytorch.org/docs/stable/optim.html)
+- [Adabound/AdaboundW](https://openreview.net/forum?id=Bkg3g2R9FX)
 
 ## inference.py
 The final step of a classification task is to associate a label to each image that needs to be classified. The associations will be displayed on the screen and be saved in a csv file.
@@ -392,7 +373,8 @@ global:
   number_of_bands: 3        # Number of bands in input images
   model_name: inception     # One of unet, unetsmall, checkpointed_unet or ternausnet
   bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
-  task: classification        # Task to perform. Either segmentation or classification
+  task: classification      # Task to perform. Either segmentation or classification
+  debug_mode: True          # Prints detailed progress bar
 
 inference:
   img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on

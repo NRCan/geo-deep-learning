@@ -17,6 +17,8 @@ global:
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: classification  # Task to perform. Either segmentation or classification
   num_gpus: 0
+  scale_data: [0,1]
+  debug_mode: True
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -35,6 +37,8 @@ training:
   num_tst_samples:
   batch_size: 4
   num_epochs: 2
+  loss_fn: CrossEntropy # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
+  optimizer: adam # One of adam, sgd or adabound
   learning_rate: 0.0001
   weight_decay: 0
   step_size: 4
@@ -65,5 +69,9 @@ models:
     pretrained: ./models/TernausNet.pt    # Mandatory
   checkpointed_unet: 
     <<: *unet001
+  fcn_resnet101:   # only for 3 band data
+    pretrained:    # optional
+  deeplabv3_resnet101:   # only for 3 band data
+    pretrained:    # optional
   inception:
-    pretrained: False   # optional
+    pretrained:    # optional
