@@ -67,12 +67,8 @@ def chop_layer(pretrained_dict, layer_name="logits"):   #https://discuss.pytorch
     :param layer_name: name of layer to be chopped. Must be the terminal layer (not hidden layer)
     :return: (nn.Module) model
     """
-    #model_dict = model.state_dict()
-
-    # 1. filter out unnecessary keys
+    # filter out weights from undesired keys. ex.: size mismatch.
     chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer_name) == -1}
-    #model_dict.update(pretrained_dict)
-    #model.load_state_dict(model_dict)
     return chopped_dict
 
 

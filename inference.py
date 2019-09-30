@@ -259,11 +259,13 @@ def main(params):
             nd_array_tif = image_reader_as_array(local_img)
             # See: http://cs231n.github.io/neural-networks-2/#datapre
             # e.g. Scale arrays from [0,255] to [0,1]
-            if params['sample']['scale_data']:
-                min, max = params['sample']['scale_data']
+            scale = params['global']['scale_data'] if params['global']['scale_data'] else True
+            if scale:
+                sc_min, sc_max = params['global']['scale_data']
                 nd_array_tif = minmax_scale(nd_array_tif,
                                               orig_range=(np.min(nd_array_tif), np.max(nd_array_tif)),
-                                              scale_range=(min,max))
+                                              scale_range=(sc_min,sc_max))
+
             sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes, device)
             create_new_raster_from_base(local_img, inference_image, sem_seg_results)
             tqdm.write(f"Semantic segmentation of image {img_name} completed")

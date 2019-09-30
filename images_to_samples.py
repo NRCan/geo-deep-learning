@@ -213,12 +213,12 @@ def main(params):
 
             # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
             # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
-            scale = params['sample']['scale_data'] if params['sample']['scale_data'] else True
+            scale = params['global']['scale_data'] if params['global']['scale_data'] else True
             if scale:
-                min, max = params['sample']['scale_data']
+                sc_min, sc_max = params['global']['scale_data']
                 np_input_image = minmax_scale(np_input_image,
                                               orig_range=(np.min(np_input_image), np.max(np_input_image)),
-                                              scale_range=(min,max))
+                                              scale_range=(sc_min,sc_max))
 
             # Mask the zeros from input image into label raster.
             if params['sample']['mask_reference']:

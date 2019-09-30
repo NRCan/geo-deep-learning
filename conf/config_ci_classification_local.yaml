@@ -17,6 +17,7 @@ global:
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: classification  # Task to perform. Either segmentation or classification
   num_gpus: 0
+  scale_data: [0,1]
   debug_mode: True
 
 # Sample parameters; used in images_to_samples.py -------------------
@@ -26,7 +27,6 @@ sample:
   samples_dist: 200
   min_annotated_percent: 10 # Min % of non background pixels in stored samples. Default: 0
   mask_reference: False
-  scale_data: [0,1]
 
 # Training parameters; used in train_model.py ----------------------
 
@@ -72,6 +72,6 @@ models:
   fcn_resnet101:   # only for 3 band data
     pretrained:    # optional
   deeplabv3_resnet101:   # only for 3 band data
-    pretrained: /home/rtavon/Documents/kingston-test-deeplabv3-2/model/checkpoint.pth.tar   # optional
+    pretrained:    # optional
   inception:
     pretrained:    # optional

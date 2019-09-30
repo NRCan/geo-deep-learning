@@ -1,6 +1,6 @@
 # WARNING: data being augmented may be scaled to (0,1) rather, for example, (0,255). Therefore, implementing radiometric
 # augmentations (ex.: changing hue, saturation, brightness, contrast) may give undesired results.
-# Scaling process is donc in images_to_samples.py l.215
+# Scaling process is done in images_to_samples.py l.215
 
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
@@ -8,7 +8,6 @@ import random
 import numpy as np
 from skimage import transform
 from torchvision import transforms
-from utils.preprocess import minmax_scale
 
 
 def compose_transforms(params, dataset):

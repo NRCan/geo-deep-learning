@@ -17,6 +17,7 @@ global:
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 2
+  scale_data: [0,1]
   debug_mode: True
 
 # Sample parameters; used in images_to_samples.py -------------------
@@ -26,7 +27,6 @@ sample:
   samples_dist: 200
   min_annotated_percent: 10 # Min % of non background pixels in stored samples. Default: 0
   mask_reference: False
-  scale_data: [0,1]
 
 # Training parameters; used in train_model.py ----------------------
 
@@ -37,7 +37,7 @@ training:
   num_tst_samples: 1000
   batch_size: 32
   num_epochs: 100
-  loss_fn: Lovasz # One of CrossEntropy or Lovasz (*Lovasz for segmentation tasks only)
+  loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
   optimizer: adabound # One of adam, sgd or adabound
   learning_rate: 0.0001
   weight_decay: 0

@@ -1,6 +1,6 @@
 import torchvision.models as models
 from models import TernausNet, unet, checkpointed_unet, inception
-from utils.utils import chop_layer, load_from_checkpoint
+from utils.utils import chop_layer
 
 
 def net(net_params, inference=False):

@@ -346,7 +346,7 @@ def main(params):
                                                                        task=task)
 
     now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M ")
-    filename = os.path.join(output_path, 'checkpoint.pth.tar')
+    filename = os.path.join(output_path, 'checkpoint.pth.tar')    #TODO Should output directory hold same name as config file name?
 
     for epoch in range(0, params['training']['num_epochs']):
         print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
@@ -471,7 +471,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
             train_metrics['loss'].update(loss.item(), batch_size)
 
-            if debug and torch.cuda.is_available():
+            if debug and device.type == 'cuda':
                 res, mem = gpu_stats(device=device.index)
                 _tqdm.set_postfix(OrderedDict(train_loss=f'{train_metrics["loss"].val:.4f}',
                                               device=device,
@@ -527,9 +527,9 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     labels_flatten = flatten_labels(labels)
 
                     outputs = model(inputs)
-                    outputs_flatten = flatten_outputs(outputs, num_classes)
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
+                    outputs_flatten = flatten_outputs(outputs, num_classes)
 
                 loss = criterion(outputs, labels)
 

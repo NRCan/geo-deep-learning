@@ -8,13 +8,11 @@ from .ohem_loss import OhemCrossEntropy2d
 from .focal_loss import FocalLoss
 
 
-class MultiClassCriterion(nn.Module):    #TODO make sure all these loss functions can be used in binary classification
+class MultiClassCriterion(nn.Module):
     def __init__(self, loss_type='CrossEntropy', **kwargs):
         super().__init__()
         if loss_type == 'CrossEntropy':
             self.criterion = nn.CrossEntropyLoss(**kwargs)
-        elif loss_type == 'Focal':
-            self.criterion = FocalLoss(**kwargs)
         elif loss_type == 'Lovasz':
             self.criterion = LovaszSoftmax(**kwargs)
         elif loss_type == 'OhemCrossEntropy':

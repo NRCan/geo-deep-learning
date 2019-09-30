@@ -1,4 +1,4 @@
-import torch, utils
+import torch
 from utils import utils
 from torch import nn
 
