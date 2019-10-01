@@ -130,7 +130,7 @@ def load_from_checkpoint(filename, model, optimizer=None):
                         mismatched_layers.append(mismatch_layer)
                 chopped_checkpt = chop_layer(checkpoint['model'], layer_names=mismatched_layers)
                 # overwrite entries in the existing state dict
-                model.load_state_dict(chopped_checkpt)
+                model.load_state_dict(chopped_checkpt, strict=False)
             except RuntimeError as error:
                 raise RuntimeError(error)
 

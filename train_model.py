@@ -347,7 +347,7 @@ def main(params):
                                                                        task=task)
 
     now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M ")
-    filename = os.path.join(output_path, 'checkpoint.pth.tar')    #TODO Should output directory hold same name as config file name?
+    filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
     for epoch in range(0, params['training']['num_epochs']):
         print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
