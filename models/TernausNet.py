@@ -105,5 +105,4 @@ def ternausnet(num_classes, state_dict_path):
                 Kaggle: Carvana dataset https://www.kaggle.com/c/carvana-image-masking-challenge
     """
     model = UNet11(num_classes)
-    model = load_from_checkpoint(state_dict_path, model)
     return model

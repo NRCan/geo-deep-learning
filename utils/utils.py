@@ -60,15 +60,18 @@ def read_parameters(param_file):
     return params
 
 
-def chop_layer(pretrained_dict, layer_name="logits"):   #https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2
+def chop_layer(pretrained_dict, layer_names=["logits"]):   #https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2
     """
     Removes keys from a layer in state dictionary of model architecture.
     :param model: (nn.Module) model with original architecture
-    :param layer_name: name of layer to be chopped. Must be the terminal layer (not hidden layer)
+    :param layer_names: (list) names of layers to be chopped.
     :return: (nn.Module) model
     """
     # filter out weights from undesired keys. ex.: size mismatch.
-    chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer_name) == -1}
+    for layer in layer_names:
+        chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer) == -1}
+        pretrained_dict = chopped_dict    # overwrite values in pretrained dict with chopped dict
+
     return chopped_dict
 
 
@@ -99,13 +102,12 @@ def load_from_checkpoint(filename, model, optimizer=None):
 
         checkpoint = torch.load(filename) if torch.cuda.is_available() else torch.load(filename, map_location='cpu')
 
-        # For loading external models with different structure in state dict
+        # For loading external models with different structure in state dict. May cause problems when trying to load optimizer
         if 'model' not in checkpoint.keys():
-            # FIXME creating a key inside a dictionary already containing keys...
-            new_checkpoint = {}
-            new_checkpoint['model'] = checkpoint.copy    # Place entire state_dict inside 'model' key
+            temp_checkpoint = {}
+            temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}    # Place entire state_dict inside 'model' key
             del checkpoint
-            checkpoint = new_checkpoint
+            checkpoint = temp_checkpoint
 
         # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
         # https://github.com/bearpaw/pytorch-classification/issues/27
@@ -119,30 +121,25 @@ def load_from_checkpoint(filename, model, optimizer=None):
             model.load_state_dict(checkpoint['model'])
         except RuntimeError as error:
             try:
-                layer_mismatch = str(error).split('\n')[2].split("mismatch for ")[1].split(":")[0]
-                print(f'Oups. Following layer is causing a problem: \'{layer_mismatch}\'. '
-                      f'We will try chopping it out of dictionary')
-                if layer_mismatch.endswith('weight'):
-                    layer_mismatch = layer_mismatch.split('.weight')[0]
-                elif layer_mismatch.endswith('bias'):
-                    layer_mismatch = layer_mismatch.split('.bias')[0]
-                    # 1. filter out unnecessary keys
-                chopped_checkpt = chop_layer(checkpoint['model'], layer_name=layer_mismatch)
-                # 2. overwrite entries in the existing state dict
-                checkpoint['model'] = model.state_dict()
-                checkpoint['model'].update(chopped_checkpt)
-                model.load_state_dict(checkpoint['model'])
+                list_errors = str(error).split('\n\t')
+                mismatched_layers = []
+                for error in list_errors:
+                    if error.startswith('size mismatch'):
+                        mismatch_layer = error.split("size mismatch for ")[1].split(":")[0]    # get name of problematic layer
+                        print(f'Oups. {error}. We will try chopping "{mismatch_layer}" out of pretrained dictionary.')
+                        mismatched_layers.append(mismatch_layer)
+                chopped_checkpt = chop_layer(checkpoint['model'], layer_names=mismatched_layers)
+                # overwrite entries in the existing state dict
+                model.load_state_dict(chopped_checkpt)
             except RuntimeError as error:
                 raise RuntimeError(error)
 
-        print("=> loaded model '{}'".format(filename))
-        if optimizer:
+        print(f"=> loaded model '{filename}'")
+        if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
             optimizer.load_state_dict(checkpoint['optimizer'])
-            return model, optimizer
-        elif optimizer is None:
-            return model
+        return model, optimizer
     else:
-        print("=> no model found at '{}'".format(filename))
+        print(f"=> no model found at '{filename}'")
 
 
 def image_reader_as_array(file_name):
