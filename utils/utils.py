@@ -87,7 +87,7 @@ def assert_band_number(in_image, band_count_yaml):
     assert in_array.shape[2] == band_count_yaml, msg
 
 
-def load_from_checkpoint(filename, model, optimizer=None, chop_layer_name=None):
+def load_from_checkpoint(filename, model, optimizer=None):
     """Load weights from a previous checkpoint
     Args:
         filename: full file path of file containing checkpoint
@@ -97,39 +97,43 @@ def load_from_checkpoint(filename, model, optimizer=None, chop_layer_name=None):
     if os.path.isfile(filename):
         print("=> loading model '{}'".format(filename))
 
-        if torch.cuda.is_available():
-            checkpoint = torch.load(filename)
-        else:
-            checkpoint = torch.load(filename, map_location='cpu')
+        checkpoint = torch.load(filename) if torch.cuda.is_available() else torch.load(filename, map_location='cpu')
 
         # For loading external models with different structure in state dict
         if 'model' not in checkpoint.keys():
-            checkpoint['model'] = checkpoint
-
-        try:
-            # Automatically chop out classifier if num_classes is different in chosen model and loaded checkpoint.
-            # prone to generating exceptions. Is there a better solution?
-            if chop_layer_name \
-                    and checkpoint['model'][str(chop_layer_name + '.weight')].shape != \
-                    model.state_dict()[str(chop_layer_name + '.weight')].shape:
-                # 1. filter out unnecessary keys
-                chopped_checkpt = chop_layer(checkpoint['model'], layer_name=chop_layer_name)
-                # 2. overwrite entries in the existing state dict
-                checkpoint['model'] = model.state_dict()
-                checkpoint['model'].update(chopped_checkpt)
-
-        except KeyError as error:
-            raise KeyError(f'{error}. The specified layer name {chop_layer_name} to chop might not exist in state dictionary. '
-                           f'N.B. Enter first part of name, e.g. "final" as opposed to "final.weight"')
+            # FIXME creating a key inside a dictionary already containing keys...
+            new_checkpoint = {}
+            new_checkpoint['model'] = checkpoint.copy    # Place entire state_dict inside 'model' key
+            del checkpoint
+            checkpoint = new_checkpoint
 
         # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
         # https://github.com/bearpaw/pytorch-classification/issues/27
         # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
         if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
             new_state_dict = model.state_dict().copy()
-            new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}
+            new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
             checkpoint['model'] = new_state_dict['model']
-        model.load_state_dict(checkpoint['model'])
+
+        try:
+            model.load_state_dict(checkpoint['model'])
+        except RuntimeError as error:
+            try:
+                layer_mismatch = str(error).split('\n')[2].split("mismatch for ")[1].split(":")[0]
+                print(f'Oups. Following layer is causing a problem: \'{layer_mismatch}\'. '
+                      f'We will try chopping it out of dictionary')
+                if layer_mismatch.endswith('weight'):
+                    layer_mismatch = layer_mismatch.split('.weight')[0]
+                elif layer_mismatch.endswith('bias'):
+                    layer_mismatch = layer_mismatch.split('.bias')[0]
+                    # 1. filter out unnecessary keys
+                chopped_checkpt = chop_layer(checkpoint['model'], layer_name=layer_mismatch)
+                # 2. overwrite entries in the existing state dict
+                checkpoint['model'] = model.state_dict()
+                checkpoint['model'].update(chopped_checkpt)
+                model.load_state_dict(checkpoint['model'])
+            except RuntimeError as error:
+                raise RuntimeError(error)
 
         print("=> loaded model '{}'".format(filename))
         if optimizer:

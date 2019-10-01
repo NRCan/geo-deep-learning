@@ -20,6 +20,7 @@ except ModuleNotFoundError:
 import torchvision
 import torch.optim as optim
 from torch import nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
@@ -467,6 +468,10 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
+                #for SPP nets like deeplabv3+
+                if outputs.shape[2:] != labels.shape[1:]:
+                    outputs = F.interpolate(outputs, size=labels.shape[1:], mode='bilinear', align_corners=True)
+
             loss = criterion(outputs, labels)
 
             train_metrics['loss'].update(loss.item(), batch_size)
@@ -529,6 +534,11 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
+
+                    # for SPP nets like deeplabv3+
+                    if outputs.shape[2:] != labels.shape[1:]:
+                        outputs = F.interpolate(outputs, size=labels.shape[1:], mode='bilinear', align_corners=True)
+
                     outputs_flatten = flatten_outputs(outputs, num_classes)
 
                 loss = criterion(outputs, labels)
