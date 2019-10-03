@@ -259,7 +259,7 @@ def main(params):
             nd_array_tif = image_reader_as_array(local_img)
             # See: http://cs231n.github.io/neural-networks-2/#datapre
             # e.g. Scale arrays from [0,255] to [0,1]
-            scale = params['global']['scale_data'] if params['global']['scale_data'] else True
+            scale = params['global']['scale_data']
             if scale:
                 sc_min, sc_max = params['global']['scale_data']
                 nd_array_tif = minmax_scale(nd_array_tif,
