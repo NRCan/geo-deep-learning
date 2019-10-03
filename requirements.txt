@@ -5,3 +5,4 @@ fiona
 nvidia-ml-py3
 boto3
 rasterio
+tqdm
