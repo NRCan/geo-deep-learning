@@ -80,7 +80,6 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device)
 
     if padded_array.any():
         with torch.no_grad():
-            # TODO: BUG. tqdm's second loop printing on multiple lines.
             for row in tqdm(range(overlay, h, chunk_size - overlay), position=1, leave=False):
                 row_start = row - overlay
                 row_end = row_start + chunk_size
@@ -176,7 +175,7 @@ def classifier(params, img_list, model):
         np.savetxt(csv_results, classified_results, fmt='%s', delimiter=',')
         bucket.upload_file(csv_results, os.path.join(params['inference']['working_folder'], csv_results))
     else:
-        np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s', delimiter=',')
+        np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s', delimiter=',')   #FIXME create directories if don't exist
 
 
 def calc_overlap(params):

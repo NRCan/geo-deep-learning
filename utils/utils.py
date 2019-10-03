@@ -151,11 +151,14 @@ def image_reader_as_array(file_name):
         numm_py_array of the image read
     """
 
-    with rasterio.open(file_name, 'r') as src:
-        np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
-        for i in range(src.count):
-            band = src.read(i+1)  # Bands starts at 1 in rasterio not 0
-            np_array[:, :, i] = band
+    try:
+        with rasterio.open(file_name, 'r') as src:
+            np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
+            for i in range(src.count):
+                band = src.read(i+1)  # Bands starts at 1 in rasterio not 0
+                np_array[:, :, i] = band
+    except IOError:
+        raise IOError(f'Could not locate "{file_name}". Make sure file exists in this directory.')
 
     return np_array
 
