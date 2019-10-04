@@ -191,6 +191,7 @@ class SPPNet(nn.Module):
         self.output_channels = output_channels
         self.enc_type = enc_type
         self.dec_type = dec_type
+        self.output_stride = output_stride
 
         assert enc_type in ['xception65', 'mobilenetv2']
         assert dec_type in ['aspp', 'maspp']
@@ -213,6 +214,7 @@ class SPPNet(nn.Module):
             x = self.spp(x)
             x = self.decoder(x, low_level_feat)
             x = self.logits(x)
+            x = F.interpolate(x, size=inputs.shape[2:], mode='bilinear', align_corners=True)    #at OS=8, l = l/4 of input
             return x
 
     def update_bn_eps(self):

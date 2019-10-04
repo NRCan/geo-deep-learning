@@ -536,10 +536,6 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
 
-                    # for SPP nets like deeplabv3+
-                    if outputs.shape[2:] != labels.shape[1:]:
-                        outputs = F.interpolate(outputs, size=labels.shape[1:], mode='bilinear', align_corners=True)
-
                     outputs_flatten = flatten_outputs(outputs, num_classes)
 
                 loss = criterion(outputs, labels)
