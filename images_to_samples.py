@@ -88,6 +88,12 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
     else:
         raise ValueError(f"Dataset value must be trn or val. Provided value is {dataset}")
 
+    metadata_idx = -1
+    if image_metadata:
+        # there should be one set of metadata per raster
+        # ...all samples created by tiling below will point to that metadata by index
+        metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
+
     # half tile padding
     half_tile = int(sample_size / 2)
     pad_in_img_array = np.pad(in_img_array, ((half_tile, half_tile), (half_tile, half_tile), (0, 0)),
@@ -105,23 +111,12 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
             if target_background_percent < 100 - min_annotated_percent:
                 append_to_dataset(samples_file["sat_img"], data)
                 append_to_dataset(samples_file["map_img"], target)
+                append_to_dataset(samples_file["meta_idx"], metadata_idx)
                 idx_samples += 1
 
             target_class_num = np.max(u)
             if num_classes < target_class_num:
                 num_classes = target_class_num
-
-    # add metadata
-    if image_metadata:
-        try:
-            properties = image_metadata['properties']
-            if properties:
-                for p in ['eo:gsd', 'eo:azimuth', 'eo:sun_azimuth', 'eo:sun_elevation']:
-                    if properties.get(p):
-                        samples_file.attrs[p] = properties[p]
-        except KeyError:
-            warnings.warn('Information missing in the metadata file: ')
-            raise
 
     if dataset == 'trn':
         samples_count['trn'] = idx_samples
