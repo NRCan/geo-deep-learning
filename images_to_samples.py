@@ -11,7 +11,7 @@ from tqdm import tqdm
 from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets
-from utils import (
+from utils.utils import (
     read_parameters, assert_band_number, image_reader_as_array, create_or_empty_folder, validate_num_classes, read_csv
 )
 from utils.preprocess import minmax_scale
