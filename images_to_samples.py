@@ -51,14 +51,11 @@ def mask_image(arrayA, arrayB):
     return ma_array
 
 
-def resize_datasets(hdf5_file):
-    """Function to add one entry to both the datasets"""
-
-    n = hdf5_file['sat_img'].shape[0]
-
-    new_size = n + 1
-    hdf5_file['sat_img'].resize(new_size, axis=0)
-    hdf5_file['map_img'].resize(new_size, axis=0)
+def append_to_dataset(dataset, sample):
+    old_size = dataset.shape[0]  # this function always appends samples on the first axis
+    dataset.resize(old_size + 1, axis=0)
+    dataset[old_size, ...] = sample
+    return old_size  # the index to the newly added sample, or the previous size of the dataset
 
 
 def samples_preparation(in_img_array, label_array, sample_size, dist_samples, samples_count, num_classes, samples_file,
@@ -106,9 +103,8 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
             target_background_percent = count[0] / np.sum(count) * 100 if 0 in u else 0
 
             if target_background_percent < 100 - min_annotated_percent:
-                resize_datasets(samples_file)
-                samples_file["sat_img"][idx_samples, ...] = data
-                samples_file["map_img"][idx_samples, ...] = target
+                append_to_dataset(samples_file["sat_img"], data)
+                append_to_dataset(samples_file["map_img"], target)
                 idx_samples += 1
 
             target_class_num = np.max(u)
