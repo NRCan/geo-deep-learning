@@ -140,6 +140,7 @@ def vector_to_raster(vector_file, input_image, attribute_name):
     lst_vector.sort(key=lambda vector: vector['properties'][attribute_name])
     lst_vector_tuple = [(vector['geometry'], int(vector['properties'][attribute_name])) for vector in lst_vector]
 
+    # TODO: check a vector entity is empty (e.g. if a vector['type'] in lst_vector is None.)
     # Open input raster image to have access to number of rows, column, crs...
     with rasterio.open(input_image, 'r') as src:
         burned_raster = rasterio.features.rasterize((vector_tuple for vector_tuple in lst_vector_tuple),
@@ -176,7 +177,7 @@ def main(params):
 
     else:
         list_data_prep = read_csv(csv_file)
-        samples_folder = os.path.join(data_path, "samples")
+        samples_folder = os.path.join(data_path, "samples")    #FIXME check that data_path exists!
         out_label_folder = os.path.join(data_path, "label")
 
     create_or_empty_folder(samples_folder)
