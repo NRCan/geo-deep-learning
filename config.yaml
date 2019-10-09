@@ -18,6 +18,8 @@ global:
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 1
   metadata_file: ./data/kingston_wv2_40cm/kingston_wv2_40cm.yml
+  scale_data: [0,1]
+  debug_mode: True
 
 # Sample parameters; used in images_to_samples.py -------------------
 
