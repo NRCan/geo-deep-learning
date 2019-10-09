@@ -104,7 +104,7 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
 
             target_class_num = target.max()
             u, count = np.unique(target, return_counts=True)
-            target_background_percent = count[0] / np.sum(count) * 100
+            target_background_percent = count[0] / np.sum(count) * 100 if 0 in u else 0
 
             if target_background_percent >= min_annotated_percent:
                 resize_datasets(samples_file)
