@@ -33,9 +33,9 @@ sample:
 
 training:
   output_path: ./data/output
-  num_trn_samples: 10
-  num_val_samples: 10
-  num_tst_samples: 10
+  num_trn_samples:
+  num_val_samples:
+  num_tst_samples:
   batch_size: 16
   num_epochs: 100
   learning_rate: 0.0001
