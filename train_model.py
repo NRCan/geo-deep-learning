@@ -233,43 +233,25 @@ def set_hyperparameters(params, model, checkpoint):
     """
     Function to set hyperparameters based on values provided in yaml config file.
     Will also set model to GPU, if available.
-    If none provided, default functions values are used.
+    If none provided, default functions values may be used.
     :param params: (dict) Parameters found in the yaml config file
     :param model: Model loaded from model_choice.py
     :param checkpoint: (dict) state dict as loaded by model_choice.py
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
+    # set mandatory hyperparameters values with those in config file if they exist
+    lr = params['training']['learning_rate']
+    weight_decay = params['training']['weight_decay']
+    step_size = params['training']['step_size']
+    gamma = params['training']['gamma']
+    num_devices = params['global']['num_gpus']
+    assert lr and weight_decay and step_size and gamma and num_devices, 'Missing mandatory hyperparameter in .yaml config file.'
 
-    # assign default values to hyperparameters
-    loss_signature = inspect.signature(nn.CrossEntropyLoss).parameters
-    optim_signature = inspect.signature(optim.Adam).parameters
-    lr_scheduler_signature = inspect.signature(optim.lr_scheduler.StepLR).parameters
-    class_weights = loss_signature['weight'].default
-    ignore_index = loss_signature['ignore_index'].default
-    lr = optim_signature['lr'].default
-    weight_decay = optim_signature['weight_decay'].default
-    step_size = lr_scheduler_signature['step_size'].default
-    if not isinstance(step_size, int):
-        step_size = params['training']['num_epochs'] + 1
-    gamma = lr_scheduler_signature['gamma'].default
-    num_devices = 0
-
-    # replace default values by those in config file if they exist
-    if params['training']['class_weights']:
-        class_weights = torch.tensor(params['training']['class_weights'])
+    # optional hyperparameters. Set to None if not in config file
+    class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
+    if class_weights:
         verify_weights(params['global']['num_classes'], class_weights)
-    if params['training']['ignore_index']:
-        ignore_index = params['training']['ignore_index']
-    if params['training']['learning_rate']:
-        lr = params['training']['learning_rate']
-    if params['training']['weight_decay']:
-        weight_decay = params['training']['weight_decay']
-    if params['training']['step_size']:
-        step_size = params['training']['step_size']
-    if params['training']['gamma']:
-        gamma = params['training']['gamma']
-    if params['global']['num_gpus']:
-        num_devices = params['global']['num_gpus']
+    ignore_index = params['training']['ignore_index'] if params['training']['ignore_index'] else None
 
     # Loss function
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)

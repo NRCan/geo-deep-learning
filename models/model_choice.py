@@ -41,7 +41,7 @@ def net(net_params, inference=False):
         model = unet.UNet(num_classes,
                                   net_params['global']['number_of_bands'],
                                   net_params['training']['dropout'],
-                                  net_params['models']['models']['probability'])
+                                  net_params['training']['dropout_prob'])
     elif model_name == 'ternausnet':
         assert net_params['global']['number_of_bands'] == 3, msg
         model = TernausNet.ternausnet(num_classes)
@@ -49,7 +49,7 @@ def net(net_params, inference=False):
         model = checkpointed_unet.UNetSmall(num_classes,
                                        net_params['global']['number_of_bands'],
                                        net_params['training']['dropout'],
-                                       net_params['models']['models']['probability'])
+                                       net_params['training']['dropout_prob'])
     elif model_name == 'inception':
         model = inception.Inception3(num_classes,
                                      net_params['global']['number_of_bands'])
@@ -76,8 +76,8 @@ def net(net_params, inference=False):
         model.load_state_dict(chopped_dict, strict=False)
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
-    if net_params['training']['pretrained_model_name']:
-        state_dict_path = net_params['training']['pretrained_model_path']
+    if net_params['training']['state_dict_path']:
+        state_dict_path = net_params['training']['state_dict_path']
     if inference:
         state_dict_path = net_params['inference']['state_dict_path']
     
