@@ -278,7 +278,8 @@ def set_hyperparameters(params, model, checkpoint):
     optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
-    model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer)
+    if checkpoint:
+        model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer)
 
     return model, criterion, optimizer, lr_scheduler, device, num_devices
 
