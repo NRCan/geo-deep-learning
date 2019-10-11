@@ -94,7 +94,7 @@ def get_s3_classification_images(dataset, bucket, bucket_name, data_path, output
 
     path = os.path.join('Images', dataset)
     try:
-        os.mkdir(path)
+        os.mkdir(path) # TODO use Path from pathlib instead?
     except FileExistsError:
         pass
     for c in classes:
@@ -245,7 +245,8 @@ def set_hyperparameters(params, model, checkpoint):
     step_size = params['training']['step_size']
     gamma = params['training']['gamma']
     num_devices = params['global']['num_gpus']
-    assert lr and weight_decay and step_size and gamma and num_devices, 'Missing mandatory hyperparameter in .yaml config file.'
+    msg = 'Missing mandatory hyperparameter in config file. Make sure learning_rate, weight_decay, step_size, gamma and num_devices are set.'
+    assert (lr and weight_decay and step_size and gamma and num_devices) is not None, msg
 
     # optional hyperparameters. Set to None if not in config file
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
@@ -282,16 +283,26 @@ def set_hyperparameters(params, model, checkpoint):
     return model, criterion, optimizer, lr_scheduler, device, num_devices
 
 
-def main(params):
+def main(params, config_path):
     """
     Function to train and validate a models for semantic segmentation or classification.
     :param params: (dict) Parameters found in the yaml config file.
+    :param config_path: (str) Path to the yaml config file.
 
     """
+    now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M")
+
     model, checkpoint, model_name = net(params)
     bucket_name = params['global']['bucket_name']
-    output_path = params['training']['output_path']
     data_path = params['global']['data_path']
+    modelname = config_path.stem
+    output_path = Path(data_path).joinpath('model') / modelname
+    try:
+        output_path.mkdir(exist_ok=False)
+    except FileExistsError:
+        output_path = Path(str(output_path)+'_'+now)
+        output_path.mkdir(exist_ok=False)
+    print(f'Model and log files will be saved to: {output_path}')
     task = params['global']['task']
     num_classes = params['global']['num_classes']
     batch_size = params['training']['batch_size']
@@ -311,9 +322,7 @@ def main(params):
 
     progress_log = Path(output_path) / 'progress.log'
     if not progress_log.exists():
-        # Add header
-        # TODO overwrite existing log?
-        progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))
+        progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))    # Add header
 
     trn_log = InformationLogger(output_path, 'trn')
     val_log = InformationLogger(output_path, 'val')
@@ -328,8 +337,7 @@ def main(params):
                                                                        batch_size=batch_size,
                                                                        task=task)
 
-    now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M ")
-    filename = os.path.join(output_path, 'checkpoint.pth.tar')    #TODO Should output directory hold same name as config file name?
+    filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
     for epoch in range(0, params['training']['num_epochs']):
         print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
@@ -550,9 +558,10 @@ if __name__ == '__main__':
     parser.add_argument('param_file', metavar='DIR',
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
+    config_path = Path(args.param_file)
     params = read_parameters(args.param_file)
 
     debug = True if params['global']['debug_mode'] else False
 
-    main(params)
+    main(params, config_path)
     print('End of training')

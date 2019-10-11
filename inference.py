@@ -13,6 +13,7 @@ import math
 from collections import OrderedDict
 import warnings
 from tqdm import tqdm
+from pathlib import Path
 
 from models.model_choice import net
 from utils.utils import read_parameters, assert_band_number, load_from_checkpoint, \
@@ -204,6 +205,9 @@ def main(params):
     """
     since = time.time()
     csv_file = params['inference']['img_csv_file']
+    working_folder = Path(params['inference']['working_folder'])
+    Path.mkdir(working_folder)
+    print(f'Inferences will be saved to: {working_folder}')
 
     bucket = None
     bucket_name = params['global']['bucket_name']
