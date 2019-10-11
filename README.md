@@ -161,7 +161,7 @@ Details on parameters used by this module:
 global:
   samples_size: 256                 # Size (in pixel) of the samples
   num_classes: 2                    # Number of classes
-  data_path: /path/to/data/folder   # Path to folder containing samples
+  data_path: /path/to/data/folder   # Path to folder containing samples, model and log files
   number_of_bands: 3                # Number of bands in input images
   model_name: unetsmall             # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
@@ -169,9 +169,7 @@ global:
   num_gpus: 0                       # Number of GPU device(s) to use. Default: 0
   debug_mode: True                  # Prints detailed progress bar with sample loss, GPU stats (RAM, % of use) and information about current samples.
 
-
 training:
-  output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
   state_dict_path: False      # Pretrained model path as .pth.tar or .pth file. Optional.
   num_trn_samples: 4960                         # Number of samples to use for training. (default: all samples in hdfs file are taken)
   num_val_samples: 2208                         # Number of samples to use for validation. (default: all samples in hdfs file are taken)
@@ -203,6 +201,8 @@ Inputs:
 Output:
 - Trained model weights
     - checkpoint.pth.tar        Corresponding to the training state where the validation loss was the lowest during the training process.
+- Model weights and log files are saved to: data_path / 'model' / name_of_.yaml_file.
+- If running multiple tests with same data_path, a suffix containing date and time is added to directory (i.e. name of .yaml file)
 
 Process:
 - The application loads the model
@@ -311,7 +311,6 @@ global:
   debug_mode: True                  # Prints detailed progress bar with sample loss, GPU stats (RAM, % of use) and information about current samples.
 
 training:
-  output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
   state_dict_path: False      # Pretrained model path as .pth.tar or .pth file. Optional.
   batch_size: 32                                # Size of each batch
   num_epochs: 150                               # Number of epochs
@@ -338,6 +337,8 @@ Output:
 - Trained model weights
     - checkpoint.pth.tar        Corresponding to the training state where the validation loss was the lowest during the training process.
     - last_epoch.pth.tar         Corresponding to the training state after the last epoch.
+- Model weights and log files are saved to: data_path / 'model' / name_of_.yaml_file.
+- If running multiple tests with same data_path, a suffix containing date and time is added to directory (i.e. name of .yaml file)
 
 Process:
 - The application loads the model specified in the configuration file

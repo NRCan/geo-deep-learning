@@ -31,7 +31,6 @@ sample:
 # Training parameters; used in train_model.py ----------------------
 
 training:
-  output_path: ./data
   state_dict_path:    # optional
   num_trn_samples: 24
   num_val_samples: 24

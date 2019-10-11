@@ -31,7 +31,6 @@ sample:
 # Training parameters; used in train_model.py ----------------------
 
 training:
-  output_path: /path/to/model/weights/output/folder
   state_dict_path: path/to/pretrained/file/checkpoint.pth.tar    # optional
   num_trn_samples: 4960
   num_val_samples: 2208
