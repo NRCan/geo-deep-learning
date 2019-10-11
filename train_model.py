@@ -20,6 +20,7 @@ except ModuleNotFoundError:
 import torchvision
 import torch.optim as optim
 from torch import nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
@@ -330,6 +331,7 @@ def main(params):
     progress_log = Path(output_path) / 'progress.log'
     if not progress_log.exists():
         # Add header
+        # TODO overwrite existing log?
         progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))
 
     trn_log = InformationLogger(output_path, 'trn')
@@ -403,7 +405,7 @@ def main(params):
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    model = load_from_checkpoint(filename, model)
+    model, _ = load_from_checkpoint(filename, model)
     tst_report = evaluation(eval_loader=tst_dataloader,
                             model=model,
                             criterion=criterion,
@@ -529,6 +531,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
+
                     outputs_flatten = flatten_outputs(outputs, num_classes)
 
                 loss = criterion(outputs, labels)

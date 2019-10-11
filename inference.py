@@ -80,7 +80,6 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device)
 
     if padded_array.any():
         with torch.no_grad():
-            # TODO: BUG. tqdm's second loop printing on multiple lines.
             for row in tqdm(range(overlay, h, chunk_size - overlay), position=1, leave=False):
                 row_start = row - overlay
                 row_end = row_start + chunk_size
@@ -176,7 +175,7 @@ def classifier(params, img_list, model):
         np.savetxt(csv_results, classified_results, fmt='%s', delimiter=',')
         bucket.upload_file(csv_results, os.path.join(params['inference']['working_folder'], csv_results))
     else:
-        np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s', delimiter=',')
+        np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s', delimiter=',')   #FIXME create directories if don't exist
 
 
 def calc_overlap(params):
@@ -237,9 +236,9 @@ def main(params):
     elif params['global']['task'] == 'segmentation':
         if bucket:
             bucket.download_file(state_dict_path, "saved_model.pth.tar")
-            model = load_from_checkpoint("saved_model.pth.tar", model)
+            model, _ = load_from_checkpoint("saved_model.pth.tar", model)
         else:
-            model = load_from_checkpoint(state_dict_path, model)
+            model, _ = load_from_checkpoint(state_dict_path, model)
 
         chunk_size, nbr_pix_overlap = calc_overlap(params)
         num_classes = params['global']['num_classes']
@@ -257,9 +256,9 @@ def main(params):
             assert_band_number(local_img, params['global']['number_of_bands'])
 
             nd_array_tif = image_reader_as_array(local_img)
-            # See: http://cs231n.github.io/neural-networks-2/#datapre
-            # e.g. Scale arrays from [0,255] to [0,1]
-            scale = params['global']['scale_data'] if params['global']['scale_data'] else True
+                                               
+            # See: http://cs231n.github.io/neural-networks-2/#datapre. e.g. Scale arrays from [0,255] to [0,1]
+            scale = params['global']['scale_data']
             if scale:
                 sc_min, sc_max = params['global']['scale_data']
                 nd_array_tif = minmax_scale(nd_array_tif,

@@ -60,15 +60,17 @@ def read_parameters(param_file):
     return params
 
 
-def chop_layer(pretrained_dict, layer_name="logits"):   #https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2
+def chop_layer(pretrained_dict, layer_names=["logits"]):   #https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2
     """
     Removes keys from a layer in state dictionary of model architecture.
     :param model: (nn.Module) model with original architecture
-    :param layer_name: name of layer to be chopped. Must be the terminal layer (not hidden layer)
+    :param layer_names: (list) names of layers to be chopped.
     :return: (nn.Module) model
     """
     # filter out weights from undesired keys. ex.: size mismatch.
-    chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer_name) == -1}
+    for layer in layer_names:
+        chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer) == -1}
+        pretrained_dict = chopped_dict    # overwrite values in pretrained dict with chopped dict
     return chopped_dict
 
 
@@ -87,7 +89,7 @@ def assert_band_number(in_image, band_count_yaml):
     assert in_array.shape[2] == band_count_yaml, msg
 
 
-def load_from_checkpoint(filename, model, optimizer=None, chop_layer_name=None):
+def load_from_checkpoint(filename, model, optimizer=None):
     """Load weights from a previous checkpoint
     Args:
         filename: full file path of file containing checkpoint
@@ -97,48 +99,46 @@ def load_from_checkpoint(filename, model, optimizer=None, chop_layer_name=None):
     if os.path.isfile(filename):
         print("=> loading model '{}'".format(filename))
 
-        if torch.cuda.is_available():
-            checkpoint = torch.load(filename)
-        else:
-            checkpoint = torch.load(filename, map_location='cpu')
+        checkpoint = torch.load(filename) if torch.cuda.is_available() else torch.load(filename, map_location='cpu')
 
-        # For loading external models with different structure in state dict
+        # For loading external models with different structure in state dict. May cause problems when trying to load optimizer
         if 'model' not in checkpoint.keys():
-            checkpoint['model'] = checkpoint
-
-        try:
-            # Automatically chop out classifier if num_classes is different in chosen model and loaded checkpoint.
-            # prone to generating exceptions. Is there a better solution?
-            if chop_layer_name \
-                    and checkpoint['model'][str(chop_layer_name + '.weight')].shape != \
-                    model.state_dict()[str(chop_layer_name + '.weight')].shape:
-                # 1. filter out unnecessary keys
-                chopped_checkpt = chop_layer(checkpoint['model'], layer_name=chop_layer_name)
-                # 2. overwrite entries in the existing state dict
-                checkpoint['model'] = model.state_dict()
-                checkpoint['model'].update(chopped_checkpt)
-
-        except KeyError as error:
-            raise KeyError(f'{error}. The specified layer name {chop_layer_name} to chop might not exist in state dictionary. '
-                           f'N.B. Enter first part of name, e.g. "final" as opposed to "final.weight"')
+            temp_checkpoint = {}
+            temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}    # Place entire state_dict inside 'model' key
+            del checkpoint
+            checkpoint = temp_checkpoint
 
         # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
         # https://github.com/bearpaw/pytorch-classification/issues/27
         # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
         if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
             new_state_dict = model.state_dict().copy()
-            new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}
+            new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
             checkpoint['model'] = new_state_dict['model']
-        model.load_state_dict(checkpoint['model'])
 
-        print("=> loaded model '{}'".format(filename))
-        if optimizer:
+        try:
+            model.load_state_dict(checkpoint['model'])
+        except RuntimeError as error:
+            try:
+                list_errors = str(error).split('\n\t')
+                mismatched_layers = []
+                for error in list_errors:
+                    if error.startswith('size mismatch'):
+                        mismatch_layer = error.split("size mismatch for ")[1].split(":")[0]    # get name of problematic layer
+                        print(f'Oups. {error}. We will try chopping "{mismatch_layer}" out of pretrained dictionary.')
+                        mismatched_layers.append(mismatch_layer)
+                chopped_checkpt = chop_layer(checkpoint['model'], layer_names=mismatched_layers)
+                # overwrite entries in the existing state dict
+                model.load_state_dict(chopped_checkpt, strict=False)
+            except RuntimeError as error:
+                raise RuntimeError(error)
+
+        print(f"=> loaded model '{filename}'")
+        if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
             optimizer.load_state_dict(checkpoint['optimizer'])
-            return model, optimizer
-        elif optimizer is None:
-            return model
+        return model, optimizer
     else:
-        print("=> no model found at '{}'".format(filename))
+        print(f"=> no model found at '{filename}'")
 
 
 def image_reader_as_array(file_name):
@@ -149,13 +149,14 @@ def image_reader_as_array(file_name):
     Return:
         numm_py_array of the image read
     """
-
-    with rasterio.open(file_name, 'r') as src:
-        np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
-        for i in range(src.count):
-            band = src.read(i+1)  # Bands starts at 1 in rasterio not 0
-            np_array[:, :, i] = band
-
+    try:
+        with rasterio.open(file_name, 'r') as src:
+            np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
+            for i in range(src.count):
+                band = src.read(i+1)  # Bands starts at 1 in rasterio not 0
+                np_array[:, :, i] = band
+    except IOError:
+        raise IOError(f'Could not locate "{file_name}". Make sure file exists in this directory.')
     return np_array
 
 
