@@ -1,7 +1,6 @@
 import torchvision.models as models
 from models import TernausNet, unet, checkpointed_unet, inception
 from utils.utils import chop_layer
-from models.spp_nets import SPPNet
 
 
 def net(net_params, inference=False):
@@ -41,14 +40,6 @@ def net(net_params, inference=False):
                                      net_params['global']['number_of_bands'])
         if net_params['models']['inception']['pretrained']:
             state_dict_path = net_params['models']['inception']['pretrained']
-    elif model_name == 'deeplabv3+':
-        model = SPPNet(output_channels=num_classes, enc_type='xception65', dec_type='aspp', output_stride=8)
-        if net_params['models']['deeplabv3+']['pretrained']:
-            state_dict_path = net_params['models']['deeplabv3+']['pretrained']
-    elif model_name == 'mobilenetv2':
-        model = SPPNet(output_channels=num_classes, enc_type='mobilenetv2', dec_type='maspp', output_stride=8)
-        if net_params['models']['deeplabv3+']['pretrained']:
-            state_dict_path = net_params['models']['deeplabv3+']['pretrained']
     elif model_name == 'fcn_resnet101':
         assert net_params['global']['number_of_bands'], msg
         coco_model = models.segmentation.fcn_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
