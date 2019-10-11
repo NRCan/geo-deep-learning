@@ -71,7 +71,6 @@ def chop_layer(pretrained_dict, layer_names=["logits"]):   #https://discuss.pyto
     for layer in layer_names:
         chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer) == -1}
         pretrained_dict = chopped_dict    # overwrite values in pretrained dict with chopped dict
-
     return chopped_dict
 
 
@@ -150,7 +149,6 @@ def image_reader_as_array(file_name):
     Return:
         numm_py_array of the image read
     """
-
     try:
         with rasterio.open(file_name, 'r') as src:
             np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
@@ -159,7 +157,6 @@ def image_reader_as_array(file_name):
                 np_array[:, :, i] = band
     except IOError:
         raise IOError(f'Could not locate "{file_name}". Make sure file exists in this directory.')
-
     return np_array
 
 

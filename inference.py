@@ -256,6 +256,7 @@ def main(params):
             assert_band_number(local_img, params['global']['number_of_bands'])
 
             nd_array_tif = image_reader_as_array(local_img)
+                                               
             # See: http://cs231n.github.io/neural-networks-2/#datapre. e.g. Scale arrays from [0,255] to [0,1]
             scale = params['global']['scale_data']
             if scale:

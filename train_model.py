@@ -348,7 +348,7 @@ def main(params):
                                                                        task=task)
 
     now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M ")
-    filename = os.path.join(output_path, 'checkpoint.pth.tar')
+    filename = os.path.join(output_path, 'checkpoint.pth.tar')    #TODO Should output directory hold same name as config file name?
 
     for epoch in range(0, params['training']['num_epochs']):
         print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
@@ -468,10 +468,6 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                 # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
-
-                #for SPP nets like deeplabv3+
-                if outputs.shape[2:] != labels.shape[1:]:
-                    outputs = F.interpolate(outputs, size=labels.shape[1:], mode='bilinear', align_corners=True)
 
             loss = criterion(outputs, labels)
 
