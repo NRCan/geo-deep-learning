@@ -32,6 +32,7 @@ sample:
 
 training:
   output_path: ./data
+  state_dict_path:    # optional
   num_trn_samples:
   num_val_samples:
   num_tst_samples: 
@@ -43,6 +44,8 @@ training:
   weight_decay: 0
   step_size: 4
   gamma: 0.9
+  dropout: False    # (bool) Use dropout or not
+  dropout_prob: False    # (float) Set dropout probability, e.g. 0.5
   class_weights: [1.0, 2.0]
   batch_metrics: 1
   ignore_index: 0 # Specifies a target value that is ignored and does not contribute to the input gradient
@@ -59,23 +62,3 @@ inference:
   state_dict_path: ./data/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
-
-# Models parameters; used in train_model.py and inference.py
-
-models:
-  unet:   &unet001
-    dropout: False
-    probability: 0.2    # Set with dropout
-    pretrained: False   # optional
-  unetsmall:
-    <<: *unet001
-  ternausnet:
-    pretrained: ./models/TernausNet.pt    # Mandatory
-  checkpointed_unet: 
-    <<: *unet001
-  fcn_resnet101:   # only for 3 band data
-    pretrained:    # optional
-  deeplabv3_resnet101:   # only for 3 band data
-    pretrained: /home/rtavon/Documents/kingston-test-deeplabv3-2/model/checkpoint.pth.tar   # optional
-  inception:
-    pretrained:    # optional

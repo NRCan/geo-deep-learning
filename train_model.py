@@ -196,7 +196,7 @@ def create_dataloader(data_path, num_samples, batch_size, task):
     # Shuffle must be set to True.
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
     if torch.cuda.device_count() > 1:
-        num_workers = torch.cuda.device_count() * 4
+        num_workers = torch.cuda.device_count() * 4 # FIXME use num_device returned by set_hyperparameters
     else:
         num_workers = 4
 
@@ -229,14 +229,14 @@ def get_num_samples(data_path, params):
     return num_samples
 
 
-def set_hyperparameters(params, model, state_dict_path):
+def set_hyperparameters(params, model, checkpoint):
     """
     Function to set hyperparameters based on values provided in yaml config file.
     Will also set model to GPU, if available.
     If none provided, default functions values are used.
     :param params: (dict) Parameters found in the yaml config file
     :param model: Model loaded from model_choice.py
-    :param state_dict_path: (str) Full file path to the state dict
+    :param checkpoint: (dict) state dict as loaded by model_choice.py
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
 
@@ -295,8 +295,7 @@ def set_hyperparameters(params, model, state_dict_path):
     optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
-    if state_dict_path != '':
-        model, optimizer = load_from_checkpoint(state_dict_path, model, optimizer=optimizer)
+    model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer)
 
     return model, criterion, optimizer, lr_scheduler, device, num_devices
 
@@ -307,7 +306,7 @@ def main(params):
     :param params: (dict) Parameters found in the yaml config file.
 
     """
-    model, state_dict_path, model_name = net(params)
+    model, checkpoint, model_name = net(params)
     bucket_name = params['global']['bucket_name']
     output_path = params['training']['output_path']
     data_path = params['global']['data_path']
@@ -338,7 +337,7 @@ def main(params):
     val_log = InformationLogger(output_path, 'val')
     tst_log = InformationLogger(output_path, 'tst')
 
-    model, criterion, optimizer, lr_scheduler, device, num_devices = set_hyperparameters(params, model, state_dict_path)
+    model, criterion, optimizer, lr_scheduler, device, num_devices = set_hyperparameters(params, model, checkpoint)
 
     num_samples = get_num_samples(data_path=data_path, params=params)
     print(f"Number of samples : {num_samples}")

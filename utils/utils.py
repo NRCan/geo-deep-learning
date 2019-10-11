@@ -89,56 +89,42 @@ def assert_band_number(in_image, band_count_yaml):
     assert in_array.shape[2] == band_count_yaml, msg
 
 
-def load_from_checkpoint(filename, model, optimizer=None):
+def load_from_checkpoint(checkpoint, model, optimizer=None):
     """Load weights from a previous checkpoint
     Args:
-        filename: full file path of file containing checkpoint
+        checkpoint: (dict) checkpoint as loaded in model_choice.py
         model: model to replace
         optimizer: optimiser to be used
     """
-    if os.path.isfile(filename):
-        print("=> loading model '{}'".format(filename))
+    # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
+    # https://github.com/bearpaw/pytorch-classification/issues/27
+    # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
+    if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
+        new_state_dict = model.state_dict().copy()
+        new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
+        checkpoint['model'] = new_state_dict['model']
 
-        checkpoint = torch.load(filename) if torch.cuda.is_available() else torch.load(filename, map_location='cpu')
-
-        # For loading external models with different structure in state dict. May cause problems when trying to load optimizer
-        if 'model' not in checkpoint.keys():
-            temp_checkpoint = {}
-            temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}    # Place entire state_dict inside 'model' key
-            del checkpoint
-            checkpoint = temp_checkpoint
-
-        # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
-        # https://github.com/bearpaw/pytorch-classification/issues/27
-        # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
-        if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
-            new_state_dict = model.state_dict().copy()
-            new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
-            checkpoint['model'] = new_state_dict['model']
-
+    try:
+        model.load_state_dict(checkpoint['model'])
+    except RuntimeError as error:
         try:
-            model.load_state_dict(checkpoint['model'])
+            list_errors = str(error).split('\n\t')
+            mismatched_layers = []
+            for error in list_errors:
+                if error.startswith('size mismatch'):
+                    mismatch_layer = error.split("size mismatch for ")[1].split(":")[0]    # get name of problematic layer
+                    print(f'Oups. {error}. We will try chopping "{mismatch_layer}" out of pretrained dictionary.')
+                    mismatched_layers.append(mismatch_layer)
+            chopped_checkpt = chop_layer(checkpoint['model'], layer_names=mismatched_layers)
+            # overwrite entries in the existing state dict
+            model.load_state_dict(chopped_checkpt, strict=False)
         except RuntimeError as error:
-            try:
-                list_errors = str(error).split('\n\t')
-                mismatched_layers = []
-                for error in list_errors:
-                    if error.startswith('size mismatch'):
-                        mismatch_layer = error.split("size mismatch for ")[1].split(":")[0]    # get name of problematic layer
-                        print(f'Oups. {error}. We will try chopping "{mismatch_layer}" out of pretrained dictionary.')
-                        mismatched_layers.append(mismatch_layer)
-                chopped_checkpt = chop_layer(checkpoint['model'], layer_names=mismatched_layers)
-                # overwrite entries in the existing state dict
-                model.load_state_dict(chopped_checkpt, strict=False)
-            except RuntimeError as error:
-                raise RuntimeError(error)
+            raise RuntimeError(error)
 
-        print(f"=> loaded model '{filename}'")
-        if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-            optimizer.load_state_dict(checkpoint['optimizer'])
-        return model, optimizer
-    else:
-        print(f"=> no model found at '{filename}'")
+    print(f"=> loaded model")
+    if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
+        optimizer.load_state_dict(checkpoint['optimizer'])
+    return model, optimizer
 
 
 def image_reader_as_array(file_name):

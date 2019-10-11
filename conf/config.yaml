@@ -32,6 +32,7 @@ sample:
 
 training:
   output_path: /path/to/model/weights/output/folder
+  state_dict_path: path/to/pretrained/file/checkpoint.pth.tar    # optional
   num_trn_samples: 4960
   num_val_samples: 2208
   num_tst_samples: 1000
@@ -43,6 +44,8 @@ training:
   weight_decay: 0
   step_size: 4
   gamma: 0.9
+  dropout: False    # (bool) Use dropout or not
+  dropout_prob:    # (float) Set dropout probability, e.g. 0.5
   class_weights: [1.0, 2.0]
   batch_metrics:    # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
   ignore_index: 0 # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
@@ -59,24 +62,3 @@ inference:
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
-
-# Models parameters; used in train_model.py and inference.py
-
-models:
-  unet:   &unet001
-    dropout: False
-    probability: 0.2    # Set with dropout
-    pretrained: False   # optional
-  unetsmall:
-    <<: *unet001
-    pretrained:
-  ternausnet:
-    pretrained: ./models/TernausNet.pt    # Mandatory
-  checkpointed_unet:
-    <<: *unet001
-  fcn_resnet101:   # pretrained on coco dataset. Use only for 3 band data.
-    pretrained:    # optional
-  deeplabv3_resnet101:   # pretrained on coco dataset. Use only for 3 band data.
-    pretrained:    # optional
-  inception:
-    pretrained:    # optional

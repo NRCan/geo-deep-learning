@@ -67,7 +67,7 @@ After installing the required computing environment (see next section), one need
 
 ## config.yaml
 
-The `config.yaml` file is located in the `conf` directory.  It stores the values of all parameters needed by the deep learning algorithms for all phases.  It contains the following 5 sections:
+The `config.yaml` file is located in the `conf` directory.  It stores the values of all parameters needed by the deep learning algorithms for all phases.  It contains the following 4 sections:
 
 ```yaml
 # Deep learning configuration file ------------------------------------------------
@@ -76,7 +76,6 @@ The `config.yaml` file is located in the `conf` directory.  It stores the values
 #   2) Sampling parameters
 #   3) Training parameters
 #   4) Inference parameters
-#   5) Model parameters
 ```
 
 Specific parameters in each section are shown below, where relevant. For more information about config.yaml, view file directly: [conf/config.yaml](https://github.com/NRCan/geo-deep-learning/blob/master/conf/config.yaml)
@@ -89,18 +88,6 @@ Specific parameters in each section are shown below, where relevant. For more in
 - [Ternausnet](https://arxiv.org/abs/1801.05746)
 - [FCN (backbone: resnet101)](https://people.eecs.berkeley.edu/~jonlong/long_shelhamer_fcn.pdf)
 - [Deeplabv3 (backbone: resnet101)](https://arxiv.org/abs/1706.05587)
-
-The `config.yaml` contains parameters for each model. Here's an example:
-
-```yaml
-# Models parameters; used in train_model.py and inference.py
-
-models:
-  unet: unet001
-    dropout: False                                   # Set dropout regularization
-    probability: 0.2                                 # Set with dropout
-    pretrained: /path/to/model/checkpoint.pth.tar    # Optional
-```    
 
 ## `csv` preparation
 The `csv` specifies the input images and the reference vector data that will be use during the training.
@@ -137,8 +124,8 @@ global:
   number_of_bands: 3                # Number of bands in input images
   model_name: unetsmall             # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
-  debug_mode: True                  # Prints detailed progress bar 
   scale_data: [0, 1]                # Min and Max for input data rescaling. Default: [0, 1]. Enter False if no rescaling is desired.
+  debug_mode: True                  # Prints detailed progress bar
 
 sample:
   prep_csv_file: /path/to/csv/file_name.csv     # Path to CSV file used in preparation.
@@ -185,17 +172,20 @@ global:
 
 training:
   output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
+  state_dict_path: False      # Pretrained model path as .pth.tar or .pth file. Optional.
   num_trn_samples: 4960                         # Number of samples to use for training. (default: all samples in hdfs file are taken)
   num_val_samples: 2208                         # Number of samples to use for validation. (default: all samples in hdfs file are taken)
   num_tst_samples:                              # Number of samples to use for test. (default: all samples in hdfs file are taken)
   batch_size: 32                                # Size of each batch
   num_epochs: 150                               # Number of epochs
-  loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
-  optimizer: adabound # One of adam, sgd or adabound
+  loss_fn: Lovasz                               # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
+  optimizer: adabound                           # One of adam, sgd or adabound
   learning_rate: 0.0001                         # Initial learning rate
   weight_decay: 0                               # Value for weight decay (each epoch)
-  gamma: 0.9                                    # Multiple for learning rate decay
   step_size: 4                                  # Apply gamma every step_size
+  gamma: 0.9                                    # Multiple for learning rate decay
+  dropout: False                                # (bool) Use dropout or not. Applies to certain models only.
+  dropout_prob: False                           # (float) Set dropout probability, e.g. 0.5
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
   batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
   ignore_index: 0                               # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
@@ -248,8 +238,8 @@ global:
   model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
   bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation        # Task to perform. Either segmentation or classification
-  debug_mode: True          # Prints detailed progress bar   
   scale_data: [0, 1]        # Min and Max for input data rescaling. Default: [0, 1]. Enter False if no rescaling is desired.
+  debug_mode: True          # Prints detailed progress bar
 
 
 inference:
@@ -322,14 +312,22 @@ global:
 
 training:
   output_path: /path/to/output/weights/folder   # Path to folder where files containing weights will be written
+  state_dict_path: False      # Pretrained model path as .pth.tar or .pth file. Optional.
   batch_size: 32                                # Size of each batch
   num_epochs: 150                               # Number of epochs
   learning_rate: 0.0001                         # Initial learning rate
   weight_decay: 0                               # Value for weight decay (each epoch)
-  gamma: 0.9                                    # Multiple for learning rate decay
   step_size: 4                                  # Apply gamma every step_size
+  gamma: 0.9                                    # Multiple for learning rate decay
+  dropout: False                                # (bool) Use dropout or not. Applies to certain models only.
+  dropout_prob: False                           # (float) Set dropout probability, e.g. 0.5
   class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
   batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
+  ignore_index: 0                               # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
+  augmentation:
+    rotate_limit: 45
+    rotate_prob: 0.5
+    hflip_prob: 0.5
 ```
 Note: ```data_path``` must always have a value for classification tasks
 
