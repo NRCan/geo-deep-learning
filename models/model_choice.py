@@ -78,9 +78,11 @@ def net(net_params, inference=False):
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
     if net_params['training']['state_dict_path']:
         state_dict_path = net_params['training']['state_dict_path']
-    if inference:
+        checkpoint = load_checkpoint(state_dict_path)
+    elif inference:
         state_dict_path = net_params['inference']['state_dict_path']
-    
-    checkpoint = load_checkpoint(state_dict_path)
+        checkpoint = load_checkpoint(state_dict_path)
+    else:
+        checkpoint = None
 
     return model, checkpoint, model_name
