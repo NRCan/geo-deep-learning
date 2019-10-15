@@ -302,7 +302,7 @@ def main(params, config_path):
         output_path.mkdir(exist_ok=False)
     except FileExistsError:
         output_path = Path(str(output_path)+'_'+now)
-        output_path.mkdir(exist_ok=False)
+        output_path.mkdir(exist_ok=True)
     print(f'Model and log files will be saved to: {output_path}')
     task = params['global']['task']
     num_classes = params['global']['num_classes']
