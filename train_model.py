@@ -30,7 +30,7 @@ from utils import augmentation as aug, CreateDataset
 from utils.optimizer import create_optimizer
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict
-from models.model_choice import net
+from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
 from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids
 
@@ -395,7 +395,9 @@ def main(params, config_path):
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    model, _ = load_from_checkpoint(filename, model)
+    if int(params['training']['num_epochs']) > 0:
+        checkpoint = load_checkpoint(filename)
+        model, _ = load_from_checkpoint(checkpoint, model)
     tst_report = evaluation(eval_loader=tst_dataloader,
                             model=model,
                             criterion=criterion,

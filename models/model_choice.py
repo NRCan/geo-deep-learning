@@ -10,7 +10,7 @@ def load_checkpoint(filename):
     :param filename: path to checkpoint as .pth.tar or .pth
     :return: (dict) checkpoint ready to be loaded into model instance 
     '''
-    if os.path.isfile(filename):
+    try:
         print("=> loading model '{}'".format(filename))
 
         checkpoint = torch.load(filename) if torch.cuda.is_available() else torch.load(filename, map_location='cpu')
@@ -22,8 +22,8 @@ def load_checkpoint(filename):
             del checkpoint
             checkpoint = temp_checkpoint
         return checkpoint
-    else:
-        print(f"=> no model found at '{filename}'")
+    except FileNotFoundError:
+        raise FileNotFoundError(f"=> No model found at '{filename}'")
 
 
 def net(net_params, inference=False):
