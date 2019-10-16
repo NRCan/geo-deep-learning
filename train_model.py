@@ -171,11 +171,14 @@ def create_dataloader(data_path, num_samples, batch_size, task, num_devices):
                                                            [transforms.Resize(299), transforms.ToTensor()]),
                                                        loader=loader)
     elif task == 'segmentation':
-        trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_samples['trn'], "trn",
+        trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), "trn",
+                                                        max_sample_count=num_samples['trn'],
                                                         transform=aug.compose_transforms(params, 'trn'))
-        val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_samples['val'], "val",
+        val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), "val",
+                                                        max_sample_count=num_samples['val'],
                                                         transform=aug.compose_transforms(params, 'tst'))
-        tst_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_samples['tst'], "tst",
+        tst_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), "tst",
+                                                        max_sample_count=num_samples['tst'],
                                                         transform=aug.compose_transforms(params, 'tst'))
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")

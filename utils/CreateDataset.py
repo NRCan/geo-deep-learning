@@ -43,25 +43,33 @@ def create_files_and_datasets(params, samples_folder):
 
 class SegmentationDataset(Dataset):
     """Dataset for semantic segmentation"""
-    def __init__(self, work_folder, num_samples, dataset_type, transform=None):
+    def __init__(self, work_folder, dataset_type, max_sample_count=None, transform=None):
+        # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.work_folder = work_folder
-        self.num_samples = num_samples
+        self.max_sample_count = max_sample_count
         self.dataset_type = dataset_type
         self.transform = transform
+        self.metadata = []
+        self.hdf5_path = os.path.join(self.work_folder, self.dataset_type + "_samples.hdf5")
+        with h5py.File(self.hdf5_path, "r") as hdf5_file:
+            if "metadata" in hdf5_file:
+                self.metadata = [hdf5_file["metadata"][i, ...] for i in range(hdf5_file["metadata"].shape[0])]
+            if self.max_sample_count is None:
+                self.max_sample_count = hdf5_file["sat_img"].shape[0]
 
     def __len__(self):
-        return self.num_samples
+        return self.max_sample_count
 
     def __getitem__(self, index):
+        with h5py.File(self.hdf5_path, "r") as hdf5_file:
+            sat_img = hdf5_file["sat_img"][index, ...]
+            map_img = hdf5_file["map_img"][index, ...]
+            meta_idx = int(hdf5_file["meta_idx"][index]) if "meta_idx" in hdf5_file else -1
+            metadata = None
+            if meta_idx != -1:
+                metadata = self.metadata[meta_idx]
 
-        hdf5_file = h5py.File(os.path.join(self.work_folder, self.dataset_type + "_samples.hdf5"), "r")
-
-        sat_img = hdf5_file["sat_img"][index, ...]
-        map_img = hdf5_file["map_img"][index, ...]
-
-        hdf5_file.close()
-
-        sample = {'sat_img': sat_img, 'map_img': map_img}
+        sample = {'sat_img': sat_img, 'map_img': map_img, 'metadata': metadata}
 
         if self.transform:
             sample = self.transform(sample)
