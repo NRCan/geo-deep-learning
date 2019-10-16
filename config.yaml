@@ -44,7 +44,7 @@ training:
   weight_decay: 0
   step_size: 4
   gamma: 0.9
-  class_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+  class_weights:
   batch_metrics:    # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
   ignore_index: 0    # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
   augmentation:
