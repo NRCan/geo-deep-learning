@@ -206,7 +206,7 @@ def main(params):
     since = time.time()
     csv_file = params['inference']['img_csv_file']
     working_folder = Path(params['inference']['working_folder'])
-    Path.mkdir(working_folder)
+    Path.mkdir(working_folder, exist_ok=True)
     print(f'Inferences will be saved to: {working_folder}')
 
     bucket = None

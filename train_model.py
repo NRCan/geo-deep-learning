@@ -300,7 +300,7 @@ def main(params, config_path):
     modelname = config_path.stem
     output_path = Path(data_path).joinpath('model') / modelname
     try:
-        output_path.mkdir(exist_ok=False)
+        output_path.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
         output_path = Path(str(output_path)+'_'+now)
         output_path.mkdir(exist_ok=True)
