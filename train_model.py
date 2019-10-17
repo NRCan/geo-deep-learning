@@ -397,7 +397,7 @@ def main(params, config_path):
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if int(params['training']['num_epochs']) > 0:
+    if int(params['training']['num_epochs']) > 0:    #if num_epochs is set to 0, is loaded model to evaluate on test set
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
     tst_report = evaluation(eval_loader=tst_dataloader,
