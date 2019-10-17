@@ -69,7 +69,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device)
         padded_array = np.pad(nd_array, ((overlay, chunk_size), (overlay, chunk_size), (0, 0)), mode='constant')
     elif len(nd_array.shape) == 2:
         h, w = nd_array.shape
-        padded_array = np.expand_dims(np.pad(nd_array, ((overlay, chunk_size), (overlay, chunk_size)),
+        padded_arrray = np.expand_dims(np.pad(nd_array, ((overlay, chunk_size), (overlay, chunk_size)),
                                              mode='constant'), axis=0)
     else:
         h = 0
@@ -284,6 +284,9 @@ def main(params):
                                               scale_range=(sc_min,sc_max))
 
             sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes, device)
+            if debug and len(np.unique(sem_seg_results))==1:
+                print(f'Something is wrong. Inference contains only "{np.unique(sem_seg_results)} value. Make sure '
+                      f'"scale_data" parameter is coherent with parameters used for training model used in inference.')
             create_new_raster_from_base(local_img, inference_image, sem_seg_results)
             tqdm.write(f"Semantic segmentation of image {img_name} completed")
             if bucket:
@@ -303,5 +306,7 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
+
+    debug = True if params['global']['debug_mode'] else False
 
     main(params)

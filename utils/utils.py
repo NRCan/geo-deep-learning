@@ -202,7 +202,7 @@ def read_csv(csv_file_name, inference=False):
         return sorted(list_values, key=lambda k: k['dataset'])
 
 
-def get_device_ids(number_requested, bypass=False): #FIXME if some memory is used on a GPU before call to this function, the GPU will be excluded.
+def get_device_ids(number_requested): #FIXME if some memory is used on a GPU before call to this function, the GPU will be excluded.
     """
     Function to check which GPU devices are available and unused.
     :param number_requested: (int) Number of devices requested.
@@ -214,11 +214,8 @@ def get_device_ids(number_requested, bypass=False): #FIXME if some memory is use
         if number_requested > 0:
             device_count = nvmlDeviceGetCount()
             for i in range(device_count):
-                handle = nvmlDeviceGetHandleByIndex(i)
-                info = nvmlDeviceGetMemoryInfo(handle)
-                if bypass:
-                    lst_free_devices.append(i)
-                elif round(info.used / 1024 ** 3, 1) == 0.0:
+                res, mem = gpu_stats(i)
+                if round(mem.used/(1024**2), 1) <  1500.0 and res.gpu < 10: # Hardcoded tolerance for memory and usage
                     lst_free_devices.append(i)
                 if len(lst_free_devices) == number_requested:
                     break
@@ -231,3 +228,16 @@ def get_device_ids(number_requested, bypass=False): #FIXME if some memory is use
         raise ValueError(f"{error}. Make sure that the latest NVIDIA driver is installed and running.")
 
     return lst_free_devices
+
+
+def gpu_stats(device=0):
+    """
+    Provides GPU utilization (%) and RAM usage
+    :return: res.gpu, res.memory
+    """
+    nvmlInit()
+    handle = nvmlDeviceGetHandleByIndex(device)
+    res = nvmlDeviceGetUtilizationRates(handle)
+    mem = nvmlDeviceGetMemoryInfo(handle)
+
+    return res, mem

@@ -3,7 +3,6 @@ from pathlib import Path
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
-import os
 import csv
 import time
 import h5py
@@ -32,26 +31,13 @@ from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict
 from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
-from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids
+from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats
 
 try:
     import boto3
 except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
-
-
-def gpu_stats(device=0):
-    """
-    Provides GPU utilization (%) and RAM usage
-    :return: res.gpu, res.memory
-    """
-    nvmlInit()
-    handle = nvmlDeviceGetHandleByIndex(device)
-    res = nvmlDeviceGetUtilizationRates(handle)
-    mem = nvmlDeviceGetMemoryInfo(handle)
-
-    return res, mem
 
 
 def verify_weights(num_classes, weights):
@@ -259,7 +245,7 @@ def set_hyperparameters(params, model, checkpoint):
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    lst_device_ids = get_device_ids(num_devices, bypass=True) if torch.cuda.is_available() else [] #FIXME a GPU is often excluded even if available
+    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else [] #FIXME a GPU is often excluded even if available
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
 
