@@ -159,13 +159,14 @@ def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(data_path, num_samples, batch_size, task):
+def create_dataloader(data_path, num_samples, batch_size, task, num_devices):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param data_path: (str) path to the samples folder
     :param num_samples: (dict) number of samples for training, validation and test
     :param batch_size: (int) batch size
     :param task: (str) classification or segmentation
+    :param task: (int) number of GPUs used
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
     if task == 'classification':
@@ -195,8 +196,8 @@ def create_dataloader(data_path, num_samples, batch_size, task):
 
     # Shuffle must be set to True.
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
-    if torch.cuda.device_count() > 1:
-        num_workers = torch.cuda.device_count() * 4 # FIXME use num_device returned by set_hyperparameters
+    if num_devices > 1:
+        num_workers = num_devices * 4
     else:
         num_workers = 4
 
@@ -336,7 +337,8 @@ def main(params, config_path):
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
                                                                        num_samples=num_samples,
                                                                        batch_size=batch_size,
-                                                                       task=task)
+                                                                       task=task,
+                                                                       num_devices=num_devices)
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
