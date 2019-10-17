@@ -259,7 +259,7 @@ def set_hyperparameters(params, model, checkpoint):
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
+    lst_device_ids = get_device_ids(num_devices, bypass=True) if torch.cuda.is_available() else [] #FIXME a GPU is often excluded even if available
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
 
@@ -473,6 +473,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                                               device=device,
                                               gpu_perc=f'{res.gpu} %',
                                               gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB',
+                                              learning_rate=optimizer.param_groups[0]['lr'],
                                               img_size=data['sat_img'].numpy().shape,
                                               sample_size=data['map_img'].numpy().shape,
                                               batch_size=batch_size))

@@ -222,6 +222,11 @@ Optimizers:
 - SGD (standard optimizer in [torch.optim](https://pytorch.org/docs/stable/optim.html)
 - [Adabound/AdaboundW](https://openreview.net/forum?id=Bkg3g2R9FX)
 
+Advanced features:
+- To check how a pretrained model performs on test split without fine-tuning, simply:
+    1. Specify state_dict_path in training parameters
+    2. In same parameter section, set num_epochs to 0.
+
 ## inference.py
 
 The final step in the process is to assign very pixel in the original image a value corresponding to the most probable class.
