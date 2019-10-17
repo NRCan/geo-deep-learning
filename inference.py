@@ -17,7 +17,7 @@ from pathlib import Path
 
 from models.model_choice import net
 from utils.utils import read_parameters, assert_band_number, load_from_checkpoint, \
-    image_reader_as_array, read_csv, get_device_ids
+    image_reader_as_array, read_csv, get_device_ids, gpu_stats
 from utils.preprocess import minmax_scale
 
 try:
@@ -69,7 +69,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device)
         padded_array = np.pad(nd_array, ((overlay, chunk_size), (overlay, chunk_size), (0, 0)), mode='constant')
     elif len(nd_array.shape) == 2:
         h, w = nd_array.shape
-        padded_arrray = np.expand_dims(np.pad(nd_array, ((overlay, chunk_size), (overlay, chunk_size)),
+        padded_array = np.expand_dims(np.pad(nd_array, ((overlay, chunk_size), (overlay, chunk_size)),
                                              mode='constant'), axis=0)
     else:
         h = 0
@@ -81,28 +81,37 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device)
 
     if padded_array.any():
         with torch.no_grad():
-            for row in tqdm(range(overlay, h, chunk_size - overlay), position=1, leave=False):
-                row_start = row - overlay
-                row_end = row_start + chunk_size
-                for col in range(overlay, w, chunk_size - overlay):
-                    col_start = col - overlay
-                    col_end = col_start + chunk_size
+            with tqdm(range(overlay, h, chunk_size - overlay), position=1, leave=False) as _tqdm:
+                for row in _tqdm:
+                    row_start = row - overlay
+                    row_end = row_start + chunk_size
+                    for col in range(overlay, w, chunk_size - overlay):
+                        col_start = col - overlay
+                        col_end = col_start + chunk_size
 
-                    chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
-                    inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
+                        chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
+                        inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
-                    inputs.unsqueeze_(0)
+                        inputs.unsqueeze_(0)
 
-                    inputs = inputs.to(device)
-                    # forward
-                    outputs = model(inputs)
+                        inputs = inputs.to(device)
+                        # forward
+                        outputs = model(inputs)
 
-                    # torchvision models give output it 'out' key. May cause problems in future versions of torchvision.
-                    if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
-                        outputs = outputs['out']
+                        # torchvision models give output it 'out' key. May cause problems in future versions of torchvision.
+                        if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
+                            outputs = outputs['out']
 
-                    output_counts[row_start:row_end, col_start:col_end] += 1
-                    output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(), axis=0)
+                        output_counts[row_start:row_end, col_start:col_end] += 1
+                        output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(), axis=0)
+
+                    if debug and device.type == 'cuda':
+                        res, mem = gpu_stats(device=device.index)
+                        _tqdm.set_postfix(OrderedDict(device=device,
+                                                      gpu_perc=f'{res.gpu} %',
+                                                      gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+                                                      chunk_size=inputs.cpu().numpy().shape,
+                                                      output_size=outputs.cpu().numpy().shape))
 
             output_mask = np.argmax(np.divide(output_probs, np.maximum(output_counts, 1)), axis=0)
             # Resize the output array to the size of the input image and write it
