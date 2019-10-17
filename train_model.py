@@ -1,8 +1,8 @@
-from pathlib import Path
-
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
+import os
+from pathlib import Path # TODO Use Path instead of os where possible. Better cross-platform compatibility
 import csv
 import time
 import h5py
@@ -236,16 +236,17 @@ def set_hyperparameters(params, model, checkpoint):
     assert (lr and weight_decay and step_size and gamma and num_devices) is not None, msg
 
     # optional hyperparameters. Set to None if not in config file
-    class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
-    if class_weights:
+    if params['training']['class_weights']:
+        class_weights = torch.tensor(params['training']['class_weights'])
         verify_weights(params['global']['num_classes'], class_weights)
-    ignore_index = params['training']['ignore_index'] if params['training']['ignore_index'] else None
+    if params['training']['ignore_index']:
+        ignore_index = params['training']['ignore_index']
 
     # Loss function
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else [] #FIXME a GPU is often excluded even if available
+    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
 
