@@ -204,7 +204,7 @@ def main(params):
 
     """
     since = time.time()
-    csv_file = params['inference']['img_csv_file']
+    img_dir_or_csv = params['inference']['img_dir_or_csv_file'] #TODO: integrate in README
     working_folder = Path(params['inference']['working_folder'])
     Path.mkdir(working_folder, exist_ok=True)
     print(f'Inferences will be saved to: {working_folder}')
@@ -229,10 +229,24 @@ def main(params):
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
-        bucket.download_file(csv_file, 'img_csv_file.csv')
-        list_img = read_csv('img_csv_file.csv', inference=True)
+        if img_dir_or_csv.endswith('.csv'):
+            bucket.download_file(img_dir_or_csv, 'img_csv_file.csv')
+            list_img = read_csv('img_csv_file.csv', inference=True)
+        else:
+            raise NotImplementedError('Specify a csv file containing images for inference. Directory input not implemented yet')
     else:
-        list_img = read_csv(csv_file, inference=True)
+        if img_dir_or_csv.endswith('.csv'):
+            list_img = read_csv(img_dir_or_csv, inference=True)
+        else:
+            img_dir = Path(img_dir_or_csv)
+            assert img_dir.exists(), f'Could not find directory "{img_dir_or_csv}"'
+            list_img_paths = sorted(img_dir.glob('*.tif'))
+            list_img = []
+            for img_path in list_img_paths:
+                img = {}
+                img['tif'] = img_path
+                list_img.append(img)
+            assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
 
     if params['global']['task'] == 'classification':
         classifier(params, list_img, model)
