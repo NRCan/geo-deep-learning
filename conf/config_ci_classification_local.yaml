@@ -52,7 +52,7 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_csv_file: ./data/inference_classif_ci_csv.csv
+  img_dir_or_csv_file: ./data/inference_classif_ci_csv.csv
   working_folder: ./data/classification
   state_dict_path: ./data/model/config_ci_segmentation_local
   chunk_size:
