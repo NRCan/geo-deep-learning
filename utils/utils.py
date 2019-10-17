@@ -103,7 +103,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
         new_state_dict = model.state_dict().copy()
         new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
         checkpoint['model'] = new_state_dict['model']
-
+        
     try:
         model.load_state_dict(checkpoint['model'])
     except RuntimeError as error:

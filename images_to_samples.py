@@ -180,7 +180,7 @@ def main(params):
 
     else:
         list_data_prep = read_csv(csv_file)
-        samples_folder = os.path.join(data_path, "samples")
+        samples_folder = os.path.join(data_path, "samples")    #FIXME check that data_path exists!
         out_label_folder = os.path.join(data_path, "label")
 
     create_or_empty_folder(samples_folder)
