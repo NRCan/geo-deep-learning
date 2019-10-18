@@ -213,7 +213,7 @@ def main(params):
 
     """
     since = time.time()
-    img_dir_or_csv = params['inference']['img_dir_or_csv_file'] #TODO: integrate in README and other config files
+    img_dir_or_csv = params['inference']['img_dir_or_csv_file']
     working_folder = Path(params['inference']['working_folder'])
     Path.mkdir(working_folder, exist_ok=True)
     print(f'Inferences will be saved to: {working_folder}')

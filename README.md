@@ -248,7 +248,7 @@ global:
 
 
 inference:
-  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on
+  img_dir_or_csv_file: /path/to/csv/containing/images/list.csv                 # Directory containing all images to infer on OR CSV file with list of images
   working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
   chunk_size: 512                                                             # (int) Size (height and width) of each prediction patch. Default: 512
@@ -381,7 +381,7 @@ global:
   debug_mode: True          # Prints detailed progress bar
 
 inference:
-  img_csv_file: /path/to/csv/containing/images/list.csv                       # CSV file containing the list of all images to infer on
+  img_dir_or_csv_file: /path/to/csv/containing/images/list.csv                 # Directory containing all images to infer on OR CSV file with list of images
   working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
 ```
