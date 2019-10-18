@@ -117,7 +117,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device)
             # Resize the output array to the size of the input image and write it
             return output_mask[overlay:(h + overlay), overlay:(w + overlay)].astype(np.uint8)
     else:
-        print("Error classifying image : Image shape of {:1} is not recognized".format(len(nd_array.shape)))
+        raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
 
 
 def classifier(params, img_list, model):
@@ -269,38 +269,42 @@ def main(params):
 
         chunk_size, nbr_pix_overlap = calc_overlap(params)
         num_classes = params['global']['num_classes']
-        for img in tqdm(list_img, desc='image list', position=0):
-            img_name = os.path.basename(img['tif'])
-            if bucket:
-                local_img = f"Images/{img_name}"
-                bucket.download_file(img['tif'], local_img)
-                inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-            else:
-                local_img = img['tif']
-                inference_image = os.path.join(params['inference']['working_folder'],
-                                               f"{img_name.split('.')[0]}_inference.tif")
+        with tqdm(list_img, desc='image list', position=0) as _tqdm:
+            for img in _tqdm:
+                img_name = os.path.basename(img['tif'])
+                if bucket:
+                    local_img = f"Images/{img_name}"
+                    bucket.download_file(img['tif'], local_img)
+                    inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
+                else:
+                    local_img = img['tif']
+                    inference_image = os.path.join(params['inference']['working_folder'],
+                                                   f"{img_name.split('.')[0]}_inference.tif")
 
-            assert_band_number(local_img, params['global']['number_of_bands'])
+                assert_band_number(local_img, params['global']['number_of_bands'])
 
-            nd_array_tif = image_reader_as_array(local_img)
-                                               
-            # See: http://cs231n.github.io/neural-networks-2/#datapre. e.g. Scale arrays from [0,255] to [0,1]
-            scale = params['global']['scale_data']
-            if scale:
-                sc_min, sc_max = params['global']['scale_data']
-                nd_array_tif = minmax_scale(nd_array_tif,
-                                              orig_range=(np.min(nd_array_tif), np.max(nd_array_tif)),
-                                              scale_range=(sc_min,sc_max))
+                nd_array_tif = image_reader_as_array(local_img)
+                assert(len(np.unique(nd_array_tif))>1), (f'Image "{img_name}" only contains {np.unique(nd_array_tif)} value.')
 
-            sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes, device)
-            if debug and len(np.unique(sem_seg_results))==1:
-                print(f'Something is wrong. Inference contains only "{np.unique(sem_seg_results)} value. Make sure '
-                      f'"scale_data" parameter is coherent with parameters used for training model used in inference.')
-            create_new_raster_from_base(local_img, inference_image, sem_seg_results)
-            tqdm.write(f"Semantic segmentation of image {img_name} completed")
-            if bucket:
-                bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
-                                                                 f"{img_name.split('.')[0]}_inference.tif"))
+                # See: http://cs231n.github.io/neural-networks-2/#datapre. e.g. Scale arrays from [0,255] to [0,1]
+                scale = params['global']['scale_data']
+                if scale:
+                    sc_min, sc_max = params['global']['scale_data']
+                    nd_array_tif = minmax_scale(nd_array_tif,
+                                                  orig_range=(np.min(nd_array_tif), np.max(nd_array_tif)),
+                                                  scale_range=(sc_min,sc_max))
+                if debug:
+                    _tqdm.set_postfix(OrderedDict(image_name=img_name, image_shape=nd_array_tif.shape, scale=scale))
+
+                sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes, device)
+                if debug and len(np.unique(sem_seg_results))==1:
+                    print(f'Something is wrong. Inference contains only "{np.unique(sem_seg_results)} value. Make sure '
+                          f'"scale_data" parameter is coherent with parameters used for training model used in inference.')
+                create_new_raster_from_base(local_img, inference_image, sem_seg_results)
+                tqdm.write(f"Semantic segmentation of image {img_name} completed")
+                if bucket:
+                    bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
+                                                                     f"{img_name.split('.')[0]}_inference.tif"))
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {params['global']['task']}")
 
