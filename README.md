@@ -56,6 +56,7 @@ After installing the required computing environment (see next section), one need
     conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c pytorch
     source activate YOUR_ENV
     ```
+    > For Windows user, you might want to install rasterio, fiona and gdal first, before installing the rest. We've experienced some [installation issues](https://github.com/conda-forge/gdal-feedstock/issues/213), with those libraries.
 1. Set your parameters in the `config.yaml` (see section below)
 1. Prepare your data and `csv` file
 1. Start your task using one of the following command:
