@@ -20,21 +20,21 @@ def create_files_and_datasets(params, samples_folder):
 
     trn_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
                             maxshape=(None, samples_size, samples_size, number_of_bands))
-    trn_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
+    trn_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
                             maxshape=(None, samples_size, samples_size))
     trn_hdf5.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
     trn_hdf5.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
 
     val_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
                             maxshape=(None, samples_size, samples_size, number_of_bands))
-    val_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
+    val_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
                             maxshape=(None, samples_size, samples_size))
     val_hdf5.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
     val_hdf5.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
 
     tst_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
                             maxshape=(None, samples_size, samples_size, number_of_bands))
-    tst_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
+    tst_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
                             maxshape=(None, samples_size, samples_size))
     tst_hdf5.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
     tst_hdf5.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
