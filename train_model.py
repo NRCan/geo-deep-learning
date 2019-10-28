@@ -231,18 +231,23 @@ def set_hyperparameters(params, model, checkpoint):
     """
     # set mandatory hyperparameters values with those in config file if they exist
     lr = params['training']['learning_rate']
+    assert lr is not None and lr > 0, "missing mandatory learning rate parameter"
     weight_decay = params['training']['weight_decay']
+    assert weight_decay is not None and weight_decay > 0, "missing mandatory weight decay parameter"
     step_size = params['training']['step_size']
+    assert step_size is not None and step_size > 0, "missing mandatory step size parameter"
     gamma = params['training']['gamma']
+    assert gamma is not None and gamma >= 0, "missing mandatory gamma parameter"
     num_devices = params['global']['num_gpus']
-    msg = 'Missing mandatory hyperparameter in config file. Make sure learning_rate, weight_decay, step_size, gamma and num_devices are set.'
-    assert (lr and weight_decay and step_size and gamma and num_devices) is not None, msg
+    assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
 
     # optional hyperparameters. Set to None if not in config file
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
     if params['training']['class_weights']:
         verify_weights(params['global']['num_classes'], class_weights)
-    ignore_index = params['training']['ignore_index'] if params['training']['ignore_index'] else -100
+    ignore_index = -100
+    if params['training']['ignore_index'] is not None:
+        ignore_index = params['training']['ignore_index']
 
     # Loss function
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
