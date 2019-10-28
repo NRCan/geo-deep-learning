@@ -89,56 +89,42 @@ def assert_band_number(in_image, band_count_yaml):
     assert in_array.shape[2] == band_count_yaml, msg
 
 
-def load_from_checkpoint(filename, model, optimizer=None):
+def load_from_checkpoint(checkpoint, model, optimizer=None):
     """Load weights from a previous checkpoint
     Args:
-        filename: full file path of file containing checkpoint
+        checkpoint: (dict) checkpoint as loaded in model_choice.py
         model: model to replace
         optimizer: optimiser to be used
     """
-    if os.path.isfile(filename):
-        print("=> loading model '{}'".format(filename))
-
-        checkpoint = torch.load(filename) if torch.cuda.is_available() else torch.load(filename, map_location='cpu')
-
-        # For loading external models with different structure in state dict. May cause problems when trying to load optimizer
-        if 'model' not in checkpoint.keys():
-            temp_checkpoint = {}
-            temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}    # Place entire state_dict inside 'model' key
-            del checkpoint
-            checkpoint = temp_checkpoint
-
-        # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
-        # https://github.com/bearpaw/pytorch-classification/issues/27
-        # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
-        if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
-            new_state_dict = model.state_dict().copy()
-            new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
-            checkpoint['model'] = new_state_dict['model']
-
+    # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
+    # https://github.com/bearpaw/pytorch-classification/issues/27
+    # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
+    if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
+        new_state_dict = model.state_dict().copy()
+        new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
+        checkpoint['model'] = new_state_dict['model']
+        
+    try:
+        model.load_state_dict(checkpoint['model'])
+    except RuntimeError as error:
         try:
-            model.load_state_dict(checkpoint['model'])
+            list_errors = str(error).split('\n\t')
+            mismatched_layers = []
+            for error in list_errors:
+                if error.startswith('size mismatch'):
+                    mismatch_layer = error.split("size mismatch for ")[1].split(":")[0]    # get name of problematic layer
+                    print(f'Oups. {error}. We will try chopping "{mismatch_layer}" out of pretrained dictionary.')
+                    mismatched_layers.append(mismatch_layer)
+            chopped_checkpt = chop_layer(checkpoint['model'], layer_names=mismatched_layers)
+            # overwrite entries in the existing state dict
+            model.load_state_dict(chopped_checkpt, strict=False)
         except RuntimeError as error:
-            try:
-                list_errors = str(error).split('\n\t')
-                mismatched_layers = []
-                for error in list_errors:
-                    if error.startswith('size mismatch'):
-                        mismatch_layer = error.split("size mismatch for ")[1].split(":")[0]    # get name of problematic layer
-                        print(f'Oups. {error}. We will try chopping "{mismatch_layer}" out of pretrained dictionary.')
-                        mismatched_layers.append(mismatch_layer)
-                chopped_checkpt = chop_layer(checkpoint['model'], layer_names=mismatched_layers)
-                # overwrite entries in the existing state dict
-                model.load_state_dict(chopped_checkpt, strict=False)
-            except RuntimeError as error:
-                raise RuntimeError(error)
+            raise RuntimeError(error)
 
-        print(f"=> loaded model '{filename}'")
-        if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-            optimizer.load_state_dict(checkpoint['optimizer'])
-        return model, optimizer
-    else:
-        print(f"=> no model found at '{filename}'")
+    print(f"=> loaded model")
+    if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
+        optimizer.load_state_dict(checkpoint['optimizer'])
+    return model, optimizer
 
 
 def image_reader_as_array(file_name):
@@ -149,14 +135,11 @@ def image_reader_as_array(file_name):
     Return:
         numm_py_array of the image read
     """
-    try:
-        with rasterio.open(file_name, 'r') as src:
-            np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
-            for i in range(src.count):
-                band = src.read(i+1)  # Bands starts at 1 in rasterio not 0
-                np_array[:, :, i] = band
-    except IOError:
-        raise IOError(f'Could not locate "{file_name}". Make sure file exists in this directory.')
+    with rasterio.open(file_name, 'r') as src:
+        np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
+        for i in range(src.count):
+            band = src.read(i+1)  # Bands starts at 1 in rasterio not 0
+            np_array[:, :, i] = band
     return np_array
 
 
@@ -219,7 +202,7 @@ def read_csv(csv_file_name, inference=False):
         return sorted(list_values, key=lambda k: k['dataset'])
 
 
-def get_device_ids(number_requested):
+def get_device_ids(number_requested): #FIXME if some memory is used on a GPU before call to this function, the GPU will be excluded.
     """
     Function to check which GPU devices are available and unused.
     :param number_requested: (int) Number of devices requested.
@@ -231,9 +214,8 @@ def get_device_ids(number_requested):
         if number_requested > 0:
             device_count = nvmlDeviceGetCount()
             for i in range(device_count):
-                handle = nvmlDeviceGetHandleByIndex(i)
-                info = nvmlDeviceGetMemoryInfo(handle)
-                if round(info.used / 1024 ** 3, 1) == 0.0:
+                res, mem = gpu_stats(i)
+                if round(mem.used/(1024**2), 1) <  1500.0 and res.gpu < 10: # Hardcoded tolerance for memory and usage
                     lst_free_devices.append(i)
                 if len(lst_free_devices) == number_requested:
                     break
@@ -246,3 +228,16 @@ def get_device_ids(number_requested):
         raise ValueError(f"{error}. Make sure that the latest NVIDIA driver is installed and running.")
 
     return lst_free_devices
+
+
+def gpu_stats(device=0):
+    """
+    Provides GPU utilization (%) and RAM usage
+    :return: res.gpu, res.memory
+    """
+    nvmlInit()
+    handle = nvmlDeviceGetHandleByIndex(device)
+    res = nvmlDeviceGetUtilizationRates(handle)
+    mem = nvmlDeviceGetMemoryInfo(handle)
+
+    return res, mem

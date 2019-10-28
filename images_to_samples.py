@@ -1,5 +1,7 @@
 import argparse
 import os
+from pathlib import Path
+
 import numpy as np
 import warnings
 import fiona
@@ -161,6 +163,7 @@ def main(params):
     gpkg_file = []
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
+    Path.mkdir(Path(data_path), exist_ok=True)
     csv_file = params['sample']['prep_csv_file']
 
     if bucket_name:
@@ -199,7 +202,10 @@ def main(params):
                     bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
                 info['gpkg'] = info['gpkg'].split('/')[-1]
 
-            assert_band_number(info['tif'], params['global']['number_of_bands'])
+            if os.path.isfile(info['tif']):
+                assert_band_number(info['tif'], params['global']['number_of_bands'])
+            else:
+                raise IOError(f'Could not locate "{info["tif"]}". Make sure file exists in this directory.')
 
             _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
 

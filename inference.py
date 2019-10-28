@@ -13,10 +13,11 @@ import math
 from collections import OrderedDict
 import warnings
 from tqdm import tqdm
+from pathlib import Path
 
 from models.model_choice import net
 from utils.utils import read_parameters, assert_band_number, load_from_checkpoint, \
-    image_reader_as_array, read_csv, get_device_ids
+    image_reader_as_array, read_csv, get_device_ids, gpu_stats
 from utils.preprocess import minmax_scale
 
 try:
@@ -80,34 +81,43 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device)
 
     if padded_array.any():
         with torch.no_grad():
-            for row in tqdm(range(overlay, h, chunk_size - overlay), position=1, leave=False):
-                row_start = row - overlay
-                row_end = row_start + chunk_size
-                for col in range(overlay, w, chunk_size - overlay):
-                    col_start = col - overlay
-                    col_end = col_start + chunk_size
+            with tqdm(range(overlay, h, chunk_size - overlay), position=1, leave=False) as _tqdm:
+                for row in _tqdm:
+                    row_start = row - overlay
+                    row_end = row_start + chunk_size
+                    for col in range(overlay, w, chunk_size - overlay):
+                        col_start = col - overlay
+                        col_end = col_start + chunk_size
 
-                    chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
-                    inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
+                        chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
+                        inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
-                    inputs.unsqueeze_(0)
+                        inputs.unsqueeze_(0)
 
-                    inputs = inputs.to(device)
-                    # forward
-                    outputs = model(inputs)
+                        inputs = inputs.to(device)
+                        # forward
+                        outputs = model(inputs)
 
-                    # torchvision models give output it 'out' key. May cause problems in future versions of torchvision.
-                    if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
-                        outputs = outputs['out']
+                        # torchvision models give output it 'out' key. May cause problems in future versions of torchvision.
+                        if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
+                            outputs = outputs['out']
 
-                    output_counts[row_start:row_end, col_start:col_end] += 1
-                    output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(), axis=0)
+                        output_counts[row_start:row_end, col_start:col_end] += 1
+                        output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(), axis=0)
+
+                    if debug and device.type == 'cuda':
+                        res, mem = gpu_stats(device=device.index)
+                        _tqdm.set_postfix(OrderedDict(device=device,
+                                                      gpu_perc=f'{res.gpu} %',
+                                                      gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+                                                      chunk_size=inputs.cpu().numpy().shape,
+                                                      output_size=outputs.cpu().numpy().shape))
 
             output_mask = np.argmax(np.divide(output_probs, np.maximum(output_counts, 1)), axis=0)
             # Resize the output array to the size of the input image and write it
             return output_mask[overlay:(h + overlay), overlay:(w + overlay)].astype(np.uint8)
     else:
-        print("Error classifying image : Image shape of {:1} is not recognized".format(len(nd_array.shape)))
+        raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
 
 
 def classifier(params, img_list, model):
@@ -203,7 +213,10 @@ def main(params):
 
     """
     since = time.time()
-    csv_file = params['inference']['img_csv_file']
+    img_dir_or_csv = params['inference']['img_dir_or_csv_file']
+    working_folder = Path(params['inference']['working_folder'])
+    Path.mkdir(working_folder, exist_ok=True)
+    print(f'Inferences will be saved to: {working_folder}')
 
     bucket = None
     bucket_name = params['global']['bucket_name']
@@ -225,10 +238,24 @@ def main(params):
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
-        bucket.download_file(csv_file, 'img_csv_file.csv')
-        list_img = read_csv('img_csv_file.csv', inference=True)
+        if img_dir_or_csv.endswith('.csv'):
+            bucket.download_file(img_dir_or_csv, 'img_csv_file.csv')
+            list_img = read_csv('img_csv_file.csv', inference=True)
+        else:
+            raise NotImplementedError('Specify a csv file containing images for inference. Directory input not implemented yet')
     else:
-        list_img = read_csv(csv_file, inference=True)
+        if img_dir_or_csv.endswith('.csv'):
+            list_img = read_csv(img_dir_or_csv, inference=True)
+        else:
+            img_dir = Path(img_dir_or_csv)
+            assert img_dir.exists(), f'Could not find directory "{img_dir_or_csv}"'
+            list_img_paths = sorted(img_dir.glob('*.tif'))
+            list_img = []
+            for img_path in list_img_paths:
+                img = {}
+                img['tif'] = img_path
+                list_img.append(img)
+            assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
 
     if params['global']['task'] == 'classification':
         classifier(params, list_img, model)
@@ -242,35 +269,42 @@ def main(params):
 
         chunk_size, nbr_pix_overlap = calc_overlap(params)
         num_classes = params['global']['num_classes']
-        for img in tqdm(list_img, desc='image list', position=0):
-            img_name = os.path.basename(img['tif'])
-            if bucket:
-                local_img = f"Images/{img_name}"
-                bucket.download_file(img['tif'], local_img)
-                inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-            else:
-                local_img = img['tif']
-                inference_image = os.path.join(params['inference']['working_folder'],
-                                               f"{img_name.split('.')[0]}_inference.tif")
+        with tqdm(list_img, desc='image list', position=0) as _tqdm:
+            for img in _tqdm:
+                img_name = os.path.basename(img['tif'])
+                if bucket:
+                    local_img = f"Images/{img_name}"
+                    bucket.download_file(img['tif'], local_img)
+                    inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
+                else:
+                    local_img = img['tif']
+                    inference_image = os.path.join(params['inference']['working_folder'],
+                                                   f"{img_name.split('.')[0]}_inference.tif")
 
-            assert_band_number(local_img, params['global']['number_of_bands'])
+                assert_band_number(local_img, params['global']['number_of_bands'])
 
-            nd_array_tif = image_reader_as_array(local_img)
-                                               
-            # See: http://cs231n.github.io/neural-networks-2/#datapre. e.g. Scale arrays from [0,255] to [0,1]
-            scale = params['global']['scale_data']
-            if scale:
-                sc_min, sc_max = params['global']['scale_data']
-                nd_array_tif = minmax_scale(nd_array_tif,
-                                              orig_range=(np.min(nd_array_tif), np.max(nd_array_tif)),
-                                              scale_range=(sc_min,sc_max))
+                nd_array_tif = image_reader_as_array(local_img)
+                assert(len(np.unique(nd_array_tif))>1), (f'Image "{img_name}" only contains {np.unique(nd_array_tif)} value.')
 
-            sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes, device)
-            create_new_raster_from_base(local_img, inference_image, sem_seg_results)
-            tqdm.write(f"Semantic segmentation of image {img_name} completed")
-            if bucket:
-                bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
-                                                                 f"{img_name.split('.')[0]}_inference.tif"))
+                # See: http://cs231n.github.io/neural-networks-2/#datapre. e.g. Scale arrays from [0,255] to [0,1]
+                scale = params['global']['scale_data']
+                if scale:
+                    sc_min, sc_max = params['global']['scale_data']
+                    nd_array_tif = minmax_scale(nd_array_tif,
+                                                  orig_range=(np.min(nd_array_tif), np.max(nd_array_tif)),
+                                                  scale_range=(sc_min,sc_max))
+                if debug:
+                    _tqdm.set_postfix(OrderedDict(image_name=img_name, image_shape=nd_array_tif.shape, scale=scale))
+
+                sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes, device)
+                if debug and len(np.unique(sem_seg_results))==1:
+                    print(f'Something is wrong. Inference contains only "{np.unique(sem_seg_results)} value. Make sure '
+                          f'"scale_data" parameter is coherent with parameters used for training model used in inference.')
+                create_new_raster_from_base(local_img, inference_image, sem_seg_results)
+                tqdm.write(f"Semantic segmentation of image {img_name} completed")
+                if bucket:
+                    bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
+                                                                     f"{img_name.split('.')[0]}_inference.tif"))
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {params['global']['task']}")
 
@@ -285,5 +319,7 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
+
+    debug = True if params['global']['debug_mode'] else False
 
     main(params)
