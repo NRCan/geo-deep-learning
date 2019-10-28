@@ -58,6 +58,6 @@ training:
 inference:
   img_dir_or_csv_file: ./data/inference_sem_seg_ci_csv.csv
   working_folder: ./data
-  state_dict_path: ./data/model/config_ci_segmentation_local
+  state_dict_path: ./data/model/config_ci_segmentation_local/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10

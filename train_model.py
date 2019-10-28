@@ -237,9 +237,9 @@ def set_hyperparameters(params, model, checkpoint):
 
     # optional hyperparameters. Set to None if not in config file
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
-    if class_weights:
+    if params['training']['class_weights']:
         verify_weights(params['global']['num_classes'], class_weights)
-    ignore_index = params['training']['ignore_index'] if params['training']['ignore_index'] else None
+    ignore_index = params['training']['ignore_index'] if params['training']['ignore_index'] else -100
 
     # Loss function
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
