@@ -248,3 +248,28 @@ def gpu_stats(device=0):
     mem = nvmlDeviceGetMemoryInfo(handle)
 
     return res, mem
+
+
+def get_key_def(key, config, default=None, msg=None, delete=False):
+    """Returns a value given a dictionary key, or the default value if it cannot be found."""
+    if isinstance(key, list):
+        if len(key) <= 1:
+            if msg is not None:
+                raise AssertionError(msg)
+            else:
+                raise AssertionError("must provide at least two valid keys to test")
+        for k in key:
+            if k in config:
+                val = config[k]
+                if delete:
+                    del config[k]
+                return val
+        return default
+    else:
+        if key not in config:
+            return default
+        else:
+            val = config[key]
+            if delete:
+                del config[key]
+            return val
