@@ -175,10 +175,11 @@ def main(params):
                     bucket_file_cache.append(info['gpkg'])
                     bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
                 info['gpkg'] = info['gpkg'].split('/')[-1]
-                if info['meta'] not in bucket_file_cache:
-                    bucket_file_cache.append(info['meta'])
-                    bucket.download_file(info['meta'], info['meta'].split('/')[-1])
-                info['meta'] = info['meta'].split('/')[-1]
+                if info['meta']:
+                    if info['meta'] not in bucket_file_cache:
+                        bucket_file_cache.append(info['meta'])
+                        bucket.download_file(info['meta'], info['meta'].split('/')[-1])
+                    info['meta'] = info['meta'].split('/')[-1]
 
             _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
 

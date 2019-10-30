@@ -18,7 +18,7 @@ from pathlib import Path
 from models.model_choice import net
 from utils.utils import read_parameters, load_from_checkpoint, image_reader_as_array, \
     read_csv, get_device_ids, gpu_stats, get_key_def
-
+from CreateDataset import MetaSegmentationDataset
 try:
     import boto3
 except ModuleNotFoundError:
@@ -218,6 +218,7 @@ def main(params):
     print(f'Inferences will be saved to: {working_folder}')
 
     bucket = None
+    bucket_file_cache = []
     bucket_name = params['global']['bucket_name']
 
     model, state_dict_path, model_name = net(params, inference=True)
@@ -275,6 +276,11 @@ def main(params):
                     local_img = f"Images/{img_name}"
                     bucket.download_file(img['tif'], local_img)
                     inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
+                    if img['meta']:
+                        if img['meta'] not in bucket_file_cache:
+                            bucket_file_cache.append(img['meta'])
+                            bucket.download_file(img['meta'], img['meta'].split('/')[-1])
+                        img['meta'] = img['meta'].split('/')[-1]
                 else:
                     local_img = img['tif']
                     inference_image = os.path.join(params['inference']['working_folder'],
@@ -286,13 +292,20 @@ def main(params):
                         f"The number of bands in the input image ({raster.count}) and the parameter" \
                         f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) must be the same"
 
-                    np_input_image = image_reader_as_array(input_image=raster,
-                                                           scale=get_key_def('scale_data', params['global'], None),
-                                                           aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
-                                                           aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
-                                                           aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
-                                                           aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
-                                                           aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
+                np_input_image = image_reader_as_array(input_image=raster,
+                                                       scale=get_key_def('scale_data', params['global'], None),
+                                                       aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
+                                                       aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                                                       aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                                                       aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                                                       aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
+
+                meta_map = get_key_def("meta_map", params["global"], {})
+                if meta_map:
+                    assert img['meta'] is not None and isinstance(img['meta'], str) and os.path.isfile(img['meta']), \
+                        "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"
+                    image_metadata = read_parameters(img['meta'])
+                    np_input_image = MetaSegmentationDataset.append_meta_layers(np_input_image, meta_map, image_metadata)
 
                 sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes, device)
                 if debug and len(np.unique(sem_seg_results))==1:
