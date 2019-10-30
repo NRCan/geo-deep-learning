@@ -258,23 +258,27 @@ def read_csv(csv_file_name, inference=False):
     """Open csv file and parse it, returning a list of dict.
 
     If inference == True, the dict contains this info:
-    - tif full path
+        - tif full path
+        - metadata yml full path (may be empty string if unavailable)
     Else, the returned list contains a dict with this info:
-    - tif full path
-    - gpkg full path
-    - attribute_name
-    - dataset (trn or val)
+        - tif full path
+        - metadata yml full path (may be empty string if unavailable)
+        - gpkg full path
+        - attribute_name
+        - dataset (trn or val)
     """
-
     list_values = []
     with open(csv_file_name, 'r') as f:
         reader = csv.reader(f)
         for row in reader:
             if inference:
+                assert len(row) == 2, 'unexpected number of columns in dataset CSV description file' \
+                    ' (for inference, should have two columns, i.e. raster file path and metadata file path)'
                 list_values.append({'tif': row[0]})
             else:
-                list_values.append({'tif': row[0], 'gpkg': row[1], 'attribute_name': row[2], 'dataset': row[3]})
-
+                assert len(row) == 5, 'unexpected number of columns in dataset CSV description file' \
+                    ' (should have five columns; see \'read_csv\' function for more details)'
+                list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
     if inference:
         return list_values
     else:

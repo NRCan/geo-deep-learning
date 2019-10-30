@@ -17,7 +17,6 @@ global:
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 1
-  metadata_file: ./data/kingston_wv2_40cm/kingston_wv2_40cm.yml
   aux_vector_file:
   aux_vector_attrib:
   aux_vector_ids:

@@ -135,17 +135,11 @@ def main(params):
     :param params: (dict) Parameters found in the yaml config file.
 
     """
-    gpkg_file = []
+    bucket_file_cache = []
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
     Path.mkdir(Path(data_path), exist_ok=True)
-    metadata_file = params['global']['metadata_file']
     csv_file = params['sample']['prep_csv_file']
-
-    if metadata_file:
-        image_metadata = read_parameters(metadata_file)
-    else:
-        image_metadata = None
 
     final_samples_folder = None
     if bucket_name:
@@ -179,10 +173,14 @@ def main(params):
             if bucket_name:
                 bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
                 info['tif'] = "Images/" + info['tif'].split('/')[-1]
-                if info['gpkg'] not in gpkg_file:
-                    gpkg_file.append(info['gpkg'])
+                if info['gpkg'] not in bucket_file_cache:
+                    bucket_file_cache.append(info['gpkg'])
                     bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
                 info['gpkg'] = info['gpkg'].split('/')[-1]
+                if info['meta'] not in bucket_file_cache:
+                    bucket_file_cache.append(info['meta'])
+                    bucket.download_file(info['meta'], info['meta'].split('/')[-1])
+                info['meta'] = info['meta'].split('/')[-1]
 
             _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
 
@@ -222,6 +220,10 @@ def main(params):
                 out_file = tst_hdf5
             else:
                 raise ValueError(f"Dataset value must be trn or val or tst. Provided value is {info['dataset']}")
+
+            image_metadata = None
+            if info['meta'] is not None and isinstance(info['meta'], str) and os.path.isfile(info['meta']):
+                image_metadata = read_parameters(info['meta'])
 
             np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
             number_samples, number_classes = samples_preparation(np_input_image,
