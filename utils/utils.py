@@ -8,6 +8,8 @@ import warnings
 import fiona
 import csv
 
+from preprocess import minmax_scale
+
 try:
     from ruamel_yaml import YAML
 except ImportError:
@@ -78,21 +80,6 @@ def chop_layer(pretrained_dict, layer_names=["logits"]):   #https://discuss.pyto
     return chopped_dict
 
 
-def assert_band_number(in_image, band_count_yaml):
-    """Verify if provided image has the same number of bands as described in the .yaml
-    Args:
-        in_image: full file path of the image
-        band_count_yaml: band count listed in the .yaml
-    """
-    try:
-        in_array = image_reader_as_array(in_image)
-        msg = "The number of bands in the input image and the parameter 'number_of_bands' in the yaml file must be the same"
-        assert in_array.shape[2] == band_count_yaml, msg
-    except Exception as e:
-        print(e)
-
-
-
 def load_from_checkpoint(checkpoint, model, optimizer=None):
     """Load weights from a previous checkpoint
     Args:
@@ -131,23 +118,108 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
     return model, optimizer
 
 
-def image_reader_as_array(file_name):
+def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vector_attrib=None,
+                          aux_vector_ids=None, aux_vector_dist_maps=False, aux_vector_scale=None):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
-        file_name: full file path of the image
+        input_image: Rasterio file handle holding the (already opened) input raster
+        scale: optional scaling factor for the raw data
+        aux_vector_file: optional vector file from which to extract auxiliary shapes
+        aux_vector_attrib: optional vector file attribute name to parse in order to fetch ids
+        aux_vector_ids: optional vector ids to target in the vector file above
+        aux_vector_dist_maps: flag indicating whether aux vector bands should be distance maps or binary maps
+        aux_vector_scale: optional floating point scale factor to multiply to rasterized vector maps
 
     Return:
-        numm_py_array of the image read
+        numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
-    try:
-        with rasterio.open(file_name, 'r') as src:
-            np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
-            for i in range(src.count):
-                band = src.read(i+1)  # Bands starts at 1 in rasterio not 0
-                np_array[:, :, i] = band
-    except IOError:
-        raise IOError(f'Could not locate "{file_name}". Make sure file exists in this directory.')
+    np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
+    for i in range(input_image.count):
+        band = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
+        np_array[:, :, i] = band
+
+    # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
+    # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
+    if scale:
+        sc_min, sc_max = scale
+        np_array = minmax_scale(img=np_array,
+                                orig_range=(np.min(np_array), np.max(np_array)),
+                                scale_range=(sc_min, sc_max))
+
+    # if requested, load vectors from external file, rasterize, and append distance maps to array
+    if aux_vector_file is not None:
+        assert aux_vector_attrib is not None, \
+            "vector file identifier attribute name must not be none; it will be used to extract target ids"
+        assert aux_vector_ids is not None and aux_vector_ids, \
+            "list of target vector ids must not be none; it is used to determine final tensor depth"
+        vec_tensor = vector_to_raster(vector_file=aux_vector_file,
+                                      input_image=input_image,
+                                      attribute_name=aux_vector_attrib,
+                                      fill=0,
+                                      target_ids=aux_vector_ids,
+                                      merge_all=False)
+        if aux_vector_dist_maps:
+            import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
+            for vec_band_idx in vec_tensor.shape[2]:
+                mask = vec_tensor[:, :, vec_band_idx]
+                dmap = cv.distanceTransform(np.where(mask, np.uint8(0), np.uint8(255)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
+                dmap_inv = cv.distanceTransform(np.where(mask, np.uint8(255), np.uint8(0)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
+                vec_tensor[:, :, vec_band_idx] = np.where(mask, -dmap_inv, dmap)
+        if aux_vector_scale:
+            for vec_band_idx in vec_tensor.shape[2]:
+                vec_tensor[:, :, vec_band_idx] *= aux_vector_scale
+        np_array = np.concatenate([np_array, vec_tensor], axis=2)
     return np_array
+
+
+def vector_to_raster(vector_file, input_image, attribute_name, fill=0, target_ids=None, merge_all=True):
+    """Function to rasterize vector data.
+    Args:
+        vector_file: Path and name of reference GeoPackage
+        input_image: Rasterio file handle holding the (already opened) input raster
+        attribute_name: Attribute containing the identifier for a vector
+        fill: default background value to use when filling non-contiguous regions
+        target_ids: list of identifiers to burn from the vector file (None = use all)
+        merge_all: defines whether all vectors should be burned with their identifiers in a
+            single layer or in individual layers (in the order provided by 'target_ids')
+
+    Return:
+        numpy array of the burned image
+    """
+
+    # Extract vector features to burn in the raster image
+    with fiona.open(vector_file, 'r') as src:
+        lst_vector = [vector for vector in src]
+
+    # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
+    lst_vector.sort(key=lambda vector: vector['properties'][attribute_name])
+
+    assert merge_all or target_ids is not None, \
+        "if not merging all vectors in the same layer, target id list must be provided"
+
+    lst_vector_tuple = [] if merge_all else {tgt: [] for tgt in target_ids}
+
+    # TODO: check a vector entity is empty (e.g. if a vector['type'] in lst_vector is None.)
+    for vector in lst_vector:
+        if target_ids is None or vector['properties'][attribute_name] in target_ids:
+            if merge_all:
+                lst_vector_tuple.append((vector['geometry'], int(vector['properties'][attribute_name])))
+            else:
+                lst_vector_tuple[vector['properties'][attribute_name]].append((vector['geometry'], 1))
+
+    if merge_all:
+        return rasterio.features.rasterize(lst_vector_tuple,
+                                           fill=fill,
+                                           out_shape=input_image.shape,
+                                           transform=input_image.transform,
+                                           dtype=np.uint8)
+    else:
+        burned_rasters = [rasterio.features.rasterize(lst_vector_tuple[tgt],
+                                                      fill=fill,
+                                                      out_shape=input_image.shape,
+                                                      transform=input_image.transform,
+                                                      dtype=np.uint8) for tgt in target_ids]
+        return np.stack(burned_rasters, axis=-1)
 
 
 def validate_num_classes(vector_file, num_classes, value_field):    # used only in images_to_samples.py

@@ -18,6 +18,11 @@ global:
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 1
   metadata_file: ./data/kingston_wv2_40cm/kingston_wv2_40cm.yml
+  aux_vector_file:
+  aux_vector_attrib:
+  aux_vector_ids:
+  aux_vector_dist_maps:
+  aux_vector_scale:
   scale_data: [0,1]
   debug_mode: True
 
@@ -55,7 +60,7 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_csv_file: /path/to/csv/containing/images/list.csv
+  img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
   working_folder: /path/to/folder/with/resulting/images
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512

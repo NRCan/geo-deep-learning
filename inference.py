@@ -16,9 +16,8 @@ from tqdm import tqdm
 from pathlib import Path
 
 from models.model_choice import net
-from utils.utils import read_parameters, assert_band_number, load_from_checkpoint, \
-    image_reader_as_array, read_csv, get_device_ids, gpu_stats
-from utils.preprocess import minmax_scale
+from utils.utils import read_parameters, load_from_checkpoint, image_reader_as_array, \
+    read_csv, get_device_ids, gpu_stats, get_key_def
 
 try:
     import boto3
@@ -281,22 +280,21 @@ def main(params):
                     inference_image = os.path.join(params['inference']['working_folder'],
                                                    f"{img_name.split('.')[0]}_inference.tif")
 
-                assert_band_number(local_img, params['global']['number_of_bands'])
+                assert os.path.isfile(local_img), f"could not open raster file at {local_img}"
+                with rasterio.open(local_img, 'r') as raster:
+                    assert raster.count == params['global']['number_of_bands'], \
+                        f"The number of bands in the input image ({raster.count}) and the parameter" \
+                        f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) must be the same"
 
-                nd_array_tif = image_reader_as_array(local_img)
-                assert(len(np.unique(nd_array_tif))>1), (f'Image "{img_name}" only contains {np.unique(nd_array_tif)} value.')
+                    np_input_image = image_reader_as_array(input_image=raster,
+                                                           scale=get_key_def('scale_data', params['global'], None),
+                                                           aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
+                                                           aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                                                           aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                                                           aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                                                           aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
-                # See: http://cs231n.github.io/neural-networks-2/#datapre. e.g. Scale arrays from [0,255] to [0,1]
-                scale = params['global']['scale_data']
-                if scale:
-                    sc_min, sc_max = params['global']['scale_data']
-                    nd_array_tif = minmax_scale(nd_array_tif,
-                                                  orig_range=(np.min(nd_array_tif), np.max(nd_array_tif)),
-                                                  scale_range=(sc_min,sc_max))
-                if debug:
-                    _tqdm.set_postfix(OrderedDict(image_name=img_name, image_shape=nd_array_tif.shape, scale=scale))
-
-                sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes, device)
+                sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes, device)
                 if debug and len(np.unique(sem_seg_results))==1:
                     print(f'Something is wrong. Inference contains only "{np.unique(sem_seg_results)} value. Make sure '
                           f'"scale_data" parameter is coherent with parameters used for training model used in inference.')
@@ -319,7 +317,5 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
-
-    debug = True if params['global']['debug_mode'] else False
 
     main(params)

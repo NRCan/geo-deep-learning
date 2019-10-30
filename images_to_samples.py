@@ -12,9 +12,9 @@ from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets
 from utils.utils import (
-    read_parameters, assert_band_number, image_reader_as_array, create_or_empty_folder, validate_num_classes, read_csv
+    read_parameters, image_reader_as_array, vector_to_raster,
+    create_or_empty_folder, validate_num_classes, read_csv, get_key_def
 )
-from utils.preprocess import minmax_scale
 
 try:
     import boto3
@@ -129,35 +129,6 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
     return samples_count, num_classes
 
 
-def vector_to_raster(vector_file, input_image, attribute_name):
-    """
-    Function to rasterize vector data.
-    :param vector_file: (str) Path and name of reference GeoPackage
-    :param input_image: (str) Path and name of the input raster image
-    :param attribute_name: (str) Attribute containing the pixel value to write
-    :return: numpy array of the burned image
-    """
-
-    # Extract vector features to burn in the raster image
-    with fiona.open(vector_file, 'r') as src:
-        lst_vector = [vector for vector in src]
-
-    # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
-    lst_vector.sort(key=lambda vector: vector['properties'][attribute_name])
-    lst_vector_tuple = [(vector['geometry'], int(vector['properties'][attribute_name])) for vector in lst_vector]
-
-    # TODO: check a vector entity is empty (e.g. if a vector['type'] in lst_vector is None.)
-    # Open input raster image to have access to number of rows, column, crs...
-    with rasterio.open(input_image, 'r') as src:
-        burned_raster = rasterio.features.rasterize((vector_tuple for vector_tuple in lst_vector_tuple),
-                                                    fill=0,
-                                                    out_shape=src.shape,
-                                                    transform=src.transform,
-                                                    dtype=np.uint8)
-
-    return burned_raster
-
-
 def main(params):
     """
     Training and validation datasets preparation.
@@ -213,26 +184,31 @@ def main(params):
                     bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
                 info['gpkg'] = info['gpkg'].split('/')[-1]
 
-            assert_band_number(info['tif'], params['global']['number_of_bands'])
-
             _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
-
-            # Read the input raster image
-            np_input_image = image_reader_as_array(info['tif'])
 
             # Validate the number of class in the vector file
             validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'])
 
-            # Burn vector file in a raster file
-            np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
+            assert os.path.isfile(info['tif']), f"could not open raster file at {info['tif']}"
+            with rasterio.open(info['tif'], 'r') as raster:
+                assert raster.count == params['global']['number_of_bands'], \
+                    f"The number of bands in the input image ({raster.count}) and the parameter" \
+                    f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) must be the same"
 
-            # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
-            # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
-            if params['global']['scale_data']:
-                sc_min, sc_max = params['global']['scale_data']
-                np_input_image = minmax_scale(np_input_image,
-                                              orig_range=(np.min(np_input_image), np.max(np_input_image)),
-                                              scale_range=(sc_min, sc_max))
+                # Burn vector file in a raster file
+                np_label_raster = vector_to_raster(vector_file=info['gpkg'],
+                                                   input_image=raster,
+                                                   attribute_name=info['attribute_name'],
+                                                   fill=get_key_def('ignore_idx', get_key_def('training', params, {}), 0))
+
+                # Read the input raster image
+                np_input_image = image_reader_as_array(input_image=raster,
+                                                       scale=get_key_def('scale_data', params['global'], None),
+                                                       aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
+                                                       aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                                                       aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                                                       aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                                                       aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
             # Mask the zeros from input image into label raster.
             if params['sample']['mask_reference']:
