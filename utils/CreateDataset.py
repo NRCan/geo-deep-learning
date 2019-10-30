@@ -91,8 +91,8 @@ class MetaSegmentationDataset(SegmentationDataset):
     metadata_handling_modes = ["const_channel", "scaled_channel"]
 
     def __init__(self, work_folder, dataset_type, meta_map, max_sample_count=None, dontcare=None, transform=None):
-        assert isinstance(meta_map, dict), "unexpected metadata mapping object type"
-        assert all([isinstance(k, str) and v in self.metadata_handling_modes for k, v in meta_map.items()]), \
+        assert meta_map is None or isinstance(meta_map, dict), "unexpected metadata mapping object type"
+        assert meta_map is None or all([isinstance(k, str) and v in self.metadata_handling_modes for k, v in meta_map.items()]), \
             "unexpected metadata key type or value handling mode"
         super().__init__(work_folder=work_folder, dataset_type=dataset_type, max_sample_count=max_sample_count,
                          dontcare=dontcare, transform=transform)
@@ -119,18 +119,19 @@ class MetaSegmentationDataset(SegmentationDataset):
             assert meta_idx != -1, f"metadata unvailable in sample #{index}"
             metadata = self.metadata[meta_idx]
             assert isinstance(metadata, (dict, collections.OrderedDict)), "unexpected metadata type"
-        for meta_key, mode in self.meta_map.items():
-            meta_val = self.get_meta_value(metadata, meta_key)
-            if mode == "const_channel":
-                assert np.isscalar(meta_val), "constant channel-wise assignment requires scalar value"
-                layer = np.full(sat_img.shape[0:2], meta_val, dtype=np.float32)
-                sat_img = np.insert(sat_img, sat_img.shape[2], layer, axis=2)
-            elif mode == "scaled_channel":
-                assert np.isscalar(meta_val), "scaled channel-wise coords assignment requires scalar value"
-                layers = models.coordconv.get_coords_map(sat_img.shape[0], sat_img.shape[1]) * meta_val
-                sat_img = np.insert(sat_img, sat_img.shape[2], layers, axis=2)
-            #else...
-        sample = {"sat_img": sat_img, "map_img": map_img}
+            if self.meta_map:
+                for meta_key, mode in self.meta_map.items():
+                    meta_val = self.get_meta_value(metadata, meta_key)
+                    if mode == "const_channel":
+                        assert np.isscalar(meta_val), "constant channel-wise assignment requires scalar value"
+                        layer = np.full(sat_img.shape[0:2], meta_val, dtype=np.float32)
+                        sat_img = np.insert(sat_img, sat_img.shape[2], layer, axis=2)
+                    elif mode == "scaled_channel":
+                        assert np.isscalar(meta_val), "scaled channel-wise coords assignment requires scalar value"
+                        layers = models.coordconv.get_coords_map(sat_img.shape[0], sat_img.shape[1]) * meta_val
+                        sat_img = np.insert(sat_img, sat_img.shape[2], layers, axis=2)
+                    #else...
+        sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata}
         if self.transform:
             sample = self.transform(sample)
         return sample
