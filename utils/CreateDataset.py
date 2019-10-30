@@ -60,15 +60,13 @@ class SegmentationDataset(Dataset):
         return self.max_sample_count
 
     def _remap_labels(self, map_img):
-        # note: will do nothing if 'dontcare' is not set in constructor
-        if self.dontcare is None:
+        # note: will do nothing if 'dontcare' is not set in constructor, or set to non-zero value
+        if self.dontcare is None or self.dontcare != 0:
             return map_img
         # for now, the current implementation only handles the original 'dontcare' value as zero
-        # to keep the impl simple, we just reduce all indices by one and replace -1 by the new value
+        # to keep the impl simple, we just reduce all indices by one so that 'dontcare' becomes -1
         assert map_img.dtype == np.int8 or map_img.dtype == np.int16 or map_img.dtype == np.int32
         map_img -= 1
-        if self.dontcare != -1:
-            map_img[map_img == -1] = self.dontcare
         return map_img
 
     def __getitem__(self, index):
