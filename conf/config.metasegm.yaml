@@ -26,6 +26,8 @@ global:
     "properties/eo:gsd": "scaled_channel"
   scale_data: [0,1]
   debug_mode: True
+  coordconv_convert:
+  coordconv_scale:
 
 # Sample parameters; used in images_to_samples.py -------------------
 
@@ -64,7 +66,7 @@ inference:
   img_dir_or_csv_file: ./data/trn_val_tst_kingston.csv
   working_folder: ./data/output
   state_dict_path: ./data/output/checkpoint.pth.tar
-  chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
+  chunk_size: 256 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
 
 # Models parameters; used in train_model.py and inference.py
