@@ -8,6 +8,7 @@ import time
 import h5py
 import datetime
 import warnings
+import functools
 from tqdm import tqdm
 from collections import OrderedDict
 
@@ -182,7 +183,8 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
         if dontcare == 0:
             warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
                           " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-                          " will be remapped to -1 while loading the dataset.")
+                          " will be remapped to -1 while loading the dataset, and inside the config from now on.")
+            params["training"]["ignore_index"] = -1
         datasets = []
         for subset in ["trn", "val", "tst"]:
             datasets.append(dataset_constr(os.path.join(data_path, "samples"), subset,
@@ -334,13 +336,12 @@ def main(params, config_path):
     val_log = InformationLogger(output_path, 'val')
     tst_log = InformationLogger(output_path, 'tst')
 
-    model, criterion, optimizer, lr_scheduler, device, num_devices = set_hyperparameters(params, model, checkpoint)
-
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
                                                                        batch_size=batch_size,
                                                                        task=task,
-                                                                       num_devices=num_devices,
                                                                        params=params)
+
+    model, criterion, optimizer, lr_scheduler, device, num_devices = set_hyperparameters(params, model, checkpoint)
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
