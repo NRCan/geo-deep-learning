@@ -31,7 +31,7 @@ from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict
 from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
-from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats
+from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, get_key_def
 
 try:
     import boto3
@@ -145,14 +145,14 @@ def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(data_path, num_samples, batch_size, task, num_devices):
+def create_dataloader(data_path, batch_size, task, num_devices, params):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param data_path: (str) path to the samples folder
-    :param num_samples: (dict) number of samples for training, validation and test
     :param batch_size: (int) batch size
     :param task: (str) classification or segmentation
     :param num_devices: (int) number of GPUs used
+    :param params: (dict) Parameters found in the yaml config file.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
     if task == 'classification':
@@ -171,15 +171,25 @@ def create_dataloader(data_path, num_samples, batch_size, task, num_devices):
                                                            [transforms.Resize(299), transforms.ToTensor()]),
                                                        loader=loader)
     elif task == 'segmentation':
-        trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), "trn",
-                                                        max_sample_count=num_samples['trn'],
-                                                        transform=aug.compose_transforms(params, 'trn'))
-        val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), "val",
-                                                        max_sample_count=num_samples['val'],
-                                                        transform=aug.compose_transforms(params, 'tst'))
-        tst_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), "tst",
-                                                        max_sample_count=num_samples['tst'],
-                                                        transform=aug.compose_transforms(params, 'tst'))
+        num_samples = get_num_samples(data_path=data_path, params=params)
+        print(f"Number of samples : {num_samples}")
+        meta_map = get_key_def("meta_map", params["training"], {})
+        if not meta_map:
+            dataset_constr = CreateDataset.SegmentationDataset
+        else:
+            dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
+        dontcare = get_key_def("ignore_index", params["training"], None)
+        if dontcare == 0:
+            warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
+                          " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
+                          " will be remapped to -1 while loading the dataset.")
+        datasets = []
+        for subset in ["trn", "val", "tst"]:
+            datasets.append(dataset_constr(os.path.join(data_path, "samples"), subset,
+                                           max_sample_count=num_samples[subset],
+                                           dontcare=dontcare,
+                                           transform=aug.compose_transforms(params, subset)))
+        trn_dataset, val_dataset, tst_dataset = datasets
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
@@ -326,13 +336,11 @@ def main(params, config_path):
 
     model, criterion, optimizer, lr_scheduler, device, num_devices = set_hyperparameters(params, model, checkpoint)
 
-    num_samples = get_num_samples(data_path=data_path, params=params)
-    print(f"Number of samples : {num_samples}")
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
-                                                                       num_samples=num_samples,
                                                                        batch_size=batch_size,
                                                                        task=task,
-                                                                       num_devices=num_devices)
+                                                                       num_devices=num_devices,
+                                                                       params=params)
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 

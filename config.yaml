@@ -41,6 +41,7 @@ training:
   num_trn_samples:
   num_val_samples:
   num_tst_samples:
+  meta_map:
   batch_size: 16
   num_epochs: 100
   loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
