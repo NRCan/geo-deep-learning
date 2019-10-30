@@ -174,7 +174,7 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
     elif task == 'segmentation':
         num_samples = get_num_samples(data_path=data_path, params=params)
         print(f"Number of samples : {num_samples}")
-        meta_map = get_key_def("meta_map", params["training"], {})
+        meta_map = get_key_def("meta_map", params["global"], {})
         if not meta_map:
             dataset_constr = CreateDataset.SegmentationDataset
         else:
