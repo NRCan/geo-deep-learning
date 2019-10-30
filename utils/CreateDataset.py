@@ -16,32 +16,17 @@ def create_files_and_datasets(params, samples_folder):
     """
     samples_size = params['global']['samples_size']
     number_of_bands = params['global']['number_of_bands']
-
-    trn_hdf5 = h5py.File(os.path.join(samples_folder, "trn_samples.hdf5"), "w")
-    val_hdf5 = h5py.File(os.path.join(samples_folder, "val_samples.hdf5"), "w")
-    tst_hdf5 = h5py.File(os.path.join(samples_folder, "tst_samples.hdf5"), "w")
-
-    trn_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
-                            maxshape=(None, samples_size, samples_size, number_of_bands))
-    trn_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
-                            maxshape=(None, samples_size, samples_size))
-    trn_hdf5.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
-    trn_hdf5.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-
-    val_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
-                            maxshape=(None, samples_size, samples_size, number_of_bands))
-    val_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
-                            maxshape=(None, samples_size, samples_size))
-    val_hdf5.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
-    val_hdf5.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-
-    tst_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
-                            maxshape=(None, samples_size, samples_size, number_of_bands))
-    tst_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
-                            maxshape=(None, samples_size, samples_size))
-    tst_hdf5.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
-    tst_hdf5.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-    return trn_hdf5, val_hdf5, tst_hdf5
+    hdf5_files = []
+    for subset in ["trn", "val", "tst"]:
+        hdf5_file = h5py.File(os.path.join(samples_folder, f"{subset}_samples.hdf5"), "w")
+        hdf5_file.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
+                                 maxshape=(None, samples_size, samples_size, number_of_bands))
+        hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
+                                 maxshape=(None, samples_size, samples_size))
+        hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
+        hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+        hdf5_files.append(hdf5_file)
+    return hdf5_files
 
 
 class SegmentationDataset(Dataset):
