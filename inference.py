@@ -48,7 +48,7 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
             dst.write(write_array[:, :], 1)
 
 
-def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device):
+def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device, meta_map=None, metadata=None):
     """Inference on images using semantic segmentation
     Args:
         model: model to use for inference
@@ -89,6 +89,8 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device)
                         col_end = col_start + chunk_size
 
                         chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
+                        if meta_map:
+                            chunk_input = MetaSegmentationDataset.append_meta_layers(chunk_input, meta_map, metadata)
                         inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
                         inputs.unsqueeze_(0)
@@ -292,25 +294,20 @@ def main(params):
                         f"The number of bands in the input image ({raster.count}) and the parameter" \
                         f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) must be the same"
 
-                np_input_image = image_reader_as_array(input_image=raster,
-                                                       scale=get_key_def('scale_data', params['global'], None),
-                                                       aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
-                                                       aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
-                                                       aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
-                                                       aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
-                                                       aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
+                    np_input_image = image_reader_as_array(input_image=raster,
+                                                           scale=get_key_def('scale_data', params['global'], None),
+                                                           aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
+                                                           aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                                                           aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                                                           aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                                                           aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
-                meta_map = get_key_def("meta_map", params["global"], {})
+                meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
                 if meta_map:
                     assert img['meta'] is not None and isinstance(img['meta'], str) and os.path.isfile(img['meta']), \
                         "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"
-                    image_metadata = read_parameters(img['meta'])
-                    np_input_image = MetaSegmentationDataset.append_meta_layers(np_input_image, meta_map, image_metadata)
-
-                sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes, device)
-                if debug and len(np.unique(sem_seg_results))==1:
-                    print(f'Something is wrong. Inference contains only "{np.unique(sem_seg_results)} value. Make sure '
-                          f'"scale_data" parameter is coherent with parameters used for training model used in inference.')
+                    metadata = read_parameters(img['meta'])
+                sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes, device, meta_map, metadata)
                 create_new_raster_from_base(local_img, inference_image, sem_seg_results)
                 tqdm.write(f"Semantic segmentation of image {img_name} completed")
                 if bucket:
