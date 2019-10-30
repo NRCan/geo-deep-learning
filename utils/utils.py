@@ -4,6 +4,7 @@ import os
 from torch import nn
 import numpy as np
 import rasterio
+import rasterio.features
 import warnings
 import fiona
 import csv

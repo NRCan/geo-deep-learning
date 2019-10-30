@@ -3,9 +3,7 @@ import os
 from pathlib import Path
 import numpy as np
 import warnings
-import fiona
 import rasterio
-from rasterio import features
 import time
 from tqdm import tqdm
 from collections import OrderedDict
