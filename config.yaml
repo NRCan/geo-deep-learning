@@ -12,8 +12,8 @@ global:
   samples_size: 256
   num_classes: 5
   data_path: ./data/kingston_wv2_40cm/images
-  number_of_bands: 3
-  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet or ternausnet
+  number_of_bands: 5
+  model_name: unet     # One of unet, unetsmall, checkpointed_unet or ternausnet
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 1
@@ -23,6 +23,7 @@ global:
   aux_vector_dist_maps:
   aux_vector_scale:
   meta_map:
+    "properties/eo:gsd": "scaled_channel"
   scale_data: [0,1]
   debug_mode: True
 
@@ -41,7 +42,7 @@ training:
   num_trn_samples:
   num_val_samples:
   num_tst_samples:
-  batch_size: 16
+  batch_size: 8
   num_epochs: 100
   loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
   optimizer: adam # One of adam, sgd or adabound
@@ -60,9 +61,9 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
-  working_folder: /path/to/folder/with/resulting/images
-  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
+  img_dir_or_csv_file: ./data/trn_val_tst_kingston.csv
+  working_folder: ./data/output
+  state_dict_path: ./data/output/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
 
