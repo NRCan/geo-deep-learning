@@ -178,7 +178,7 @@ def vector_to_raster(vector_file, input_image, attribute_name, fill=0, target_id
     Args:
         vector_file: Path and name of reference GeoPackage
         input_image: Rasterio file handle holding the (already opened) input raster
-        attribute_name: Attribute containing the identifier for a vector
+        attribute_name: Attribute containing the identifier for a vector (may contain slashes if recursive)
         fill: default background value to use when filling non-contiguous regions
         target_ids: list of identifiers to burn from the vector file (None = use all)
         merge_all: defines whether all vectors should be burned with their identifiers in a
@@ -193,42 +193,45 @@ def vector_to_raster(vector_file, input_image, attribute_name, fill=0, target_id
         lst_vector = [vector for vector in src]
 
     # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
-    lst_vector.sort(key=lambda vector: vector['properties'][attribute_name])
+    if attribute_name is not None:
+        lst_vector.sort(key=lambda vector: get_key_recursive(attribute_name, vector))
 
-    assert merge_all or target_ids is not None, \
-        "if not merging all vectors in the same layer, target id list must be provided"
-
-    lst_vector_tuple = [] if merge_all else {tgt: [] for tgt in target_ids}
+    lst_vector_tuple = {}
 
     # TODO: check a vector entity is empty (e.g. if a vector['type'] in lst_vector is None.)
     for vector in lst_vector:
-        if target_ids is None or vector['properties'][attribute_name] in target_ids:
+        id = get_key_recursive(attribute_name, vector) if attribute_name is not None else None
+        if target_ids is None or id in target_ids:
+            if id not in lst_vector_tuple:
+                lst_vector_tuple[id] = []
             if merge_all:
-                lst_vector_tuple.append((vector['geometry'], int(vector['properties'][attribute_name])))
+                # here, we assume that the id can be cast to int!
+                lst_vector_tuple[id].append((vector['geometry'], int(id) if id is not None else 0))
             else:
-                lst_vector_tuple[vector['properties'][attribute_name]].append((vector['geometry'], 1))
+                # if not merging layers, just use '1' as the value for each target
+                lst_vector_tuple[id].append((vector['geometry'], 1))
 
     if merge_all:
-        return rasterio.features.rasterize(lst_vector_tuple,
+        return rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
                                            fill=fill,
                                            out_shape=input_image.shape,
                                            transform=input_image.transform,
-                                           dtype=np.uint8)
+                                           dtype=np.int16)
     else:
-        burned_rasters = [rasterio.features.rasterize(lst_vector_tuple[tgt],
+        burned_rasters = [rasterio.features.rasterize(lst_vector_tuple[id],
                                                       fill=fill,
                                                       out_shape=input_image.shape,
                                                       transform=input_image.transform,
-                                                      dtype=np.uint8) for tgt in target_ids]
+                                                      dtype=np.int16) for id in lst_vector_tuple]
         return np.stack(burned_rasters, axis=-1)
 
 
-def validate_num_classes(vector_file, num_classes, value_field):    # used only in images_to_samples.py
+def validate_num_classes(vector_file, num_classes, attribute_name):    # used only in images_to_samples.py
     """Validate that the number of classes in the vector file corresponds to the expected number
     Args:
         vector_file: full file path of the vector image
         num_classes: number of classes set in config.yaml
-        value_field: name of the value field representing the required classes in the vector image file
+        attribute_name: name of the value field representing the required classes in the vector image file
 
     Return:
         None
@@ -237,7 +240,7 @@ def validate_num_classes(vector_file, num_classes, value_field):    # used only 
     distinct_att = set()
     with fiona.open(vector_file, 'r') as src:
         for feature in src:
-            distinct_att.add(feature['properties'][value_field])  # Use property of set to store unique values
+            distinct_att.add(get_key_recursive(attribute_name, feature))  # Use property of set to store unique values
 
     if len(distinct_att) != num_classes:
         raise ValueError('The number of classes in the yaml.config {} is different than the number of classes in '
@@ -360,5 +363,5 @@ def get_key_recursive(key, config):
     val = config[key[0]]
     if isinstance(val, (dict, collections.OrderedDict)):
         assert len(key) > 1, "missing keys to index metadata subdictionaries"
-        return get_key_recursive(val, key[1:])
+        return get_key_recursive(key[1:], val)
     return val
