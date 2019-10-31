@@ -8,7 +8,7 @@ import time
 from tqdm import tqdm
 from collections import OrderedDict
 
-from utils.CreateDataset import create_files_and_datasets
+from utils.CreateDataset import create_files_and_datasets, MetaSegmentationDataset
 from utils.utils import (
     read_parameters, image_reader_as_array, vector_to_raster,
     create_or_empty_folder, validate_num_classes, read_csv, get_key_def
@@ -188,9 +188,6 @@ def main(params):
 
             assert os.path.isfile(info['tif']), f"could not open raster file at {info['tif']}"
             with rasterio.open(info['tif'], 'r') as raster:
-                assert raster.count == params['global']['number_of_bands'], \
-                    f"The number of bands in the input image ({raster.count}) and the parameter" \
-                    f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) must be the same"
 
                 # Burn vector file in a raster file
                 np_label_raster = vector_to_raster(vector_file=info['gpkg'],
@@ -220,9 +217,14 @@ def main(params):
             else:
                 raise ValueError(f"Dataset value must be trn or val or tst. Provided value is {info['dataset']}")
 
-            image_metadata = None
+            meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
             if info['meta'] is not None and isinstance(info['meta'], str) and os.path.isfile(info['meta']):
-                image_metadata = read_parameters(info['meta'])
+                metadata = read_parameters(info['meta'])
+
+            input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
+            assert input_band_count == params['global']['number_of_bands'], \
+                f"The number of bands in the input image ({input_band_count}) and the parameter" \
+                f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
 
             np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
             number_samples, number_classes = samples_preparation(np_input_image,
@@ -234,7 +236,7 @@ def main(params):
                                                                  out_file,
                                                                  info['dataset'],
                                                                  params['sample']['min_annotated_percent'],
-                                                                 image_metadata)
+                                                                 metadata)
 
             _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
             out_file.flush()

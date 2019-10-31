@@ -126,6 +126,17 @@ class MetaSegmentationDataset(SegmentationDataset):
                 # else...
         return tensor
 
+    @staticmethod
+    def get_meta_layer_count(meta_map):
+        meta_layers = 0
+        if meta_map:
+            for meta_key, mode in meta_map.items():
+                if mode == "const_channel":
+                    meta_layers += 1
+                elif mode == "scaled_channel":
+                    meta_layers += 2
+        return meta_layers
+
     def __getitem__(self, index):
         # put metadata layer in util func for inf script?
         with h5py.File(self.hdf5_path, "r") as hdf5_file:

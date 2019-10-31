@@ -290,9 +290,6 @@ def main(params):
 
                 assert os.path.isfile(local_img), f"could not open raster file at {local_img}"
                 with rasterio.open(local_img, 'r') as raster:
-                    assert raster.count == params['global']['number_of_bands'], \
-                        f"The number of bands in the input image ({raster.count}) and the parameter" \
-                        f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) must be the same"
 
                     np_input_image = image_reader_as_array(input_image=raster,
                                                            scale=get_key_def('scale_data', params['global'], None),
@@ -307,6 +304,12 @@ def main(params):
                     assert img['meta'] is not None and isinstance(img['meta'], str) and os.path.isfile(img['meta']), \
                         "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"
                     metadata = read_parameters(img['meta'])
+
+                input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
+                assert input_band_count == params['global']['number_of_bands'], \
+                    f"The number of bands in the input image ({input_band_count}) and the parameter" \
+                    f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
+
                 sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes, device, meta_map, metadata)
                 create_new_raster_from_base(local_img, inference_image, sem_seg_results)
                 tqdm.write(f"Semantic segmentation of image {img_name} completed")
