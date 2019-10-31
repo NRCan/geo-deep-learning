@@ -104,7 +104,7 @@ class MetaSegmentationDataset(SegmentationDataset):
         if meta_map:
             assert isinstance(metadata, (dict, collections.OrderedDict)), "unexpected metadata type"
             for meta_key, mode in meta_map.items():
-                meta_val = get_key_recursive(metadata, meta_key)
+                meta_val = get_key_recursive(meta_key, metadata)
                 if mode == "const_channel":
                     assert np.isscalar(meta_val), "constant channel-wise assignment requires scalar value"
                     layer = np.full(tensor.shape[0:2], meta_val, dtype=np.float32)
