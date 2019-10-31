@@ -275,7 +275,7 @@ def read_csv(csv_file_name, inference=False):
             if inference:
                 assert len(row) >= 2, 'unexpected number of columns in dataset CSV description file' \
                     ' (for inference, should have two columns, i.e. raster file path and metadata file path)'
-                list_values.append({'tif': row[0]})
+                list_values.append({'tif': row[0], 'meta': row[1]})
             else:
                 assert len(row) >= 5, 'unexpected number of columns in dataset CSV description file' \
                     ' (should have five columns; see \'read_csv\' function for more details)'
