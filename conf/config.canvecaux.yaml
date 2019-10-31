@@ -12,18 +12,18 @@ global:
   samples_size: 256
   num_classes: 5
   data_path: ./data/kingston_wv2_40cm/images
-  number_of_bands: 3
+  number_of_bands: 4
   model_name: unet     # One of unet, unetsmall, checkpointed_unet or ternausnet
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 1
-  aux_vector_file:
-  aux_vector_dist_maps:
+  aux_vector_file: ./data/canvec_191031_127357_roads.gpkg
+  aux_vector_dist_maps: true
   meta_map:
   scale_data: [0,1]
   debug_mode: True
-  coordconv_convert: true
-  coordconv_scale: 0.4
+  coordconv_convert:
+  coordconv_scale:
 
 # Sample parameters; used in images_to_samples.py -------------------
 

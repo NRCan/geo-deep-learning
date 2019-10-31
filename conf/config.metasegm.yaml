@@ -18,10 +18,7 @@ global:
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 1
   aux_vector_file:
-  aux_vector_attrib:
-  aux_vector_ids:
   aux_vector_dist_maps:
-  aux_vector_scale:
   meta_map:
     "properties/eo:gsd": "scaled_channel"
   scale_data: [0,1]
