@@ -6,6 +6,7 @@ import numpy as np
 import rasterio
 import rasterio.features
 import warnings
+import collections
 import fiona
 import csv
 
@@ -349,3 +350,15 @@ def get_key_def(key, config, default=None, msg=None, delete=False):
             if delete:
                 del config[key]
             return val
+
+
+def get_key_recursive(key, config):
+    """Returns a value recursively given a dictionary key that may contain multiple subkeys."""
+    if not isinstance(key, list):
+        key = key.split("/")  # subdict indexing split using slash
+    assert key[0] in config, f"missing key '{key[0]}' in metadata dictionary"
+    val = config[key[0]]
+    if isinstance(val, (dict, collections.OrderedDict)):
+        assert len(key) > 1, "missing keys to index metadata subdictionaries"
+        return get_key_recursive(val, key[1:])
+    return val

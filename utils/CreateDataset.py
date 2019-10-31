@@ -5,6 +5,7 @@ from torch.utils.data import Dataset
 import numpy as np
 
 import models.coordconv
+from utils.utils import get_key_recursive
 
 
 def create_files_and_datasets(params, samples_folder):
@@ -99,22 +100,11 @@ class MetaSegmentationDataset(SegmentationDataset):
         self.meta_map = meta_map
 
     @staticmethod
-    def get_meta_value(map, key):
-        if not isinstance(key, list):
-            key = key.split("/")  # subdict indexing split using slash
-        assert key[0] in map, f"missing key '{key[0]}' in metadata dictionary"
-        val = map[key[0]]
-        if isinstance(val, (dict, collections.OrderedDict)):
-            assert len(key) > 1, "missing keys to index metadata subdictionaries"
-            return MetaSegmentationDataset.get_meta_value(val, key[1:])
-        return val
-
-    @staticmethod
     def append_meta_layers(tensor, meta_map, metadata):
         if meta_map:
             assert isinstance(metadata, (dict, collections.OrderedDict)), "unexpected metadata type"
             for meta_key, mode in meta_map.items():
-                meta_val = MetaSegmentationDataset.get_meta_value(metadata, meta_key)
+                meta_val = get_key_recursive(metadata, meta_key)
                 if mode == "const_channel":
                     assert np.isscalar(meta_val), "constant channel-wise assignment requires scalar value"
                     layer = np.full(tensor.shape[0:2], meta_val, dtype=np.float32)
