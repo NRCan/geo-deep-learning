@@ -273,11 +273,11 @@ def read_csv(csv_file_name, inference=False):
         reader = csv.reader(f)
         for row in reader:
             if inference:
-                assert len(row) == 2, 'unexpected number of columns in dataset CSV description file' \
+                assert len(row) >= 2, 'unexpected number of columns in dataset CSV description file' \
                     ' (for inference, should have two columns, i.e. raster file path and metadata file path)'
                 list_values.append({'tif': row[0]})
             else:
-                assert len(row) == 5, 'unexpected number of columns in dataset CSV description file' \
+                assert len(row) >= 5, 'unexpected number of columns in dataset CSV description file' \
                     ' (should have five columns; see \'read_csv\' function for more details)'
                 list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
     if inference:
