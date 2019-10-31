@@ -17,7 +17,7 @@ global:
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 1
-  aux_vector_file: ./data/canvec_191031_127357_roads.gpkg
+  aux_vector_file: ./data/canvec_191031_127357_roads.gpkg  # https://drive.google.com/file/d/1PCxn2197NiOVKOxGgQIA__w69jAJmjXp
   aux_vector_dist_maps: true
   meta_map:
   scale_data: [0,1]
@@ -28,7 +28,7 @@ global:
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
-  prep_csv_file: ./data/trn_val_tst_kingston.csv
+  prep_csv_file: ./data/trn_val_tst_kingston.csv  # https://drive.google.com/file/d/1uNizOAToa-R_sik0DvBqDUVwjqYdOALJ
   samples_dist: 200
   min_annotated_percent: 10 # Min % of non background pixels in stored samples. Default: 0
   mask_reference: False
@@ -59,7 +59,7 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_csv_file: ./data/trn_val_tst_kingston.csv
+  img_dir_or_csv_file: ./data/trn_val_tst_kingston.csv  # https://drive.google.com/file/d/1uNizOAToa-R_sik0DvBqDUVwjqYdOALJ
   working_folder: ./data/output
   state_dict_path: ./data/output/checkpoint.pth.tar
   chunk_size: 256 # (int) Size (height and width) of each prediction patch. Default: 512
