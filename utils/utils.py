@@ -10,7 +10,7 @@ import collections
 import fiona
 import csv
 
-from preprocess import minmax_scale
+from utils.preprocess import minmax_scale
 
 try:
     from ruamel_yaml import YAML
