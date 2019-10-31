@@ -202,6 +202,7 @@ def main(params):
                                                        aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
                                                        aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
                                                        aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                                                       aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
                                                        aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
             # Mask the zeros from input image into label raster.
