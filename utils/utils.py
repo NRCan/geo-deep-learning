@@ -136,8 +136,7 @@ def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vec
     """
     np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
     for i in range(input_image.count):
-        band = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
-        np_array[:, :, i] = band
+        np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
 
     # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
     # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
