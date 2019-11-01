@@ -247,13 +247,11 @@ def set_hyperparameters(params, model, checkpoint):
     lr = params['training']['learning_rate']
     assert lr is not None and lr > 0, "missing mandatory learning rate parameter"
     weight_decay = params['training']['weight_decay']
-    assert weight_decay is not None and weight_decay > 0, "missing mandatory weight decay parameter"
+    assert weight_decay is not None and weight_decay >= 0, "missing mandatory weight decay parameter"
     step_size = params['training']['step_size']
     assert step_size is not None and step_size > 0, "missing mandatory step size parameter"
     gamma = params['training']['gamma']
     assert gamma is not None and gamma >= 0, "missing mandatory gamma parameter"
-    num_devices = params['global']['num_gpus']
-    assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
 
     # optional hyperparameters. Set to None if not in config file
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
@@ -266,22 +264,6 @@ def set_hyperparameters(params, model, checkpoint):
     # Loss function
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
 
-    # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
-    num_devices = len(lst_device_ids) if lst_device_ids else 0
-    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-
-    if num_devices == 1:
-        print(f"Using Cuda device {lst_device_ids[0]}")
-    elif num_devices > 1:
-        print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}")
-        model = nn.DataParallel(model, device_ids=lst_device_ids)    # adds prefix 'module.' to state_dict keys
-    else:
-        warnings.warn(f"No Cuda device available. This process will only run on CPU")
-
-    criterion = criterion.to(device)
-    model = model.to(device)
-
     # Optimizer
     opt_fn = params['training']['optimizer']
     optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
@@ -290,7 +272,7 @@ def set_hyperparameters(params, model, checkpoint):
     if checkpoint:
         model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer)
 
-    return model, criterion, optimizer, lr_scheduler, device, num_devices
+    return model, criterion, optimizer, lr_scheduler
 
 
 def main(params, config_path):
@@ -343,12 +325,30 @@ def main(params, config_path):
     val_log = InformationLogger(output_path, 'val')
     tst_log = InformationLogger(output_path, 'tst')
 
+    num_devices = params['global']['num_gpus']
+    assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
+    # list of GPU devices that are available and unused. If no GPUs, returns empty list
+    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
+    num_devices = len(lst_device_ids) if lst_device_ids else 0
+    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+    if num_devices == 1:
+        print(f"Using Cuda device {lst_device_ids[0]}")
+    elif num_devices > 1:
+        print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}")
+        model = nn.DataParallel(model, device_ids=lst_device_ids)  # adds prefix 'module.' to state_dict keys
+    else:
+        warnings.warn(f"No Cuda device available. This process will only run on CPU")
+
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
                                                                        batch_size=batch_size,
                                                                        task=task,
+                                                                       num_devices=num_devices,
                                                                        params=params)
 
-    model, criterion, optimizer, lr_scheduler, device, num_devices = set_hyperparameters(params, model, checkpoint)
+    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, model, checkpoint)
+
+    criterion = criterion.to(device)
+    model = model.to(device)
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 

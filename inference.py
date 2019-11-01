@@ -309,12 +309,19 @@ def main(params):
                         "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"
                     metadata = read_parameters(img['meta'])
 
+                if debug:
+                    _tqdm.set_postfix(OrderedDict(image_name=img_name, image_shape=np_input_image.shape))
+
                 input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
                 assert input_band_count == params['global']['number_of_bands'], \
                     f"The number of bands in the input image ({input_band_count}) and the parameter" \
                     f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
 
                 sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes, device, meta_map, metadata)
+
+                if debug and len(np.unique(sem_seg_results))==1:
+                    print(f'Something is wrong. Inference contains only one value. Make sure data scale is coherent with training domain values.')
+
                 create_new_raster_from_base(local_img, inference_image, sem_seg_results)
                 tqdm.write(f"Semantic segmentation of image {img_name} completed")
                 if bucket:
@@ -334,5 +341,7 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
+
+    debug = True if params['global']['debug_mode'] else False
 
     main(params)

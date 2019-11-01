@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 import numpy as np
 
 import models.coordconv
-from utils.utils import get_key_recursive
+from utils.utils import get_key_def, get_key_recursive
 
 
 def create_files_and_datasets(params, samples_folder):
@@ -17,11 +17,14 @@ def create_files_and_datasets(params, samples_folder):
     """
     samples_size = params['global']['samples_size']
     number_of_bands = params['global']['number_of_bands']
+    meta_map = get_key_def('meta_map', params['global'], {})
+    real_num_bands = number_of_bands - MetaSegmentationDataset.get_meta_layer_count(meta_map)
+    assert real_num_bands > 0, "invalid number of bands when accounting for meta layers"
     hdf5_files = []
     for subset in ["trn", "val", "tst"]:
         hdf5_file = h5py.File(os.path.join(samples_folder, f"{subset}_samples.hdf5"), "w")
-        hdf5_file.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
-                                 maxshape=(None, samples_size, samples_size, number_of_bands))
+        hdf5_file.create_dataset("sat_img", (0, samples_size, samples_size, real_num_bands), np.float32,
+                                 maxshape=(None, samples_size, samples_size, real_num_bands))
         hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
                                  maxshape=(None, samples_size, samples_size))
         hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))

@@ -37,6 +37,7 @@ sample:
 # Training parameters; used in train_model.py ----------------------
 
 training:
+  state_dict_path:
   output_path: ./data/output
   num_trn_samples:
   num_val_samples:
@@ -56,6 +57,8 @@ training:
     rotate_limit: 45
     rotate_prob: 0.5
     hflip_prob: 0.5
+  dropout:
+  dropout_prob:
 
 # Inference parameters; used in inference.py --------
 
@@ -65,19 +68,3 @@ inference:
   state_dict_path: ./data/output/checkpoint.pth.tar
   chunk_size: 256 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
-
-# Models parameters; used in train_model.py and inference.py
-
-models:
-  unet:   &unet001
-    dropout: False
-    probability: 0.2    # Set with dropout
-    pretrained: False   # optional
-  unetsmall:
-    <<: *unet001
-  ternausnet:
-    pretrained: ./models/TernausNet.pt    # Mandatory
-  checkpointed_unet:
-    <<: *unet001
-  inception:
-    pretrained: False   # optional
