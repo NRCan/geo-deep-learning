@@ -554,7 +554,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
                 _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
-                if debug and torch.cuda.is_available():
+                if debug and torch.cuda.is_available() and device.type != "cpu":
                     res, mem = gpu_stats(device=device.index)
                     _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
                                                   gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
