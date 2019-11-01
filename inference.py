@@ -18,7 +18,7 @@ from pathlib import Path
 from models.model_choice import net
 from utils.utils import read_parameters, load_from_checkpoint, image_reader_as_array, \
     read_csv, get_device_ids, gpu_stats, get_key_def
-from CreateDataset import MetaSegmentationDataset
+from utils.CreateDataset import MetaSegmentationDataset
 try:
     import boto3
 except ModuleNotFoundError:
