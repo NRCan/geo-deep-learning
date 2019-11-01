@@ -187,10 +187,11 @@ def main(params):
 
     ignore_index = params['training']['ignore_index'] if params['training']['ignore_index'] else -100
     for info in list_data_prep:
-        assert Path(info['tif']).is_file() and Path(info['gpkg']).is_file(), f'Could not locate "{info["tif"]}" or ' \
-                                                                             f'"{info["gpkg"]}". Make sure file exists in this directory.'
+        assert Path(info['tif']).is_file(), f'Could not locate "{info["tif"]}". Make sure file exists in this directory.'
+        assert Path(info['gpkg']).is_file(), f'Could not locate "{info["gpkg"]}". Make sure file exists in this directory.'
         # Validate the number of class in the vector file
         validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
+    print(f'Located all .tif and .gpkg files in {csv_file}.')
 
     create_or_empty_folder(samples_folder, empty=False)    #FIXME: what if we want to append samples to existing hdf5?
     create_or_empty_folder(out_label_folder, empty=False)
@@ -202,7 +203,6 @@ def main(params):
 
     with tqdm(list_data_prep) as _tqdm:
         for info in _tqdm:
-
             if bucket_name:
                 bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
                 info['tif'] = "Images/" + info['tif'].split('/')[-1]
