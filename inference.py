@@ -271,6 +271,10 @@ def main(params):
 
         chunk_size, nbr_pix_overlap = calc_overlap(params)
         num_classes = params['global']['num_classes']
+        if num_classes == 1:
+            # assume background is implicitly needed (makes no sense to predict with one class otherwise)
+            # this will trigger some warnings elsewhere, but should succeed nonetheless
+            num_classes = 2
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
             for img in _tqdm:
                 img_name = os.path.basename(img['tif'])

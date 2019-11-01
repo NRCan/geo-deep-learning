@@ -47,7 +47,9 @@ def verify_weights(num_classes, weights):
         num_classes: number of classes defined in the configuration file
         weights: weights defined in the configuration file
     """
-    if num_classes != len(weights):
+    if num_classes == 1 and len(weights) == 2:
+        warnings.warn("got two class weights for single class defined in configuration file; will assume index 0 = background")
+    elif num_classes != len(weights):
         raise ValueError('The number of class weights in the configuration file is different than the number of classes')
 
 
@@ -314,6 +316,11 @@ def main(params, config_path):
     task = params['global']['task']
     num_classes = params['global']['num_classes']
     batch_size = params['training']['batch_size']
+
+    if num_classes == 1:
+        # assume background is implicitly needed (makes no sense to train with one class otherwise)
+        # this will trigger some warnings elsewhere, but should succeed nonetheless
+        num_classes = 2
 
     if bucket_name:
         bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,

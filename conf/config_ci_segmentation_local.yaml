@@ -10,7 +10,7 @@
 
 global:
   samples_size: 256
-  num_classes: 2
+  num_classes: 1  # will automatically create a 'background' class
   data_path: ./data
   number_of_bands: 3
   model_name: checkpointed_unet     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
@@ -47,7 +47,7 @@ training:
   dropout_prob: False    # (float) Set dropout probability, e.g. 0.5
   class_weights: [1.0, 2.0]
   batch_metrics: 1
-  ignore_index: 0 # Specifies a target value that is ignored and does not contribute to the input gradient
+  ignore_index:  # Specifies a target value that is ignored and does not contribute to the input gradient
   augmentation:
     rotate_limit: 45
     rotate_prob: 0.5

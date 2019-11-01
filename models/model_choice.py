@@ -1,5 +1,6 @@
 import os
 import torch
+import warnings
 import torchvision.models as models
 from models import TernausNet, unet, checkpointed_unet, inception, coordconv
 from utils.utils import chop_layer, get_key_def
@@ -30,6 +31,10 @@ def net(net_params, inference=False):
     """Define the neural net"""
     model_name = net_params['global']['model_name'].lower()
     num_classes = net_params['global']['num_classes']
+    if num_classes == 1:
+        warnings.warn("config specified that number of classes is 1, but model will be instantiated"
+                      " with a minimum of two regardless (will assume that 'background' exists)")
+        num_classes = 2
     msg = f'Number of bands specified incompatible with this model. Requires 3 band data.'
     state_dict_path = ''
     if model_name == 'unetsmall':
