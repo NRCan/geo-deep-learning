@@ -121,12 +121,13 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
         raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
 
 
-def classifier(params, img_list, model):
+def classifier(params, img_list, model, device):
     """
     Classify images by class
     :param params:
     :param img_list:
     :param model:
+    :param device:
     :return:
     """
     weights_file_name = params['inference']['state_dict_path']
@@ -164,8 +165,7 @@ def classifier(params, img_list, model):
         img = to_tensor(img)
         img = img.unsqueeze(0)
         with torch.no_grad():
-            if torch.cuda.is_available():
-                img = img.cuda()
+            img = img.to(device)
             outputs = model(img)
             _, predicted = torch.max(outputs, 1)
 
@@ -260,7 +260,7 @@ def main(params):
             assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
 
     if params['global']['task'] == 'classification':
-        classifier(params, list_img, model)
+        classifier(params, list_img, model, device)
 
     elif params['global']['task'] == 'segmentation':
         if bucket:
