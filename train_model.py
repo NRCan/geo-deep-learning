@@ -1,9 +1,8 @@
-from pathlib import Path
-
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
 import os
+from pathlib import Path # TODO Use Path instead of os where possible. Better cross-platform compatibility
 import csv
 import time
 import h5py
@@ -30,28 +29,15 @@ from utils import augmentation as aug, CreateDataset
 from utils.optimizer import create_optimizer
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict
-from models.model_choice import net
+from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
-from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids
+from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats
 
 try:
     import boto3
 except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
-
-
-def gpu_stats(device=0):
-    """
-    Provides GPU utilization (%) and RAM usage
-    :return: res.gpu, res.memory
-    """
-    nvmlInit()
-    handle = nvmlDeviceGetHandleByIndex(device)
-    res = nvmlDeviceGetUtilizationRates(handle)
-    mem = nvmlDeviceGetMemoryInfo(handle)
-
-    return res, mem
 
 
 def verify_weights(num_classes, weights):
@@ -94,7 +80,7 @@ def get_s3_classification_images(dataset, bucket, bucket_name, data_path, output
 
     path = os.path.join('Images', dataset)
     try:
-        os.mkdir(path)
+        os.mkdir(path) # TODO use Path from pathlib instead?
     except FileExistsError:
         pass
     for c in classes:
@@ -159,13 +145,14 @@ def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(data_path, num_samples, batch_size, task):
+def create_dataloader(data_path, num_samples, batch_size, task, num_devices):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param data_path: (str) path to the samples folder
     :param num_samples: (dict) number of samples for training, validation and test
     :param batch_size: (int) batch size
     :param task: (str) classification or segmentation
+    :param num_devices: (int) number of GPUs used
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
     if task == 'classification':
@@ -195,8 +182,8 @@ def create_dataloader(data_path, num_samples, batch_size, task):
 
     # Shuffle must be set to True.
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
-    if torch.cuda.device_count() > 1:
-        num_workers = torch.cuda.device_count() * 4
+    if num_devices > 1:
+        num_workers = num_devices * 4
     else:
         num_workers = 4
 
@@ -229,47 +216,30 @@ def get_num_samples(data_path, params):
     return num_samples
 
 
-def set_hyperparameters(params, model, state_dict_path):
+def set_hyperparameters(params, model, checkpoint):
     """
     Function to set hyperparameters based on values provided in yaml config file.
     Will also set model to GPU, if available.
-    If none provided, default functions values are used.
+    If none provided, default functions values may be used.
     :param params: (dict) Parameters found in the yaml config file
     :param model: Model loaded from model_choice.py
-    :param state_dict_path: (str) Full file path to the state dict
+    :param checkpoint: (dict) state dict as loaded by model_choice.py
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
+    # set mandatory hyperparameters values with those in config file if they exist
+    lr = params['training']['learning_rate']
+    weight_decay = params['training']['weight_decay']
+    step_size = params['training']['step_size']
+    gamma = params['training']['gamma']
+    num_devices = params['global']['num_gpus']
+    msg = 'Missing mandatory hyperparameter in config file. Make sure learning_rate, weight_decay, step_size, gamma and num_devices are set.'
+    assert (lr and weight_decay and step_size and gamma and num_devices) is not None, msg
 
-    # assign default values to hyperparameters
-    loss_signature = inspect.signature(nn.CrossEntropyLoss).parameters
-    optim_signature = inspect.signature(optim.Adam).parameters
-    lr_scheduler_signature = inspect.signature(optim.lr_scheduler.StepLR).parameters
-    class_weights = loss_signature['weight'].default
-    ignore_index = loss_signature['ignore_index'].default
-    lr = optim_signature['lr'].default
-    weight_decay = optim_signature['weight_decay'].default
-    step_size = lr_scheduler_signature['step_size'].default
-    if not isinstance(step_size, int):
-        step_size = params['training']['num_epochs'] + 1
-    gamma = lr_scheduler_signature['gamma'].default
-    num_devices = 0
-
-    # replace default values by those in config file if they exist
+    # optional hyperparameters. Set to None if not in config file
+    class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
     if params['training']['class_weights']:
-        class_weights = torch.tensor(params['training']['class_weights'])
         verify_weights(params['global']['num_classes'], class_weights)
-    if params['training']['ignore_index']:
-        ignore_index = params['training']['ignore_index']
-    if params['training']['learning_rate']:
-        lr = params['training']['learning_rate']
-    if params['training']['weight_decay']:
-        weight_decay = params['training']['weight_decay']
-    if params['training']['step_size']:
-        step_size = params['training']['step_size']
-    if params['training']['gamma']:
-        gamma = params['training']['gamma']
-    if params['global']['num_gpus']:
-        num_devices = params['global']['num_gpus']
+    ignore_index = params['training']['ignore_index'] if params['training']['ignore_index'] else -100
 
     # Loss function
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
@@ -295,22 +265,32 @@ def set_hyperparameters(params, model, state_dict_path):
     optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
-    if state_dict_path != '':
-        model, optimizer = load_from_checkpoint(state_dict_path, model, optimizer=optimizer)
+    if checkpoint:
+        model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer)
 
     return model, criterion, optimizer, lr_scheduler, device, num_devices
 
 
-def main(params):
+def main(params, config_path):
     """
     Function to train and validate a models for semantic segmentation or classification.
     :param params: (dict) Parameters found in the yaml config file.
+    :param config_path: (str) Path to the yaml config file.
 
     """
-    model, state_dict_path, model_name = net(params)
+    now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M")
+
+    model, checkpoint, model_name = net(params)
     bucket_name = params['global']['bucket_name']
-    output_path = params['training']['output_path']
     data_path = params['global']['data_path']
+    modelname = config_path.stem
+    output_path = Path(data_path).joinpath('model') / modelname
+    try:
+        output_path.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        output_path = Path(str(output_path)+'_'+now)
+        output_path.mkdir(exist_ok=True)
+    print(f'Model and log files will be saved to: {output_path}')
     task = params['global']['task']
     num_classes = params['global']['num_classes']
     batch_size = params['training']['batch_size']
@@ -330,25 +310,23 @@ def main(params):
 
     progress_log = Path(output_path) / 'progress.log'
     if not progress_log.exists():
-        # Add header
-        # TODO overwrite existing log?
-        progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))
+        progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))    # Add header
 
     trn_log = InformationLogger(output_path, 'trn')
     val_log = InformationLogger(output_path, 'val')
     tst_log = InformationLogger(output_path, 'tst')
 
-    model, criterion, optimizer, lr_scheduler, device, num_devices = set_hyperparameters(params, model, state_dict_path)
+    model, criterion, optimizer, lr_scheduler, device, num_devices = set_hyperparameters(params, model, checkpoint)
 
     num_samples = get_num_samples(data_path=data_path, params=params)
     print(f"Number of samples : {num_samples}")
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
                                                                        num_samples=num_samples,
                                                                        batch_size=batch_size,
-                                                                       task=task)
+                                                                       task=task,
+                                                                       num_devices=num_devices)
 
-    now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M ")
-    filename = os.path.join(output_path, 'checkpoint.pth.tar')    #TODO Should output directory hold same name as config file name?
+    filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
     for epoch in range(0, params['training']['num_epochs']):
         print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
@@ -405,7 +383,9 @@ def main(params):
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    model, _ = load_from_checkpoint(filename, model)
+    if int(params['training']['num_epochs']) > 0:    #if num_epochs is set to 0, is loaded model to evaluate on test set
+        checkpoint = load_checkpoint(filename)
+        model, _ = load_from_checkpoint(checkpoint, model)
     tst_report = evaluation(eval_loader=tst_dataloader,
                             model=model,
                             criterion=criterion,
@@ -479,6 +459,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                                               device=device,
                                               gpu_perc=f'{res.gpu} %',
                                               gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB',
+                                              learning_rate=optimizer.param_groups[0]['lr'],
                                               img_size=data['sat_img'].numpy().shape,
                                               sample_size=data['map_img'].numpy().shape,
                                               batch_size=batch_size))
@@ -569,9 +550,10 @@ if __name__ == '__main__':
     parser.add_argument('param_file', metavar='DIR',
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
+    config_path = Path(args.param_file)
     params = read_parameters(args.param_file)
 
     debug = True if params['global']['debug_mode'] else False
 
-    main(params)
+    main(params, config_path)
     print('End of training')

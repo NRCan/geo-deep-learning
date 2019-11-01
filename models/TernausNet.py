@@ -96,7 +96,7 @@ class UNet11(nn.Module):
         return self.final(dec1)
 
 
-def ternausnet(num_classes, state_dict_path):
+def ternausnet(num_classes):
     """
     pretrained:
             False - no pre-trained network is used
