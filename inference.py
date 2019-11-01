@@ -296,10 +296,12 @@ def main(params):
                 if debug:
                     _tqdm.set_postfix(OrderedDict(image_name=img_name, image_shape=nd_array_tif.shape, scale=scale))
 
+                tqdm.write(f'Infering on {img_name}...')
                 sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes, device)
                 if debug and len(np.unique(sem_seg_results))==1:
                     print(f'Something is wrong. Inference contains only "{np.unique(sem_seg_results)} value. Make sure '
                           f'"scale_data" parameter is coherent with parameters used for training model used in inference.')
+                tqdm.write(f'Creating new raster from inference on {img_name}...')
                 create_new_raster_from_base(local_img, inference_image, sem_seg_results)
                 tqdm.write(f"Semantic segmentation of image {img_name} completed")
                 if bucket:

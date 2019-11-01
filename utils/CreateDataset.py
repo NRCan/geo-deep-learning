@@ -14,10 +14,11 @@ def create_files_and_datasets(params, samples_folder):
     samples_size = params['global']['samples_size']
     number_of_bands = params['global']['number_of_bands']
 
-    trn_hdf5 = h5py.File(os.path.join(samples_folder, "trn_samples.hdf5"), "w")
-    val_hdf5 = h5py.File(os.path.join(samples_folder, "val_samples.hdf5"), "w")
-    tst_hdf5 = h5py.File(os.path.join(samples_folder, "tst_samples.hdf5"), "w")
+    trn_hdf5 = h5py.File(os.path.join(samples_folder, "trn_samples.hdf5"), "a")
+    val_hdf5 = h5py.File(os.path.join(samples_folder, "val_samples.hdf5"), "a")
+    tst_hdf5 = h5py.File(os.path.join(samples_folder, "tst_samples.hdf5"), "a")
 
+    #if not trn_hdf5.mode=='r+':    #FIXME "Unable to open object (object 'sat_img' doesn't exist)"
     trn_hdf5.create_dataset("sat_img", (0, samples_size, samples_size, number_of_bands), np.float32,
                             maxshape=(None, samples_size, samples_size, number_of_bands))
     trn_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
@@ -32,6 +33,7 @@ def create_files_and_datasets(params, samples_folder):
                             maxshape=(None, samples_size, samples_size, number_of_bands))
     tst_hdf5.create_dataset("map_img", (0, samples_size, samples_size), np.uint8,
                             maxshape=(None, samples_size, samples_size))
+
     return trn_hdf5, val_hdf5, tst_hdf5
 
 

@@ -8,6 +8,7 @@ import warnings
 from ruamel_yaml import YAML
 import fiona
 import csv
+from pathlib import Path
 
 try:
     from pynvml import *
@@ -33,14 +34,14 @@ class Interpolate(torch.nn.Module):
         return x
 
 
-def create_or_empty_folder(folder):
+def create_or_empty_folder(folder, empty=True):
     """Empty an existing folder or create it if it doesn't exist.
     Args:
         folder: full file path of the folder to be emptied/created
     """
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-    else:
+    if not Path(folder).is_dir():
+        Path.mkdir(Path(folder), exist_ok=False)
+    elif empty is True:
         for the_file in os.listdir(folder):
             file_path = os.path.join(folder, the_file)
             if os.path.isfile(file_path):
@@ -143,12 +144,13 @@ def image_reader_as_array(file_name):
     return np_array
 
 
-def validate_num_classes(vector_file, num_classes, value_field):    # used only in images_to_samples.py
+def validate_num_classes(vector_file, num_classes, value_field, ignore_index):    # used only in images_to_samples.py
     """Validate that the number of classes in the vector file corresponds to the expected number
     Args:
         vector_file: full file path of the vector image
         num_classes: number of classes set in config.yaml
         value_field: name of the value field representing the required classes in the vector image file
+        ignore_index: (int) target value that is ignored during training and does not contribute to the input gradient
 
     Return:
         None
@@ -159,7 +161,9 @@ def validate_num_classes(vector_file, num_classes, value_field):    # used only 
         for feature in src:
             distinct_att.add(feature['properties'][value_field])  # Use property of set to store unique values
 
-    if len(distinct_att)+1 != num_classes:
+    detected_classes = len(distinct_att)+1-len([ignore_index]) if ignore_index in distinct_att else len(distinct_att)+1
+
+    if detected_classes != num_classes:
         raise ValueError('The number of classes in the yaml.config {} is different than the number of classes in '
                          'the file {} {}'.format (num_classes, vector_file, str(list(distinct_att))))
 

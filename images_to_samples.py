@@ -144,8 +144,9 @@ def vector_to_raster(vector_file, input_image, attribute_name):
 
     # TODO: check a vector entity is empty (e.g. if a vector['type'] in lst_vector is None.)
     # Open input raster image to have access to number of rows, column, crs...
+    _tqdm = tqdm(lst_vector_tuple, position=1, leave=False)
     with rasterio.open(input_image, 'r') as src:
-        burned_raster = rasterio.features.rasterize((vector_tuple for vector_tuple in lst_vector_tuple),
+        burned_raster = rasterio.features.rasterize((vector_tuple for vector_tuple in _tqdm),
                                                     fill=0,
                                                     out_shape=src.shape,
                                                     transform=src.transform,
@@ -162,8 +163,9 @@ def main(params):
     """
     gpkg_file = []
     bucket_name = params['global']['bucket_name']
-    data_path = params['global']['data_path']
-    Path.mkdir(Path(data_path), exist_ok=True)
+    data_path = Path(params['global']['data_path'])
+    if not data_path.is_dir():
+        Path.mkdir(data_path, exist_ok=False)
     csv_file = params['sample']['prep_csv_file']
 
     if bucket_name:
@@ -179,12 +181,19 @@ def main(params):
         out_label_folder = "label"
 
     else:
-        list_data_prep = read_csv(csv_file)
-        samples_folder = os.path.join(data_path, "samples")    #FIXME check that data_path exists!
-        out_label_folder = os.path.join(data_path, "label")
+        list_data_prep = read_csv(csv_file)    #FIXME check that tif and gpkg files exist before preparing samples
+        samples_folder = data_path.joinpath("samples")    #FIXME check that data_path exists!
+        out_label_folder = data_path.joinpath("label")
 
-    create_or_empty_folder(samples_folder)
-    create_or_empty_folder(out_label_folder)
+    ignore_index = params['training']['ignore_index'] if params['training']['ignore_index'] else -100
+    for info in list_data_prep:
+        assert Path(info['tif']).is_file() and Path(info['gpkg']).is_file(), f'Could not locate "{info["tif"]}" or ' \
+                                                                             f'"{info["gpkg"]}". Make sure file exists in this directory.'
+        # Validate the number of class in the vector file
+        validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
+
+    create_or_empty_folder(samples_folder, empty=False)    #FIXME: what if we want to append samples to existing hdf5?
+    create_or_empty_folder(out_label_folder, empty=False)
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
@@ -202,18 +211,12 @@ def main(params):
                     bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
                 info['gpkg'] = info['gpkg'].split('/')[-1]
 
-            if os.path.isfile(info['tif']):
-                assert_band_number(info['tif'], params['global']['number_of_bands'])
-            else:
-                raise IOError(f'Could not locate "{info["tif"]}". Make sure file exists in this directory.')
+            assert_band_number(info['tif'], params['global']['number_of_bands'])
 
             _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
 
             # Read the input raster image
             np_input_image = image_reader_as_array(info['tif'])
-
-            # Validate the number of class in the vector file
-            validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'])
 
             # Burn vector file in a raster file
             np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
