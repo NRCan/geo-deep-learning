@@ -6,11 +6,13 @@ install:
   - bash miniconda.sh -b -p $HOME/miniconda
   - export PATH="$HOME/miniconda/bin:$PATH"
   - hash -r
-  - conda config --set always_yes yes --set changeps1 no
+  - conda config --set always_yes yes
+  - conda config --set changeps1 no
+  - conda config --prepend channels conda-forge
+  - conda config --prepend channels pytorch
   - conda update -q conda
   - conda info -a
-
-  - conda create -q -n ci_env python=3.6 pytorch-cpu torchvision-cpu torchvision ruamel_yaml h5py scikit-image scikit-learn fiona rasterio tqdm -c pytorch
+  - conda create -q -n ci_env python=3.6 pytorch-cpu torchvision-cpu torchvision ruamel_yaml h5py>=2.10 scikit-image scikit-learn fiona rasterio tqdm
   - source activate ci_env
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
