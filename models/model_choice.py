@@ -1,8 +1,9 @@
 import os
 import torch
+import warnings
 import torchvision.models as models
-from models import TernausNet, unet, checkpointed_unet, inception
-from utils.utils import chop_layer
+from models import TernausNet, unet, checkpointed_unet, inception, coordconv
+from utils.utils import chop_layer, get_key_def
 
 
 def load_checkpoint(filename):
@@ -30,6 +31,10 @@ def net(net_params, inference=False):
     """Define the neural net"""
     model_name = net_params['global']['model_name'].lower()
     num_classes = net_params['global']['num_classes']
+    if num_classes == 1:
+        warnings.warn("config specified that number of classes is 1, but model will be instantiated"
+                      " with a minimum of two regardless (will assume that 'background' exists)")
+        num_classes = 2
     msg = f'Number of bands specified incompatible with this model. Requires 3 band data.'
     state_dict_path = ''
     if model_name == 'unetsmall':
@@ -76,6 +81,18 @@ def net(net_params, inference=False):
         model.load_state_dict(chopped_dict, strict=False)
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
+
+    coordconv_convert = get_key_def('coordconv_convert', net_params['global'], False)
+    if coordconv_convert:
+        centered = get_key_def('coordconv_centered', net_params['global'], True)
+        normalized = get_key_def('coordconv_normalized', net_params['global'], True)
+        noise = get_key_def('coordconv_noise', net_params['global'], None)
+        radius_channel = get_key_def('coordconv_radius_channel', net_params['global'], False)
+        scale = get_key_def('coordconv_scale', net_params['global'], 1.0)
+        # note: this operation will not attempt to preserve already-loaded model parameters!
+        model = coordconv.swap_coordconv_layers(model, centered=centered, normalized=normalized, noise=noise,
+                                                radius_channel=radius_channel, scale=scale)
+
     if net_params['training']['state_dict_path']:
         state_dict_path = net_params['training']['state_dict_path']
         checkpoint = load_checkpoint(state_dict_path)
