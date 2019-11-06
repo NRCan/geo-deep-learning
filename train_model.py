@@ -8,6 +8,7 @@ import time
 import h5py
 import datetime
 import warnings
+import functools
 from tqdm import tqdm
 from collections import OrderedDict
 
@@ -31,7 +32,7 @@ from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict
 from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
-from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats
+from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, get_key_def
 
 try:
     import boto3
@@ -46,7 +47,9 @@ def verify_weights(num_classes, weights):
         num_classes: number of classes defined in the configuration file
         weights: weights defined in the configuration file
     """
-    if num_classes != len(weights):
+    if num_classes == 1 and len(weights) == 2:
+        warnings.warn("got two class weights for single class defined in configuration file; will assume index 0 = background")
+    elif num_classes != len(weights):
         raise ValueError('The number of class weights in the configuration file is different than the number of classes')
 
 
@@ -145,14 +148,14 @@ def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(data_path, num_samples, batch_size, task, num_devices):
+def create_dataloader(data_path, batch_size, task, num_devices, params):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param data_path: (str) path to the samples folder
-    :param num_samples: (dict) number of samples for training, validation and test
     :param batch_size: (int) batch size
     :param task: (str) classification or segmentation
     :param num_devices: (int) number of GPUs used
+    :param params: (dict) Parameters found in the yaml config file.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
     if task == 'classification':
@@ -171,12 +174,26 @@ def create_dataloader(data_path, num_samples, batch_size, task, num_devices):
                                                            [transforms.Resize(299), transforms.ToTensor()]),
                                                        loader=loader)
     elif task == 'segmentation':
-        trn_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_samples['trn'], "trn",
-                                                        transform=aug.compose_transforms(params, 'trn'))
-        val_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_samples['val'], "val",
-                                                        transform=aug.compose_transforms(params, 'tst'))
-        tst_dataset = CreateDataset.SegmentationDataset(os.path.join(data_path, "samples"), num_samples['tst'], "tst",
-                                                        transform=aug.compose_transforms(params, 'tst'))
+        num_samples = get_num_samples(data_path=data_path, params=params)
+        print(f"Number of samples : {num_samples}")
+        meta_map = get_key_def("meta_map", params["global"], {})
+        if not meta_map:
+            dataset_constr = CreateDataset.SegmentationDataset
+        else:
+            dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
+        dontcare = get_key_def("ignore_index", params["training"], None)
+        if dontcare == 0:
+            warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
+                          " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
+                          " will be remapped to -1 while loading the dataset, and inside the config from now on.")
+            params["training"]["ignore_index"] = -1
+        datasets = []
+        for subset in ["trn", "val", "tst"]:
+            datasets.append(dataset_constr(os.path.join(data_path, "samples"), subset,
+                                           max_sample_count=num_samples[subset],
+                                           dontcare=dontcare,
+                                           transform=aug.compose_transforms(params, subset)))
+        trn_dataset, val_dataset, tst_dataset = datasets
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
@@ -228,37 +245,24 @@ def set_hyperparameters(params, model, checkpoint):
     """
     # set mandatory hyperparameters values with those in config file if they exist
     lr = params['training']['learning_rate']
+    assert lr is not None and lr > 0, "missing mandatory learning rate parameter"
     weight_decay = params['training']['weight_decay']
+    assert weight_decay is not None and weight_decay >= 0, "missing mandatory weight decay parameter"
     step_size = params['training']['step_size']
+    assert step_size is not None and step_size > 0, "missing mandatory step size parameter"
     gamma = params['training']['gamma']
-    num_devices = params['global']['num_gpus']
-    msg = 'Missing mandatory hyperparameter in config file. Make sure learning_rate, weight_decay, step_size, gamma and num_devices are set.'
-    assert (lr and weight_decay and step_size and gamma and num_devices) is not None, msg
+    assert gamma is not None and gamma >= 0, "missing mandatory gamma parameter"
 
     # optional hyperparameters. Set to None if not in config file
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
     if params['training']['class_weights']:
         verify_weights(params['global']['num_classes'], class_weights)
-    ignore_index = params['training']['ignore_index'] if params['training']['ignore_index'] else -100
+    ignore_index = -100
+    if params['training']['ignore_index'] is not None:
+        ignore_index = params['training']['ignore_index']
 
     # Loss function
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
-
-    # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
-    num_devices = len(lst_device_ids) if lst_device_ids else 0
-    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-
-    if num_devices == 1:
-        print(f"Using Cuda device {lst_device_ids[0]}")
-    elif num_devices > 1:
-        print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}")
-        model = nn.DataParallel(model, device_ids=lst_device_ids)    # adds prefix 'module.' to state_dict keys
-    else:
-        warnings.warn(f"No Cuda device available. This process will only run on CPU")
-
-    criterion = criterion.to(device)
-    model = model.to(device)
 
     # Optimizer
     opt_fn = params['training']['optimizer']
@@ -268,7 +272,7 @@ def set_hyperparameters(params, model, checkpoint):
     if checkpoint:
         model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer)
 
-    return model, criterion, optimizer, lr_scheduler, device, num_devices
+    return model, criterion, optimizer, lr_scheduler
 
 
 def main(params, config_path):
@@ -295,6 +299,11 @@ def main(params, config_path):
     num_classes = params['global']['num_classes']
     batch_size = params['training']['batch_size']
 
+    if num_classes == 1:
+        # assume background is implicitly needed (makes no sense to train with one class otherwise)
+        # this will trigger some warnings elsewhere, but should succeed nonetheless
+        num_classes = 2
+
     if bucket_name:
         bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
                                                                                data_path=data_path,
@@ -316,15 +325,30 @@ def main(params, config_path):
     val_log = InformationLogger(output_path, 'val')
     tst_log = InformationLogger(output_path, 'tst')
 
-    model, criterion, optimizer, lr_scheduler, device, num_devices = set_hyperparameters(params, model, checkpoint)
+    num_devices = params['global']['num_gpus']
+    assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
+    # list of GPU devices that are available and unused. If no GPUs, returns empty list
+    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
+    num_devices = len(lst_device_ids) if lst_device_ids else 0
+    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+    if num_devices == 1:
+        print(f"Using Cuda device {lst_device_ids[0]}")
+    elif num_devices > 1:
+        print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}")
+        model = nn.DataParallel(model, device_ids=lst_device_ids)  # adds prefix 'module.' to state_dict keys
+    else:
+        warnings.warn(f"No Cuda device available. This process will only run on CPU")
 
-    num_samples = get_num_samples(data_path=data_path, params=params)
-    print(f"Number of samples : {num_samples}")
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
-                                                                       num_samples=num_samples,
                                                                        batch_size=batch_size,
                                                                        task=task,
-                                                                       num_devices=num_devices)
+                                                                       num_devices=num_devices,
+                                                                       params=params)
+
+    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, model, checkpoint)
+
+    criterion = criterion.to(device)
+    model = model.to(device)
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
@@ -530,7 +554,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
                 _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
-                if debug and torch.cuda.is_available():
+                if debug and torch.cuda.is_available() and device.type != "cpu":
                     res, mem = gpu_stats(device=device.index)
                     _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
                                                   gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))

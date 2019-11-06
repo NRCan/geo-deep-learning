@@ -1,13 +1,21 @@
 import torch
-# import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
+# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import os
 from torch import nn
 import numpy as np
 import rasterio
+import rasterio.features
 import warnings
-from ruamel_yaml import YAML
+import collections
 import fiona
 import csv
+
+from utils.preprocess import minmax_scale
+
+try:
+    from ruamel_yaml import YAML
+except ImportError:
+    from ruamel.yaml import YAML
 
 try:
     from pynvml import *
@@ -74,21 +82,6 @@ def chop_layer(pretrained_dict, layer_names=["logits"]):   #https://discuss.pyto
     return chopped_dict
 
 
-def assert_band_number(in_image, band_count_yaml):
-    """Verify if provided image has the same number of bands as described in the .yaml
-    Args:
-        in_image: full file path of the image
-        band_count_yaml: band count listed in the .yaml
-    """
-    try:
-        in_array = image_reader_as_array(in_image)
-    except Exception as e:
-        print(e)
-
-    msg = "The number of bands in the input image and the parameter 'number_of_bands' in the yaml file must be the same"
-    assert in_array.shape[2] == band_count_yaml, msg
-
-
 def load_from_checkpoint(checkpoint, model, optimizer=None):
     """Load weights from a previous checkpoint
     Args:
@@ -127,28 +120,131 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
     return model, optimizer
 
 
-def image_reader_as_array(file_name):
+def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vector_attrib=None, aux_vector_ids=None,
+                          aux_vector_dist_maps=False, aux_vector_dist_log=True, aux_vector_scale=None):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
-        file_name: full file path of the image
+        input_image: Rasterio file handle holding the (already opened) input raster
+        scale: optional scaling factor for the raw data
+        aux_vector_file: optional vector file from which to extract auxiliary shapes
+        aux_vector_attrib: optional vector file attribute name to parse in order to fetch ids
+        aux_vector_ids: optional vector ids to target in the vector file above
+        aux_vector_dist_maps: flag indicating whether aux vector bands should be distance maps or binary maps
+        aux_vector_dist_log: flag indicating whether log distances should be used in distance maps or not
+        aux_vector_scale: optional floating point scale factor to multiply to rasterized vector maps
 
     Return:
-        numm_py_array of the image read
+        numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
-    with rasterio.open(file_name, 'r') as src:
-        np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
-        for i in range(src.count):
-            band = src.read(i+1)  # Bands starts at 1 in rasterio not 0
-            np_array[:, :, i] = band
+    np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
+    for i in range(input_image.count):
+        np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
+
+    # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
+    # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
+    if scale:
+        sc_min, sc_max = scale
+        np_array = minmax_scale(img=np_array,
+                                orig_range=(np.min(np_array), np.max(np_array)),
+                                scale_range=(sc_min, sc_max))
+
+    # if requested, load vectors from external file, rasterize, and append distance maps to array
+    if aux_vector_file is not None:
+        vec_tensor = vector_to_raster(vector_file=aux_vector_file,
+                                      input_image=input_image,
+                                      attribute_name=aux_vector_attrib,
+                                      fill=0,
+                                      target_ids=aux_vector_ids,
+                                      merge_all=False)
+        if aux_vector_dist_maps:
+            import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
+            vec_tensor = vec_tensor.astype(np.float32)
+            for vec_band_idx in range(vec_tensor.shape[2]):
+                mask = vec_tensor[:, :, vec_band_idx]
+                mask = cv.dilate(mask, (3, 3))  # make points and linestring easier to work with
+                #display_resize = cv.resize(np.where(mask, np.uint8(0), np.uint8(255)), (1000, 1000))
+                #cv.imshow("mask", display_resize)
+                dmap = cv.distanceTransform(np.where(mask, np.uint8(0), np.uint8(255)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
+                if aux_vector_dist_log:
+                    dmap = np.log(dmap + 1)
+                #display_resize = cv.resize(cv.normalize(dmap, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
+                #cv.imshow("dmap1", display_resize)
+                dmap_inv = cv.distanceTransform(np.where(mask, np.uint8(255), np.uint8(0)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
+                if aux_vector_dist_log:
+                    dmap_inv = np.log(dmap_inv + 1)
+                #display_resize = cv.resize(cv.normalize(dmap_inv, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
+                #cv.imshow("dmap2", display_resize)
+                vec_tensor[:, :, vec_band_idx] = np.where(mask, -dmap_inv, dmap)
+                #display = cv.normalize(vec_tensor[:, :, vec_band_idx], None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F)
+                #display_resize = cv.resize(display, (1000, 1000))
+                #cv.imshow("distmap", display_resize)
+                #cv.waitKey(0)
+        if aux_vector_scale:
+            for vec_band_idx in vec_tensor.shape[2]:
+                vec_tensor[:, :, vec_band_idx] *= aux_vector_scale
+        np_array = np.concatenate([np_array, vec_tensor], axis=2)
     return np_array
 
 
-def validate_num_classes(vector_file, num_classes, value_field):    # used only in images_to_samples.py
+def vector_to_raster(vector_file, input_image, attribute_name, fill=0, target_ids=None, merge_all=True):
+    """Function to rasterize vector data.
+    Args:
+        vector_file: Path and name of reference GeoPackage
+        input_image: Rasterio file handle holding the (already opened) input raster
+        attribute_name: Attribute containing the identifier for a vector (may contain slashes if recursive)
+        fill: default background value to use when filling non-contiguous regions
+        target_ids: list of identifiers to burn from the vector file (None = use all)
+        merge_all: defines whether all vectors should be burned with their identifiers in a
+            single layer or in individual layers (in the order provided by 'target_ids')
+
+    Return:
+        numpy array of the burned image
+    """
+
+    # Extract vector features to burn in the raster image
+    with fiona.open(vector_file, 'r') as src:
+        lst_vector = [vector for vector in src]
+
+    # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
+    if attribute_name is not None:
+        lst_vector.sort(key=lambda vector: get_key_recursive(attribute_name, vector))
+
+    lst_vector_tuple = {}
+
+    # TODO: check a vector entity is empty (e.g. if a vector['type'] in lst_vector is None.)
+    for vector in lst_vector:
+        id = get_key_recursive(attribute_name, vector) if attribute_name is not None else None
+        if target_ids is None or id in target_ids:
+            if id not in lst_vector_tuple:
+                lst_vector_tuple[id] = []
+            if merge_all:
+                # here, we assume that the id can be cast to int!
+                lst_vector_tuple[id].append((vector['geometry'], int(id) if id is not None else 0))
+            else:
+                # if not merging layers, just use '1' as the value for each target
+                lst_vector_tuple[id].append((vector['geometry'], 1))
+
+    if merge_all:
+        return rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
+                                           fill=fill,
+                                           out_shape=input_image.shape,
+                                           transform=input_image.transform,
+                                           dtype=np.int16)
+    else:
+        burned_rasters = [rasterio.features.rasterize(lst_vector_tuple[id],
+                                                      fill=fill,
+                                                      out_shape=input_image.shape,
+                                                      transform=input_image.transform,
+                                                      dtype=np.int16) for id in lst_vector_tuple]
+        return np.stack(burned_rasters, axis=-1)
+
+
+def validate_num_classes(vector_file, num_classes, attribute_name):    # used only in images_to_samples.py
     """Validate that the number of classes in the vector file corresponds to the expected number
     Args:
         vector_file: full file path of the vector image
         num_classes: number of classes set in config.yaml
-        value_field: name of the value field representing the required classes in the vector image file
+        attribute_name: name of the value field representing the required classes in the vector image file
 
     Return:
         None
@@ -157,9 +253,9 @@ def validate_num_classes(vector_file, num_classes, value_field):    # used only 
     distinct_att = set()
     with fiona.open(vector_file, 'r') as src:
         for feature in src:
-            distinct_att.add(feature['properties'][value_field])  # Use property of set to store unique values
+            distinct_att.add(get_key_recursive(attribute_name, feature))  # Use property of set to store unique values
 
-    if len(distinct_att)+1 != num_classes:
+    if len(distinct_att) != num_classes:
         raise ValueError('The number of classes in the yaml.config {} is different than the number of classes in '
                          'the file {} {}'.format (num_classes, vector_file, str(list(distinct_att))))
 
@@ -179,23 +275,27 @@ def read_csv(csv_file_name, inference=False):
     """Open csv file and parse it, returning a list of dict.
 
     If inference == True, the dict contains this info:
-    - tif full path
+        - tif full path
+        - metadata yml full path (may be empty string if unavailable)
     Else, the returned list contains a dict with this info:
-    - tif full path
-    - gpkg full path
-    - attribute_name
-    - dataset (trn or val)
+        - tif full path
+        - metadata yml full path (may be empty string if unavailable)
+        - gpkg full path
+        - attribute_name
+        - dataset (trn or val)
     """
-
     list_values = []
     with open(csv_file_name, 'r') as f:
         reader = csv.reader(f)
         for row in reader:
             if inference:
-                list_values.append({'tif': row[0]})
+                assert len(row) >= 2, 'unexpected number of columns in dataset CSV description file' \
+                    ' (for inference, should have two columns, i.e. raster file path and metadata file path)'
+                list_values.append({'tif': row[0], 'meta': row[1]})
             else:
-                list_values.append({'tif': row[0], 'gpkg': row[1], 'attribute_name': row[2], 'dataset': row[3]})
-
+                assert len(row) >= 5, 'unexpected number of columns in dataset CSV description file' \
+                    ' (should have five columns; see \'read_csv\' function for more details)'
+                list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
     if inference:
         return list_values
     else:
@@ -241,3 +341,40 @@ def gpu_stats(device=0):
     mem = nvmlDeviceGetMemoryInfo(handle)
 
     return res, mem
+
+
+def get_key_def(key, config, default=None, msg=None, delete=False):
+    """Returns a value given a dictionary key, or the default value if it cannot be found."""
+    if isinstance(key, list):
+        if len(key) <= 1:
+            if msg is not None:
+                raise AssertionError(msg)
+            else:
+                raise AssertionError("must provide at least two valid keys to test")
+        for k in key:
+            if k in config:
+                val = config[k]
+                if delete:
+                    del config[k]
+                return val
+        return default
+    else:
+        if key not in config:
+            return default
+        else:
+            val = config[key]
+            if delete:
+                del config[key]
+            return val
+
+
+def get_key_recursive(key, config):
+    """Returns a value recursively given a dictionary key that may contain multiple subkeys."""
+    if not isinstance(key, list):
+        key = key.split("/")  # subdict indexing split using slash
+    assert key[0] in config, f"missing key '{key[0]}' in metadata dictionary"
+    val = config[key[0]]
+    if isinstance(val, (dict, collections.OrderedDict)):
+        assert len(key) > 1, "missing keys to index metadata subdictionaries"
+        return get_key_recursive(key[1:], val)
+    return val
