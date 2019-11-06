@@ -455,14 +455,14 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
             if debug and device.type == 'cuda':
                 res, mem = gpu_stats(device=device.index)
-                _tqdm.set_postfix(OrderedDict(train_loss=f'{train_metrics["loss"].val:.4f}',
-                                              device=device,
+                _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.4f}',
+                                              dev=device,
                                               gpu_perc=f'{res.gpu} %',
                                               gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB',
-                                              learning_rate=optimizer.param_groups[0]['lr'],
-                                              img_size=data['sat_img'].numpy().shape,
-                                              sample_size=data['map_img'].numpy().shape,
-                                              batch_size=batch_size))
+                                              lr=optimizer.param_groups[0]['lr'],
+                                              img=data['sat_img'].numpy().shape,
+                                              smpl=data['map_img'].numpy().shape,
+                                              bs=batch_size))
 
             loss.backward()
             optimizer.step()

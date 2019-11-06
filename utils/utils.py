@@ -61,7 +61,8 @@ def read_parameters(param_file):
     return params
 
 
-def chop_layer(pretrained_dict, layer_names=["logits"]):   #https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2
+def chop_layer(pretrained_dict,
+               layer_names=["logits"]):  # https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2
     """
     Removes keys from a layer in state dictionary of model architecture.
     :param model: (nn.Module) model with original architecture
@@ -71,7 +72,7 @@ def chop_layer(pretrained_dict, layer_names=["logits"]):   #https://discuss.pyto
     # filter out weights from undesired keys. ex.: size mismatch.
     for layer in layer_names:
         chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer) == -1}
-        pretrained_dict = chopped_dict    # overwrite values in pretrained dict with chopped dict
+        pretrained_dict = chopped_dict  # overwrite values in pretrained dict with chopped dict
     return chopped_dict
 
 
@@ -101,10 +102,12 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
     # https://github.com/bearpaw/pytorch-classification/issues/27
     # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
     if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
-        new_state_dict = model.state_dict().copy()
-        new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
+        new_state_dict = checkpoint.copy()
+        new_state_dict['model'] = {'module.' + k: v for k, v in checkpoint['model'].items()}  # Very flimsy
+        del checkpoint
+        checkpoint = {}
         checkpoint['model'] = new_state_dict['model']
-        
+
     try:
         model.load_state_dict(checkpoint['model'])
     except RuntimeError as error:
@@ -113,7 +116,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
             mismatched_layers = []
             for error in list_errors:
                 if error.startswith('size mismatch'):
-                    mismatch_layer = error.split("size mismatch for ")[1].split(":")[0]    # get name of problematic layer
+                    mismatch_layer = error.split("size mismatch for ")[1].split(":")[0]  # get name of problematic layer
                     print(f'Oups. {error}. We will try chopping "{mismatch_layer}" out of pretrained dictionary.')
                     mismatched_layers.append(mismatch_layer)
             chopped_checkpt = chop_layer(checkpoint['model'], layer_names=mismatched_layers)
@@ -123,7 +126,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
             raise RuntimeError(error)
 
     print(f"=> loaded model")
-    if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
+    if optimizer and 'optimizer' in checkpoint.keys():  # 2nd condition if loading a model without optimizer
         optimizer.load_state_dict(checkpoint['optimizer'])
     return model, optimizer
 
@@ -139,19 +142,18 @@ def image_reader_as_array(file_name):
     with rasterio.open(file_name, 'r') as src:
         np_array = np.empty([src.height, src.width, src.count], dtype=np.float32)
         for i in range(src.count):
-            band = src.read(i+1)  # Bands starts at 1 in rasterio not 0
+            band = src.read(i + 1)  # Bands starts at 1 in rasterio not 0
             np_array[:, :, i] = band
     return np_array
 
 
-def validate_num_classes(vector_file, num_classes, value_field, ignore_index):    # used only in images_to_samples.py
+def validate_num_classes(vector_file, num_classes, value_field, ignore_index):  # used only in images_to_samples.py
     """Validate that the number of classes in the vector file corresponds to the expected number
     Args:
         vector_file: full file path of the vector image
         num_classes: number of classes set in config.yaml
         value_field: name of the value field representing the required classes in the vector image file
         ignore_index: (int) target value that is ignored during training and does not contribute to the input gradient
-
     Return:
         None
     """
@@ -161,18 +163,19 @@ def validate_num_classes(vector_file, num_classes, value_field, ignore_index):  
         for feature in src:
             distinct_att.add(feature['properties'][value_field])  # Use property of set to store unique values
 
-    detected_classes = len(distinct_att)+1-len([ignore_index]) if ignore_index in distinct_att else len(distinct_att)+1
+    detected_classes = len(distinct_att) + 1 - len([ignore_index]) if ignore_index in distinct_att else len(
+        distinct_att) + 1
 
     if detected_classes != num_classes:
         raise ValueError('The number of classes in the yaml.config {} is different than the number of classes in '
-                         'the file {} {}'.format (num_classes, vector_file, str(list(distinct_att))))
+                         'the file {} {}'.format(num_classes, vector_file, str(list(distinct_att))))
 
 
 def list_s3_subfolders(bucket, data_path):
     list_classes = []
 
     client = boto3.client('s3')
-    result = client.list_objects(Bucket=bucket, Prefix=data_path+'/', Delimiter='/')
+    result = client.list_objects(Bucket=bucket, Prefix=data_path + '/', Delimiter='/')
     for p in result.get('CommonPrefixes'):
         if p['Prefix'].split('/')[-2] is not data_path:
             list_classes.append(p['Prefix'].split('/')[-2])
@@ -206,7 +209,8 @@ def read_csv(csv_file_name, inference=False):
         return sorted(list_values, key=lambda k: k['dataset'])
 
 
-def get_device_ids(number_requested): #FIXME if some memory is used on a GPU before call to this function, the GPU will be excluded.
+def get_device_ids(
+        number_requested):
     """
     Function to check which GPU devices are available and unused.
     :param number_requested: (int) Number of devices requested.
@@ -219,13 +223,15 @@ def get_device_ids(number_requested): #FIXME if some memory is used on a GPU bef
             device_count = nvmlDeviceGetCount()
             for i in range(device_count):
                 res, mem = gpu_stats(i)
-                if round(mem.used/(1024**2), 1) <  1500.0 and res.gpu < 10: # Hardcoded tolerance for memory and usage
+                if round(mem.used / (1024 ** 2),
+                         1) < 1500.0 and res.gpu < 10:  # Hardcoded tolerance for memory and usage
                     lst_free_devices.append(i)
                 if len(lst_free_devices) == number_requested:
                     break
             if len(lst_free_devices) < number_requested:
-                warnings.warn(f"You requested {number_requested} devices. {device_count} devices are available on this computer and "
-                              f"other processes are using {device_count-len(lst_free_devices)} device(s).")
+                warnings.warn(
+                    f"You requested {number_requested} devices. {device_count} devices are available on this computer and "
+                    f"other processes are using {device_count - len(lst_free_devices)} device(s).")
     except NameError as error:
         raise NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
     except NVMLError as error:

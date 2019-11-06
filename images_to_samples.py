@@ -181,8 +181,8 @@ def main(params):
         out_label_folder = "label"
 
     else:
-        list_data_prep = read_csv(csv_file)    #FIXME check that tif and gpkg files exist before preparing samples
-        samples_folder = data_path.joinpath("samples")    #FIXME check that data_path exists!
+        list_data_prep = read_csv(csv_file)
+        samples_folder = data_path.joinpath("samples")
         out_label_folder = data_path.joinpath("label")
 
     ignore_index = params['training']['ignore_index'] if params['training']['ignore_index'] else -100
