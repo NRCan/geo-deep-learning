@@ -16,10 +16,9 @@ from tqdm import tqdm
 from pathlib import Path
 
 from models.model_choice import net
-from utils.utils import read_parameters, assert_band_number, load_from_checkpoint, \
-    image_reader_as_array, read_csv, get_device_ids, gpu_stats
-from utils.preprocess import minmax_scale
-
+from utils.utils import read_parameters, load_from_checkpoint, image_reader_as_array, \
+    read_csv, get_device_ids, gpu_stats, get_key_def
+from utils.CreateDataset import MetaSegmentationDataset
 try:
     import boto3
 except ModuleNotFoundError:
@@ -49,7 +48,7 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
             dst.write(write_array[:, :], 1)
 
 
-def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device):
+def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device, meta_map=None, metadata=None):
     """Inference on images using semantic segmentation
     Args:
         model: model to use for inference
@@ -90,6 +89,8 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device)
                         col_end = col_start + chunk_size
 
                         chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
+                        if meta_map:
+                            chunk_input = MetaSegmentationDataset.append_meta_layers(chunk_input, meta_map, metadata)
                         inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
                         inputs.unsqueeze_(0)
@@ -120,12 +121,13 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device)
         raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
 
 
-def classifier(params, img_list, model):
+def classifier(params, img_list, model, device):
     """
     Classify images by class
     :param params:
     :param img_list:
     :param model:
+    :param device:
     :return:
     """
     weights_file_name = params['inference']['state_dict_path']
@@ -163,8 +165,7 @@ def classifier(params, img_list, model):
         img = to_tensor(img)
         img = img.unsqueeze(0)
         with torch.no_grad():
-            if torch.cuda.is_available():
-                img = img.cuda()
+            img = img.to(device)
             outputs = model(img)
             _, predicted = torch.max(outputs, 1)
 
@@ -219,6 +220,7 @@ def main(params):
     print(f'Inferences will be saved to: {working_folder}')
 
     bucket = None
+    bucket_file_cache = []
     bucket_name = params['global']['bucket_name']
 
     model, state_dict_path, model_name = net(params, inference=True)
@@ -258,7 +260,7 @@ def main(params):
             assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
 
     if params['global']['task'] == 'classification':
-        classifier(params, list_img, model)
+        classifier(params, list_img, model, device)
 
     elif params['global']['task'] == 'segmentation':
         if bucket:
@@ -269,6 +271,10 @@ def main(params):
 
         chunk_size, nbr_pix_overlap = calc_overlap(params)
         num_classes = params['global']['num_classes']
+        if num_classes == 1:
+            # assume background is implicitly needed (makes no sense to predict with one class otherwise)
+            # this will trigger some warnings elsewhere, but should succeed nonetheless
+            num_classes = 2
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
             for img in _tqdm:
                 img_name = os.path.basename(img['tif'])
@@ -276,32 +282,46 @@ def main(params):
                     local_img = f"Images/{img_name}"
                     bucket.download_file(img['tif'], local_img)
                     inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
+                    if img['meta']:
+                        if img['meta'] not in bucket_file_cache:
+                            bucket_file_cache.append(img['meta'])
+                            bucket.download_file(img['meta'], img['meta'].split('/')[-1])
+                        img['meta'] = img['meta'].split('/')[-1]
                 else:
                     local_img = img['tif']
                     inference_image = os.path.join(params['inference']['working_folder'],
                                                    f"{img_name.split('.')[0]}_inference.tif")
 
-                assert_band_number(local_img, params['global']['number_of_bands'])
+                assert os.path.isfile(local_img), f"could not open raster file at {local_img}"
+                with rasterio.open(local_img, 'r') as raster:
 
-                nd_array_tif = image_reader_as_array(local_img)
-                assert(len(np.unique(nd_array_tif))>1), (f'Image "{img_name}" only contains {np.unique(nd_array_tif)} value.')
+                    np_input_image = image_reader_as_array(input_image=raster,
+                                                           scale=get_key_def('scale_data', params['global'], None),
+                                                           aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
+                                                           aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                                                           aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                                                           aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                                                           aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
-                # See: http://cs231n.github.io/neural-networks-2/#datapre. e.g. Scale arrays from [0,255] to [0,1]
-                scale = params['global']['scale_data']
-                if scale:
-                    sc_min, sc_max = params['global']['scale_data']
-                    nd_array_tif = minmax_scale(nd_array_tif,
-                                                  orig_range=(np.min(nd_array_tif), np.max(nd_array_tif)),
-                                                  scale_range=(sc_min,sc_max))
+                meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
+                if meta_map:
+                    assert img['meta'] is not None and isinstance(img['meta'], str) and os.path.isfile(img['meta']), \
+                        "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"
+                    metadata = read_parameters(img['meta'])
+
                 if debug:
-                    _tqdm.set_postfix(OrderedDict(image_name=img_name, image_shape=nd_array_tif.shape, scale=scale))
+                    _tqdm.set_postfix(OrderedDict(image_name=img_name, image_shape=np_input_image.shape))
 
-                tqdm.write(f'Infering on {img_name}...')
-                sem_seg_results = sem_seg_inference(model, nd_array_tif, nbr_pix_overlap, chunk_size, num_classes, device)
+                input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
+                assert input_band_count == params['global']['number_of_bands'], \
+                    f"The number of bands in the input image ({input_band_count}) and the parameter" \
+                    f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
+
+                sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes, device, meta_map, metadata)
+
                 if debug and len(np.unique(sem_seg_results))==1:
-                    print(f'Something is wrong. Inference contains only "{np.unique(sem_seg_results)} value. Make sure '
-                          f'"scale_data" parameter is coherent with parameters used for training model used in inference.')
-                tqdm.write(f'Creating new raster from inference on {img_name}...')
+                    print(f'Something is wrong. Inference contains only one value. Make sure data scale is coherent with training domain values.')
+
                 create_new_raster_from_base(local_img, inference_image, sem_seg_results)
                 tqdm.write(f"Semantic segmentation of image {img_name} completed")
                 if bucket:

@@ -1,25 +1,23 @@
 import argparse
 import os
 from pathlib import Path
-
 import numpy as np
 import warnings
-import fiona
 import rasterio
-from rasterio import features
 import time
 from tqdm import tqdm
 from collections import OrderedDict
 
-from utils.CreateDataset import create_files_and_datasets
-from utils.utils import read_parameters, assert_band_number, image_reader_as_array, \
-    create_or_empty_folder, validate_num_classes, read_csv
-from utils.preprocess import minmax_scale
+from utils.CreateDataset import create_files_and_datasets, MetaSegmentationDataset
+from utils.utils import (
+    read_parameters, image_reader_as_array, vector_to_raster,
+    create_or_empty_folder, validate_num_classes, read_csv, get_key_def
+)
 
 try:
     import boto3
 except ModuleNotFoundError:
-    warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
+    warnings.warn("The boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
     pass
 
 
@@ -51,18 +49,15 @@ def mask_image(arrayA, arrayB):
     return ma_array
 
 
-def resize_datasets(hdf5_file):
-    """Function to add one entry to both the datasets"""
-
-    n = hdf5_file['sat_img'].shape[0]
-
-    new_size = n + 1
-    hdf5_file['sat_img'].resize(new_size, axis=0)
-    hdf5_file['map_img'].resize(new_size, axis=0)
+def append_to_dataset(dataset, sample):
+    old_size = dataset.shape[0]  # this function always appends samples on the first axis
+    dataset.resize(old_size + 1, axis=0)
+    dataset[old_size, ...] = sample
+    return old_size  # the index to the newly added sample, or the previous size of the dataset
 
 
 def samples_preparation(in_img_array, label_array, sample_size, dist_samples, samples_count, num_classes, samples_file,
-                        dataset, min_annotated_percent=0):
+                        dataset, min_annotated_percent=0, image_metadata=None):
     """
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
@@ -74,6 +69,7 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
     :param samples_file: (hdf5 dataset) hdfs file where samples will be written
     :param dataset: (str) Type of dataset where the samples will be written. Can be 'trn' or 'val' or 'tst'
     :param min_annotated_percent: (int) Minimum % of non background pixels in sample, in order to store it
+    :param image_metadata: (Ruamel) list of optionnal metadata specified in the associated metadata file
     :return: updated samples count and number of classes.
     """
 
@@ -90,6 +86,12 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
     else:
         raise ValueError(f"Dataset value must be trn or val. Provided value is {dataset}")
 
+    metadata_idx = -1
+    if image_metadata:
+        # there should be one set of metadata per raster
+        # ...all samples created by tiling below will point to that metadata by index
+        metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
+
     # half tile padding
     half_tile = int(sample_size / 2)
     pad_in_img_array = np.pad(in_img_array, ((half_tile, half_tile), (half_tile, half_tile), (0, 0)),
@@ -101,16 +103,16 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
             data = (pad_in_img_array[row:row + sample_size, column:column + sample_size, :])
             target = np.squeeze(pad_label_array[row:row + sample_size, column:column + sample_size, :], axis=2)
 
-            target_class_num = target.max()
             u, count = np.unique(target, return_counts=True)
-            target_background_percent = count[0] / np.sum(count) * 100
+            target_background_percent = count[0] / np.sum(count) * 100 if 0 in u else 0
 
-            if target_background_percent >= min_annotated_percent:
-                resize_datasets(samples_file)
-                samples_file["sat_img"][idx_samples, ...] = data
-                samples_file["map_img"][idx_samples, ...] = target
+            if target_background_percent < 100 - min_annotated_percent:
+                append_to_dataset(samples_file["sat_img"], data)
+                append_to_dataset(samples_file["map_img"], target)
+                append_to_dataset(samples_file["meta_idx"], metadata_idx)
                 idx_samples += 1
 
+            target_class_num = np.max(u)
             if num_classes < target_class_num:
                 num_classes = target_class_num
 
@@ -125,49 +127,19 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
     return samples_count, num_classes
 
 
-def vector_to_raster(vector_file, input_image, attribute_name):
-    """
-    Function to rasterize vector data.
-    :param vector_file: (str) Path and name of reference GeoPackage
-    :param input_image: (str) Path and name of the input raster image
-    :param attribute_name: (str) Attribute containing the pixel value to write
-    :return: numpy array of the burned image
-    """
-
-    # Extract vector features to burn in the raster image
-    with fiona.open(vector_file, 'r') as src:
-        lst_vector = [vector for vector in src]
-
-    # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
-    lst_vector.sort(key=lambda vector: vector['properties'][attribute_name])
-    lst_vector_tuple = [(vector['geometry'], int(vector['properties'][attribute_name])) for vector in lst_vector]
-
-    # TODO: check a vector entity is empty (e.g. if a vector['type'] in lst_vector is None.)
-    # Open input raster image to have access to number of rows, column, crs...
-    _tqdm = tqdm(lst_vector_tuple, position=1, leave=False)
-    with rasterio.open(input_image, 'r') as src:
-        burned_raster = rasterio.features.rasterize((vector_tuple for vector_tuple in _tqdm),
-                                                    fill=0,
-                                                    out_shape=src.shape,
-                                                    transform=src.transform,
-                                                    dtype=np.uint8)
-
-    return burned_raster
-
-
 def main(params):
     """
     Training and validation datasets preparation.
     :param params: (dict) Parameters found in the yaml config file.
 
     """
-    gpkg_file = []
+    bucket_file_cache = []
     bucket_name = params['global']['bucket_name']
-    data_path = Path(params['global']['data_path'])
-    if not data_path.is_dir():
-        Path.mkdir(data_path, exist_ok=False)
+    data_path = params['global']['data_path']
+    Path.mkdir(Path(data_path), exist_ok=True)
     csv_file = params['sample']['prep_csv_file']
 
+    final_samples_folder = None
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
@@ -203,31 +175,43 @@ def main(params):
 
     with tqdm(list_data_prep) as _tqdm:
         for info in _tqdm:
+
             if bucket_name:
                 bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
                 info['tif'] = "Images/" + info['tif'].split('/')[-1]
-                if info['gpkg'] not in gpkg_file:
-                    gpkg_file.append(info['gpkg'])
+                if info['gpkg'] not in bucket_file_cache:
+                    bucket_file_cache.append(info['gpkg'])
                     bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
                 info['gpkg'] = info['gpkg'].split('/')[-1]
-
-            assert_band_number(info['tif'], params['global']['number_of_bands'])
+                if info['meta']:
+                    if info['meta'] not in bucket_file_cache:
+                        bucket_file_cache.append(info['meta'])
+                        bucket.download_file(info['meta'], info['meta'].split('/')[-1])
+                    info['meta'] = info['meta'].split('/')[-1]
 
             _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
 
-            # Read the input raster image
-            np_input_image = image_reader_as_array(info['tif'])
+            # Validate the number of class in the vector file
+            validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'])
 
-            # Burn vector file in a raster file
-            np_label_raster = vector_to_raster(info['gpkg'], info['tif'], info['attribute_name'])
+            assert os.path.isfile(info['tif']), f"could not open raster file at {info['tif']}"
+            with rasterio.open(info['tif'], 'r') as raster:
 
-            # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
-            # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
-            if params['global']['scale_data']:
-                sc_min, sc_max = params['global']['scale_data']
-                np_input_image = minmax_scale(np_input_image,
-                                              orig_range=(np.min(np_input_image), np.max(np_input_image)),
-                                              scale_range=(sc_min,sc_max))
+                # Burn vector file in a raster file
+                np_label_raster = vector_to_raster(vector_file=info['gpkg'],
+                                                   input_image=raster,
+                                                   attribute_name=info['attribute_name'],
+                                                   fill=get_key_def('ignore_idx', get_key_def('training', params, {}), 0))
+
+                # Read the input raster image
+                np_input_image = image_reader_as_array(input_image=raster,
+                                                       scale=get_key_def('scale_data', params['global'], None),
+                                                       aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
+                                                       aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                                                       aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                                                       aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                                                       aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
+                                                       aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
             # Mask the zeros from input image into label raster.
             if params['sample']['mask_reference']:
@@ -242,6 +226,15 @@ def main(params):
             else:
                 raise ValueError(f"Dataset value must be trn or val or tst. Provided value is {info['dataset']}")
 
+            meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
+            if info['meta'] is not None and isinstance(info['meta'], str) and os.path.isfile(info['meta']):
+                metadata = read_parameters(info['meta'])
+
+            input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
+            assert input_band_count == params['global']['number_of_bands'], \
+                f"The number of bands in the input image ({input_band_count}) and the parameter" \
+                f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
+
             np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
             number_samples, number_classes = samples_preparation(np_input_image,
                                                                  np_label_raster,
@@ -251,7 +244,8 @@ def main(params):
                                                                  number_classes,
                                                                  out_file,
                                                                  info['dataset'],
-                                                                 params['sample']['min_annotated_percent'])
+                                                                 params['sample']['min_annotated_percent'],
+                                                                 metadata)
 
             _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
             out_file.flush()
@@ -262,7 +256,7 @@ def main(params):
 
     print("Number of samples created: ", number_samples)
 
-    if bucket_name:
+    if bucket_name and final_samples_folder:
         print('Transfering Samples to the bucket')
         bucket.upload_file(samples_folder + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
         bucket.upload_file(samples_folder + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
