@@ -19,6 +19,7 @@ from models.model_choice import net
 from utils.utils import read_parameters, load_from_checkpoint, image_reader_as_array, \
     read_csv, get_device_ids, gpu_stats, get_key_def
 from utils.CreateDataset import MetaSegmentationDataset
+
 try:
     import boto3
 except ModuleNotFoundError:
@@ -104,7 +105,8 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                             outputs = outputs['out']
 
                         output_counts[row_start:row_end, col_start:col_end] += 1
-                        output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(), axis=0)
+                        output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(),
+                                                                                            axis=0)
 
                     if debug and device.type == 'cuda':
                         res, mem = gpu_stats(device=device.index)
@@ -186,7 +188,8 @@ def classifier(params, img_list, model, device):
         np.savetxt(csv_results, classified_results, fmt='%s', delimiter=',')
         bucket.upload_file(csv_results, os.path.join(params['inference']['working_folder'], csv_results))
     else:
-        np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s', delimiter=',')   #FIXME create directories if don't exist
+        np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s',
+                   delimiter=',')  # FIXME create directories if don't exist
 
 
 def calc_overlap(params):
@@ -215,7 +218,8 @@ def main(params):
     """
     since = time.time()
     img_dir_or_csv = params['inference']['img_dir_or_csv_file']
-    working_folder = Path(params['inference']['working_folder'])
+    working_folder = Path(params['inference']['working_folder']) if params['inference']['working_folder'] \
+        else Path(params['inference']['state_dict_path']).parent.joinpath('inference')
     Path.mkdir(working_folder, exist_ok=True)
     print(f'Inferences will be saved to: {working_folder}')
 
@@ -231,11 +235,16 @@ def main(params):
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
 
     if lst_device_ids:
-        print(f"Using Cuda device {lst_device_ids[0]}")
+        print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using {lst_device_ids[0]}")
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU")
 
-    model.to(device)
+    try:
+        model.to(device)
+    except RuntimeError:
+        print(f"Unable to use device. Trying device 0")
+        device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+        model.to(device)
 
     if bucket_name:
         s3 = boto3.resource('s3')
@@ -244,7 +253,8 @@ def main(params):
             bucket.download_file(img_dir_or_csv, 'img_csv_file.csv')
             list_img = read_csv('img_csv_file.csv', inference=True)
         else:
-            raise NotImplementedError('Specify a csv file containing images for inference. Directory input not implemented yet')
+            raise NotImplementedError(
+                'Specify a csv file containing images for inference. Directory input not implemented yet')
     else:
         if img_dir_or_csv.endswith('.csv'):
             list_img = read_csv(img_dir_or_csv, inference=True)
@@ -289,7 +299,7 @@ def main(params):
                         img['meta'] = img['meta'].split('/')[-1]
                 else:
                     local_img = img['tif']
-                    inference_image = os.path.join(params['inference']['working_folder'],
+                    inference_image = os.path.join(working_folder,
                                                    f"{img_name.split('.')[0]}_inference.tif")
 
                 assert os.path.isfile(local_img), f"could not open raster file at {local_img}"
@@ -297,11 +307,16 @@ def main(params):
 
                     np_input_image = image_reader_as_array(input_image=raster,
                                                            scale=get_key_def('scale_data', params['global'], None),
-                                                           aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
-                                                           aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
-                                                           aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
-                                                           aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
-                                                           aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
+                                                           aux_vector_file=get_key_def('aux_vector_file',
+                                                                                       params['global'], None),
+                                                           aux_vector_attrib=get_key_def('aux_vector_attrib',
+                                                                                         params['global'], None),
+                                                           aux_vector_ids=get_key_def('aux_vector_ids',
+                                                                                      params['global'], None),
+                                                           aux_vector_dist_maps=get_key_def('aux_vector_dist_maps',
+                                                                                            params['global'], True),
+                                                           aux_vector_scale=get_key_def('aux_vector_scale',
+                                                                                        params['global'], None))
 
                 meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
                 if meta_map:
@@ -310,17 +325,26 @@ def main(params):
                     metadata = read_parameters(img['meta'])
 
                 if debug:
-                    _tqdm.set_postfix(OrderedDict(image_name=img_name, image_shape=np_input_image.shape))
+                    _tqdm.set_postfix(OrderedDict(img_name=img_name,
+                                                  img=np_input_image.shape,
+                                                  img_min_val=np.min(np_input_image),
+                                                  img_max_val=np.max(np_input_image)))
 
                 input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
                 assert input_band_count == params['global']['number_of_bands'], \
                     f"The number of bands in the input image ({input_band_count}) and the parameter" \
                     f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
 
-                sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes, device, meta_map, metadata)
+                sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes,
+                                                    device, meta_map, metadata)
 
-                if debug and len(np.unique(sem_seg_results))==1:
-                    print(f'Something is wrong. Inference contains only one value. Make sure data scale is coherent with training domain values.')
+                if debug:
+                    _tqdm.set_postfix(
+                        OrderedDict(result_min_val=np.min(sem_seg_results), result_max_val=np.max(sem_seg_results)))
+
+                if debug and len(np.unique(sem_seg_results)) == 1:
+                    print(
+                        f'Something is wrong. Inference contains only one value. Make sure data scale is coherent with training domain values.')
 
                 create_new_raster_from_base(local_img, inference_image, sem_seg_results)
                 tqdm.write(f"Semantic segmentation of image {img_name} completed")
@@ -328,7 +352,8 @@ def main(params):
                     bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
                                                                      f"{img_name.split('.')[0]}_inference.tif"))
     else:
-        raise ValueError(f"The task should be either classification or segmentation. The provided value is {params['global']['task']}")
+        raise ValueError(
+            f"The task should be either classification or segmentation. The provided value is {params['global']['task']}")
 
     time_elapsed = time.time() - since
     print('Inference completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))

@@ -348,7 +348,12 @@ def main(params, config_path):
     model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, model, checkpoint)
 
     criterion = criterion.to(device)
-    model = model.to(device)
+    try:
+        model.to(device)
+    except RuntimeError:
+        print(f"Unable to use device. Trying device 0")
+        device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+        model.to(device)
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
@@ -545,7 +550,9 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
                 if (dataset == 'val') and (batch_metrics is not None):
                     # Compute metrics every n batches. Time consuming.
-                    if index+1 % batch_metrics == 0:   # +1 to skip val loop at very beginning
+                    assert batch_metrics <= len(_tqdm), f"Batch_metrics ({batch_metrics} is smaller than batch size " \
+                        f"{len(_tqdm)}. Metrics in validation loop won't be computed"
+                    if (index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
                         a, segmentation = torch.max(outputs_flatten, dim=1)
                         eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics)
                 elif dataset == 'tst':
@@ -554,7 +561,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
                 _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
-                if debug and torch.cuda.is_available() and device.type != "cpu":
+                if debug and torch.cuda.is_available():
                     res, mem = gpu_stats(device=device.index)
                     _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
                                                   gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))

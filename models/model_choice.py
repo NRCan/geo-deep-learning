@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 import torch
 import warnings
 import torchvision.models as models
@@ -74,8 +76,14 @@ def net(net_params, inference=False):
         # pretrained on coco (21 classes)
         coco_model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True,
                                                         num_classes=21, aux_loss=None)
-        model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True,
+        try:
+            model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, in_channels=num_bands,
                                                         num_classes=num_classes, aux_loss=None)
+        except:
+            assert num_bands==3, 'Edit torchvision scripts segmentation.py and resnet.py to build deeplabv3_resnet ' \
+                                 'with more or less than 3 bands'
+            model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True,
+                                                            num_classes=num_classes, aux_loss=None)
         chopped_dict = chop_layer(coco_model.state_dict(), layer_names=['classifier.4'])
         del coco_model
         model.load_state_dict(chopped_dict, strict=False)
@@ -96,11 +104,13 @@ def net(net_params, inference=False):
         model = coordconv.swap_coordconv_layers(model, centered=centered, normalized=normalized, noise=noise,
                                                 radius_channel=radius_channel, scale=scale)
 
-    if net_params['training']['state_dict_path']:
+    if not inference and net_params['training']['state_dict_path']:
+        assert Path(net_params['training']['state_dict_path']).is_file()
         state_dict_path = net_params['training']['state_dict_path']
         checkpoint = load_checkpoint(state_dict_path)
     elif inference:
         state_dict_path = net_params['inference']['state_dict_path']
+        assert Path(net_params['inference']['state_dict_path']).is_file()
         checkpoint = load_checkpoint(state_dict_path)
     else:
         checkpoint = None
