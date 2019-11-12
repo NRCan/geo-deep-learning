@@ -287,7 +287,7 @@ def main(params, config_path):
     model, checkpoint, model_name = net(params)
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
-    modelname = config_path.stem
+    modelname = config_path.stem #TODO copy .yaml to output_path
     output_path = Path(data_path).joinpath('model') / modelname
     try:
         output_path.mkdir(parents=True, exist_ok=False)
@@ -561,7 +561,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
                 _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
-                if debug and torch.cuda.is_available():
+                if debug and device.type == 'cuda':
                     res, mem = gpu_stats(device=device.index)
                     _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
                                                   gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))

@@ -135,8 +135,8 @@ def main(params):
     """
     bucket_file_cache = []
     bucket_name = params['global']['bucket_name']
-    data_path = params['global']['data_path']
-    Path.mkdir(Path(data_path), exist_ok=True)
+    data_path = Path(params['global']['data_path'])
+    Path.mkdir(data_path, exist_ok=True)
     csv_file = params['sample']['prep_csv_file']
 
     final_samples_folder = None

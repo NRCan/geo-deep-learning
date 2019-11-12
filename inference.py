@@ -347,7 +347,7 @@ def main(params):
                         f'Something is wrong. Inference contains only one value. Make sure data scale is coherent with training domain values.')
 
                 create_new_raster_from_base(local_img, inference_image, sem_seg_results)
-                tqdm.write(f"Semantic segmentation of image {img_name} completed")
+                tqdm.write(f"\n\nSemantic segmentation of image {img_name} completed\n\n")
                 if bucket:
                     bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
                                                                      f"{img_name.split('.')[0]}_inference.tif"))
