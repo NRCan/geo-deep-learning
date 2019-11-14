@@ -192,7 +192,7 @@ def main(params):
             _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
 
             # Validate the number of class in the vector file
-            validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'])
+            validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
 
             assert os.path.isfile(info['tif']), f"could not open raster file at {info['tif']}"
             with rasterio.open(info['tif'], 'r') as raster:
