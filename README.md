@@ -32,6 +32,7 @@ After installing the required computing environment (see next section), one need
 - Python 3.6 with the following libraries:
     - pytorch # With your choice of CUDA toolkit
     - torchvision
+    - opencv
     - rasterio
     - fiona
     - ruamel_yaml
@@ -47,14 +48,18 @@ After installing the required computing environment (see next section), one need
 1. Using conda, you can set and activate your python environment with the following commands:  
     With GPU (defaults to CUDA 10.0 if `cudatoolkit=X.0` is not specified):
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch torchvision -c pytorch
     source activate YOUR_ENV
+    conda install opencv -c conda-forge
+    conda install ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c conda-forge
     conda install nvidia-ml-py3 -c fastai
     ```
     CPU only:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision -c pytorch
     source activate YOUR_ENV
+    conda install opencv -c conda-forge
+    conda install ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c conda-forge
     ```
     > For Windows user, you might want to install rasterio, fiona and gdal first, before installing the rest. We've experienced some [installation issues](https://github.com/conda-forge/gdal-feedstock/issues/213), with those libraries.
 1. Set your parameters in the `config.yaml` (see section below)
