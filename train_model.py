@@ -9,8 +9,13 @@ import h5py
 import datetime
 import warnings
 import functools
+
+from matplotlib import cm
 from tqdm import tqdm
 from collections import OrderedDict
+import shutil
+import numpy as np
+
 
 try:
     from pynvml import *
@@ -32,7 +37,9 @@ from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict
 from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
-from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, get_key_def
+from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, \
+    get_key_def, grid_images
+from utils.preprocess import minmax_scale
 
 try:
     import boto3
@@ -197,16 +204,13 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
     else:
         raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
 
-    # Shuffle must be set to True.
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
-    if num_devices > 1:
-        num_workers = num_devices * 4
-    else:
-        num_workers = 4
+    num_workers = num_devices * 4 if num_devices > 1 else 4
 
+    # Shuffle must be set to True.
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
-    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
+    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True)
     return trn_dataloader, val_dataloader, tst_dataloader
 
 
@@ -282,18 +286,19 @@ def main(params, config_path):
     :param config_path: (str) Path to the yaml config file.
 
     """
-    now = datetime.datetime.now().strftime("%Y-%m-%d_%I-%M")
+    now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     model, checkpoint, model_name = net(params)
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
-    modelname = config_path.stem #TODO copy .yaml to output_path
+    modelname = config_path.stem
     output_path = Path(data_path).joinpath('model') / modelname
     try:
         output_path.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
         output_path = Path(str(output_path)+'_'+now)
         output_path.mkdir(exist_ok=True)
+    shutil.copy(str(config_path), str(output_path))
     print(f'Model and log files will be saved to: {output_path}')
     task = params['global']['task']
     num_classes = params['global']['num_classes']
@@ -316,6 +321,7 @@ def main(params, config_path):
 
     since = time.time()
     best_loss = 999
+    last_vis_epoch = 0
 
     progress_log = Path(output_path) / 'progress.log'
     if not progress_log.exists():
@@ -331,11 +337,12 @@ def main(params, config_path):
     lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+    print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using cuda:{lst_device_ids[0]}")
     if num_devices == 1:
         print(f"Using Cuda device {lst_device_ids[0]}")
     elif num_devices > 1:
         print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}")
-        model = nn.DataParallel(model, device_ids=lst_device_ids)  # adds prefix 'module.' to state_dict keys
+        model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU")
 
@@ -405,6 +412,23 @@ def main(params, config_path):
                 bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
 
+            # generate png of test samples, labels and outputs for visualisation to follow training performance
+            if epoch - last_vis_epoch >= 2 or debug: # FIXME: document this in README
+                max_num_vis_samples=2 #FIXME: softcode. Also softcode heatmaps (true or false)
+                assert task == 'segmentation' and num_classes == 5, \
+                    f'Visualization is currently only implemented for 5-class semantic segmentation tasks'
+                print(f'Visualizing on {max_num_vis_samples} test samples...')
+                visualization(eval_loader=tst_dataloader,
+                            model=model,
+                            ep_idx=epoch,
+                            output_path=output_path,
+                            scale=get_key_def('scale_data', params['global'], None),
+                            dataset='tst',
+                            device=device,
+                            max_num_samples=max_num_vis_samples,
+                            heatmaps=True)
+                last_vis_epoch = epoch
+
         if bucket_name:
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
 
@@ -412,9 +436,10 @@ def main(params, config_path):
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if int(params['training']['num_epochs']) > 0:    #if num_epochs is set to 0, is loaded model to evaluate on test set
+    if int(params['training']['num_epochs']) > 0:    #if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
+
     tst_report = evaluation(eval_loader=tst_dataloader,
                             model=model,
                             criterion=criterion,
@@ -573,6 +598,106 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
         print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
 
     return eval_metrics
+
+def visualization(eval_loader, model, ep_idx, output_path, scale, dataset='tst', device=None, max_num_samples=8, heatmaps=True):
+    """
+    Evaluate the model and return the updated metrics
+    :param eval_loader: data loader
+    :param model: model to evaluate
+    :param ep_idx: epoch index (for hypertrainer log)
+    :param dataset: (str) 'val or 'tst'
+    :param output_path: path where inferences on samples will be saved
+    :param device: device used by pytorch (cpu ou cuda)
+    :param max_num_samples: (int) max number of samples to perform visualization on
+    :param heatmaps: (bool) Save heatmaps associated to output, along with input, label and output
+
+    :return: (dict) eval_metrics
+    """
+    vis_path = output_path.joinpath(f'visualization')
+    vis_path.mkdir(exist_ok=True)
+    colormap = np.asarray([
+        [255, 255, 255], # background, black
+        [0, 104, 13], # vegetation, green
+        [178, 224, 230], # hydro, blue
+        [153, 0, 0], #roads, red
+        [239, 205, 8]]) #buildings, yellow
+
+    model.eval()
+
+    # setattr(eval_loader, 'shuffle', False) # FIXME
+
+    with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
+        for index, data in enumerate(_tqdm):
+            with torch.no_grad():
+                inputs = data['sat_img'].to(device)
+                labels = data['map_img'].to(device)
+
+                outputs = model(inputs)
+                if isinstance(outputs, OrderedDict):
+                    outputs = outputs['out']
+
+                if debug and device.type == 'cuda':
+                    res, mem = gpu_stats(device=device.index)
+                    _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
+                                                  gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
+
+                for vis_index, zipped in enumerate(zip(inputs, labels, outputs)):
+                    list_imgs_pil = []
+                    vis_index = vis_index + len(inputs)*index
+                    input, label, output = zipped
+                    softmax = torch.nn.Softmax(dim=0)
+                    output = softmax(output)
+
+
+                    input = input.cpu().permute(1, 2, 0).numpy() #channels last
+                    label = label.cpu().numpy()
+                    output = output.cpu().permute(1, 2, 0).numpy() #channels last
+                    output_argmax = np.argmax(output, axis=2)
+
+                    if debug:
+                        _tqdm.set_postfix(OrderedDict(input_size={input.shape}, output_size={output.shape}, dataset=dataset))
+
+                    # save first 3 bands of sat_img to jpeg
+                    if scale:
+                        sc_min, sc_max = scale
+                        input = minmax_scale(img=input, orig_range=(sc_min, sc_max), scale_range=(0, 255))
+                    if input.shape != 3:
+                        input = input[:, :, :3] #take three first bands assuming they are RGB in correct order
+                    input_PIL = Image.fromarray(input.astype(np.uint8), mode='RGB')
+                    list_imgs_pil.append(input_PIL)
+                    #input_PIL.save(vis_path.joinpath(f'{vis_index}_satimg.jpg'))
+
+                    # convert label and output to color with colormap
+                    label = colormap[label]
+                    output_argmax = colormap[output_argmax]
+                    # save label and output
+                    label_PIL = Image.fromarray(label.astype(np.uint8), mode='RGB')
+                    #label_PIL.save(vis_path.joinpath(f'{vis_index}_label.png'))
+                    list_imgs_pil.append(label_PIL)
+                    output_argmax_PIL = Image.fromarray(output_argmax.astype(np.uint8), mode='RGB')
+                    #output_PIL.save(vis_path.joinpath(f'{vis_index}_output.png'))
+                    list_imgs_pil.append(output_argmax_PIL)
+                    titles = ['input', 'label', 'output']
+
+                    # save per class heatmap
+                    if heatmaps: # FIXME: document this in README
+                        classes = ['background', 'vegetation', 'hydro', 'roads', 'buildings'] #FIXME: softcode
+                        titles.extend(classes)
+                        for i in range(output.shape[2]): # for each channel (i.e. class) in output
+                            perclass_output = output[:, :, i]
+                            # perclass_output = minmax_scale(img=perclass_output, orig_range=(0, 1), scale_range=(0, 255))
+                            #https://stackoverflow.com/questions/10965417/how-to-convert-numpy-array-to-pil-image-applying-matplotlib-colormap
+                            perclass_output_PIL = Image.fromarray(np.uint8(cm.get_cmap('inferno')(perclass_output)*255))
+                            list_imgs_pil.append(perclass_output_PIL)
+
+                    assert len(list_imgs_pil) == len(titles)
+                    grid = grid_images(list_imgs_pil, titles)
+                    grid.savefig(vis_path.joinpath(f'samp{vis_index}_epoch{ep_idx}.png'))
+                    if (vis_index+1) >= max_num_samples:
+                        break
+
+                if (vis_index+1) >= max_num_samples:
+                    break
 
 
 if __name__ == '__main__':

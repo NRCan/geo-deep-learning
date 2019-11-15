@@ -10,6 +10,10 @@ import collections
 import fiona
 import csv
 from pathlib import Path
+import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt, gridspec
+import math
 
 from utils.preprocess import minmax_scale
 
@@ -388,3 +392,23 @@ def get_key_recursive(key, config):
         assert len(key) > 1, "missing keys to index metadata subdictionaries"
         return get_key_recursive(key[1:], val)
     return val
+
+
+def grid_images(list_imgs_pil, list_titles):
+    """Visualizes image samples"""
+
+    height = math.ceil(len(list_imgs_pil)/4)
+    width = len(list_imgs_pil) if len(list_imgs_pil) < 4 else 4
+    plt.figure(figsize=(width*6, height*6))
+    grid_spec = gridspec.GridSpec(height, width)
+
+    for index, zipped in enumerate(zip(list_imgs_pil, list_titles)):
+        img, title = zipped
+        plt.subplot(grid_spec[index])
+        plt.imshow(img)
+        plt.grid(False)
+        plt.axis('off')
+        plt.title(title)
+        plt.tight_layout()
+
+    return plt
