@@ -1,5 +1,7 @@
 import collections
 import os
+import warnings
+
 import h5py
 from torch.utils.data import Dataset
 import numpy as np
@@ -31,7 +33,7 @@ def create_files_and_datasets(params, samples_folder):
         try:
             hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
         except AttributeError as e:
-            print(f'Ignoring error: {e}')
+            warnings.warn(f'Ignoring error: {e}. Make sure no metadata is used or update h5py to version 2.10 or higher')
         hdf5_files.append(hdf5_file)
     return hdf5_files
 

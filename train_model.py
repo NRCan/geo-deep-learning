@@ -337,11 +337,11 @@ def main(params, config_path):
     lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-    print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Main device:{lst_device_ids[0]}")
+    print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}")
     if num_devices == 1:
         print(f"Using Cuda device {lst_device_ids[0]}")
     elif num_devices > 1:
-        print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}")
+        print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}. Main device:{lst_device_ids[0]}") # FIXME: why are we showing indices [1:-1] for lst_device_ids?
         model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU")
