@@ -149,7 +149,7 @@ def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vec
         np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
 
     # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
-    # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
+    # Scale array values from range [0,255] to values in config (e.g. [0,1])
     if scale:
         sc_min, sc_max = scale
         assert np.min(np_array) >= 0 and np.max(np_array) <= 255, f'Values in input image of shape {np_array.shape} ' \
