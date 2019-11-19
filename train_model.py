@@ -337,7 +337,7 @@ def main(params, config_path):
     lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-    print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using cuda:{lst_device_ids[0]}")
+    print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Main device:{lst_device_ids[0]}")
     if num_devices == 1:
         print(f"Using Cuda device {lst_device_ids[0]}")
     elif num_devices > 1:
@@ -413,8 +413,9 @@ def main(params, config_path):
                 bucket.upload_file(filename, bucket_filename)
 
             # generate png of test samples, labels and outputs for visualisation to follow training performance
-            if epoch - last_vis_epoch >= 2 or debug: # FIXME: document this in README
-                max_num_vis_samples=2 #FIXME: softcode. Also softcode heatmaps (true or false)
+            ep_vis_min_thresh = 4 # FIXME: softcode
+            if epoch - last_vis_epoch >= ep_vis_min_thresh: # or debug: # FIXME: document this in README
+                max_num_vis_samples = 24 #FIXME: softcode. Also softcode heatmaps (true or false)
                 assert task == 'segmentation' and num_classes == 5, \
                     f'Visualization is currently only implemented for 5-class semantic segmentation tasks'
                 print(f'Visualizing on {max_num_vis_samples} test samples...')
@@ -601,7 +602,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
 def visualization(eval_loader, model, ep_idx, output_path, scale, dataset='tst', device=None, max_num_samples=8, heatmaps=True):
     """
-    Evaluate the model and return the updated metrics
+    Create images from output of model
     :param eval_loader: data loader
     :param model: model to evaluate
     :param ep_idx: epoch index (for hypertrainer log)
@@ -611,10 +612,11 @@ def visualization(eval_loader, model, ep_idx, output_path, scale, dataset='tst',
     :param max_num_samples: (int) max number of samples to perform visualization on
     :param heatmaps: (bool) Save heatmaps associated to output, along with input, label and output
 
-    :return: (dict) eval_metrics
+    :return:
     """
     vis_path = output_path.joinpath(f'visualization')
     vis_path.mkdir(exist_ok=True)
+    print(f'Visualization figures will be saved to {vis_path}')
     colormap = np.asarray([
         [255, 255, 255], # background, black
         [0, 104, 13], # vegetation, green
@@ -692,12 +694,14 @@ def visualization(eval_loader, model, ep_idx, output_path, scale, dataset='tst',
 
                     assert len(list_imgs_pil) == len(titles)
                     grid = grid_images(list_imgs_pil, titles)
-                    grid.savefig(vis_path.joinpath(f'samp{vis_index}_epoch{ep_idx}.png'))
+                    grid.savefig(vis_path.joinpath(f'samp{vis_index:03d}_epoch{ep_idx:03d}.png'))
                     if (vis_index+1) >= max_num_samples:
                         break
 
                 if (vis_index+1) >= max_num_samples:
                     break
+
+                print(f'Saved visualization figures.')
 
 
 if __name__ == '__main__':

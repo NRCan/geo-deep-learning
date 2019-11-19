@@ -152,8 +152,11 @@ def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vec
     # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
     if scale:
         sc_min, sc_max = scale
+        assert np.min(np_array) >= 0 and np.max(np_array) <= 255, f'Values in input image of shape {np_array.shape} ' \
+                                                                  f'range from {np.min(np_array)} to {np.max(np_array)}.' \
+                                                                  f'They should range from 0 to 255 (8bit).'
         np_array = minmax_scale(img=np_array,
-                                orig_range=(np.min(np_array), np.max(np_array)),
+                                orig_range=(0, 255),
                                 scale_range=(sc_min, sc_max))
 
     # if requested, load vectors from external file, rasterize, and append distance maps to array

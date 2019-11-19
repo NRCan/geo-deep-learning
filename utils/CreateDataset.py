@@ -28,7 +28,10 @@ def create_files_and_datasets(params, samples_folder):
         hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
                                  maxshape=(None, samples_size, samples_size))
         hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
-        hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+        try:
+            hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+        except AttributeError as e:
+            print(f'Ignoring error: {e}')
         hdf5_files.append(hdf5_file)
     return hdf5_files
 
