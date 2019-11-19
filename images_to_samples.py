@@ -163,7 +163,8 @@ def main(params):
         assert Path(info['gpkg']).is_file(), f'Could not locate "{info["gpkg"]}". Make sure file exists in this directory.'
         # Validate the number of class in the vector file
         validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
-    print(f'Located all .tif and .gpkg files in {csv_file}.')
+    if debug:
+        print(f'Located all .tif and .gpkg files in {csv_file}.')
 
     create_or_empty_folder(samples_folder, empty=False)    #FIXME: what if we want to append samples to existing hdf5?
     create_or_empty_folder(out_label_folder, empty=False)
