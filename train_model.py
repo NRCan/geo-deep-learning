@@ -37,9 +37,9 @@ from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict
 from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
-from utils.utils import read_parameters, load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, \
-    get_key_def, grid_images
-from utils.preprocess import minmax_scale
+from utils.utils import load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, \
+    get_key_def, grid_images, minmax_scale
+from utils.readers import read_parameters
 
 try:
     import boto3

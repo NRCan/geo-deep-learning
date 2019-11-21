@@ -16,8 +16,8 @@ from tqdm import tqdm
 from pathlib import Path
 
 from models.model_choice import net
-from utils.utils import read_parameters, load_from_checkpoint, image_reader_as_array, \
-    read_csv, get_device_ids, gpu_stats, get_key_def
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
+from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.CreateDataset import MetaSegmentationDataset
 
 try:

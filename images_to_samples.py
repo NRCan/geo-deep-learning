@@ -12,10 +12,10 @@ from tqdm import tqdm
 from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets, MetaSegmentationDataset
-from utils.utils import (
-    read_parameters, image_reader_as_array, vector_to_raster, validate_num_classes, read_csv, get_key_def,
-    lst_ids)
-from utils.verifications import is_valid_geom
+from utils.utils import vector_to_raster, get_key_def, lst_ids
+from utils.readers import read_parameters, image_reader_as_array, read_csv
+from utils.verifications import is_valid_geom, validate_num_classes
+
 # from rasterio.features import is_valid_geom #FIXME: wait for https://github.com/mapbox/rasterio/issues/1815 to be solved
 
 try:
