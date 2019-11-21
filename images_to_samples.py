@@ -122,7 +122,7 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
                 if num_classes < target_class_num:
                     num_classes = target_class_num
 
-                _tqdm.set_postfix(Added_samples_from_current_image=f'{idx_samples} / {len(_tqdm)}')
+                _tqdm.set_postfix(Added_samples_from_current_image=f'{idx_samples} / {len(_tqdm)*len(range(0, w, dist_samples))}')
 
     if dataset == 'trn':
         samples_count['trn'] = idx_samples
@@ -180,12 +180,12 @@ def main(params):
 
     if debug:
         gpkg_stem = str(Path(info['gpkg']).stem)
-        for info in tqdm(list_data_prep, position=0, leave=False, desc=f"Validating presence of {params['global']['num_classes']} "
+        for info in tqdm(list_data_prep, position=0, desc=f"Validating presence of {params['global']['num_classes']} "
                                                            f"classes in attribute \"{info['attribute_name']}\" for vector "
                                                            f"file \"{gpkg_stem}\""):
             validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
 
-        with tqdm(list_data_prep, position=0, leave=False, desc=f"Checking validity of features in vector files") as _tqdm:
+        with tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files") as _tqdm:
             invalid_features = {}
             for info in _tqdm:
                 # Extract vector features to burn in the raster image
