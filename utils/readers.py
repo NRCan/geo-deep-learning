@@ -3,6 +3,7 @@ import csv
 import numpy as np
 from ruamel_yaml import YAML
 from tqdm import tqdm
+from pathlib import Path
 
 from utils.utils import vector_to_raster, minmax_scale
 
@@ -37,7 +38,7 @@ def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vec
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
     np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
-    for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading images'):
+    for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image: {Path(input_image.files[0]).stem}'):
         np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
 
     # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre

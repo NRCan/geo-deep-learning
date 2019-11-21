@@ -103,7 +103,8 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
     pad_label_array = np.pad(label_array, ((half_tile, half_tile), (half_tile, half_tile), (0, 0)), mode='constant')
 
     added_samples = 0
-    with tqdm(range(0, h, dist_samples), position=1, leave=False,
+    excl_samples = 0
+    with tqdm(range(0, h, dist_samples), position=1, leave=True,
                         desc=f'Writing samples to "{dataset}" dataset. Dataset currently contains {idx_samples} '
                              f'samples.') as _tqdm:
         for row in _tqdm:
@@ -113,19 +114,20 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
 
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = count[0] / np.sum(count) * 100 if 0 in u else 0
-
                 if target_background_percent <= 100 - min_annotated_percent:
                     append_to_dataset(samples_file["sat_img"], data)
                     append_to_dataset(samples_file["map_img"], target)
                     append_to_dataset(samples_file["meta_idx"], metadata_idx)
                     idx_samples += 1
-                    added_samples +=1
+                    added_samples += 1
+                else:
+                    excl_samples +=1
 
                 target_class_num = np.max(u)
                 if num_classes < target_class_num:
                     num_classes = target_class_num
 
-                _tqdm.set_postfix(Dataset=dataset, Added_samples=f'{added_samples} / {len(_tqdm)*len(range(0, w, dist_samples))}') #FIXME: not counting correctly
+                _tqdm.set_postfix(Excld_samples=0, Added_samples=f'{added_samples}/{len(_tqdm)*len(range(0, w, dist_samples))}', Target_annot_perc=100-target_background_percent) #FIXME: not counting correctly
 
     if dataset == 'trn':
         samples_count['trn'] = idx_samples
@@ -150,6 +152,8 @@ def main(params):
     Path.mkdir(data_path, exist_ok=True)
     csv_file = params['sample']['prep_csv_file']
     debug = get_key_def('debug_mode', params['global'], False)
+    if debug:
+        warnings.warn(f'Debug mode activate. Execution may take longer...')
 
     final_samples_folder = None
     if bucket_name:
@@ -284,9 +288,9 @@ def main(params):
 
                 _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
                 out_file.flush()
-            except:
+            except Exception as e:
                 warnings.warn(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
-                              f'{Path(info["gpkg"]).stem} (gpkg)')
+                              f'{Path(info["gpkg"]).stem} (gpkg). Error: "{e}"')
                 continue
 
     trn_hdf5.close()

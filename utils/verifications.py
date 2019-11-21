@@ -7,7 +7,7 @@ from utils.utils import get_key_recursive
 def is_valid_geom(geom):
     """
     Checks to see if geometry is a valid GeoJSON geometry type or
-    GeometryCollection.
+    GeometryCollection. For example, helps detect features with area of 0.
 
     Geometries must be non-empty, and have at least x, y coordinates.
 
