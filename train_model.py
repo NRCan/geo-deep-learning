@@ -341,8 +341,16 @@ def main(params, config_path):
     if num_devices == 1:
         print(f"Using Cuda device {lst_device_ids[0]}")
     elif num_devices > 1:
-        print(f"Using data parallel on devices {str(lst_device_ids)[1:-1]}. Main device:{lst_device_ids[0]}") # FIXME: why are we showing indices [1:-1] for lst_device_ids?
-        model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}") # FIXME: why are we showing indices [1:-1] for lst_device_ids?
+        try: # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
+            model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+        except AssertionError:
+            warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {range(len(lst_device_ids))}")
+            device = torch.device('cuda:0')
+            lst_device_ids = range(len(lst_device_ids))
+            model = nn.DataParallel(model,
+                                    device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU")
 
@@ -355,10 +363,10 @@ def main(params, config_path):
     model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, model, checkpoint)
 
     criterion = criterion.to(device)
-    try:
+    try: # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
         model.to(device)
     except RuntimeError:
-        print(f"Unable to use device. Trying device 0")
+        warnings.warn(f"Unable to use device. Trying device 0")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
 
@@ -580,10 +588,12 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                         f"{len(_tqdm)}. Metrics in validation loop won't be computed"
                     if (index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
                         a, segmentation = torch.max(outputs_flatten, dim=1)
-                        eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics)
+                        eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
+                                                             ignore_index=get_key_def("ignore_index", params["training"], None))
                 elif dataset == 'tst':
                     a, segmentation = torch.max(outputs_flatten, dim=1)
-                    eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics)
+                    eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
+                                                         ignore_index=get_key_def("ignore_index", params["training"], None))
 
                 _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 

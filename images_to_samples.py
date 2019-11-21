@@ -102,8 +102,10 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
                               mode='constant')
     pad_label_array = np.pad(label_array, ((half_tile, half_tile), (half_tile, half_tile), (0, 0)), mode='constant')
 
+    added_samples = 0
     with tqdm(range(0, h, dist_samples), position=1, leave=False,
-                        desc='Writing samples from input image and reference image') as _tqdm:
+                        desc=f'Writing samples to "{dataset}" dataset. Dataset currently contains {idx_samples} '
+                             f'samples.') as _tqdm:
         for row in _tqdm:
             for column in range(0, w, dist_samples):
                 data = (pad_in_img_array[row:row + sample_size, column:column + sample_size, :])
@@ -112,17 +114,18 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = count[0] / np.sum(count) * 100 if 0 in u else 0
 
-                if target_background_percent < 100 - min_annotated_percent:
+                if target_background_percent <= 100 - min_annotated_percent:
                     append_to_dataset(samples_file["sat_img"], data)
                     append_to_dataset(samples_file["map_img"], target)
                     append_to_dataset(samples_file["meta_idx"], metadata_idx)
                     idx_samples += 1
+                    added_samples +=1
 
                 target_class_num = np.max(u)
                 if num_classes < target_class_num:
                     num_classes = target_class_num
 
-                _tqdm.set_postfix(Added_samples_from_current_image=f'{idx_samples} / {len(_tqdm)*len(range(0, w, dist_samples))}')
+                _tqdm.set_postfix(Dataset=dataset, Added_samples=f'{added_samples} / {len(_tqdm)*len(range(0, w, dist_samples))}') #FIXME: not counting correctly
 
     if dataset == 'trn':
         samples_count['trn'] = idx_samples
@@ -179,10 +182,9 @@ def main(params):
         assert Path(info['gpkg']).is_file(), f'Could not locate "{info["gpkg"]}". Make sure file exists in this directory.'
 
     if debug:
-        gpkg_stem = str(Path(info['gpkg']).stem)
         for info in tqdm(list_data_prep, position=0, desc=f"Validating presence of {params['global']['num_classes']} "
-                                                           f"classes in attribute \"{info['attribute_name']}\" for vector "
-                                                           f"file \"{gpkg_stem}\""):
+                                                          f"classes in attribute \"{info['attribute_name']}\" for vector "
+                                                          f"file \"{Path(info['gpkg']).stem}\""):
             validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
 
         with tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files") as _tqdm:
@@ -197,6 +199,7 @@ def main(params):
                     geom, value = item
                     geom = getattr(geom, '__geo_interface__', None) or geom
                     if not is_valid_geom(geom):
+                        gpkg_stem = str(Path(info['gpkg']).stem)
                         if gpkg_stem not in invalid_features.keys(): # create key with name of gpkg
                             invalid_features[gpkg_stem] = []
                         if lst_vector[index]["id"] not in invalid_features[gpkg_stem]: # ignore feature is already appended
