@@ -14,7 +14,7 @@ def load_checkpoint(filename):
     :return: (dict) checkpoint ready to be loaded into model instance
     '''
     try:
-        print("=> loading model '{}'".format(filename))
+        print(f"=> loading model '{filename}'\n\n")
 
         checkpoint = torch.load(filename) if torch.cuda.is_available() else torch.load(filename, map_location='cpu')
 

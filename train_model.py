@@ -214,8 +214,8 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
 
     # Shuffle must be set to True.
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True) if num_samples['val'] > 0 else None
-    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True) if num_samples['tst'] > 0 else None
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
+    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True) if task=='segmentation' and num_samples['tst'] > 0 else None
     return trn_dataloader, val_dataloader, tst_dataloader
 
 
@@ -394,61 +394,61 @@ def main(params, config_path):
                            device=device)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-        if val_dataloader:
-            val_report = evaluation(eval_loader=val_dataloader,
-                                    model=model,
-                                    criterion=criterion,
-                                    num_classes=num_classes,
-                                    batch_size=batch_size,
-                                    task=task,
-                                    ep_idx=epoch,
-                                    progress_log=progress_log,
-                                    batch_metrics=params['training']['batch_metrics'],
-                                    dataset='val',
-                                    device=device)
-            val_loss = val_report['loss'].avg
-            if params['training']['batch_metrics'] is not None:
-                val_log.add_values(val_report, epoch)
-            else:
-                val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-            if val_loss < best_loss:
-                print("save checkpoint")
-                best_loss = val_loss
-                # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
-                state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
-                torch.save({'epoch': epoch,
-                            'arch': model_name,
-                            'model': state_dict,
-                            'best_loss': best_loss,
-                            'optimizer': optimizer.state_dict()}, filename)
+        val_report = evaluation(eval_loader=val_dataloader,
+                                model=model,
+                                criterion=criterion,
+                                num_classes=num_classes,
+                                batch_size=batch_size,
+                                task=task,
+                                ep_idx=epoch,
+                                progress_log=progress_log,
+                                batch_metrics=params['training']['batch_metrics'],
+                                dataset='val',
+                                device=device)
+        val_loss = val_report['loss'].avg
+        if params['training']['batch_metrics'] is not None:
+            val_log.add_values(val_report, epoch)
+        else:
+            val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-                if bucket_name:
-                    bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
-                    bucket.upload_file(filename, bucket_filename)
-
-                # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
-                ep_vis_min_thresh = 4 # FIXME: softcode
-                last_vis_epoch = 0
-                if debug and epoch - last_vis_epoch >= ep_vis_min_thresh: # FIXME: document this in README
-                    max_num_vis_samples = 24 #FIXME: softcode. Also softcode heatmaps (true or false)
-                    if task == 'segmentation' and num_classes == 4:
-                        print(f'Visualizing on {max_num_vis_samples} test samples...')
-                        visualization(eval_loader=tst_dataloader,
-                                    model=model,
-                                    ep_idx=epoch,
-                                    output_path=output_path,
-                                    scale=get_key_def('scale_data', params['global'], None),
-                                    dataset='tst',
-                                    device=device,
-                                    max_num_samples=max_num_vis_samples,
-                                    heatmaps=True)
-                        last_vis_epoch = epoch
-                    else:
-                        warnings.warn(f'Visualization is currently only implemented for 5-class semantic segmentation tasks')
+        if val_loss < best_loss:
+            print("save checkpoint")
+            best_loss = val_loss
+            # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
+            state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
+            torch.save({'epoch': epoch,
+                        'arch': model_name,
+                        'model': state_dict,
+                        'best_loss': best_loss,
+                        'optimizer': optimizer.state_dict()}, filename)
 
             if bucket_name:
-                save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
+                bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
+                bucket.upload_file(filename, bucket_filename)
+
+            # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
+            ep_vis_min_thresh = 4 # FIXME: softcode
+            last_vis_epoch = 0
+            if debug and epoch - last_vis_epoch >= ep_vis_min_thresh: # FIXME: document this in README
+                max_num_vis_samples = 24 #FIXME: softcode. Also softcode heatmaps (true or false)
+                if task == 'segmentation' and num_classes == 4:
+                    print(f'Visualizing on {max_num_vis_samples} test samples...')
+                    visualization(eval_loader=tst_dataloader,
+                                model=model,
+                                ep_idx=epoch,
+                                output_path=output_path,
+                                scale=get_key_def('scale_data', params['global'], None),
+                                dataset='tst',
+                                device=device,
+                                max_num_samples=max_num_vis_samples,
+                                heatmaps=True)
+                    last_vis_epoch = epoch
+                else:
+                    warnings.warn(f'Visualization is currently only implemented for 5-class semantic segmentation tasks')
+
+        if bucket_name:
+            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
 
         cur_elapsed = time.time() - since
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
@@ -725,7 +725,7 @@ def visualization(eval_loader, model, ep_idx, output_path, scale, dataset='tst',
 
 
 if __name__ == '__main__':
-    print('Start')
+    print(f'Start\n\n')
     parser = argparse.ArgumentParser(description='Training execution')
     parser.add_argument('param_file', metavar='DIR',
                         help='Path to training parameters stored in yaml')
