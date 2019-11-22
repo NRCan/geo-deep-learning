@@ -214,8 +214,8 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
 
     # Shuffle must be set to True.
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
-    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True) if num_samples['val'] > 0 else None
+    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True) if num_samples['tst'] > 0 else None
     return trn_dataloader, val_dataloader, tst_dataloader
 
 
@@ -241,7 +241,7 @@ def get_num_samples(data_path, params):
                 raise IndexError(f"The number of training samples in the configuration file ({num_samples[i]}) "
                                  f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
         else:
-            with h5py.File(os.path.join(data_path, "samples", f"{i}_samples.hdf5"), "r") as hdf5_file:
+            with h5py.File(os.path.join(data_path, samples_folder_name, f"{i}_samples.hdf5"), "r") as hdf5_file:
                 num_samples[i] = len(hdf5_file['map_img'])
 
     return num_samples
@@ -394,60 +394,61 @@ def main(params, config_path):
                            device=device)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-        val_report = evaluation(eval_loader=val_dataloader,
-                                model=model,
-                                criterion=criterion,
-                                num_classes=num_classes,
-                                batch_size=batch_size,
-                                task=task,
-                                ep_idx=epoch,
-                                progress_log=progress_log,
-                                batch_metrics=params['training']['batch_metrics'],
-                                dataset='val',
-                                device=device)
-        val_loss = val_report['loss'].avg
-        if params['training']['batch_metrics'] is not None:
-            val_log.add_values(val_report, epoch)
-        else:
-            val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
+        if val_dataloader:
+            val_report = evaluation(eval_loader=val_dataloader,
+                                    model=model,
+                                    criterion=criterion,
+                                    num_classes=num_classes,
+                                    batch_size=batch_size,
+                                    task=task,
+                                    ep_idx=epoch,
+                                    progress_log=progress_log,
+                                    batch_metrics=params['training']['batch_metrics'],
+                                    dataset='val',
+                                    device=device)
+            val_loss = val_report['loss'].avg
+            if params['training']['batch_metrics'] is not None:
+                val_log.add_values(val_report, epoch)
+            else:
+                val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-        if val_loss < best_loss:
-            print("save checkpoint")
-            best_loss = val_loss
-            # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
-            state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
-            torch.save({'epoch': epoch,
-                        'arch': model_name,
-                        'model': state_dict,
-                        'best_loss': best_loss,
-                        'optimizer': optimizer.state_dict()}, filename)
+            if val_loss < best_loss:
+                print("save checkpoint")
+                best_loss = val_loss
+                # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
+                state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
+                torch.save({'epoch': epoch,
+                            'arch': model_name,
+                            'model': state_dict,
+                            'best_loss': best_loss,
+                            'optimizer': optimizer.state_dict()}, filename)
+
+                if bucket_name:
+                    bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
+                    bucket.upload_file(filename, bucket_filename)
+
+                # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
+                ep_vis_min_thresh = 4 # FIXME: softcode
+                last_vis_epoch = 0
+                if debug and epoch - last_vis_epoch >= ep_vis_min_thresh: # FIXME: document this in README
+                    max_num_vis_samples = 24 #FIXME: softcode. Also softcode heatmaps (true or false)
+                    if task == 'segmentation' and num_classes == 4:
+                        print(f'Visualizing on {max_num_vis_samples} test samples...')
+                        visualization(eval_loader=tst_dataloader,
+                                    model=model,
+                                    ep_idx=epoch,
+                                    output_path=output_path,
+                                    scale=get_key_def('scale_data', params['global'], None),
+                                    dataset='tst',
+                                    device=device,
+                                    max_num_samples=max_num_vis_samples,
+                                    heatmaps=True)
+                        last_vis_epoch = epoch
+                    else:
+                        warnings.warn(f'Visualization is currently only implemented for 5-class semantic segmentation tasks')
 
             if bucket_name:
-                bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
-                bucket.upload_file(filename, bucket_filename)
-
-            # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
-            ep_vis_min_thresh = 4 # FIXME: softcode
-            last_vis_epoch = 0
-            if debug and epoch - last_vis_epoch >= ep_vis_min_thresh: # FIXME: document this in README
-                max_num_vis_samples = 24 #FIXME: softcode. Also softcode heatmaps (true or false)
-                if task == 'segmentation' and num_classes == 4:
-                    print(f'Visualizing on {max_num_vis_samples} test samples...')
-                    visualization(eval_loader=tst_dataloader,
-                                model=model,
-                                ep_idx=epoch,
-                                output_path=output_path,
-                                scale=get_key_def('scale_data', params['global'], None),
-                                dataset='tst',
-                                device=device,
-                                max_num_samples=max_num_vis_samples,
-                                heatmaps=True)
-                    last_vis_epoch = epoch
-                else:
-                    warnings.warn(f'Visualization is currently only implemented for 5-class semantic segmentation tasks')
-
-        if bucket_name:
-            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
+                save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
 
         cur_elapsed = time.time() - since
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
@@ -457,7 +458,8 @@ def main(params, config_path):
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
 
-    tst_report = evaluation(eval_loader=tst_dataloader,
+    if tst_dataloader:
+        tst_report = evaluation(eval_loader=tst_dataloader,
                             model=model,
                             criterion=criterion,
                             num_classes=num_classes,
@@ -468,12 +470,12 @@ def main(params, config_path):
                             batch_metrics=params['training']['batch_metrics'],
                             dataset='tst',
                             device=device)
-    tst_log.add_values(tst_report, params['training']['num_epochs'])
+        tst_log.add_values(tst_report, params['training']['num_epochs'])
 
-    if bucket_name:
-        bucket_filename = os.path.join(bucket_output_path, 'last_epoch.pth.tar')
-        bucket.upload_file("output.txt", os.path.join(bucket_output_path, f"Logs/{now}_output.txt"))
-        bucket.upload_file(filename, bucket_filename)
+        if bucket_name:
+            bucket_filename = os.path.join(bucket_output_path, 'last_epoch.pth.tar')
+            bucket.upload_file("output.txt", os.path.join(bucket_output_path, f"Logs/{now}_output.txt"))
+            bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
