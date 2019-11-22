@@ -81,11 +81,12 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
 
     if padded_array.any():
         with torch.no_grad():
-            with tqdm(range(overlay, h, chunk_size - overlay), position=1, leave=False) as _tqdm:
-                for row in _tqdm:
-                    row_start = row - overlay
-                    row_end = row_start + chunk_size
-                    for col in range(overlay, w, chunk_size - overlay):
+            for row in tqdm(range(overlay, h, chunk_size - overlay), position=1, leave=False,
+                      desc=f'Infering rows with "{device}"'):
+                row_start = row - overlay
+                row_end = row_start + chunk_size
+                with tqdm(range(overlay, w, chunk_size - overlay), position=2, leave=False, desc='Infering columns') as _tqdm:
+                    for col in _tqdm:
                         col_start = col - overlay
                         col_end = col_start + chunk_size
 
@@ -108,13 +109,16 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                         output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(),
                                                                                             axis=0)
 
-                    if debug and device.type == 'cuda':
-                        res, mem = gpu_stats(device=device.index)
-                        _tqdm.set_postfix(OrderedDict(device=device,
-                                                      gpu_perc=f'{res.gpu} %',
-                                                      gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
-                                                      chunk_size=inputs.cpu().numpy().shape,
-                                                      output_size=outputs.cpu().numpy().shape))
+                        if debug and device.type == 'cuda':
+                            res, mem = gpu_stats(device=device.index)
+                            _tqdm.set_postfix(OrderedDict(gpu_perc=f'{res.gpu} %',
+                                                          gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+                                                          inp_size=inputs.cpu().numpy().shape,
+                                                          out_size=outputs.cpu().numpy().shape,
+                                                          overlay=overlay))
+            if debug:
+                output_counts_PIL = Image.fromarray(output_counts.astype(np.uint8), mode='L')
+                output_counts_PIL.save(Path(os.getcwd()).joinpath(f'output_counts.png'))
 
             output_mask = np.argmax(np.divide(output_probs, np.maximum(output_counts, 1)), axis=0)
             # Resize the output array to the size of the input image and write it
@@ -192,41 +196,30 @@ def classifier(params, img_list, model, device):
                    delimiter=',')  # FIXME create directories if don't exist
 
 
-def calc_overlap(params):
-    """
-    Function to calculate the number of pixels requires in overlap, based on chunk_size and overlap percentage,
-    if provided in the config file
-    :param params: (dict) Parameters found in the yaml config file.
-    :return: (int) number of pixel required for overlap
-    """
-    chunk_size = 512
-    overlap = 10
-
-    if params['inference']['chunk_size']:
-        chunk_size = int(params['inference']['chunk_size'])
-    if params['inference']['overlap']:
-        overlap = int(params['inference']['overlap'])
-    nbr_pix_overlap = int(math.floor(overlap / 100 * chunk_size))
-    return chunk_size, nbr_pix_overlap
-
-
 def main(params):
     """
     Identify the class to which each image belongs.
     :param params: (dict) Parameters found in the yaml config file.
 
     """
+    # SET BASIC VARIABLES AND PATHS
     since = time.time()
+    chunk_size = get_key_def('chunk_size', params['inference'], None)
+    overlap = get_key_def('overlap', params['inference'], None)
+    nbr_pix_overlap = int(math.floor(overlap / 100 * chunk_size))
+    num_bands = params['global']['number_of_bands']
+
     img_dir_or_csv = params['inference']['img_dir_or_csv_file']
     working_folder = Path(params['inference']['working_folder']) if params['inference']['working_folder'] \
-        else Path(params['inference']['state_dict_path']).parent.joinpath('inference')
+        else Path(params['inference']['state_dict_path']).parent.joinpath(f'inf_{chunk_size}_overlap{overlap}_{num_bands}bands')
     Path.mkdir(working_folder, exist_ok=True)
-    print(f'Inferences will be saved to: {working_folder}')
+    print(f'Inferences will be saved to: {working_folder}\n\n')
 
     bucket = None
     bucket_file_cache = []
     bucket_name = params['global']['bucket_name']
 
+    # CONFIGURE MODEL
     model, state_dict_path, model_name = net(params, inference=True)
 
     num_devices = params['global']['num_gpus'] if params['global']['num_gpus'] else 0
@@ -235,7 +228,7 @@ def main(params):
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
 
     if lst_device_ids:
-        print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using {lst_device_ids[0]}")
+        print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using {lst_device_ids[0]}\n\n")
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU")
 
@@ -279,7 +272,6 @@ def main(params):
         else:
             model, _ = load_from_checkpoint(state_dict_path, model)
 
-        chunk_size, nbr_pix_overlap = calc_overlap(params)
         num_classes = params['global']['num_classes']
         if num_classes == 1:
             # assume background is implicitly needed (makes no sense to predict with one class otherwise)
@@ -335,6 +327,7 @@ def main(params):
                     f"The number of bands in the input image ({input_band_count}) and the parameter" \
                     f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
 
+                # START INFERENCES ON SUB-IMAGES
                 sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes,
                                                     device, meta_map, metadata)
 
@@ -346,6 +339,8 @@ def main(params):
                     print(
                         f'Something is wrong. Inference contains only one value. Make sure data scale is coherent with training domain values.')
 
+                # CREATE GEOTIF FROM METADATA OF ORIGINAL IMAGE
+                tqdm.write(f'Saving inference...')
                 create_new_raster_from_base(local_img, inference_image, sem_seg_results)
                 tqdm.write(f"\n\nSemantic segmentation of image {img_name} completed\n\n")
                 if bucket:
@@ -360,7 +355,7 @@ def main(params):
 
 
 if __name__ == '__main__':
-    print('Start: ')
+    print('Start:\n\n')
     parser = argparse.ArgumentParser(description='Inference on images using trained model')
     parser.add_argument('param_file', metavar='file',
                         help='Path to training parameters stored in yaml')

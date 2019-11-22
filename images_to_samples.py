@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import os
 from pathlib import Path
 
@@ -60,14 +61,14 @@ def append_to_dataset(dataset, sample):
     return old_size  # the index to the newly added sample, or the previous size of the dataset
 
 
-def samples_preparation(in_img_array, label_array, sample_size, dist_samples, samples_count, num_classes, samples_file,
+def samples_preparation(in_img_array, label_array, sample_size, overlap, samples_count, num_classes, samples_file,
                         dataset, min_annotated_percent=0, image_metadata=None):
     """
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
     :param label_array: numpy array of the annotation image
     :param sample_size: (int) Size (in pixel) of the samples to create
-    :param dist_samples: (int) Distance (in pixel) between samples in both images
+    :param overlap: (int) Distance (in pixel) between samples in both images
     :param samples_count: (dict) Current number of samples created (will be appended and return)
     :param num_classes: (dict) Number of classes in reference data (will be appended and return)
     :param samples_file: (hdf5 dataset) hdfs file where samples will be written
@@ -102,6 +103,7 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
                               mode='constant')
     pad_label_array = np.pad(label_array, ((half_tile, half_tile), (half_tile, half_tile), (0, 0)), mode='constant')
 
+    dist_samples = round(sample_size*(1-(overlap/100)))
     added_samples = 0
     excl_samples = 0
     with tqdm(range(0, h, dist_samples), position=1, leave=True,
@@ -114,20 +116,20 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
 
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = count[0] / np.sum(count) * 100 if 0 in u else 0
-                if target_background_percent <= 100 - min_annotated_percent:
+                if target_background_percent <= 100 - min_annotated_percent: #FIXME: if min_annot_perc is >50%, samples on edges will be excluded
                     append_to_dataset(samples_file["sat_img"], data)
                     append_to_dataset(samples_file["map_img"], target)
                     append_to_dataset(samples_file["meta_idx"], metadata_idx)
                     idx_samples += 1
                     added_samples += 1
                 else:
-                    excl_samples +=1
+                    excl_samples += 1
 
                 target_class_num = np.max(u)
                 if num_classes < target_class_num:
                     num_classes = target_class_num
 
-                _tqdm.set_postfix(Excld_samples=0, Added_samples=f'{added_samples}/{len(_tqdm)*len(range(0, w, dist_samples))}', Target_annot_perc=100-target_background_percent) #FIXME: not counting correctly
+                _tqdm.set_postfix(Excld_samples=excl_samples, Added_samples=f'{added_samples}/{len(_tqdm)*len(range(0, w, dist_samples))}', Target_annot_perc=100-target_background_percent)
 
     if dataset == 'trn':
         samples_count['trn'] = idx_samples
@@ -146,11 +148,17 @@ def main(params):
     :param params: (dict) Parameters found in the yaml config file.
 
     """
+    now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     bucket_file_cache = []
+
+    # SET BASIC VARIABLES AND PATHS. CREATE OUTPUT FOLDERS.
     bucket_name = params['global']['bucket_name']
     data_path = Path(params['global']['data_path'])
     Path.mkdir(data_path, exist_ok=True)
     csv_file = params['sample']['prep_csv_file']
+    samples_size = params["global"]["samples_size"]
+    overlap = params["sample"]["overlap"]
+    min_annot_perc = params['sample']['min_annotated_percent']
     debug = get_key_def('debug_mode', params['global'], False)
     if debug:
         warnings.warn(f'Debug mode activate. Execution may take longer...')
@@ -165,21 +173,22 @@ def main(params):
             final_samples_folder = os.path.join(data_path, "samples")
         else:
             final_samples_folder = "samples"
-        samples_folder = "samples"
+        samples_folder = f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot' # TODO:  add {len(list_data_prep)}imgs_ as prefix?
 
     else:
         list_data_prep = read_csv(csv_file)
-        samples_folder = data_path.joinpath("samples")
+        samples_folder = data_path.joinpath(f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot')
 
-    if data_path.is_dir():
-        warnings.warn(f'Data path exists: {data_path}. Files may be overwritten.')
+    if samples_folder.is_dir():
+        warnings.warn(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')
+        samples_folder = Path(str(samples_folder) + '_' + now) #FIXME: document all this!!
     else:
         tqdm.write(f'Writing samples to {samples_folder}')
-    Path.mkdir(samples_folder, exist_ok=True)    #FIXME: what if we want to append samples to existing hdf5?
+    Path.mkdir(samples_folder, exist_ok=False)    #FIXME: what if we want to append samples to existing hdf5?
     tqdm.write(f'Samples will be written to {samples_folder}\n\n')
 
     tqdm.write(f'\nSuccessfully read csv file: {Path(csv_file).stem}\nNumber of rows: {len(list_data_prep)}\nCopying first entry:\n{list_data_prep[0]}\n')
-    ignore_index = params['training']['ignore_index'] if params['training']['ignore_index'] else -100
+    ignore_index = get_key_def('ignore_index', params['training'], -1)
 
     for info in tqdm(list_data_prep, position=0, desc=f'Asserting existence of tif and gpkg files in csv'):
         assert Path(info['tif']).is_file(), f'Could not locate "{info["tif"]}". Make sure file exists in this directory.'
@@ -277,13 +286,13 @@ def main(params):
                 #
                 number_samples, number_classes = samples_preparation(np_input_image,
                                                                      np_label_raster,
-                                                                     params['global']['samples_size'],
-                                                                     params['sample']['samples_dist'],
+                                                                     samples_size,
+                                                                     overlap,
                                                                      number_samples,
                                                                      number_classes,
                                                                      out_file,
                                                                      info['dataset'],
-                                                                     params['sample']['min_annotated_percent'],
+                                                                     min_annot_perc,
                                                                      metadata)
 
                 _tqdm.set_postfix(OrderedDict(number_samples=number_samples))

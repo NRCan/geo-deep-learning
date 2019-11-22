@@ -57,7 +57,7 @@ def chop_layer(pretrained_dict,
     return chopped_dict
 
 
-def load_from_checkpoint(checkpoint, model, optimizer=None):
+def load_from_checkpoint(checkpoint, model, optimizer=None): # FIXME: add boolean paramter for inference.
     """Load weights from a previous checkpoint
     Args:
         checkpoint: (dict) checkpoint as loaded in model_choice.py
@@ -83,7 +83,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
             for error in list_errors:
                 if error.startswith('size mismatch'):
                     mismatch_layer = error.split("size mismatch for ")[1].split(":")[0]    # get name of problematic layer
-                    print(f'Oups. {error}. We will try chopping "{mismatch_layer}" out of pretrained dictionary.')
+                    warnings.warn(f'Oups. {error}. We will try chopping "{mismatch_layer}" out of pretrained dictionary.')
                     mismatched_layers.append(mismatch_layer)
             chopped_checkpt = chop_layer(checkpoint['model'], layer_names=mismatched_layers)
             # overwrite entries in the existing state dict

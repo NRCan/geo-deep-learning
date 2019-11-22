@@ -195,8 +195,13 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
                           " will be remapped to -1 while loading the dataset, and inside the config from now on.")
             params["training"]["ignore_index"] = -1
         datasets = []
+
+        samples_size = params["global"]["samples_size"] #FIXME: provide to function as parameters?
+        overlap = params["sample"]["overlap"]
+        min_annot_perc = params['sample']['min_annotated_percent']
+        samples_folder_name = f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot' #FIXME: document!
         for subset in ["trn", "val", "tst"]:
-            datasets.append(dataset_constr(os.path.join(data_path, "samples"), subset,
+            datasets.append(dataset_constr(os.path.join(data_path, samples_folder_name), subset,
                                            max_sample_count=num_samples[subset],
                                            dontcare=dontcare,
                                            transform=aug.compose_transforms(params, subset)))
@@ -261,9 +266,7 @@ def set_hyperparameters(params, model, checkpoint):
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
     if params['training']['class_weights']:
         verify_weights(params['global']['num_classes'], class_weights)
-    ignore_index = -100
-    if params['training']['ignore_index'] is not None:
-        ignore_index = params['training']['ignore_index']
+    ignore_index = get_key_def('ignore_index', params['training'], -1)
 
     # Loss function
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
@@ -293,13 +296,11 @@ def main(params, config_path):
     data_path = params['global']['data_path']
     modelname = config_path.stem
     output_path = Path(data_path).joinpath('model') / modelname
-    try:
-        output_path.mkdir(parents=True, exist_ok=False)
-    except FileExistsError:
+    if output_path.is_dir():
         output_path = Path(str(output_path)+'_'+now)
-        output_path.mkdir(exist_ok=True)
+    output_path.mkdir(parents=True, exist_ok=False)
     shutil.copy(str(config_path), str(output_path))
-    print(f'Model and log files will be saved to: {output_path}')
+    tqdm.write(f'Model and log files will be saved to: {output_path}\n\n')
     task = params['global']['task']
     num_classes = params['global']['num_classes']
     batch_size = params['training']['batch_size']
@@ -341,11 +342,11 @@ def main(params, config_path):
     if num_devices == 1:
         print(f"Using Cuda device {lst_device_ids[0]}")
     elif num_devices > 1:
-        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}") # FIXME: why are we showing indices [1:-1] for lst_device_ids?
+        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n\n") # FIXME: why are we showing indices [1:-1] for lst_device_ids?
         try: # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
-            warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {range(len(lst_device_ids))}")
+            warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {range(len(lst_device_ids))}\n\n")
             device = torch.device('cuda:0')
             lst_device_ids = range(len(lst_device_ids))
             model = nn.DataParallel(model,
@@ -420,23 +421,25 @@ def main(params, config_path):
                 bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
 
-            # generate png of test samples, labels and outputs for visualisation to follow training performance
+            # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
             ep_vis_min_thresh = 4 # FIXME: softcode
-            if epoch - last_vis_epoch >= ep_vis_min_thresh: # or debug: # FIXME: document this in README
+            last_vis_epoch = 0
+            if debug and epoch - last_vis_epoch >= ep_vis_min_thresh: # FIXME: document this in README
                 max_num_vis_samples = 24 #FIXME: softcode. Also softcode heatmaps (true or false)
-                assert task == 'segmentation' and num_classes == 5, \
-                    f'Visualization is currently only implemented for 5-class semantic segmentation tasks'
-                print(f'Visualizing on {max_num_vis_samples} test samples...')
-                visualization(eval_loader=tst_dataloader,
-                            model=model,
-                            ep_idx=epoch,
-                            output_path=output_path,
-                            scale=get_key_def('scale_data', params['global'], None),
-                            dataset='tst',
-                            device=device,
-                            max_num_samples=max_num_vis_samples,
-                            heatmaps=True)
-                last_vis_epoch = epoch
+                if task == 'segmentation' and num_classes == 4:
+                    print(f'Visualizing on {max_num_vis_samples} test samples...')
+                    visualization(eval_loader=tst_dataloader,
+                                model=model,
+                                ep_idx=epoch,
+                                output_path=output_path,
+                                scale=get_key_def('scale_data', params['global'], None),
+                                dataset='tst',
+                                device=device,
+                                max_num_samples=max_num_vis_samples,
+                                heatmaps=True)
+                    last_vis_epoch = epoch
+                else:
+                    warnings.warn(f'Visualization is currently only implemented for 5-class semantic segmentation tasks')
 
         if bucket_name:
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
@@ -715,7 +718,7 @@ def visualization(eval_loader, model, ep_idx, output_path, scale, dataset='tst',
 
 
 if __name__ == '__main__':
-    print('Start:')
+    print('Start')
     parser = argparse.ArgumentParser(description='Training execution')
     parser.add_argument('param_file', metavar='DIR',
                         help='Path to training parameters stored in yaml')
