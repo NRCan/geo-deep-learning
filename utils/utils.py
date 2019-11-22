@@ -148,7 +148,7 @@ def list_s3_subfolders(bucket, data_path):
     return list_classes
 
 
-def get_device_ids(number_requested):
+def get_device_ids(number_requested, debug=False):
     """
     Function to check which GPU devices are available and unused.
     :param number_requested: (int) Number of devices requested.
@@ -161,7 +161,9 @@ def get_device_ids(number_requested):
             device_count = nvmlDeviceGetCount()
             for i in range(device_count):
                 res, mem = gpu_stats(i)
-                if round(mem.used/(1024**2), 1) <  1500.0 and res.gpu < 10: # Hardcoded tolerance for memory and usage
+                if debug:
+                    print(f'GPU RAM used: {round(mem.used/(1024**2), 1)} | GPU % used: {res.gpu}')
+                if round(mem.used/(1024**2), 1) <  2000.0 and res.gpu < 15: # Hardcoded tolerance for memory and usage
                     lst_free_devices.append(i)
                 if len(lst_free_devices) == number_requested:
                     break
