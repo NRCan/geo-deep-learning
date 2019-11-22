@@ -160,7 +160,7 @@ def classifier(params, img_list, model, device):
     classified_results = np.empty((0, 2 + num_classes))
 
     for image in img_list:
-        img_name = os.path.basename(image['tif'])
+        img_name = os.path.basename(image['tif']) #TODO: pathlib
         model.eval()
         if bucket:
             img = Image.open(f"Images/{img_name}").resize((299, 299), resample=Image.BILINEAR)
@@ -190,9 +190,9 @@ def classifier(params, img_list, model, device):
     csv_results = 'classification_results.csv'
     if bucket:
         np.savetxt(csv_results, classified_results, fmt='%s', delimiter=',')
-        bucket.upload_file(csv_results, os.path.join(params['inference']['working_folder'], csv_results))
+        bucket.upload_file(csv_results, os.path.join(params['inference']['working_folder'], csv_results)) #TODO: pathlib
     else:
-        np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s',
+        np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s', #TODO: pathlib
                    delimiter=',')  # FIXME create directories if don't exist
 
 
@@ -279,7 +279,7 @@ def main(params):
             num_classes = 2
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
             for img in _tqdm:
-                img_name = os.path.basename(img['tif'])
+                img_name = Path(img['tif']).name
                 if bucket:
                     local_img = f"Images/{img_name}"
                     bucket.download_file(img['tif'], local_img)
@@ -290,11 +290,10 @@ def main(params):
                             bucket.download_file(img['meta'], img['meta'].split('/')[-1])
                         img['meta'] = img['meta'].split('/')[-1]
                 else:
-                    local_img = img['tif']
-                    inference_image = os.path.join(working_folder,
-                                                   f"{img_name.split('.')[0]}_inference.tif")
+                    local_img = Path(img['tif'])
+                    inference_image = working_folder.joinpath(f"{img_name.split('.')[0]}_inference.tif")
 
-                assert os.path.isfile(local_img), f"could not open raster file at {local_img}"
+                assert local_img.is_file(), f"could not open raster file at {local_img}"
                 with rasterio.open(local_img, 'r') as raster:
 
                     np_input_image = image_reader_as_array(input_image=raster,

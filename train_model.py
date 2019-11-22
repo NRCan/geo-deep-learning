@@ -227,10 +227,15 @@ def get_num_samples(data_path, params):
     :return: (dict) number of samples for trn, val and tst.
     """
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
+    samples_size = params["global"]["samples_size"]  # FIXME: provide to function as parameters?
+    overlap = params["sample"]["overlap"]
+    min_annot_perc = params['sample']['min_annotated_percent']
+    samples_folder_name = f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot'  # FIXME: document!
     for i in ['trn', 'val', 'tst']:
         if params['training'][f"num_{i}_samples"]:
             num_samples[i] = params['training'][f"num_{i}_samples"]
-            with h5py.File(os.path.join(data_path, 'samples', f"{i}_samples.hdf5"), 'r') as hdf5_file:
+
+            with h5py.File(os.path.join(data_path, samples_folder_name, f"{i}_samples.hdf5"), 'r') as hdf5_file:
                 file_num_samples = len(hdf5_file['map_img'])
             if num_samples[i] > file_num_samples:
                 raise IndexError(f"The number of training samples in the configuration file ({num_samples[i]}) "
