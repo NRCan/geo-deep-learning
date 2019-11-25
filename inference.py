@@ -49,7 +49,7 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
             dst.write(write_array[:, :], 1)
 
 
-def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device, meta_map=None, metadata=None):
+def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device, meta_map=None, metadata=None, output_path=Path(os.getcwd())):
     """Inference on images using semantic segmentation
     Args:
         model: model to use for inference
@@ -66,6 +66,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
 
     if len(nd_array.shape) == 3:
         h, w, nb = nd_array.shape
+        # Pad with overlay on left and top and pad with chunk_size on right and bottom
         padded_array = np.pad(nd_array, ((overlay, chunk_size), (overlay, chunk_size), (0, 0)), mode='constant')
     elif len(nd_array.shape) == 2:
         h, w = nd_array.shape
@@ -76,16 +77,19 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
         w = 0
         padded_array = None
 
-    output_probs = np.empty([num_classes, h + overlay + chunk_size, w + overlay + chunk_size], dtype=np.float32)
+    h_padded, w_padded = padded_array.shape[:2]
+    # Create an empty array of dimensions (c x h x w): num_classes x height of padded array x width of padded array
+    output_probs = np.empty([num_classes, h_padded, w_padded], dtype=np.float32)
+    # Create identical 0-filled array without channels dimension to receive counts for number of outputs generated in specific area.
     output_counts = np.zeros([output_probs.shape[1], output_probs.shape[2]], dtype=np.int32)
 
     if padded_array.any():
         with torch.no_grad():
-            for row in tqdm(range(overlay, h, chunk_size - overlay), position=1, leave=False,
-                      desc=f'Infering rows with "{device}"'):
+            for row in tqdm(range(overlay, h + chunk_size, chunk_size - overlay), position=1, leave=False,
+                      desc=f'Inferring rows with "{device}"'):
                 row_start = row - overlay
                 row_end = row_start + chunk_size
-                with tqdm(range(overlay, w, chunk_size - overlay), position=2, leave=False, desc='Infering columns') as _tqdm:
+                with tqdm(range(overlay, w + chunk_size, chunk_size - overlay), position=2, leave=False, desc='Inferring columns') as _tqdm:
                     for col in _tqdm:
                         col_start = col - overlay
                         col_end = col_start + chunk_size
@@ -106,6 +110,9 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                             outputs = outputs['out']
 
                         output_counts[row_start:row_end, col_start:col_end] += 1
+
+                        # Add inference on sub-image to all completed inferences on previous sub-images.
+                        # FIXME: This operation need to be optimized. Using a lot of RAM on large images.
                         output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(),
                                                                                             axis=0)
 
@@ -118,11 +125,16 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                                                           overlay=overlay))
             if debug:
                 output_counts_PIL = Image.fromarray(output_counts.astype(np.uint8), mode='L')
-                output_counts_PIL.save(Path(os.getcwd()).joinpath(f'output_counts.png'))
+                output_counts_PIL.save(output_path.joinpath(f'output_counts.png'))
 
-            output_mask = np.argmax(np.divide(output_probs, np.maximum(output_counts, 1)), axis=0)
+            # Divide array according to output counts. Manages overlap and returns a softmax array as if only one forward pass had been done.
+            output_mask_softmax = np.divide(output_probs, np.maximum(output_counts, 1))
+            # Give value of class to band with highest value in final inference
+            output_mask = np.argmax(output_mask_softmax, axis = 0)
+
             # Resize the output array to the size of the input image and write it
-            return output_mask[overlay:(h + overlay), overlay:(w + overlay)].astype(np.uint8)
+            output_mask_cropped = output_mask[overlay:(h + overlay), overlay:(w + overlay)].astype(np.uint8)
+            return output_mask_cropped
     else:
         raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
 
@@ -253,7 +265,7 @@ def main(params):
             list_img = read_csv(img_dir_or_csv, inference=True)
         else:
             img_dir = Path(img_dir_or_csv)
-            assert img_dir.exists(), f'Could not find directory "{img_dir_or_csv}"'
+            assert img_dir.is_dir(), f'Could not find directory "{img_dir_or_csv}"'
             list_img_paths = sorted(img_dir.glob('*.tif'))
             list_img = []
             for img_path in list_img_paths:
@@ -293,7 +305,7 @@ def main(params):
                     local_img = Path(img['tif'])
                     inference_image = working_folder.joinpath(f"{img_name.split('.')[0]}_inference.tif")
 
-                assert local_img.is_file(), f"could not open raster file at {local_img}"
+                assert local_img.is_file(), f"Could not open raster file at {local_img}"
                 with rasterio.open(local_img, 'r') as raster:
 
                     np_input_image = image_reader_as_array(input_image=raster,
@@ -328,7 +340,7 @@ def main(params):
 
                 # START INFERENCES ON SUB-IMAGES
                 sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes,
-                                                    device, meta_map, metadata)
+                                                    device, meta_map, metadata, output_path=working_folder)
 
                 if debug:
                     _tqdm.set_postfix(
@@ -354,7 +366,7 @@ def main(params):
 
 
 if __name__ == '__main__':
-    print('Start:\n\n')
+    print('\n\nStart:\n\n')
     parser = argparse.ArgumentParser(description='Inference on images using trained model')
     parser.add_argument('param_file', metavar='file',
                         help='Path to training parameters stored in yaml')

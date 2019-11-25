@@ -166,6 +166,7 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
     if task == 'classification':
+        num_samples = {}
         trn_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "trn"),
                                                        transform=transforms.Compose(
                                                            [transforms.RandomRotation((0, 275)),
@@ -180,6 +181,7 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
                                                        transform=transforms.Compose(
                                                            [transforms.Resize(299), transforms.ToTensor()]),
                                                        loader=loader)
+        num_samples['tst'] = len([f for f in Path(data_path).joinpath('tst').glob('**/*')]) #FIXME assert that f is a file
     elif task == 'segmentation':
         num_samples = get_num_samples(data_path=data_path, params=params)
         print(f"Number of samples : {num_samples}")
@@ -215,7 +217,8 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
     # Shuffle must be set to True.
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
-    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True) if task=='segmentation' and num_samples['tst'] > 0 else None
+    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True) if num_samples['tst'] > 0 else None
+
     return trn_dataloader, val_dataloader, tst_dataloader
 
 
@@ -258,20 +261,18 @@ def set_hyperparameters(params, model, checkpoint):
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
     # set mandatory hyperparameters values with those in config file if they exist
-    lr = params['training']['learning_rate']
-    assert lr is not None and lr > 0, "missing mandatory learning rate parameter"
-    weight_decay = params['training']['weight_decay']
-    assert weight_decay is not None and weight_decay >= 0, "missing mandatory weight decay parameter"
-    step_size = params['training']['step_size']
-    assert step_size is not None and step_size > 0, "missing mandatory step size parameter"
-    gamma = params['training']['gamma']
-    assert gamma is not None and gamma >= 0, "missing mandatory gamma parameter"
+    lr = get_key_def('learning_rate', params['training'], None, "missing mandatory learning rate parameter")
+    weight_decay = get_key_def('weight_decay', params['training'], None, "missing mandatory weight decay parameter")
+    step_size = get_key_def('step_size', params['training'], None, "missing mandatory step size parameter")
+    gamma = get_key_def('gamma', params['training'], None, "missing mandatory gamma parameter")
 
     # optional hyperparameters. Set to None if not in config file
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
     if params['training']['class_weights']:
         verify_weights(params['global']['num_classes'], class_weights)
-    ignore_index = get_key_def('ignore_index', params['training'], -1)
+    ignore_index = -1
+    if params['training']['ignore_index'] is not None:
+        ignore_index = params['training']['ignore_index']
 
     # Loss function
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
@@ -526,16 +527,19 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
             train_metrics['loss'].update(loss.item(), batch_size)
 
-            if debug and device.type == 'cuda':
+            if device.type == 'cuda':
                 res, mem = gpu_stats(device=device.index)
-                _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.4f}',
-                                              dev=device,
+                _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
                                               gpu_perc=f'{res.gpu} %',
-                                              gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB',
+                                              gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
                                               lr=optimizer.param_groups[0]['lr'],
-                                              img=data['sat_img'].numpy().shape,
+                                              img=data['sat_img'].numpy().shape[1:],
                                               smpl=data['map_img'].numpy().shape,
+                                              out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy()),
                                               bs=batch_size))
+
+            if debug:
+                _tqdm.set_postfix(OrderedDict(out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
 
             loss.backward()
             optimizer.step()

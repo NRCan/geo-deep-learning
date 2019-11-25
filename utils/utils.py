@@ -91,7 +91,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None): # FIXME: add boolea
         except RuntimeError as error:
             raise RuntimeError(error)
 
-    print(f"=> loaded model")
+    print(f"=> loaded model\n\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
         optimizer.load_state_dict(checkpoint['optimizer'])
     return model, optimizer
@@ -192,7 +192,14 @@ def gpu_stats(device=0):
 
 
 def get_key_def(key, config, default=None, msg=None, delete=False):
-    """Returns a value given a dictionary key, or the default value if it cannot be found."""
+    """Returns a value given a dictionary key, or the default value if it cannot be found.
+    :param key: key in dictionary (e.g. generated from .yaml)
+    :param config: (dict) dictionary containing keys corresponding to parameters used in script
+    :param default: default value assigned if no value found with provided key
+    :param msg: message returned with AssertionError si length of key is smaller or equal to 1
+    :param delete: (bool) if True, deletes parameter FIXME: check if this is true. Not sure I understand why we would want to delete a parameter.
+    :return:
+    """
     if isinstance(key, list):
         if len(key) <= 1:
             if msg is not None:
