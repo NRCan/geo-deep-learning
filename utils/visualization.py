@@ -1,5 +1,4 @@
 import math
-import warnings
 
 import numpy as np
 import torch
@@ -22,8 +21,8 @@ def grid_vis(input, label, output, heatmaps, classes):
     list_titles = ['input', 'label', 'output']
 
     for index, key in enumerate(heatmaps.keys()): # TODO: test if heatmaps is empty dict
-        list_imgs_pil.extend(heatmaps[key])
-        list_titles.extend(classes[index])
+        list_imgs_pil.append(heatmaps[key])
+        list_titles.append(classes[index])
 
     assert len(list_imgs_pil) == len(list_titles)
     for index, zipped in enumerate(zip(list_imgs_pil, list_titles)):
@@ -104,7 +103,6 @@ def gray_to_color(graysc_array, colormap_file=None):
             [153, 0, 0],  # roads, red
             [239, 205, 8]])  # buildings, yellow
     else:
-        warnings.warn('Loading external colormap is not yet implemented')
         colormap = np.genfromtxt(colormap_file, delimiter=';', skip_header=1, usecols=(1, 2, 3, 4))
         background = np.asarray([[255, 255, 255]]) # background, black # FIXME integrate background
     color_array = colormap[graysc_array]
