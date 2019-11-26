@@ -1,5 +1,6 @@
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
+import os
 import argparse
 from pathlib import Path # TODO Use Path instead of os where possible. Better cross-platform compatibility
 import csv
@@ -152,7 +153,7 @@ def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(data_path, batch_size, task, num_devices, params):
+def create_dataloader(data_path, batch_size, task, num_devices, samples_folder, params):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param data_path: (str) path to the samples folder
@@ -180,7 +181,9 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
                                                        loader=loader)
         num_samples['tst'] = len([f for f in Path(data_path).joinpath('tst').glob('**/*')]) #FIXME assert that f is a file
     elif task == 'segmentation':
-        num_samples = get_num_samples(data_path=data_path, params=params)
+        assert Path(samples_folder).is_dir(), f'Could not locate: {samples_folder}'
+        assert len([f for f in Path(samples_folder).glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
+        num_samples = get_num_samples(samples_path=samples_folder, params=params)
         print(f"Number of samples : {num_samples}")
         meta_map = get_key_def("meta_map", params["global"], {})
         if not meta_map:
@@ -195,12 +198,8 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
             params["training"]["ignore_index"] = -1
         datasets = []
 
-        samples_size = params["global"]["samples_size"] #FIXME: provide to function as parameters?
-        overlap = params["sample"]["overlap"]
-        min_annot_perc = params['sample']['min_annotated_percent']
-        samples_folder_name = f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot' #FIXME: document!
         for subset in ["trn", "val", "tst"]:
-            datasets.append(dataset_constr(os.path.join(data_path, samples_folder_name), subset,
+            datasets.append(dataset_constr(samples_folder, subset,
                                            max_sample_count=num_samples[subset],
                                            dontcare=dontcare,
                                            transform=aug.compose_transforms(params, subset)))
@@ -219,35 +218,32 @@ def create_dataloader(data_path, batch_size, task, num_devices, params):
     return trn_dataloader, val_dataloader, tst_dataloader
 
 
-def get_num_samples(data_path, params):
+def get_num_samples(samples_path, params):
     """
     Function to retrieve number of samples, either from config file or directly from hdf5 file.
-    :param data_path: (str) Path to samples folder
+    :param samples_path: (str) Path to samples folder
     :param params: (dict) Parameters found in the yaml config file.
     :return: (dict) number of samples for trn, val and tst.
     """
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
-    samples_size = params["global"]["samples_size"]  # FIXME: provide to function as parameters?
-    overlap = params["sample"]["overlap"]
-    min_annot_perc = params['sample']['min_annotated_percent']
-    samples_folder_name = f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot'  # FIXME: document!
+
     for i in ['trn', 'val', 'tst']:
         if params['training'][f"num_{i}_samples"]:
             num_samples[i] = params['training'][f"num_{i}_samples"]
 
-            with h5py.File(os.path.join(data_path, samples_folder_name, f"{i}_samples.hdf5"), 'r') as hdf5_file:
+            with h5py.File(os.path.join(samples_path, f"{i}_samples.hdf5"), 'r') as hdf5_file:
                 file_num_samples = len(hdf5_file['map_img'])
             if num_samples[i] > file_num_samples:
                 raise IndexError(f"The number of training samples in the configuration file ({num_samples[i]}) "
                                  f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
         else:
-            with h5py.File(os.path.join(data_path, samples_folder_name, f"{i}_samples.hdf5"), "r") as hdf5_file:
+            with h5py.File(os.path.join(samples_path, f"{i}_samples.hdf5"), "r") as hdf5_file:
                 num_samples[i] = len(hdf5_file['map_img'])
 
     return num_samples
 
 
-def set_hyperparameters(params, model, checkpoint):
+def set_hyperparameters(params, num_class_w_backr, model, checkpoint):
     """
     Function to set hyperparameters based on values provided in yaml config file.
     Will also set model to GPU, if available.
@@ -266,7 +262,7 @@ def set_hyperparameters(params, model, checkpoint):
     # optional hyperparameters. Set to None if not in config file
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
     if params['training']['class_weights']:
-        verify_weights(params['global']['num_classes'], class_weights)
+        verify_weights(num_class_w_backr, class_weights)
     ignore_index = get_key_def('ignore_index', params['training'], -1)
 
     # Loss function
@@ -292,34 +288,36 @@ def main(params, config_path):
     """
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-    model, checkpoint, model_name = net(params)
+    num_classes_w_backgr = params['global']['num_classes'] + 1 # + 1 for background
+    model, checkpoint, model_name = net(params, num_classes_w_backgr)
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
+
+    samples_size = params["global"]["samples_size"]  # FIXME: provide to function as parameters?
+    overlap = params["sample"]["overlap"]
+    min_annot_perc = params['sample']['min_annotated_percent']
+    samples_folder_name = f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot'  # FIXME: document!
+    samples_folder = Path(data_path).joinpath(samples_folder_name)
+
     modelname = config_path.stem
-    output_path = Path(data_path).joinpath('model') / modelname
+    output_path = Path(samples_folder).joinpath('model') / modelname
     if output_path.is_dir():
         output_path = Path(str(output_path)+'_'+now)
     output_path.mkdir(parents=True, exist_ok=False)
     shutil.copy(str(config_path), str(output_path))
     tqdm.write(f'Model and log files will be saved to: {output_path}\n\n')
     task = params['global']['task']
-    num_classes = params['global']['num_classes']
     batch_size = params['training']['batch_size']
-
-    if num_classes == 1:
-        # assume background is implicitly needed (makes no sense to train with one class otherwise)
-        # this will trigger some warnings elsewhere, but should succeed nonetheless
-        num_classes = 2
 
     if bucket_name:
         bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
                                                                                data_path=data_path,
                                                                                output_path=output_path,
-                                                                               num_classes=num_classes,
+                                                                               num_classes=num_classes_w_backgr,
                                                                                task=task)
 
     elif not bucket_name and task == 'classification':
-        get_local_classes(num_classes, data_path, output_path)
+        get_local_classes(num_classes_w_backgr, data_path, output_path)
 
     since = time.time()
     best_loss = 999
@@ -346,7 +344,7 @@ def main(params, config_path):
         try: # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
-            warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {range(len(lst_device_ids))}\n\n")
+            warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}\n\n")
             device = torch.device('cuda:0')
             lst_device_ids = range(len(lst_device_ids))
             model = nn.DataParallel(model,
@@ -359,9 +357,10 @@ def main(params, config_path):
                                                                        batch_size=batch_size,
                                                                        task=task,
                                                                        num_devices=num_devices,
+                                                                       samples_folder=samples_folder,
                                                                        params=params)
 
-    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, model, checkpoint)
+    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_w_backgr, model, checkpoint)
 
     criterion = criterion.to(device)
     try: # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
@@ -381,7 +380,7 @@ def main(params, config_path):
                            criterion=criterion,
                            optimizer=optimizer,
                            scheduler=lr_scheduler,
-                           num_classes=num_classes,
+                           num_classes=num_classes_w_backgr,
                            batch_size=batch_size,
                            task=task,
                            ep_idx=epoch,
@@ -393,7 +392,7 @@ def main(params, config_path):
         val_report = evaluation(eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
-                                num_classes=num_classes,
+                                num_classes=num_classes_w_backgr,
                                 batch_size=batch_size,
                                 task=task,
                                 ep_idx=epoch,
@@ -428,7 +427,7 @@ def main(params, config_path):
             last_vis_epoch = 0
             if debug and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if task == 'segmentation':
-                    if num_classes != 5:
+                    if num_classes_w_backgr != 5:
                         warnings.warn('Visualization was hardcoded for 4-class tasks. Problems may occur.')
                     tqdm.write(f'Visualizing on {max_num_vis_samples} test samples...')
                     vis_from_dataloader(eval_loader=tst_dataloader,
@@ -460,7 +459,7 @@ def main(params, config_path):
         tst_report = evaluation(eval_loader=tst_dataloader,
                             model=model,
                             criterion=criterion,
-                            num_classes=num_classes,
+                            num_classes=num_classes_w_backgr,
                             batch_size=batch_size,
                             task=task,
                             ep_idx=params['training']['num_epochs'],
@@ -639,17 +638,6 @@ def vis_from_dataloader(eval_loader, model, ep_idx, output_path, scale, dataset=
     vis_path.mkdir(exist_ok=True)
     print(f'Visualization figures will be saved to {vis_path}')
 
-    if not colormap_file:
-        colormap = np.asarray([
-        [255, 255, 255], # background, black
-        [0, 104, 13], # vegetation, green
-        [178, 224, 230], # hydro, blue
-        [153, 0, 0], #roads, red
-        [239, 205, 8]]) #buildings, yellow
-        classes = ['background', 'vegetation', 'hydro', 'roads', 'buildings']
-    else:
-        raise NotImplementedError(f'Importing a colormap from .csv has not yet been implemented')
-
     model.eval()
     with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
         for index, data in enumerate(_tqdm):
@@ -669,12 +657,11 @@ def vis_from_dataloader(eval_loader, model, ep_idx, output_path, scale, dataset=
                         label,
                         output,
                         scale,
-                        colormap,
                         vis_path=vis_path,
                         index=index,
-                        classes=classes,
+                        colormap_file=colormap_file,
                         heatmaps=heatmaps,
-                        name_suffix=f'dset{dataset}_ep{ep_idx:03d}',
+                        name_suffix=f'{dataset}_ep{ep_idx:03d}',
                         grid=True)
 
                     if (vis_index+1) >= max_num_samples:

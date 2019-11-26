@@ -29,42 +29,37 @@ def load_checkpoint(filename):
         raise FileNotFoundError(f"=> No model found at '{filename}'")
 
 
-def net(net_params, inference=False):
+def net(net_params, num_channels, inference=False):
     """Define the neural net"""
     model_name = net_params['global']['model_name'].lower()
     num_bands = int(net_params['global']['number_of_bands'])
-    num_classes = net_params['global']['num_classes']
-    if num_classes == 1:
-        warnings.warn("config specified that number of classes is 1, but model will be instantiated"
-                      " with a minimum of two regardless (will assume that 'background' exists)")
-        num_classes = 2
     msg = f'Number of bands specified incompatible with this model. Requires 3 band data.'
     state_dict_path = ''
     if model_name == 'unetsmall':
-        model = unet.UNetSmall(num_classes,
-                                       num_bands,
-                                       net_params['training']['dropout'],
-                                       net_params['training']['dropout_prob'])
+        model = unet.UNetSmall(num_channels,
+                               num_bands,
+                               net_params['training']['dropout'],
+                               net_params['training']['dropout_prob'])
     elif model_name == 'unet':
-        model = unet.UNet(num_classes,
-                                  num_bands,
-                                  net_params['training']['dropout'],
-                                  net_params['training']['dropout_prob'])
+        model = unet.UNet(num_channels,
+                          num_bands,
+                          net_params['training']['dropout'],
+                          net_params['training']['dropout_prob'])
     elif model_name == 'ternausnet':
         assert num_bands == 3, msg
-        model = TernausNet.ternausnet(num_classes)
+        model = TernausNet.ternausnet(num_channels)
     elif model_name == 'checkpointed_unet':
-        model = checkpointed_unet.UNetSmall(num_classes,
-                                       num_bands,
-                                       net_params['training']['dropout'],
-                                       net_params['training']['dropout_prob'])
+        model = checkpointed_unet.UNetSmall(num_channels,
+                                            num_bands,
+                                            net_params['training']['dropout'],
+                                            net_params['training']['dropout_prob'])
     elif model_name == 'inception':
-        model = inception.Inception3(num_classes,
+        model = inception.Inception3(num_channels,
                                      num_bands)
     elif model_name == 'fcn_resnet101':
         assert num_bands == 3, msg
         coco_model = models.segmentation.fcn_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
-        model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_classes,
+        model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
                                                   aux_loss=None)
         chopped_dict = chop_layer(coco_model.state_dict(), layer_names=['classifier.4'])
         del coco_model
@@ -75,12 +70,12 @@ def net(net_params, inference=False):
     elif model_name == 'deeplabv3_resnet101':
         try:
             model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, in_channels=num_bands,
-                                                        num_classes=num_classes, aux_loss=None)
+                                                            num_classes=num_channels, aux_loss=None)
         except:
             assert num_bands==3, 'Edit torchvision scripts segmentation.py and resnet.py to build deeplabv3_resnet ' \
                                  'with more or less than 3 bands'
             model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True,
-                                                            num_classes=num_classes, aux_loss=None)
+                                                            num_classes=num_channels, aux_loss=None)
         #if num_bands != 3:
         #    setattr(model.backbone.conv1, 'in_channels', num_bands)
         #    print(f'EXPERIMENTAL FEATURE: Instanciated model {model_name} expected 3 band data. Model definition redefinied to match {num_bands} band data')

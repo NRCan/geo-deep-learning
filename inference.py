@@ -139,7 +139,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
         raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
 
 
-def classifier(params, img_list, model, device):
+def classifier(params, num_classes_w_backgr, img_list, model, device):
     """
     Classify images by class
     :param params:
@@ -149,7 +149,6 @@ def classifier(params, img_list, model, device):
     :return:
     """
     weights_file_name = params['inference']['state_dict_path']
-    num_classes = params['global']['num_classes']
     bucket = params['global']['bucket_name']
 
     classes_file = weights_file_name.split('/')[:-1]
@@ -169,7 +168,7 @@ def classifier(params, img_list, model, device):
             reader = csv.reader(f)
             classes = list(reader)
 
-    classified_results = np.empty((0, 2 + num_classes))
+    classified_results = np.empty((0, 2 + num_classes_w_backgr))
 
     for image in img_list:
         img_name = os.path.basename(image['tif']) #TODO: pathlib
@@ -233,7 +232,10 @@ def main(params):
     bucket_name = params['global']['bucket_name']
 
     # CONFIGURE MODEL
-    model, state_dict_path, model_name = net(params, inference=True)
+    # assume background is implicitly needed (makes no sense to predict with, for example, one class otherwise)
+    # this will trigger some warnings elsewhere, but should succeed nonetheless
+    num_classes_w_backr = params['global']['num_classes'] + 1
+    model, state_dict_path, model_name = net(params, num_channels=num_classes_w_backr, inference=True)
 
     num_devices = params['global']['num_gpus'] if params['global']['num_gpus'] else 0
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
@@ -285,11 +287,6 @@ def main(params):
         else:
             model, _ = load_from_checkpoint(state_dict_path, model)
 
-        num_classes = params['global']['num_classes']
-        if num_classes == 1:
-            # assume background is implicitly needed (makes no sense to predict with one class otherwise)
-            # this will trigger some warnings elsewhere, but should succeed nonetheless
-            num_classes = 2
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
             for img in _tqdm:
                 img_name = Path(img['tif']).name
@@ -340,7 +337,7 @@ def main(params):
                     f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
 
                 # START INFERENCES ON SUB-IMAGES
-                sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes,
+                sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_w_backr,
                                                     device, meta_map, metadata, output_path=working_folder)
 
                 if debug:

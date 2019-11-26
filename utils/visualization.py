@@ -1,4 +1,5 @@
 import math
+import warnings
 
 import numpy as np
 import torch
@@ -13,7 +14,7 @@ def grid_vis(input, label, output, heatmaps, classes):
 
     num_tiles = (len(heatmaps)+3) # length of heatmps + input, label and output
     height = math.ceil(num_tiles/4)
-    width = len(num_tiles) if len(num_tiles) < 4 else 4
+    width = num_tiles if num_tiles < 4 else 4
     plt.figure(figsize=(width*6, height*6))
     grid_spec = gridspec.GridSpec(height, width)
 
@@ -37,17 +38,16 @@ def grid_vis(input, label, output, heatmaps, classes):
     return plt
 
 
-def vis(input, label, output, scale, colormap, vis_path, index, classes, heatmaps=True, name_suffix='', grid=True):
+def vis(input, label, output, scale, vis_path, index, colormap_file=None, heatmaps=True, name_suffix='', grid=True):
     '''
     :param input: (tensor) input as pytorch tensor, e.g. as returned by dataloader
     :param label: (tensor) label as pytorch tensor, e.g. as returned by dataloader
     :param output: (tensor) output as pytorch tensor, e.g. as returned by dataloader
     :param scale: (param) scale range used in sample preparation
-    :param colormap: csv file containing 5 columns (class name, input grayscale value, out red value, out green value,
-                     out blue value) and num_class rows
     :param vis_path: path where visualisation images will be saved
     :param index:
-    :param classes:
+    :param colormap_file: csv file containing 5 columns (class name, input grayscale value, out red value, out green value,
+                     out blue value) and num_class rows
     :param heatmaps:
     :param name_suffix:
     :param grid:
@@ -66,8 +66,8 @@ def vis(input, label, output, scale, colormap, vis_path, index, classes, heatmap
         input = input[:, :, :3]  # take three first bands assuming they are RGB in correct order
     input_PIL = Image.fromarray(input.astype(np.uint8), mode='RGB')
 
-    label = gray_to_color(label, colormap) # convert label and output to color with colormap #FIXME add background in colormap
-    output_argmax = gray_to_color(output_argmax, colormap)
+    label = gray_to_color(label, colormap_file) # convert label and output to color with colormap #FIXME add background in colormap
+    output_argmax = gray_to_color(output_argmax, colormap_file)
     label_PIL = Image.fromarray(label.astype(np.uint8), mode='RGB')
     output_argmax_PIL = Image.fromarray(output_argmax.astype(np.uint8), mode='RGB')
 
@@ -83,7 +83,11 @@ def vis(input, label, output, scale, colormap, vis_path, index, classes, heatmap
         heatmaps = None
 
     if grid:
-        grid = grid_vis(input, label, output, heatmaps, classes)
+        if not colormap_file:
+            classes = ['background', 'vegetation', 'hydro', 'roads', 'buildings']
+        else:
+            raise NotImplementedError('Importing class names from csv not implemented yet.')
+        grid = grid_vis(input_PIL, label_PIL, output_argmax_PIL, heatmaps, classes)
         grid.savefig(vis_path.joinpath(f'{index:03d}_{name_suffix}.png'))
     else:
         input_PIL.save(vis_path.joinpath(f'{index:03d}_satimg.jpg'))
@@ -91,8 +95,17 @@ def vis(input, label, output, scale, colormap, vis_path, index, classes, heatmap
         output_argmax_PIL.save(vis_path.joinpath(f'{index:03d}_output.png'))
 
 
-def gray_to_color(graysc_array, colormap_file):
-    colormap = np.genfromtxt(colormap_file, delimiter=';', skip_header=1, usecols=(1, 2, 3, 4))
-    background = np.asarray([[255, 255, 255]]) # background, black # FIXME integrate background
+def gray_to_color(graysc_array, colormap_file=None):
+    if not colormap_file:
+        colormap = np.asarray([
+            [255, 255, 255],  # background, black
+            [0, 104, 13],  # vegetation, green
+            [178, 224, 230],  # hydro, blue
+            [153, 0, 0],  # roads, red
+            [239, 205, 8]])  # buildings, yellow
+    else:
+        warnings.warn('Loading external colormap is not yet implemented')
+        colormap = np.genfromtxt(colormap_file, delimiter=';', skip_header=1, usecols=(1, 2, 3, 4))
+        background = np.asarray([[255, 255, 255]]) # background, black # FIXME integrate background
     color_array = colormap[graysc_array]
     return color_array
