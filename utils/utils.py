@@ -10,8 +10,6 @@ import fiona
 import matplotlib
 
 matplotlib.use('Agg')
-from matplotlib import pyplot as plt, gridspec
-import math
 
 try:
     from ruamel_yaml import YAML
@@ -148,7 +146,7 @@ def list_s3_subfolders(bucket, data_path):
     return list_classes
 
 
-def get_device_ids(number_requested, debug=False):
+def get_device_ids(number_requested, max_used_ram=2000, max_used_perc=15, debug=False):
     """
     Function to check which GPU devices are available and unused.
     :param number_requested: (int) Number of devices requested.
@@ -163,7 +161,7 @@ def get_device_ids(number_requested, debug=False):
                 res, mem = gpu_stats(i)
                 if debug:
                     print(f'GPU RAM used: {round(mem.used/(1024**2), 1)} | GPU % used: {res.gpu}')
-                if round(mem.used/(1024**2), 1) <  2000.0 and res.gpu < 15: # Hardcoded tolerance for memory and usage
+                if round(mem.used/(1024**2), 1) <  max_used_ram and res.gpu < max_used_perc:
                     lst_free_devices.append(i)
                 if len(lst_free_devices) == number_requested:
                     break
@@ -235,26 +233,6 @@ def get_key_recursive(key, config):
     return val
 
 
-def grid_images(list_imgs_pil, list_titles):
-    """Visualizes image samples"""
-
-    height = math.ceil(len(list_imgs_pil)/4)
-    width = len(list_imgs_pil) if len(list_imgs_pil) < 4 else 4
-    plt.figure(figsize=(width*6, height*6))
-    grid_spec = gridspec.GridSpec(height, width)
-
-    for index, zipped in enumerate(zip(list_imgs_pil, list_titles)):
-        img, title = zipped
-        plt.subplot(grid_spec[index])
-        plt.imshow(img)
-        plt.grid(False)
-        plt.axis('off')
-        plt.title(title)
-        plt.tight_layout()
-
-    return plt
-
-
 def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True): # FIXME: documentation!
     '''
     Generates a dictionary from a list of vectors where keys are class numbers and values are corresponding features in a list.
@@ -293,3 +271,5 @@ def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     # range(min_value, max_value)
     scale_img = scale_img * (scale_range[1] - scale_range[0]) + scale_range[0]
     return scale_img
+
+

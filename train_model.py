@@ -1,7 +1,6 @@
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
-import os
 from pathlib import Path # TODO Use Path instead of os where possible. Better cross-platform compatibility
 import csv
 import time
@@ -10,7 +9,6 @@ import datetime
 import warnings
 import functools
 
-from matplotlib import cm
 from tqdm import tqdm
 from collections import OrderedDict
 import shutil
@@ -25,11 +23,9 @@ except ModuleNotFoundError:
 import torchvision
 import torch.optim as optim
 from torch import nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
-import inspect
 
 from utils import augmentation as aug, CreateDataset
 from utils.optimizer import create_optimizer
@@ -38,7 +34,8 @@ from utils.metrics import report_classification, create_metrics_dict
 from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
 from utils.utils import load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, \
-    get_key_def, grid_images, minmax_scale
+    get_key_def
+from utils.visualization import vis
 from utils.readers import read_parameters
 
 try:
@@ -426,21 +423,24 @@ def main(params, config_path):
                 bucket.upload_file(filename, bucket_filename)
 
             # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
-            ep_vis_min_thresh = 4 # FIXME: softcode
+            ep_vis_min_thresh = get_key_def('min_num_ep_before_vis', params['visualization'], 4) # FIXME: document this in README
+            max_num_vis_samples = get_key_def('max_num_vis_samples', params['visualization'], 24)
             last_vis_epoch = 0
-            if debug and epoch - last_vis_epoch >= ep_vis_min_thresh: # FIXME: document this in README
-                max_num_vis_samples = 24 #FIXME: softcode. Also softcode heatmaps (true or false)
-                if task == 'segmentation' and num_classes == 4:
-                    print(f'Visualizing on {max_num_vis_samples} test samples...')
-                    visualization(eval_loader=tst_dataloader,
-                                model=model,
-                                ep_idx=epoch,
-                                output_path=output_path,
-                                scale=get_key_def('scale_data', params['global'], None),
-                                dataset='tst',
-                                device=device,
-                                max_num_samples=max_num_vis_samples,
-                                heatmaps=True)
+            if debug and epoch - last_vis_epoch >= ep_vis_min_thresh:
+                if task == 'segmentation':
+                    if num_classes != 5:
+                        warnings.warn('Visualization was hardcoded for 4-class tasks. Problems may occur.')
+                    tqdm.write(f'Visualizing on {max_num_vis_samples} test samples...')
+                    vis_from_dataloader(eval_loader=tst_dataloader,
+                                        model=model,
+                                        ep_idx=epoch,
+                                        output_path=output_path,
+                                        scale=get_key_def('scale_data', params['global'], None),
+                                        dataset='tst',
+                                        colormap_file=get_key_def('colormap_file', params['visualization'], None),
+                                        device=device,
+                                        max_num_samples=max_num_vis_samples,
+                                        heatmaps=get_key_def('heatmaps', params['visualization'], False))
                     last_vis_epoch = epoch
                 else:
                     warnings.warn(f'Visualization is currently only implemented for 5-class semantic segmentation tasks')
@@ -621,7 +621,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
     return eval_metrics
 
-def visualization(eval_loader, model, ep_idx, output_path, scale, dataset='tst', device=None, max_num_samples=8, heatmaps=True):
+def vis_from_dataloader(eval_loader, model, ep_idx, output_path, scale, dataset='', colormap_file=None, device=None, max_num_samples=8, heatmaps=True):
     """
     Create images from output of model
     :param eval_loader: data loader
@@ -638,17 +638,19 @@ def visualization(eval_loader, model, ep_idx, output_path, scale, dataset='tst',
     vis_path = output_path.joinpath(f'visualization')
     vis_path.mkdir(exist_ok=True)
     print(f'Visualization figures will be saved to {vis_path}')
-    colormap = np.asarray([
+
+    if not colormap_file:
+        colormap = np.asarray([
         [255, 255, 255], # background, black
         [0, 104, 13], # vegetation, green
         [178, 224, 230], # hydro, blue
         [153, 0, 0], #roads, red
         [239, 205, 8]]) #buildings, yellow
+        classes = ['background', 'vegetation', 'hydro', 'roads', 'buildings']
+    else:
+        raise NotImplementedError(f'Importing a colormap from .csv has not yet been implemented')
 
     model.eval()
-
-    # setattr(eval_loader, 'shuffle', False) # FIXME
-
     with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
         for index, data in enumerate(_tqdm):
             with torch.no_grad():
@@ -659,70 +661,28 @@ def visualization(eval_loader, model, ep_idx, output_path, scale, dataset='tst',
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
-                if debug and device.type == 'cuda':
-                    res, mem = gpu_stats(device=device.index)
-                    _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
-                                                  gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
-
                 for vis_index, zipped in enumerate(zip(inputs, labels, outputs)):
-                    list_imgs_pil = []
+
                     vis_index = vis_index + len(inputs)*index
                     input, label, output = zipped
-                    softmax = torch.nn.Softmax(dim=0)
-                    output = softmax(output)
+                    vis(input,
+                        label,
+                        output,
+                        scale,
+                        colormap,
+                        vis_path=vis_path,
+                        index=index,
+                        classes=classes,
+                        heatmaps=heatmaps,
+                        name_suffix=f'dset{dataset}_ep{ep_idx:03d}',
+                        grid=True)
 
-
-                    input = input.cpu().permute(1, 2, 0).numpy() #channels last
-                    label = label.cpu().numpy()
-                    output = output.cpu().permute(1, 2, 0).numpy() #channels last
-                    output_argmax = np.argmax(output, axis=2)
-
-                    if debug:
-                        _tqdm.set_postfix(OrderedDict(input_size={input.shape}, output_size={output.shape}, dataset=dataset))
-
-                    # save first 3 bands of sat_img to jpeg
-                    if scale:
-                        sc_min, sc_max = scale
-                        input = minmax_scale(img=input, orig_range=(sc_min, sc_max), scale_range=(0, 255))
-                    if input.shape != 3:
-                        input = input[:, :, :3] #take three first bands assuming they are RGB in correct order
-                    input_PIL = Image.fromarray(input.astype(np.uint8), mode='RGB')
-                    list_imgs_pil.append(input_PIL)
-                    #input_PIL.save(vis_path.joinpath(f'{vis_index}_satimg.jpg'))
-
-                    # convert label and output to color with colormap
-                    label = colormap[label]
-                    output_argmax = colormap[output_argmax]
-                    # save label and output
-                    label_PIL = Image.fromarray(label.astype(np.uint8), mode='RGB')
-                    #label_PIL.save(vis_path.joinpath(f'{vis_index}_label.png'))
-                    list_imgs_pil.append(label_PIL)
-                    output_argmax_PIL = Image.fromarray(output_argmax.astype(np.uint8), mode='RGB')
-                    #output_PIL.save(vis_path.joinpath(f'{vis_index}_output.png'))
-                    list_imgs_pil.append(output_argmax_PIL)
-                    titles = ['input', 'label', 'output']
-
-                    # save per class heatmap
-                    if heatmaps: # FIXME: document this in README
-                        classes = ['background', 'vegetation', 'hydro', 'roads', 'buildings'] #FIXME: softcode
-                        titles.extend(classes)
-                        for i in range(output.shape[2]): # for each channel (i.e. class) in output
-                            perclass_output = output[:, :, i]
-                            # perclass_output = minmax_scale(img=perclass_output, orig_range=(0, 1), scale_range=(0, 255))
-                            #https://stackoverflow.com/questions/10965417/how-to-convert-numpy-array-to-pil-image-applying-matplotlib-colormap
-                            perclass_output_PIL = Image.fromarray(np.uint8(cm.get_cmap('inferno')(perclass_output)*255))
-                            list_imgs_pil.append(perclass_output_PIL)
-
-                    assert len(list_imgs_pil) == len(titles)
-                    grid = grid_images(list_imgs_pil, titles)
-                    grid.savefig(vis_path.joinpath(f'samp{vis_index:03d}_epoch{ep_idx:03d}.png'))
                     if (vis_index+1) >= max_num_samples:
                         break
 
                 if (vis_index+1) >= max_num_samples:
                     break
-
-                print(f'Saved visualization figures.')
+                tqdm.write(f'Saved visualization figures.')
 
 
 if __name__ == '__main__':
