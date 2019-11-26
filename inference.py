@@ -216,8 +216,9 @@ def main(params):
     """
     # SET BASIC VARIABLES AND PATHS
     since = time.time()
-    chunk_size = get_key_def('chunk_size', params['inference'], None)
-    overlap = get_key_def('overlap', params['inference'], None)
+
+    chunk_size = get_key_def('chunk_size', params['inference'], 512)
+    overlap = get_key_def('overlap', params['inference'], 10)
     nbr_pix_overlap = int(math.floor(overlap / 100 * chunk_size))
     num_bands = params['global']['number_of_bands']
 

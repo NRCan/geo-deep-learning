@@ -200,21 +200,21 @@ def get_key_def(key, config, default=None, msg=None, delete=False):
     :param delete: (bool) if True, deletes parameter FIXME: check if this is true. Not sure I understand why we would want to delete a parameter.
     :return:
     """
-    if isinstance(key, list):
-        if len(key) <= 1:
+    if isinstance(key, list): # is key a list?
+        if len(key) <= 1: # is list of length 1 or shorter? else --> default
             if msg is not None:
                 raise AssertionError(msg)
             else:
-                raise AssertionError("must provide at least two valid keys to test")
-        for k in key:
-            if k in config:
+                raise AssertionError("Must provide at least two valid keys to test")
+        for k in key: # iterate through items in list
+            if k in config: # if item is a key in config, set value.
                 val = config[k]
-                if delete:
+                if delete: # optionally delete parameter after defining a variable with it
                     del config[k]
                 return val
         return default
-    else:
-        if key not in config:
+    else: # if key is not a list
+        if key not in config or config[key] is None: # if key not in config dict
             return default
         else:
             val = config[key]

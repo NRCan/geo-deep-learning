@@ -270,9 +270,7 @@ def set_hyperparameters(params, model, checkpoint):
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
     if params['training']['class_weights']:
         verify_weights(params['global']['num_classes'], class_weights)
-    ignore_index = -1
-    if params['training']['ignore_index'] is not None:
-        ignore_index = params['training']['ignore_index']
+    ignore_index = get_key_def('ignore_index', params['training'], -1)
 
     # Loss function
     criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
@@ -328,7 +326,6 @@ def main(params, config_path):
 
     since = time.time()
     best_loss = 999
-    last_vis_epoch = 0
 
     progress_log = Path(output_path) / 'progress.log'
     if not progress_log.exists():
