@@ -40,6 +40,18 @@ def grid_vis(input, label, output, heatmaps, classes):
     return plt
 
 def vis_from_batch(params, inputs, labels, outputs, batch_index, vis_path, dataset='', ep_num=None): #FIXME: document
+    """
+    :param params:
+    :param inputs:
+    :param labels:
+    :param outputs:
+    :param batch_index:
+    :param vis_path:
+    :param dataset:
+    :param ep_num:
+    :return:
+    """
+    assert params['global']['task'] == 'segmentation'
     for samp_index, zipped in enumerate(zip(inputs, labels, outputs)):
 
         samp_index = samp_index + len(inputs) * batch_index
@@ -63,8 +75,7 @@ def vis(params, input, label, output, vis_path, sample_num, dataset='', ep_num='
     :param scale: (param) scale range used in sample preparation
     :param vis_path: path where visualisation images will be saved
     :param sample_num: index of sample if function is from for loop iterating through a batch or list of images.
-    :param colormap_file: csv file containing 5 columns (class name, input grayscale value, out red value, out green value,
-                     out blue value) and num_class rows
+    :param colormap_file: csv file (with header) containing 3 columns (class name, input grayscale value, out RGB value as html code #RRGGBBAA
     :param heatmaps:
     :param name_suffix:
     :param grid:

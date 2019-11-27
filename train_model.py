@@ -288,7 +288,8 @@ def main(params, config_path):
     """
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-    num_classes_w_backgr = params['global']['num_classes'] + 1 # + 1 for background
+    num_classes = params['global']['num_classes']
+    num_classes_w_backgr = num_classes + 1 # + 1 for background
     model, checkpoint, model_name = net(params, num_classes_w_backgr)
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
@@ -317,7 +318,7 @@ def main(params, config_path):
                                                                                task=task)
 
     elif not bucket_name and task == 'classification':
-        get_local_classes(num_classes_w_backgr, data_path, output_path)
+        get_local_classes(num_classes, data_path, output_path)
 
     since = time.time()
     best_loss = 999
@@ -447,9 +448,9 @@ def main(params, config_path):
                 vis_from_dataloader(params=params,
                                     eval_loader=val_dataloader,
                                     model=model,
-                                    ep_num=epoch,
+                                    ep_num=epoch+1,
                                     output_path=output_path,
-                                    dataset='tst',
+                                    dataset='val',
                                     device=device,
                                     max_num_samples=max_num_vis_samples)
                 last_vis_epoch = epoch
@@ -537,9 +538,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                     max_num_vis_samples = get_key_def('max_num_vis_samples', vis_params['visualization'], False)
                     max_batch_vis = round(max_num_vis_samples / batch_size)
                     vis_path = progress_log.parent.joinpath('visualization')
-                    if batch_index == 0:
-                        tqdm.write(
-                            f'Visualizing on train outputs for no more than {max_batch_vis} batches. All images will be saved to {vis_path}\n\n')
+                    if ep_idx == 0:
+                        tqdm.write(f'Visualizing on train outputs for max {max_batch_vis} batches. All images will be saved to {vis_path}\n\n')
                     if batch_index < max_batch_vis:
                         vis_from_batch(params, inputs, labels, outputs,
                                        batch_index=batch_index,
@@ -615,8 +615,8 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                         max_num_vis_samples = get_key_def('max_num_vis_samples', vis_params['visualization'], False)
                         max_batch_vis = round(max_num_vis_samples/batch_size)
                         vis_path = progress_log.parent.joinpath('visualization')
-                        if batch_index == 0:
-                            tqdm.write(f'Visualizing on {dataset} outputs for no more than {max_batch_vis} batches. All images will be saved to {vis_path}\n\n')
+                        if ep_idx == 0:
+                            tqdm.write(f'Visualizing on {dataset} outputs for max than {max_batch_vis} batches. All images will be saved to {vis_path}\n\n')
                         if batch_index < max_batch_vis:
                             vis_from_batch(params, inputs, labels, outputs,
                                            batch_index=batch_index,
@@ -673,6 +673,7 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
 
     :return:
     """
+    assert params['global']['task'] == 'segmentation'
     vis_path = output_path.joinpath(f'visualization')
     tqdm.write(f'Visualization figures will be saved to {vis_path}\n\n')
 
