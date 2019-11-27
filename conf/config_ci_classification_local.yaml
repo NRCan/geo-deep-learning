@@ -54,7 +54,8 @@ training:
 inference:
   img_dir_or_csv_file: ./data/inference_classif_ci_csv.csv
   working_folder: ./data/classification
-  state_dict_path: ./data/model/config_ci_classification_local/checkpoint.pth.tar
+  state_dict_path: ./data/299x299samp_33overlap_10min-annot/model/config_ci_classification_local/checkpoint.pth.tar
+
   chunk_size:
   overlap:
 
