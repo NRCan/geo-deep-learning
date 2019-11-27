@@ -86,7 +86,7 @@ class SegmentationDataset(Dataset):
             metadata = None
             if meta_idx != -1:
                 metadata = self.metadata[meta_idx]
-        sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata}
+        sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata, "hdf5_path": self.hdf5_path}
         if self.transform:
             sample = self.transform(sample)
         return sample

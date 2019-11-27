@@ -36,7 +36,7 @@ from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
 from utils.utils import load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, \
     get_key_def
-from utils.visualization import vis
+from utils.visualization import vis, vis_from_batch
 from utils.readers import read_parameters
 
 try:
@@ -184,7 +184,7 @@ def create_dataloader(data_path, batch_size, task, num_devices, samples_folder, 
         assert Path(samples_folder).is_dir(), f'Could not locate: {samples_folder}'
         assert len([f for f in Path(samples_folder).glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
         num_samples = get_num_samples(samples_path=samples_folder, params=params)
-        print(f"Number of samples : {num_samples}")
+        print(f"Number of samples : {num_samples}\n\n")
         meta_map = get_key_def("meta_map", params["global"], {})
         if not meta_map:
             dataset_constr = CreateDataset.SegmentationDataset
@@ -212,7 +212,7 @@ def create_dataloader(data_path, batch_size, task, num_devices, samples_folder, 
 
     # Shuffle must be set to True.
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True)
     tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True) if num_samples['tst'] > 0 else None
 
     return trn_dataloader, val_dataloader, tst_dataloader
@@ -372,6 +372,20 @@ def main(params, config_path):
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
+    # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
+    vis_at_init = get_key_def('vis_at_init', params['visualization'], False)
+    max_num_vis_samples = get_key_def('max_num_vis_samples', params['visualization'], 24)
+    if vis_at_init and task == 'segmentation':
+        tqdm.write(f'Visualizing initialized model on {max_num_vis_samples} test samples...\n\n')
+        vis_from_dataloader(params=params,
+                            eval_loader=val_dataloader,
+                            model=model,
+                            ep_num=0,
+                            output_path=output_path,
+                            dataset='val',
+                            device=device,
+                            max_num_samples=max_num_vis_samples)
+
     for epoch in range(0, params['training']['num_epochs']):
         print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
 
@@ -385,6 +399,7 @@ def main(params, config_path):
                            task=task,
                            ep_idx=epoch,
                            progress_log=progress_log,
+                           vis_params=params,
                            device=device)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
@@ -397,6 +412,7 @@ def main(params, config_path):
                                 task=task,
                                 ep_idx=epoch,
                                 progress_log=progress_log,
+                                vis_params=params,
                                 batch_metrics=params['training']['batch_metrics'],
                                 dataset='val',
                                 device=device)
@@ -422,27 +438,23 @@ def main(params, config_path):
                 bucket.upload_file(filename, bucket_filename)
 
             # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
-            ep_vis_min_thresh = get_key_def('min_num_ep_before_vis', params['visualization'], 4) # FIXME: document this in README
+            vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
+            ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4) # FIXME: document this in README
             max_num_vis_samples = get_key_def('max_num_vis_samples', params['visualization'], 24)
             last_vis_epoch = 0
-            if debug and epoch - last_vis_epoch >= ep_vis_min_thresh:
-                if task == 'segmentation':
-                    if num_classes_w_backgr != 5:
-                        warnings.warn('Visualization was hardcoded for 4-class tasks. Problems may occur.')
-                    tqdm.write(f'Visualizing on {max_num_vis_samples} test samples...')
-                    vis_from_dataloader(eval_loader=tst_dataloader,
-                                        model=model,
-                                        ep_idx=epoch,
-                                        output_path=output_path,
-                                        scale=get_key_def('scale_data', params['global'], None),
-                                        dataset='tst',
-                                        colormap_file=get_key_def('colormap_file', params['visualization'], None),
-                                        device=device,
-                                        max_num_samples=max_num_vis_samples,
-                                        heatmaps=get_key_def('heatmaps', params['visualization'], False))
-                    last_vis_epoch = epoch
-                else:
-                    warnings.warn(f'Visualization is currently only implemented for 5-class semantic segmentation tasks')
+            if vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh and task == 'segmentation':
+                tqdm.write(f'Visualizing on {max_num_vis_samples} test samples...')
+                vis_from_dataloader(params=params,
+                                    eval_loader=val_dataloader,
+                                    model=model,
+                                    ep_num=epoch,
+                                    output_path=output_path,
+                                    dataset='tst',
+                                    device=device,
+                                    max_num_samples=max_num_vis_samples)
+                last_vis_epoch = epoch
+            else:
+                warnings.warn(f'Visualization is currently only implemented for 5-class semantic segmentation tasks')
 
         if bucket_name:
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
@@ -464,6 +476,7 @@ def main(params, config_path):
                             task=task,
                             ep_idx=params['training']['num_epochs'],
                             progress_log=progress_log,
+                            vis_params=params,
                             batch_metrics=params['training']['batch_metrics'],
                             dataset='tst',
                             device=device)
@@ -478,7 +491,7 @@ def main(params, config_path):
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
-def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx, progress_log, device):
+def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx, progress_log, vis_params, device, debug=False):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -491,15 +504,16 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     :param task: segmentation or classification
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
+    :param vis_params: #FIXME document
     :param device: device used by pytorch (cpu ou cuda)
     :return: Updated training loss
     """
     model.train()
     train_metrics = create_metrics_dict(num_classes)
 
-    with tqdm(train_loader) as _tqdm:
-        for index, data in enumerate(_tqdm):
-            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', index, len(train_loader), time.time()))
+    with tqdm(train_loader, desc=f'Iterating batches with {device.type}') as _tqdm:
+        for batch_index, data in enumerate(_tqdm):
+            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
             if task == 'classification':
                 inputs, labels = data
@@ -519,11 +533,25 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
+                if get_key_def('vis_at_train', vis_params['visualization'], False):
+                    max_num_vis_samples = get_key_def('max_num_vis_samples', vis_params['visualization'], False)
+                    max_batch_vis = round(max_num_vis_samples / batch_size)
+                    vis_path = progress_log.parent.joinpath('visualization')
+                    if batch_index == 0:
+                        tqdm.write(
+                            f'Visualizing on train outputs for no more than {max_batch_vis} batches. All images will be saved to {vis_path}\n\n')
+                    if batch_index < max_batch_vis:
+                        vis_from_batch(params, inputs, labels, outputs,
+                                       batch_index=batch_index,
+                                       vis_path=vis_path,
+                                       dataset='trn',
+                                       ep_num=ep_idx+1)
+
             loss = criterion(outputs, labels)
 
             train_metrics['loss'].update(loss.item(), batch_size)
 
-            if device.type == 'cuda':
+            if device.type == 'cuda' and debug: #FIXME: not showing
                 res, mem = gpu_stats(device=device.index)
                 _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
                                               gpu_perc=f'{res.gpu} %',
@@ -531,11 +559,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                                               lr=optimizer.param_groups[0]['lr'],
                                               img=data['sat_img'].numpy().shape[1:],
                                               smpl=data['map_img'].numpy().shape,
-                                              out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy()),
-                                              bs=batch_size))
-
-            if debug:
-                _tqdm.set_postfix(OrderedDict(out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
+                                              bs=batch_size,
+                                              out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
 
             loss.backward()
             optimizer.step()
@@ -545,7 +570,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     return train_metrics
 
 
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log, batch_metrics=None, dataset='val', device=None):
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -564,9 +589,9 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
 
-    with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
-        for index, data in enumerate(_tqdm):
-            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, index, len(eval_loader), time.time()))
+    with tqdm(eval_loader, dynamic_ncols=True, desc='Iterating batch') as _tqdm:
+        for batch_index, data in enumerate(_tqdm):
+            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
             with torch.no_grad():
                 if task == 'classification':
@@ -586,6 +611,19 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
 
+                    if get_key_def('vis_at_evaluation', vis_params['visualization'], False):
+                        max_num_vis_samples = get_key_def('max_num_vis_samples', vis_params['visualization'], False)
+                        max_batch_vis = round(max_num_vis_samples/batch_size)
+                        vis_path = progress_log.parent.joinpath('visualization')
+                        if batch_index == 0:
+                            tqdm.write(f'Visualizing on {dataset} outputs for no more than {max_batch_vis} batches. All images will be saved to {vis_path}\n\n')
+                        if batch_index < max_batch_vis:
+                            vis_from_batch(params, inputs, labels, outputs,
+                                           batch_index=batch_index,
+                                           vis_path=vis_path,
+                                           dataset=dataset,
+                                           ep_num=ep_idx+1)
+
                     outputs_flatten = flatten_outputs(outputs, num_classes)
 
                 loss = criterion(outputs, labels)
@@ -596,7 +634,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     # Compute metrics every n batches. Time consuming.
                     assert batch_metrics <= len(_tqdm), f"Batch_metrics ({batch_metrics} is smaller than batch size " \
                         f"{len(_tqdm)}. Metrics in validation loop won't be computed"
-                    if (index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
+                    if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
                         a, segmentation = torch.max(outputs_flatten, dim=1)
                         eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
                                                              ignore_index=get_key_def("ignore_index", params["training"], None))
@@ -620,12 +658,13 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
     return eval_metrics
 
-def vis_from_dataloader(eval_loader, model, ep_idx, output_path, scale, dataset='', colormap_file=None, device=None, max_num_samples=8, heatmaps=True):
+
+def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, max_num_samples=8):
     """
     Create images from output of model
     :param eval_loader: data loader
     :param model: model to evaluate
-    :param ep_idx: epoch index (for hypertrainer log)
+    :param ep_num: epoch index (for hypertrainer log)
     :param dataset: (str) 'val or 'tst'
     :param output_path: path where inferences on samples will be saved
     :param device: device used by pytorch (cpu ou cuda)
@@ -635,12 +674,11 @@ def vis_from_dataloader(eval_loader, model, ep_idx, output_path, scale, dataset=
     :return:
     """
     vis_path = output_path.joinpath(f'visualization')
-    vis_path.mkdir(exist_ok=True)
-    print(f'Visualization figures will be saved to {vis_path}')
+    tqdm.write(f'Visualization figures will be saved to {vis_path}\n\n')
 
     model.eval()
     with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
-        for index, data in enumerate(_tqdm):
+        for batch_index, data in enumerate(_tqdm):
             with torch.no_grad():
                 inputs = data['sat_img'].to(device)
                 labels = data['map_img'].to(device)
@@ -649,27 +687,18 @@ def vis_from_dataloader(eval_loader, model, ep_idx, output_path, scale, dataset=
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
-                for vis_index, zipped in enumerate(zip(inputs, labels, outputs)):
+                vis_from_batch(params=params,
+                               inputs=inputs,
+                               labels=labels,
+                               outputs=outputs,
+                               batch_index=batch_index,
+                               vis_path=vis_path,
+                               dataset=dataset,
+                               ep_num=ep_num)
 
-                    vis_index = vis_index + len(inputs)*index
-                    input, label, output = zipped
-                    vis(input,
-                        label,
-                        output,
-                        scale,
-                        vis_path=vis_path,
-                        index=index,
-                        colormap_file=colormap_file,
-                        heatmaps=heatmaps,
-                        name_suffix=f'{dataset}_ep{ep_idx:03d}',
-                        grid=True)
-
-                    if (vis_index+1) >= max_num_samples:
-                        break
-
-                if (vis_index+1) >= max_num_samples:
+                if ((batch_index+1) * eval_loader.batch_size) >= max_num_samples:
                     break
-                tqdm.write(f'Saved visualization figures.')
+    tqdm.write(f'Saved visualization figures.\n\n')
 
 
 if __name__ == '__main__':
@@ -681,7 +710,9 @@ if __name__ == '__main__':
     config_path = Path(args.param_file)
     params = read_parameters(args.param_file)
 
-    debug = True if params['global']['debug_mode'] else False
+    debug = get_key_def('debug_mode', params['global'], False)
+    if debug:
+        warnings.warn(f'Debug mode activated. Some debug functions may cause delays in execution.')
 
     main(params, config_path)
     print('End of training')

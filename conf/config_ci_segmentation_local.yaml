@@ -62,12 +62,15 @@ inference:
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
 
-# Visualizaiton parameters
+# Visualization parameters
 
 visualization:
-  vis_at_val: True
+  vis_at_checkpoint: True
+  vis_at_ckpt_min_ep_diff: 0
+  vis_at_evaluation: True
+  vis_at_train: True
+  vis_at_init: True
   max_num_vis_samples: 24
+  grid: True
   heatmaps: True
-  colormap_file: .\data\colormap.csv
-  min_num_ep_before_vis: 0
-  vis_at_test: True
+  colormap_file: # .\data\colormap.csv

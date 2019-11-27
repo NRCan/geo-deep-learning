@@ -57,3 +57,16 @@ inference:
   state_dict_path: ./data/model/config_ci_classification_local/checkpoint.pth.tar
   chunk_size:
   overlap:
+
+# Visualization parameters
+
+visualization:
+  vis_at_checkpoint:
+  vis_at_ckpt_min_ep_diff:
+  vis_at_evaluation:
+  vis_at_train:
+  vis_at_init:
+  max_num_vis_samples:
+  grid:
+  heatmaps:
+  colormap_file:
