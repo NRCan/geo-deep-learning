@@ -139,7 +139,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
         raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
 
 
-def classifier(params, num_classes_w_backgr, img_list, model, device):
+def classifier(params, img_list, model, device):
     """
     Classify images by class
     :param params:
@@ -149,6 +149,7 @@ def classifier(params, num_classes_w_backgr, img_list, model, device):
     :return:
     """
     weights_file_name = params['inference']['state_dict_path']
+    num_classes = params['global']['num_classes']
     bucket = params['global']['bucket_name']
 
     classes_file = weights_file_name.split('/')[:-1]
@@ -168,7 +169,7 @@ def classifier(params, num_classes_w_backgr, img_list, model, device):
             reader = csv.reader(f)
             classes = list(reader)
 
-    classified_results = np.empty((0, 2 + num_classes_w_backgr))
+    classified_results = np.empty((0, 2 + num_classes))
 
     for image in img_list:
         img_name = os.path.basename(image['tif']) #TODO: pathlib
@@ -234,7 +235,8 @@ def main(params):
     # CONFIGURE MODEL
     # assume background is implicitly needed (makes no sense to predict with, for example, one class otherwise)
     # this will trigger some warnings elsewhere, but should succeed nonetheless
-    num_classes_w_backr = params['global']['num_classes'] + 1
+    num_classes = params['global']['num_classes']
+    num_classes_w_backr = num_classes + 1
     model, state_dict_path, model_name = net(params, num_channels=num_classes_w_backr, inference=True)
 
     num_devices = params['global']['num_gpus'] if params['global']['num_gpus'] else 0
