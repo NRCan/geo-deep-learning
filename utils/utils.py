@@ -55,7 +55,7 @@ def chop_layer(pretrained_dict,
     return chopped_dict
 
 
-def load_from_checkpoint(checkpoint, model, optimizer=None): # FIXME: add boolean paramter for inference.
+def load_from_checkpoint(checkpoint, model, optimizer=None, inference=False):
     """Load weights from a previous checkpoint
     Args:
         checkpoint: (dict) checkpoint as loaded in model_choice.py
@@ -83,13 +83,16 @@ def load_from_checkpoint(checkpoint, model, optimizer=None): # FIXME: add boolea
                     mismatch_layer = error.split("size mismatch for ")[1].split(":")[0]    # get name of problematic layer
                     warnings.warn(f'Oups. {error}. We will try chopping "{mismatch_layer}" out of pretrained dictionary.')
                     mismatched_layers.append(mismatch_layer)
+            if inference:
+                assert len(mismatched_layers) == 0, f"Layers {mismatched_layers} mismatch with current model. During " \
+                                                    f"inference, layers shouldn't be chopped."
             chopped_checkpt = chop_layer(checkpoint['model'], layer_names=mismatched_layers)
             # overwrite entries in the existing state dict
             model.load_state_dict(chopped_checkpt, strict=False)
         except RuntimeError as error:
             raise RuntimeError(error)
 
-    print(f"=> loaded model\n\n")
+    print(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
         optimizer.load_state_dict(checkpoint['optimizer'])
     return model, optimizer

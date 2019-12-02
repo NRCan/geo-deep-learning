@@ -57,21 +57,21 @@ training:
 
 inference:
   img_dir_or_csv_file: ./data/inference_sem_seg_ci_csv.csv
-  working_folder: ./data
-  state_dict_path: ./data/256x256samp_33overlap_10min-annot/model/config_ci_segmentation_local/checkpoint.pth.tar
+  working_folder:
+  state_dict_path: ./data/samples256_overlap33_min-annot10/model/config_ci_segmentation_local/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
 
 # Visualization parameters
 
 visualization:
-  vis_dataset: tst
   max_num_vis_samples: 24
+  vis_at_init: True
+  vis_at_evaluation: True #val during training, tst at end of training
   vis_at_checkpoint: True
   vis_at_ckpt_min_ep_diff: 0
-  vis_at_evaluation: True #val during training, tst at end of training
+  vis_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.
   vis_at_train: True
-  vis_at_init: True
   grid: True
   heatmaps: True
-  colormap_file: # .\data\colormap.csv
+  colormap_file: .\data\colormap.csv

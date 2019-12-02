@@ -57,7 +57,7 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
 
     class_score = {}
     for key, value in class_report.items():
-        if key not in ['micro avg', 'macro avg', 'weighted avg', 'accuracy'] and not str(ignore_index): #TODO test this with ignore index. Make sure it works.
+        if key not in ['micro avg', 'macro avg', 'weighted avg', 'accuracy'] and key != str(ignore_index):
             class_score[key] = value
 
             metrics_dict['precision_' + key].update(class_score[key]['precision'], batch_size)

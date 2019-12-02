@@ -205,7 +205,7 @@ def classifier(params, img_list, model, device):
         bucket.upload_file(csv_results, os.path.join(params['inference']['working_folder'], csv_results)) #TODO: pathlib
     else:
         np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s', #TODO: pathlib
-                   delimiter=',')  # FIXME create directories if don't exist
+                   delimiter=',')
 
 
 def main(params):
@@ -221,7 +221,7 @@ def main(params):
     if params['global']['task'] == 'segmentation':
         # assume background is implicitly needed (makes no sense to predict with one class, for example.)
         # this will trigger some warnings elsewhere, but should succeed nonetheless
-        num_classes_corrected = num_classes + 1 # + 1 for background # FIXME how should this variable be called?
+        num_classes_corrected = num_classes + 1 # + 1 for background # FIXME temporary patch for num_classes problem.
     elif params['global']['task'] == 'classification':
         num_classes_corrected = num_classes
 
@@ -284,14 +284,14 @@ def main(params):
             assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
 
     if params['global']['task'] == 'classification':
-        classifier(params, list_img, model, device)
+        classifier(params, list_img, model, device)  # FIXME: why don't we load from checkpoint in classification?
 
     elif params['global']['task'] == 'segmentation':
         if bucket:
             bucket.download_file(state_dict_path, "saved_model.pth.tar")
-            model, _ = load_from_checkpoint("saved_model.pth.tar", model)
+            model, _ = load_from_checkpoint("saved_model.pth.tar", model, inference=True)
         else:
-            model, _ = load_from_checkpoint(state_dict_path, model)
+            model, _ = load_from_checkpoint(state_dict_path, model, inference=True)
 
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
             for img in _tqdm:

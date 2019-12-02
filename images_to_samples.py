@@ -67,7 +67,7 @@ def samples_preparation(in_img_array, label_array, sample_size, overlap, samples
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
     :param label_array: numpy array of the annotation image
-    :param sample_size: (int) Size (in pixel) of the samples to create #FIXME: could there be a different sample size for tst dataset? shows result closer to inference
+    :param sample_size: (int) Size (in pixel) of the samples to create #FIXME: could there be a different sample size for tst dataset? shows results closer to inference
     :param overlap: (int) Distance (in pixel) between samples in both images
     :param samples_count: (dict) Current number of samples created (will be appended and return)
     :param num_classes: (dict) Number of classes in reference data (will be appended and return)
@@ -151,6 +151,8 @@ def main(params):
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     bucket_file_cache = []
 
+    assert params['global']['task'] == 'segmentation', f"images_to_samples.py isn't necessary when performing classification tasks"
+
     # SET BASIC VARIABLES AND PATHS. CREATE OUTPUT FOLDERS.
     bucket_name = params['global']['bucket_name']
     data_path = Path(params['global']['data_path'])
@@ -173,11 +175,11 @@ def main(params):
             final_samples_folder = os.path.join(data_path, "samples")
         else:
             final_samples_folder = "samples"
-        samples_folder = f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot' # TODO:  add {len(list_data_prep)}imgs_ as prefix?
+        samples_folder = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' # TODO: validate this is preferred name structure
 
     else:
         list_data_prep = read_csv(csv_file)
-        samples_folder = data_path.joinpath(f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot')
+        samples_folder = data_path.joinpath(f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}')
 
     if samples_folder.is_dir():
         warnings.warn(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')

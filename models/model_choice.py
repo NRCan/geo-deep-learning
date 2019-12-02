@@ -14,7 +14,7 @@ def load_checkpoint(filename):
     :return: (dict) checkpoint ready to be loaded into model instance
     '''
     try:
-        print(f"=> loading model '{filename}'\n\n")
+        print(f"=> loading model '{filename}'\n")
 
         checkpoint = torch.load(filename) if torch.cuda.is_available() else torch.load(filename, map_location='cpu')
 
@@ -99,7 +99,7 @@ def net(net_params, num_channels, inference=False):
         checkpoint = load_checkpoint(state_dict_path)
     elif inference:
         state_dict_path = net_params['inference']['state_dict_path']
-        assert Path(net_params['inference']['state_dict_path']).is_file()
+        assert Path(net_params['inference']['state_dict_path']).is_file(), f"Could not locate {net_params['inference']['state_dict_path']}"
         checkpoint = load_checkpoint(state_dict_path)
     elif model_name == 'deeplabv3_resnet101':
         # default to pretrained on coco (21 classes)

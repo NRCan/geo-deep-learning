@@ -2,7 +2,7 @@ import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import os
 import argparse
-from pathlib import Path # TODO Use Path instead of os where possible. Better cross-platform compatibility
+from pathlib import Path
 import csv
 import time
 import h5py
@@ -153,13 +153,14 @@ def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(data_path, batch_size, task, num_devices, samples_folder, params):
+def create_dataloader(data_path, batch_size, task, num_devices, params, samples_folder=None):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param data_path: (str) path to the samples folder
     :param batch_size: (int) batch size
     :param task: (str) classification or segmentation
     :param num_devices: (int) number of GPUs used
+    :param samples_folder: path to folder containting .hdf5 files if task is segmentation
     :param params: (dict) Parameters found in the yaml config file.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
@@ -289,22 +290,23 @@ def main(params, config_path):
     """
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     num_classes = params['global']['num_classes']
-    if params['global']['task'] == 'segmentation':
-        num_classes_corrected = num_classes + 1 # + 1 for background # FIXME how should this variable be called?
-    elif params['global']['task'] == 'classification':
+    task = params['global']['task']
+    if task == 'segmentation':
+        num_classes_corrected = num_classes + 1 # + 1 for background # FIXME temporary patch for num_classes problem.
+    elif task == 'classification':
         num_classes_corrected = num_classes
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model, checkpoint, model_name = net(params, num_classes_corrected)
-    tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n\n')
+    tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
 
-    samples_size = params["global"]["samples_size"]  # FIXME: provide to function as parameters?
+    samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
     min_annot_perc = params['sample']['min_annotated_percent']
-    samples_folder_name = f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot'  # FIXME: preferred name structure? document!
-    samples_folder = Path(data_path).joinpath(samples_folder_name)
+    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}'  # FIXME: preferred name structure? document!
+    samples_folder = Path(data_path).joinpath(samples_folder_name) if task == 'segmentation' else Path(data_path)
 
     modelname = config_path.stem
     output_path = Path(samples_folder).joinpath('model') / modelname
@@ -351,7 +353,7 @@ def main(params, config_path):
         try: # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
-            warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}\n\n")
+            warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
             device = torch.device('cuda:0')
             lst_device_ids = range(len(lst_device_ids))
             model = nn.DataParallel(model,
@@ -364,8 +366,8 @@ def main(params, config_path):
                                                                        batch_size=batch_size,
                                                                        task=task,
                                                                        num_devices=num_devices,
-                                                                       samples_folder=samples_folder,
-                                                                       params=params)
+                                                                       params=params,
+                                                                       samples_folder=samples_folder)
 
     model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
 
@@ -385,7 +387,7 @@ def main(params, config_path):
     vis_dataset = get_key_def('vis_dataset', params['visualization'], 'val')
     eval_loader = val_dataloader if vis_dataset == 'val' else tst_dataloader
     if vis_at_init and task == 'segmentation':
-        tqdm.write(f'Visualizing initialized model on {max_num_vis_samples} {vis_dataset} samples...\n\n')
+        tqdm.write(f'Visualizing initialized model on {max_num_vis_samples} {vis_dataset} samples...\n')
         vis_from_dataloader(params=params,
                             eval_loader=eval_loader,
                             model=model,
@@ -548,7 +550,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                     max_batch_vis = round(max_num_vis_samples / batch_size)
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0:
-                        tqdm.write(f'Visualizing on train outputs for max {max_batch_vis} batches. All images will be saved to {vis_path}\n\n')
+                        tqdm.write(f'Visualizing on train outputs for max {max_batch_vis} batches. All images will be saved to {vis_path}\n')
                     if batch_index < max_batch_vis:
                         vis_from_batch(params, inputs, labels, outputs,
                                        batch_index=batch_index,
@@ -560,7 +562,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
             train_metrics['loss'].update(loss.item(), batch_size)
 
-            if device.type == 'cuda' and debug: #FIXME: not showing
+            if device.type == 'cuda' and debug: #FIXME: not showing in HPC
                 res, mem = gpu_stats(device=device.index)
                 _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
                                               gpu_perc=f'{res.gpu} %',
@@ -625,7 +627,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                         max_batch_vis = round(max_num_vis_samples/batch_size)
                         vis_path = progress_log.parent.joinpath('visualization')
                         if ep_idx == 0:
-                            tqdm.write(f'Visualizing on {dataset} outputs for max {max_batch_vis} batches. All images will be saved to {vis_path}\n\n')
+                            tqdm.write(f'Visualizing on {dataset} outputs for max {max_batch_vis} batches. All images will be saved to {vis_path}\n')
                         if batch_index < max_batch_vis:
                             vis_from_batch(params, inputs, labels, outputs,
                                            batch_index=batch_index,
@@ -684,7 +686,7 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
     """
     assert params['global']['task'] == 'segmentation'
     vis_path = output_path.joinpath(f'visualization')
-    tqdm.write(f'Visualization figures will be saved to {vis_path}\n\n')
+    tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
 
     model.eval()
     with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
@@ -708,11 +710,11 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
 
                 if ((batch_index+1) * eval_loader.batch_size) >= max_num_samples:
                     break
-    tqdm.write(f'Saved visualization figures.\n\n')
+    tqdm.write(f'Saved visualization figures.\n')
 
 
 if __name__ == '__main__':
-    print(f'Start\n\n')
+    print(f'Start\n')
     parser = argparse.ArgumentParser(description='Training execution')
     parser.add_argument('param_file', metavar='DIR',
                         help='Path to training parameters stored in yaml')
