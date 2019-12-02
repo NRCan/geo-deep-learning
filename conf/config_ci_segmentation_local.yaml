@@ -74,4 +74,4 @@ visualization:
   vis_at_train: True
   grid: True
   heatmaps: True
-  colormap_file: .\data\colormap.csv
+  colormap_file: ./data/colormap.csv
