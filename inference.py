@@ -217,6 +217,14 @@ def main(params):
     # SET BASIC VARIABLES AND PATHS
     since = time.time()
 
+    num_classes = params['global']['num_classes']
+    if params['global']['task'] == 'segmentation':
+        # assume background is implicitly needed (makes no sense to predict with one class, for example.)
+        # this will trigger some warnings elsewhere, but should succeed nonetheless
+        num_classes_corrected = num_classes + 1 # + 1 for background # FIXME how should this variable be called?
+    elif params['global']['task'] == 'classification':
+        num_classes_corrected = num_classes
+
     chunk_size = get_key_def('chunk_size', params['inference'], 512)
     overlap = get_key_def('overlap', params['inference'], 10)
     nbr_pix_overlap = int(math.floor(overlap / 100 * chunk_size))
@@ -233,11 +241,7 @@ def main(params):
     bucket_name = params['global']['bucket_name']
 
     # CONFIGURE MODEL
-    # assume background is implicitly needed (makes no sense to predict with, for example, one class otherwise)
-    # this will trigger some warnings elsewhere, but should succeed nonetheless
-    num_classes = params['global']['num_classes']
-    num_classes_w_backr = num_classes + 1
-    model, state_dict_path, model_name = net(params, num_channels=num_classes_w_backr, inference=True)
+    model, state_dict_path, model_name = net(params, num_channels=num_classes_corrected, inference=True)
 
     num_devices = params['global']['num_gpus'] if params['global']['num_gpus'] else 0
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
@@ -339,7 +343,7 @@ def main(params):
                     f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
 
                 # START INFERENCES ON SUB-IMAGES
-                sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_w_backr,
+                sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_corrected,
                                                     device, meta_map, metadata, output_path=working_folder)
 
                 if debug:

@@ -243,12 +243,13 @@ def get_num_samples(samples_path, params):
     return num_samples
 
 
-def set_hyperparameters(params, num_class_w_backr, model, checkpoint):
+def set_hyperparameters(params, num_classes, model, checkpoint):
     """
     Function to set hyperparameters based on values provided in yaml config file.
     Will also set model to GPU, if available.
     If none provided, default functions values may be used.
     :param params: (dict) Parameters found in the yaml config file
+    :param num_classes: (int) number of classes for current task
     :param model: Model loaded from model_choice.py
     :param checkpoint: (dict) state dict as loaded by model_choice.py
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
@@ -262,7 +263,7 @@ def set_hyperparameters(params, num_class_w_backr, model, checkpoint):
     # optional hyperparameters. Set to None if not in config file
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
     if params['training']['class_weights']:
-        verify_weights(num_class_w_backr, class_weights)
+        verify_weights(num_classes, class_weights)
     ignore_index = get_key_def('ignore_index', params['training'], -1)
 
     # Loss function
@@ -287,17 +288,22 @@ def main(params, config_path):
 
     """
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-
     num_classes = params['global']['num_classes']
-    num_classes_w_backgr = num_classes + 1 # + 1 for background
-    model, checkpoint, model_name = net(params, num_classes_w_backgr)
+    if params['global']['task'] == 'segmentation':
+        num_classes_corrected = num_classes + 1 # + 1 for background # FIXME how should this variable be called?
+    elif params['global']['task'] == 'classification':
+        num_classes_corrected = num_classes
+
+    # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
+    model, checkpoint, model_name = net(params, num_classes_corrected)
+    tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n\n')
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
 
     samples_size = params["global"]["samples_size"]  # FIXME: provide to function as parameters?
     overlap = params["sample"]["overlap"]
     min_annot_perc = params['sample']['min_annotated_percent']
-    samples_folder_name = f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot'  # FIXME: document!
+    samples_folder_name = f'{samples_size}x{samples_size}samp_{overlap}overlap_{min_annot_perc}min-annot'  # FIXME: preferred name structure? document!
     samples_folder = Path(data_path).joinpath(samples_folder_name)
 
     modelname = config_path.stem
@@ -314,7 +320,7 @@ def main(params, config_path):
         bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
                                                                                data_path=data_path,
                                                                                output_path=output_path,
-                                                                               num_classes=num_classes_w_backgr,
+                                                                               num_classes=num_classes_corrected,
                                                                                task=task)
 
     elif not bucket_name and task == 'classification':
@@ -361,7 +367,7 @@ def main(params, config_path):
                                                                        samples_folder=samples_folder,
                                                                        params=params)
 
-    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_w_backgr, model, checkpoint)
+    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
 
     criterion = criterion.to(device)
     try: # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
@@ -376,14 +382,16 @@ def main(params, config_path):
     # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
     vis_at_init = get_key_def('vis_at_init', params['visualization'], False)
     max_num_vis_samples = get_key_def('max_num_vis_samples', params['visualization'], 24)
+    vis_dataset = get_key_def('vis_dataset', params['visualization'], 'val')
+    eval_loader = val_dataloader if vis_dataset == 'val' else tst_dataloader
     if vis_at_init and task == 'segmentation':
-        tqdm.write(f'Visualizing initialized model on {max_num_vis_samples} test samples...\n\n')
+        tqdm.write(f'Visualizing initialized model on {max_num_vis_samples} {vis_dataset} samples...\n\n')
         vis_from_dataloader(params=params,
-                            eval_loader=val_dataloader,
+                            eval_loader=eval_loader,
                             model=model,
                             ep_num=0,
                             output_path=output_path,
-                            dataset='val',
+                            dataset=vis_dataset,
                             device=device,
                             max_num_samples=max_num_vis_samples)
 
@@ -395,7 +403,7 @@ def main(params, config_path):
                            criterion=criterion,
                            optimizer=optimizer,
                            scheduler=lr_scheduler,
-                           num_classes=num_classes_w_backgr,
+                           num_classes=num_classes_corrected,
                            batch_size=batch_size,
                            task=task,
                            ep_idx=epoch,
@@ -408,7 +416,7 @@ def main(params, config_path):
         val_report = evaluation(eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
-                                num_classes=num_classes_w_backgr,
+                                num_classes=num_classes_corrected,
                                 batch_size=batch_size,
                                 task=task,
                                 ep_idx=epoch,
@@ -442,21 +450,21 @@ def main(params, config_path):
             vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
             ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4) # FIXME: document this in README
             max_num_vis_samples = get_key_def('max_num_vis_samples', params['visualization'], 24)
-            vis_ckpt_dataset = 'val' # FIXME: softcode
+            vis_dataset = get_key_def('vis_dataset', params['visualization'], 'val')
+            eval_loader = val_dataloader if vis_dataset == 'val' else tst_dataloader
             last_vis_epoch = 0
-            if vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh and task == 'segmentation':
-                tqdm.write(f'Visualizing on {max_num_vis_samples} {vis_ckpt_dataset} samples...')
+            if vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
+                assert task == 'segmentation', f'Visualization is only for semantic segmentation tasks'
+                tqdm.write(f'Visualizing on {max_num_vis_samples} {vis_dataset} samples...')
                 vis_from_dataloader(params=params,
-                                    eval_loader=val_dataloader,
+                                    eval_loader=eval_loader,
                                     model=model,
                                     ep_num=epoch+1,
                                     output_path=output_path,
-                                    dataset=vis_ckpt_dataset,
+                                    dataset=vis_dataset,
                                     device=device,
                                     max_num_samples=max_num_vis_samples)
                 last_vis_epoch = epoch
-            else:
-                warnings.warn(f'Visualization is currently only implemented for 5-class semantic segmentation tasks')
 
         if bucket_name:
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
@@ -473,7 +481,7 @@ def main(params, config_path):
         tst_report = evaluation(eval_loader=tst_dataloader,
                             model=model,
                             criterion=criterion,
-                            num_classes=num_classes_w_backgr,
+                            num_classes=num_classes_corrected,
                             batch_size=batch_size,
                             task=task,
                             ep_idx=params['training']['num_epochs'],
@@ -513,7 +521,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     model.train()
     train_metrics = create_metrics_dict(num_classes)
 
-    with tqdm(train_loader, desc=f'Iterating batches with {device.type}') as _tqdm:
+    with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
             progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
@@ -590,7 +598,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
 
-    with tqdm(eval_loader, dynamic_ncols=True, desc='Iterating batch') as _tqdm:
+    with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
             progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
