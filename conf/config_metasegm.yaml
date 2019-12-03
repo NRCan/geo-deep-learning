@@ -72,12 +72,9 @@ inference:
 
 visualization:
   max_num_vis_samples: 24
-  vis_at_init: True
-  vis_at_evaluation: True #val during training, tst at end of training
   vis_at_checkpoint: True
   vis_at_ckpt_min_ep_diff: 0
-  vis_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.
-  vis_at_train: True
+  vis_at_ckpt_dataset: val
   grid: True
   heatmaps: True
-  colormap_file: .\data\colormap.csv
+  colormap_file: ./data/colormap.csv

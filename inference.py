@@ -19,6 +19,7 @@ from models.model_choice import net
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
 from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.CreateDataset import MetaSegmentationDataset
+from utils.visualization import vis_from_batch
 
 try:
     import boto3
@@ -99,15 +100,18 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                             chunk_input = MetaSegmentationDataset.append_meta_layers(chunk_input, meta_map, metadata)
                         inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
-                        inputs.unsqueeze_(0)
+                        inputs.unsqueeze_(0) #Add dummy batch dimension
 
                         inputs = inputs.to(device)
                         # forward
                         outputs = model(inputs)
 
-                        # torchvision models give output it 'out' key. May cause problems in future versions of torchvision.
+                        # torchvision models give output in 'out' key. May cause problems in future versions of torchvision.
                         if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
                             outputs = outputs['out']
+
+                        if get_key_def('vis_at_inference', params['visualization'], False): #VISUALIZATION
+                            vis_from_batch(params, inputs, outputs, batch_index=0, vis_path=output_path, dataset='inference')
 
                         output_counts[row_start:row_end, col_start:col_end] += 1
 

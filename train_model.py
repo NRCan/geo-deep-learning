@@ -384,16 +384,16 @@ def main(params, config_path):
     # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
     vis_at_init = get_key_def('vis_at_init', params['visualization'], False)
     max_num_vis_samples = get_key_def('max_num_vis_samples', params['visualization'], 24)
-    vis_dataset = get_key_def('vis_dataset', params['visualization'], 'val')
-    eval_loader = val_dataloader if vis_dataset == 'val' else tst_dataloader
+    vis_at_init_dataset = get_key_def('vis_at_init_dataset', params['visualization'], 'val')
+    eval_loader = val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader
     if vis_at_init and task == 'segmentation':
-        tqdm.write(f'Visualizing initialized model on {max_num_vis_samples} {vis_dataset} samples...\n')
+        tqdm.write(f'Visualizing initialized model on {max_num_vis_samples} {vis_at_init_dataset} samples...\n')
         vis_from_dataloader(params=params,
                             eval_loader=eval_loader,
                             model=model,
                             ep_num=0,
                             output_path=output_path,
-                            dataset=vis_dataset,
+                            dataset=vis_at_init_dataset,
                             device=device,
                             max_num_samples=max_num_vis_samples)
 
@@ -452,18 +452,18 @@ def main(params, config_path):
             vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
             ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4) # FIXME: document this in README
             max_num_vis_samples = get_key_def('max_num_vis_samples', params['visualization'], 24)
-            vis_dataset = get_key_def('vis_dataset', params['visualization'], 'val')
-            eval_loader = val_dataloader if vis_dataset == 'val' else tst_dataloader
+            vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
+            eval_loader = val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader
             last_vis_epoch = 0
             if vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 assert task == 'segmentation', f'Visualization is only for semantic segmentation tasks'
-                tqdm.write(f'Visualizing on {max_num_vis_samples} {vis_dataset} samples...')
+                tqdm.write(f'Visualizing on {max_num_vis_samples} {vis_at_ckpt_dataset} samples...')
                 vis_from_dataloader(params=params,
                                     eval_loader=eval_loader,
                                     model=model,
                                     ep_num=epoch+1,
                                     output_path=output_path,
-                                    dataset=vis_dataset,
+                                    dataset=vis_at_ckpt_dataset,
                                     device=device,
                                     max_num_samples=max_num_vis_samples)
                 last_vis_epoch = epoch
@@ -552,9 +552,10 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                     if ep_idx == 0:
                         tqdm.write(f'Visualizing on train outputs for max {max_batch_vis} batches. All images will be saved to {vis_path}\n')
                     if batch_index < max_batch_vis:
-                        vis_from_batch(params, inputs, labels, outputs,
+                        vis_from_batch(params, labels, outputs,
                                        batch_index=batch_index,
                                        vis_path=vis_path,
+                                       labels=labels,
                                        dataset='trn',
                                        ep_num=ep_idx+1)
 
@@ -629,9 +630,10 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                         if ep_idx == 0:
                             tqdm.write(f'Visualizing on {dataset} outputs for max {max_batch_vis} batches. All images will be saved to {vis_path}\n')
                         if batch_index < max_batch_vis:
-                            vis_from_batch(params, inputs, labels, outputs,
+                            vis_from_batch(params, inputs, outputs,
                                            batch_index=batch_index,
                                            vis_path=vis_path,
+                                           labels=labels,
                                            dataset=dataset,
                                            ep_num=ep_idx+1)
 
@@ -699,12 +701,10 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
-                vis_from_batch(params=params,
-                               inputs=inputs,
-                               labels=labels,
-                               outputs=outputs,
+                vis_from_batch(params, inputs, outputs,
                                batch_index=batch_index,
                                vis_path=vis_path,
+                               labels=labels,
                                dataset=dataset,
                                ep_num=ep_num)
 
