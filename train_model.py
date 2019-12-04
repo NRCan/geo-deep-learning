@@ -213,8 +213,8 @@ def create_dataloader(data_path, batch_size, task, num_devices, params, samples_
 
     # Shuffle must be set to True.
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True)
-    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=True) if num_samples['tst'] > 0 else None
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
+    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False) if num_samples['tst'] > 0 else None
 
     return trn_dataloader, val_dataloader, tst_dataloader
 
@@ -349,8 +349,8 @@ def main(params, config_path):
     if num_devices == 1:
         print(f"Using Cuda device {lst_device_ids[0]}")
     elif num_devices > 1:
-        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n\n") # FIXME: why are we showing indices [1:-1] for lst_device_ids?
-        try: # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
+        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
+        try: # FIXME: For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
             warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
@@ -481,17 +481,17 @@ def main(params, config_path):
 
     if tst_dataloader:
         tst_report = evaluation(eval_loader=tst_dataloader,
-                            model=model,
-                            criterion=criterion,
-                            num_classes=num_classes_corrected,
-                            batch_size=batch_size,
-                            task=task,
-                            ep_idx=params['training']['num_epochs'],
-                            progress_log=progress_log,
-                            vis_params=params,
-                            batch_metrics=params['training']['batch_metrics'],
-                            dataset='tst',
-                            device=device)
+                                model=model,
+                                criterion=criterion,
+                                num_classes=num_classes_corrected,
+                                batch_size=batch_size,
+                                task=task,
+                                ep_idx=params['training']['num_epochs'],
+                                progress_log=progress_log,
+                                vis_params=params,
+                                batch_metrics=params['training']['batch_metrics'],
+                                dataset='tst',
+                                device=device)
         tst_log.add_values(tst_report, params['training']['num_epochs'])
 
         if bucket_name:
@@ -516,7 +516,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     :param task: segmentation or classification
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
-    :param vis_params: #FIXME document
+    :param vis_params: (dict) Parameters found in the yaml config file. Named vis_params because they are only used for
+                        visualization functions.
     :param device: device used by pytorch (cpu ou cuda)
     :return: Updated training loss
     """
@@ -552,7 +553,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                     if ep_idx == 0:
                         tqdm.write(f'Visualizing on train outputs for max {max_batch_vis} batches. All images will be saved to {vis_path}\n')
                     if batch_index < max_batch_vis:
-                        vis_from_batch(params, labels, outputs,
+                        vis_from_batch(params, inputs, outputs,
                                        batch_index=batch_index,
                                        vis_path=vis_path,
                                        labels=labels,
@@ -674,15 +675,14 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
 def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, max_num_samples=8):
     """
-    Create images from output of model
+    Use a model and dataloader to provide outputs that can then be sent to vis_from_batch function to visualize performances of model, for example.
+    :param params: (dict) Parameters found in the yaml config file.
     :param eval_loader: data loader
     :param model: model to evaluate
-    :param ep_num: epoch index (for hypertrainer log)
+    :param ep_num: epoch index (for file naming purposes)
     :param dataset: (str) 'val or 'tst'
-    :param output_path: path where inferences on samples will be saved
     :param device: device used by pytorch (cpu ou cuda)
     :param max_num_samples: (int) max number of samples to perform visualization on
-    :param heatmaps: (bool) Save heatmaps associated to output, along with input, label and output
 
     :return:
     """

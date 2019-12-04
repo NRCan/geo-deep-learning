@@ -34,7 +34,7 @@ training:
   state_dict_path:    # optional
   num_trn_samples:
   num_val_samples:
-  num_tst_samples: 
+  num_tst_samples:
   batch_size: 4
   num_epochs: 2
   loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)

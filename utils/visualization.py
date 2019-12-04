@@ -13,10 +13,17 @@ from utils.utils import minmax_scale, get_key_def
 
 
 def grid_vis(input, output, heatmaps, classes, label=None):
-    """Visualizes image samples"""
+    """ Create a grid with PIL images and titles
+    :param input: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
+    :param output: (tensor) output array as pytorch tensor, e.g. as returned by dataloader
+    :param heatmaps: (dict) Dictionary of heatmaps where key is grayscale value of class and value is color heatmap as PIL object
+    :param classes: (list) list of titles that will be given above each subplot containing a heatmap
+    :param label: (tensor) label array as pytorch tensor, e.g. as returned by dataloader (optional)
+    :return: Saves .png to disk
+    """
 
-    list_imgs_pil = [input, label, output] if label else [input, output]
-    list_titles = ['input', 'label', 'output'] if label else ['input', 'output']
+    list_imgs_pil = [input, label, output] if label is not None else [input, output]
+    list_titles = ['input', 'label', 'output'] if label is not None else ['input', 'output']
 
     num_tiles = (len(list_imgs_pil)+len(heatmaps))
     height = math.ceil(num_tiles/4)
@@ -40,23 +47,23 @@ def grid_vis(input, output, heatmaps, classes, label=None):
 
     return plt
 
+
 def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, dataset='', ep_num=0): #FIXME: document
-    """
-    :param params:
-    :param inputs:
-    :param outputs:
-    :param batch_index:
-    :param vis_path:
-    :param labels:
-    :param dataset:
-    :param ep_num:
+    """ Provide indiviual input, output and label (optional) from batch to visualization function
+    :param params: (dict) Parameters found in the yaml config file.
+    :param inputs: (tensor) inputs as pytorch tensors with dimensions (batch_size, channels, width, height)
+    :param outputs: (tensor) outputs as pytorch tensors with dimensions (batch_size, channels, width, height)
+    :param batch_index: (int) index of batch inside epoch
+    :param vis_path: path where visualisation images will be saved
+    :param labels: (tensor) labels as pytorch tensors with dimensions (batch_size, channels, width, height)
+    :param dataset: name of dataset for file naming purposes (ex. 'tst')
+    :param ep_num: (int) number of epoch for file naming purposes
     :return:
     """
     assert params['global']['task'] == 'segmentation'
-    labels = [None]*(len(outputs)) if not labels else labels # Creaty empty list of labels to enable zip operation below if no label
+    labels = [None]*(len(outputs)) if labels is None else labels # Creaty empty list of labels to enable zip operation below if no label
 
     for samp_index, zipped in enumerate(zip(inputs, labels, outputs)):
-
         samp_index = samp_index + len(inputs) * batch_index
         input, label, output = zipped
         vis(params, input, output,
@@ -66,7 +73,7 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
             dataset=dataset,
             ep_num=ep_num)
 
-        max_num_samples = get_key_def('max_num_vis_samples', params['visualization'], 4)
+        max_num_samples = get_key_def('max_num_vis_samples', params['visualization'], 4) #FIXME document
         if (samp_index + 1) >= max_num_samples:
             break
 
@@ -95,7 +102,7 @@ def vis(params, input, output, vis_path, sample_num, label=None, dataset='', ep_
     output = softmax(output)
 
     input = input.cpu().permute(1, 2, 0).numpy()  # channels last
-    label = label.cpu().numpy() if label else None
+    label = label.cpu().numpy() if label is not None else None
     output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
 
     # PREPARE HEATMAPS FROM SOFTMAX OUTPUT
@@ -115,7 +122,7 @@ def vis(params, input, output, vis_path, sample_num, label=None, dataset='', ep_
         input = input[:, :, :3]  # take three first bands assuming they are RGB in correct order
     input_PIL = Image.fromarray(input.astype(np.uint8), mode='RGB')
 
-    if label and ignore_index < 0:  # TODO: test when ignore_index is smaller than 1.
+    if label is not None and ignore_index < 0:  # TODO: test when ignore_index is smaller than 1.
         warnings.warn('Choose 255 as ignore_index to visualize. Problems may occur otherwise...')
         label[label == ignore_index] = 255  # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
 
@@ -123,17 +130,17 @@ def vis(params, input, output, vis_path, sample_num, label=None, dataset='', ep_
     if colormap_file:
         classes, html_colors = colormap_reader(colormap_file)
         assert len(html_colors) >= len(np.unique(output_argmax))
-        if label and ignore_index in np.unique(label):
-            html_colors.append('white')  # for ignore_index values in labels. #TODO: test this.
+        if label is not None and ignore_index in np.unique(label):
+            html_colors.append('white')  # for ignore_index values in labels. #TODO: test this with a label containt ignore_index values
         cmap = colors.ListedColormap(html_colors)
     else:
-        classes = range(0, output.shape[2])
+        classes = range(0, output.shape[2]) # TODO: since list of classes are only useful for naming each heatmap, this list could be inside the heatmaps_dict, e.g. {1: {heatmap: perclass_output_PIL, class_name: 'roads'}, ...}
         cmap = cm.get_cmap('Set1')
 
     # CONVERT OUTPUT AND LABEL, IF PROVIDED, TO RGB WITH MATPLOTLIB'S COLORMAP OBJECT
     output_argmax_color = cmap(output_argmax)
     output_argmax_PIL = Image.fromarray((output_argmax_color[:, :, :3] * 255).astype(np.uint8), mode='RGB')
-    if label:
+    if label is not None:
         label_color = cmap(label)
         label_PIL = Image.fromarray((label_color[:, :, :3] * 255).astype(np.uint8), mode='RGB')
     else:
@@ -146,7 +153,7 @@ def vis(params, input, output, vis_path, sample_num, label=None, dataset='', ep_
     else:  # SAVE PIL IMAGES DIRECTLY TO FILE
         if not vis_path.joinpath(f'{dataset}_{sample_num:03d}_satimg.jpg').is_file():
             input_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_satimg.jpg'))
-            if label:
+            if label is not None:
                 label_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_label.png')) # save label
         output_argmax_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_output_ep{ep_num:03d}.png'))
 

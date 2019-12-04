@@ -68,7 +68,7 @@ def samples_preparation(in_img_array, label_array, sample_size, overlap, samples
     :param in_img_array: numpy array of the input image
     :param label_array: numpy array of the annotation image
     :param sample_size: (int) Size (in pixel) of the samples to create #FIXME: could there be a different sample size for tst dataset? shows results closer to inference
-    :param overlap: (int) Distance (in pixel) between samples in both images
+    :param overlap: (int) Desired overlap between samples in %
     :param samples_count: (dict) Current number of samples created (will be appended and return)
     :param num_classes: (dict) Number of classes in reference data (will be appended and return)
     :param samples_file: (hdf5 dataset) hdfs file where samples will be written
