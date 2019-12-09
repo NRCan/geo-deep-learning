@@ -38,8 +38,8 @@ def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vec
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
     np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
-    for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image: {Path(input_image.files[0]).stem}'):
-        np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
+    for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
+        np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0  # TODO: reading a large image >10Gb is VERY slow. Is this line the culprit?
 
     # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
     # Scale array values from range [0,255] to values in config (e.g. [0,1])

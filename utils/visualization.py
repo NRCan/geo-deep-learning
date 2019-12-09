@@ -11,7 +11,6 @@ import csv
 
 from utils.utils import minmax_scale, get_key_def
 
-
 def grid_vis(input, output, heatmaps, classes, label=None):
     """ Create a grid with PIL images and titles
     :param input: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
@@ -63,19 +62,15 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
     assert params['global']['task'] == 'segmentation'
     labels = [None]*(len(outputs)) if labels is None else labels # Creaty empty list of labels to enable zip operation below if no label
 
-    for samp_index, zipped in enumerate(zip(inputs, labels, outputs)):
-        samp_index = samp_index + len(inputs) * batch_index
+    for batch_samp_index, zipped in enumerate(zip(inputs, labels, outputs)):
+        epoch_samp_index = batch_samp_index + len(inputs) * batch_index
         input, label, output = zipped
         vis(params, input, output,
             vis_path=vis_path,
-            sample_num=samp_index+1,
+            sample_num=epoch_samp_index+1,
             label=label,
             dataset=dataset,
             ep_num=ep_num)
-
-        max_num_samples = get_key_def('max_num_vis_samples', params['visualization'], 4) #FIXME document
-        if (samp_index + 1) >= max_num_samples:
-            break
 
 
 def vis(params, input, output, vis_path, sample_num, label=None, dataset='', ep_num=0):

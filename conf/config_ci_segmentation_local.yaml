@@ -65,7 +65,7 @@ inference:
 # Visualization parameters
 
 visualization:
-  max_num_vis_samples: 24
+  vis_batch_range: [0,200,10] #start, finish, increment  # TODO: document. If empty, no visualization will be performed no matter the value of other parameters
   vis_at_checkpoint: True
   vis_at_ckpt_min_ep_diff: 0
   vis_at_ckpt_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.

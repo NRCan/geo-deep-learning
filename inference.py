@@ -143,7 +143,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
         raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
 
 
-def classifier(params, img_list, model, device):
+def classifier(params, img_list, model, device, working_folder):
     """
     Classify images by class
     :param params:
@@ -206,9 +206,9 @@ def classifier(params, img_list, model, device):
     csv_results = 'classification_results.csv'
     if bucket:
         np.savetxt(csv_results, classified_results, fmt='%s', delimiter=',')
-        bucket.upload_file(csv_results, os.path.join(params['inference']['working_folder'], csv_results)) #TODO: pathlib
+        bucket.upload_file(csv_results, os.path.join(working_folder, csv_results)) #TODO: pathlib
     else:
-        np.savetxt(os.path.join(params['inference']['working_folder'], csv_results), classified_results, fmt='%s', #TODO: pathlib
+        np.savetxt(os.path.join(working_folder, csv_results), classified_results, fmt='%s', #TODO: pathlib
                    delimiter=',')
 
 
@@ -235,8 +235,9 @@ def main(params):
     num_bands = params['global']['number_of_bands']
 
     img_dir_or_csv = params['inference']['img_dir_or_csv_file']
-    working_folder = Path(params['inference']['working_folder']) if params['inference']['working_folder'] \
-        else Path(params['inference']['state_dict_path']).parent.joinpath(f'inf_{chunk_size}_overlap{overlap}_{num_bands}bands')
+
+    default_working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
+    working_folder = get_key_def('working_folder', params['inference'], default_working_folder)
     Path.mkdir(working_folder, exist_ok=True)
     print(f'Inferences will be saved to: {working_folder}\n\n')
 
@@ -279,7 +280,7 @@ def main(params):
         else:
             img_dir = Path(img_dir_or_csv)
             assert img_dir.is_dir(), f'Could not find directory "{img_dir_or_csv}"'
-            list_img_paths = sorted(img_dir.glob('*.tif'))
+            list_img_paths = sorted(img_dir.glob('*.tif'))  # FIXME: what if .tif is in caps (.TIF) ?
             list_img = []
             for img_path in list_img_paths:
                 img = {}
@@ -288,7 +289,7 @@ def main(params):
             assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
 
     if params['global']['task'] == 'classification':
-        classifier(params, list_img, model, device)  # FIXME: why don't we load from checkpoint in classification?
+        classifier(params, list_img, model, device, working_folder)  # FIXME: why don't we load from checkpoint in classification?
 
     elif params['global']['task'] == 'segmentation':
         if bucket:
@@ -342,9 +343,10 @@ def main(params):
                                                   img_max_val=np.max(np_input_image)))
 
                 input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
-                assert input_band_count == params['global']['number_of_bands'], \
-                    f"The number of bands in the input image ({input_band_count}) and the parameter" \
-                    f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
+                if input_band_count != params['global']['number_of_bands']:
+                    warnings.warn(f"Skipping image: The number of bands in the input image ({input_band_count}) and the parameter" \
+                    f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical")
+                    continue
 
                 # START INFERENCES ON SUB-IMAGES
                 sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_corrected,
@@ -363,8 +365,7 @@ def main(params):
                 create_new_raster_from_base(local_img, inference_image, sem_seg_results)
                 tqdm.write(f"\n\nSemantic segmentation of image {img_name} completed\n\n")
                 if bucket:
-                    bucket.upload_file(inference_image, os.path.join(params['inference']['working_folder'],
-                                                                     f"{img_name.split('.')[0]}_inference.tif"))
+                    bucket.upload_file(inference_image, os.path.join(working_folder, f"{img_name.split('.')[0]}_inference.tif"))
     else:
         raise ValueError(
             f"The task should be either classification or segmentation. The provided value is {params['global']['task']}")

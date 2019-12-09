@@ -34,39 +34,24 @@ def net(net_params, num_channels, inference=False):
     model_name = net_params['global']['model_name'].lower()
     num_bands = int(net_params['global']['number_of_bands'])
     msg = f'Number of bands specified incompatible with this model. Requires 3 band data.'
-    state_dict_path = ''
+    dropout = get_key_def('dropout', net_params['training'], False)
+    dropout_prob = get_key_def('dropout_prob', net_params['training'], 0.5)
+
     if model_name == 'unetsmall':
-        model = unet.UNetSmall(num_channels,
-                               num_bands,
-                               net_params['training']['dropout'],
-                               net_params['training']['dropout_prob'])
+        model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'unet':
-        model = unet.UNet(num_channels,
-                          num_bands,
-                          net_params['training']['dropout'],
-                          net_params['training']['dropout_prob'])
+        model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'ternausnet':
         assert num_bands == 3, msg
         model = TernausNet.ternausnet(num_channels)
     elif model_name == 'checkpointed_unet':
-        model = checkpointed_unet.UNetSmall(num_channels,
-                                            num_bands,
-                                            net_params['training']['dropout'],
-                                            net_params['training']['dropout_prob'])
+        model = checkpointed_unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'inception':
-        model = inception.Inception3(num_channels,
-                                     num_bands)
+        model = inception.Inception3(num_channels, num_bands)
     elif model_name == 'fcn_resnet101':
         assert num_bands == 3, msg
-        coco_model = models.segmentation.fcn_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
         model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
                                                   aux_loss=None)
-        chopped_dict = chop_layer(coco_model.state_dict(), layer_names=['classifier.4'])
-        del coco_model
-        # load the new state dict
-        # When strict=False, allows to load only the variables that are identical between the two models irrespective of
-        # whether one is subset/superset of the other.
-        model.load_state_dict(chopped_dict, strict=False)
     elif model_name == 'deeplabv3_resnet101':
         try:
             model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, in_channels=num_bands,
@@ -76,9 +61,6 @@ def net(net_params, num_channels, inference=False):
                                  'with more or less than 3 bands'
             model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True,
                                                             num_classes=num_channels, aux_loss=None)
-        #if num_bands != 3:
-        #    setattr(model.backbone.conv1, 'in_channels', num_bands)
-        #    print(f'EXPERIMENTAL FEATURE: Instanciated model {model_name} expected 3 band data. Model definition redefinied to match {num_bands} band data')
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
 
@@ -101,15 +83,21 @@ def net(net_params, num_channels, inference=False):
         state_dict_path = net_params['inference']['state_dict_path']
         assert Path(net_params['inference']['state_dict_path']).is_file(), f"Could not locate {net_params['inference']['state_dict_path']}"
         checkpoint = load_checkpoint(state_dict_path)
-    elif model_name == 'deeplabv3_resnet101':
+    elif model_name == 'deeplabv3_resnet101':  # TODO: next two elif statements could be simplified.
         # default to pretrained on coco (21 classes)
         coco_model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True,
                                                         num_classes=21, aux_loss=None)
         checkpoint = coco_model.state_dict()
         temp_checkpoint = {}
         temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}  # Place entire state_dict inside 'model' key
-        del coco_model
-        del checkpoint
+        del coco_model, checkpoint
+        checkpoint = temp_checkpoint
+    elif model_name == 'fcn_resnet101':
+        coco_model = models.segmentation.fcn_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
+        checkpoint = coco_model.state_dict()
+        temp_checkpoint = {}
+        temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}  # Place entire state_dict inside 'model' key
+        del coco_model, checkpoint
         checkpoint = temp_checkpoint
     else:
         checkpoint = None

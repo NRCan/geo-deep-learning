@@ -161,6 +161,7 @@ def main(params):
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
     min_annot_perc = params['sample']['min_annotated_percent']
+    num_bands = params['global']['number_of_bands']
     debug = get_key_def('debug_mode', params['global'], False)
     if debug:
         warnings.warn(f'Debug mode activate. Execution may take longer...')
@@ -175,11 +176,11 @@ def main(params):
             final_samples_folder = os.path.join(data_path, "samples")
         else:
             final_samples_folder = "samples"
-        samples_folder = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' # TODO: validate this is preferred name structure
+        samples_folder = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands' # TODO: validate this is preferred name structure
 
     else:
         list_data_prep = read_csv(csv_file)
-        samples_folder = data_path.joinpath(f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}')
+        samples_folder = data_path.joinpath(f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands')
 
     if samples_folder.is_dir():
         warnings.warn(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')
@@ -279,8 +280,11 @@ def main(params):
                 if info['meta'] is not None and isinstance(info['meta'], str) and Path(info['meta']).is_file():
                     metadata = read_parameters(info['meta'])
 
+                # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
+                #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
                 input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
-                assert input_band_count == params['global']['number_of_bands'], \
+                # FIXME: could this assert be done before getting into this big for loop?
+                assert input_band_count == num_bands, \
                     f"The number of bands in the input image ({input_band_count}) and the parameter" \
                     f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
 

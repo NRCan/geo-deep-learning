@@ -305,7 +305,8 @@ def main(params, config_path):
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
     min_annot_perc = params['sample']['min_annotated_percent']
-    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}'  # FIXME: preferred name structure? document!
+    num_bands = params['global']['number_of_bands']
+    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: preferred name structure? document!
     samples_folder = Path(data_path).joinpath(samples_folder_name) if task == 'segmentation' else Path(data_path)
 
     modelname = config_path.stem
@@ -330,6 +331,7 @@ def main(params, config_path):
 
     since = time.time()
     best_loss = 999
+    last_vis_epoch = 0
 
     progress_log = Path(output_path) / 'progress.log'
     if not progress_log.exists():
@@ -381,21 +383,24 @@ def main(params, config_path):
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
-    # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
-    vis_at_init = get_key_def('vis_at_init', params['visualization'], False)
-    max_num_vis_samples = get_key_def('max_num_vis_samples', params['visualization'], 24)
-    vis_at_init_dataset = get_key_def('vis_at_init_dataset', params['visualization'], 'val')
-    eval_loader = val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader
-    if vis_at_init and task == 'segmentation':
-        tqdm.write(f'Visualizing initialized model on {max_num_vis_samples} {vis_at_init_dataset} samples...\n')
-        vis_from_dataloader(params=params,
-                            eval_loader=eval_loader,
-                            model=model,
-                            ep_num=0,
-                            output_path=output_path,
-                            dataset=vis_at_init_dataset,
-                            device=device,
-                            max_num_samples=max_num_vis_samples)
+    # VISUALIZATION: generate pngs of inputs, labels and outputs
+    vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
+    if vis_batch_range is not None:
+        # Make sure user-provided range is a tuple with 2 or 3 integers. Check once for all visualization tasks.
+        assert isinstance(vis_batch_range, list) and 2 <= len(vis_batch_range) <= 3 and all(isinstance(x, int) for x in vis_batch_range)
+        assert task == 'segmentation', f'Visualization is only for semantic segmentation tasks'
+        vis_at_init = get_key_def('vis_at_init', params['visualization'], False)
+        vis_at_init_dataset = get_key_def('vis_at_init_dataset', params['visualization'], 'val')
+        if vis_at_init:
+            tqdm.write(f'Visualizing initialized model on batch range {vis_batch_range} from {vis_at_init_dataset} dataset...\n')
+            vis_from_dataloader(params=params,
+                                eval_loader=val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader,
+                                model=model,
+                                ep_num=0,
+                                output_path=output_path,
+                                dataset=vis_at_init_dataset,
+                                device=device,
+                                vis_batch_range=vis_batch_range)
 
     for epoch in range(0, params['training']['num_epochs']):
         print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
@@ -434,7 +439,7 @@ def main(params, config_path):
             val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         if val_loss < best_loss:
-            print("save checkpoint")
+            tqdm.write("save checkpoint\n")
             best_loss = val_loss
             # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
@@ -451,21 +456,18 @@ def main(params, config_path):
             # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
             vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
             ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4) # FIXME: document this in README
-            max_num_vis_samples = get_key_def('max_num_vis_samples', params['visualization'], 24)
             vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
-            eval_loader = val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader
-            last_vis_epoch = 0
-            if vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
-                assert task == 'segmentation', f'Visualization is only for semantic segmentation tasks'
-                tqdm.write(f'Visualizing on {max_num_vis_samples} {vis_at_ckpt_dataset} samples...')
+            if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
+                if last_vis_epoch == 0:
+                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for batches {vis_batch_range}')
                 vis_from_dataloader(params=params,
-                                    eval_loader=eval_loader,
+                                    eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
                                     model=model,
                                     ep_num=epoch+1,
                                     output_path=output_path,
                                     dataset=vis_at_ckpt_dataset,
                                     device=device,
-                                    max_num_samples=max_num_vis_samples)
+                                    vis_batch_range=vis_batch_range)
                 last_vis_epoch = epoch
 
         if bucket_name:
@@ -523,6 +525,9 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     """
     model.train()
     train_metrics = create_metrics_dict(num_classes)
+    vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
+    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
+    min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
@@ -546,13 +551,10 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
-                if get_key_def('vis_at_train', vis_params['visualization'], False):
-                    max_num_vis_samples = get_key_def('max_num_vis_samples', vis_params['visualization'], False)
-                    max_batch_vis = round(max_num_vis_samples / batch_size)
-                    vis_path = progress_log.parent.joinpath('visualization')
-                    if ep_idx == 0:
-                        tqdm.write(f'Visualizing on train outputs for max {max_batch_vis} batches. All images will be saved to {vis_path}\n')
-                    if batch_index < max_batch_vis:
+                if vis_batch_range is not None and vis_at_train and batch_index in range(min_vis_batch, max_vis_batch, increment):
+                        vis_path = progress_log.parent.joinpath('visualization')
+                        if ep_idx == 0:
+                            tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
                         vis_from_batch(params, inputs, outputs,
                                        batch_index=batch_index,
                                        vis_path=vis_path,
@@ -601,6 +603,9 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     """
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
+    vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
+    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
+    min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
@@ -624,13 +629,11 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
 
-                    if get_key_def('vis_at_evaluation', vis_params['visualization'], False):
-                        max_num_vis_samples = get_key_def('max_num_vis_samples', vis_params['visualization'], False)
-                        max_batch_vis = round(max_num_vis_samples/batch_size)
-                        vis_path = progress_log.parent.joinpath('visualization')
-                        if ep_idx == 0:
-                            tqdm.write(f'Visualizing on {dataset} outputs for max {max_batch_vis} batches. All images will be saved to {vis_path}\n')
-                        if batch_index < max_batch_vis:
+                    if vis_batch_range is not None and vis_at_eval and batch_index in range(min_vis_batch, max_vis_batch, increment):
+                            vis_path = progress_log.parent.joinpath('visualization')
+                            if ep_idx == 0:
+                                tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
+                                           f'images will be saved to {vis_path}\n')
                             vis_from_batch(params, inputs, outputs,
                                            batch_index=batch_index,
                                            vis_path=vis_path,
@@ -673,7 +676,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     return eval_metrics
 
 
-def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, max_num_samples=8):
+def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
     """
     Use a model and dataloader to provide outputs that can then be sent to vis_from_batch function to visualize performances of model, for example.
     :param params: (dict) Parameters found in the yaml config file.
@@ -682,34 +685,33 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
     :param ep_num: epoch index (for file naming purposes)
     :param dataset: (str) 'val or 'tst'
     :param device: device used by pytorch (cpu ou cuda)
-    :param max_num_samples: (int) max number of samples to perform visualization on
+    :param vis_batch_range: (int) max number of samples to perform visualization on
 
     :return:
     """
     assert params['global']['task'] == 'segmentation'
     vis_path = output_path.joinpath(f'visualization')
     tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
+    min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     model.eval()
     with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
         for batch_index, data in enumerate(_tqdm):
-            with torch.no_grad():
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
+            if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
+                with torch.no_grad():
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
 
-                outputs = model(inputs)
-                if isinstance(outputs, OrderedDict):
-                    outputs = outputs['out']
+                    outputs = model(inputs)
+                    if isinstance(outputs, OrderedDict):
+                        outputs = outputs['out']
 
-                vis_from_batch(params, inputs, outputs,
-                               batch_index=batch_index,
-                               vis_path=vis_path,
-                               labels=labels,
-                               dataset=dataset,
-                               ep_num=ep_num)
-
-                if ((batch_index+1) * eval_loader.batch_size) >= max_num_samples:
-                    break
+                    vis_from_batch(params, inputs, outputs,
+                                   batch_index=batch_index,
+                                   vis_path=vis_path,
+                                   labels=labels,
+                                   dataset=dataset,
+                                   ep_num=ep_num)
     tqdm.write(f'Saved visualization figures.\n')
 
 
