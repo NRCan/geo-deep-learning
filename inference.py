@@ -140,7 +140,9 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
 
             # Resize the output array to the size of the input image and write it
             output_mask_cropped = output_mask[overlay:(h + overlay), overlay:(w + overlay)].astype(np.uint8)
-            output_mask_softmax_cropped = output_mask_softmax[overlay:(h + overlay), overlay:(w + overlay), :].astype(np.uint8)
+            output_mask_softmax_cropped = np.moveaxis(output_mask_softmax, 0, -1)
+            output_mask_softmax_cropped = output_mask_softmax_cropped[overlay:(h + overlay), overlay:(w + overlay), :].astype(np.uint8)
+
 
             return output_mask_cropped, output_mask_softmax_cropped
     else:
