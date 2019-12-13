@@ -12,6 +12,8 @@ import torchvision
 import math
 from collections import OrderedDict
 import warnings
+
+from matplotlib import cm
 from tqdm import tqdm
 from pathlib import Path
 
@@ -19,7 +21,7 @@ from models.model_choice import net
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
 from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.CreateDataset import MetaSegmentationDataset
-from utils.visualization import vis_from_batch
+from utils.visualization import vis_from_batch, vis, colormap_reader
 
 try:
     import boto3
@@ -58,6 +60,9 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
         overlay: amount of overlay to apply
         num_classes: number of different classes that may be predicted by the model
         device: device used by pytorch (cpu ou cuda)
+        meta_map:
+        metadata:
+        output_path: path to save debug files
 
         returns a numpy array of the same size (h,w) as the input image, where each value is the predicted output.
     """
@@ -110,9 +115,6 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                         if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
                             outputs = outputs['out']
 
-                        if get_key_def('vis_at_inference', params['visualization'], False): #VISUALIZATION
-                            vis_from_batch(params, inputs, outputs, batch_index=0, vis_path=output_path, dataset='inference')
-
                         output_counts[row_start:row_end, col_start:col_end] += 1
 
                         # Add inference on sub-image to all completed inferences on previous sub-images.
@@ -138,7 +140,9 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
 
             # Resize the output array to the size of the input image and write it
             output_mask_cropped = output_mask[overlay:(h + overlay), overlay:(w + overlay)].astype(np.uint8)
-            return output_mask_cropped
+            output_mask_softmax_cropped = output_mask_softmax[overlay:(h + overlay), overlay:(w + overlay), :].astype(np.uint8)
+
+            return output_mask_cropped, output_mask_softmax_cropped
     else:
         raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
 
@@ -349,7 +353,7 @@ def main(params):
                     continue
 
                 # START INFERENCES ON SUB-IMAGES
-                sem_seg_results = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_corrected,
+                sem_seg_results, sem_seg_results_per_class = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_corrected,
                                                     device, meta_map, metadata, output_path=working_folder)
 
                 if debug:
@@ -363,6 +367,17 @@ def main(params):
                 # CREATE GEOTIF FROM METADATA OF ORIGINAL IMAGE
                 tqdm.write(f'Saving inference...')
                 create_new_raster_from_base(local_img, inference_image, sem_seg_results)
+
+                if get_key_def('vis_at_inference', params['visualization'], False):  # VISUALIZATION  # FIXME: consider refactoring visualization functions for this
+                    tqdm.write(f'Saving heatmaps...')
+                    colormap_file = get_key_def('colormap_file', params['visualization'], None)
+                    classes, _ = colormap_reader(colormap_file) if colormap_file is not None else range(0, sem_seg_results_per_class.shape[2])
+                    for i in range(sem_seg_results_per_class.shape[2]):  # for each channel (i.e. class) in output
+                        perclass_output = sem_seg_results_per_class[:, :, i]
+                        heatmap = np.uint8(cm.get_cmap('inferno')(perclass_output) * 255)  # Convert with colormap, extend to 0-255 range, change to uint8 type
+                        heatmap_name = working_folder.joinpath(f"{img_name.split('.')[0]}_inference_{classes[i]}.tif")
+                        create_new_raster_from_base(local_img, heatmap_name, heatmap)
+
                 tqdm.write(f"\n\nSemantic segmentation of image {img_name} completed\n\n")
                 if bucket:
                     bucket.upload_file(inference_image, os.path.join(working_folder, f"{img_name.split('.')[0]}_inference.tif"))

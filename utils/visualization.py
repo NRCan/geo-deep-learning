@@ -77,7 +77,7 @@ def vis(params, input, output, vis_path, sample_num, label=None, dataset='', ep_
     '''
     :param params: parameters from .yaml config file
     :param input: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
-    :param output: (tensor) output array as pytorch tensor, e.g. as returned by dataloader
+    :param output: (tensor) output array as pytorch tensor before argmax, e.g. as returned by dataloader
     :param vis_path: path where visualisation images will be saved
     :param sample_num: index of sample if function is from for loop iterating through a batch or list of images.
     :param label: (tensor) label array as pytorch tensor, e.g. as returned by dataloader. Optional.
