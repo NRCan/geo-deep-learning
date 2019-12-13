@@ -1,6 +1,6 @@
 language: python
 python:
-  - "3.6"
+  - "3.7"
 install:
   - wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
   - bash miniconda.sh -b -p $HOME/miniconda
@@ -9,11 +9,11 @@ install:
   - conda config --set always_yes yes
   - conda config --set changeps1 no
   - conda config --prepend channels conda-forge
-  - conda config --prepend channels pytorch
   - conda update -q conda
   - conda info -a
-  - conda create -q -n ci_env python=3.6 pytorch-cpu torchvision-cpu torchvision ruamel_yaml h5py>=2.10 scikit-image scikit-learn fiona rasterio tqdm
+  - conda create -n ci_env python=3.7 shapely rtree
   - source activate ci_env
+  - pip install fiona
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
   - unzip ./data/classification_data.zip -d ./data

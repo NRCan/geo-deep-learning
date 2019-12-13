@@ -15,9 +15,7 @@ def load_checkpoint(filename):
     '''
     try:
         print(f"=> loading model '{filename}'\n")
-
         checkpoint = torch.load(filename) if torch.cuda.is_available() else torch.load(filename, map_location='cpu')
-
         # For loading external models with different structure in state dict. May cause problems when trying to load optimizer
         if 'model' not in checkpoint.keys():
             temp_checkpoint = {}
@@ -34,6 +32,8 @@ def net(net_params, num_channels, inference=False):
     model_name = net_params['global']['model_name'].lower()
     num_bands = int(net_params['global']['number_of_bands'])
     msg = f'Number of bands specified incompatible with this model. Requires 3 band data.'
+    train_state_dict_path = get_key_def('state_dict_path', net_params['training'], None)
+    pretrained = get_key_def('pretrained', net_params['training'], True) if not inference else False
     dropout = get_key_def('dropout', net_params['training'], False)
     dropout_prob = get_key_def('dropout_prob', net_params['training'], 0.5)
 
@@ -75,30 +75,28 @@ def net(net_params, num_channels, inference=False):
         model = coordconv.swap_coordconv_layers(model, centered=centered, normalized=normalized, noise=noise,
                                                 radius_channel=radius_channel, scale=scale)
 
-    if not inference and net_params['training']['state_dict_path']:
-        assert Path(net_params['training']['state_dict_path']).is_file()
-        state_dict_path = net_params['training']['state_dict_path']
-        checkpoint = load_checkpoint(state_dict_path)
-    elif inference:
+    if inference:
         state_dict_path = net_params['inference']['state_dict_path']
         assert Path(net_params['inference']['state_dict_path']).is_file(), f"Could not locate {net_params['inference']['state_dict_path']}"
         checkpoint = load_checkpoint(state_dict_path)
-    elif model_name == 'deeplabv3_resnet101':  # TODO: next two elif statements could be simplified.
-        # default to pretrained on coco (21 classes)
-        coco_model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True,
-                                                        num_classes=21, aux_loss=None)
+    elif train_state_dict_path is not None:
+        assert Path(train_state_dict_path).is_file()
+        checkpoint = load_checkpoint(train_state_dict_path)
+    elif pretrained and (model_name == ('deeplabv3_resnet101' or 'fcn_resnet101')):
+        print(f'Retrieving coco checkpoint for {model_name}...\n')
+        if model_name == 'deeplabv3_resnet101':  # default to pretrained on coco (21 classes)
+            coco_model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
+        else:
+            coco_model = models.segmentation.fcn_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
         checkpoint = coco_model.state_dict()
+        # Place entire state_dict inside 'model' key for compatibility with the rest of GDL workflow
         temp_checkpoint = {}
-        temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}  # Place entire state_dict inside 'model' key
+        temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}
         del coco_model, checkpoint
         checkpoint = temp_checkpoint
-    elif model_name == 'fcn_resnet101':
-        coco_model = models.segmentation.fcn_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
-        checkpoint = coco_model.state_dict()
-        temp_checkpoint = {}
-        temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}  # Place entire state_dict inside 'model' key
-        del coco_model, checkpoint
-        checkpoint = temp_checkpoint
+    elif pretrained:
+        warnings.warn(f'No pretrained checkpoint found for {model_name}.')
+        checkpoint = None
     else:
         checkpoint = None
 

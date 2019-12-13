@@ -185,7 +185,7 @@ def create_dataloader(data_path, batch_size, task, num_devices, params, samples_
         assert Path(samples_folder).is_dir(), f'Could not locate: {samples_folder}'
         assert len([f for f in Path(samples_folder).glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
         num_samples = get_num_samples(samples_path=samples_folder, params=params)
-        print(f"Number of samples : {num_samples}\n\n")
+        print(f"Number of samples : {num_samples}\n")
         meta_map = get_key_def("meta_map", params["global"], {})
         if not meta_map:
             dataset_constr = CreateDataset.SegmentationDataset
@@ -276,6 +276,7 @@ def set_hyperparameters(params, num_classes, model, checkpoint):
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
     if checkpoint:
+        tqdm.write(f'Loading checkpoint...')
         model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer)
 
     return model, criterion, optimizer, lr_scheduler
@@ -288,6 +289,10 @@ def main(params, config_path):
     :param config_path: (str) Path to the yaml config file.
 
     """
+    debug = get_key_def('debug_mode', params['global'], False)
+    if debug:
+        warnings.warn(f'Debug mode activated. Some debug functions may cause delays in execution.')
+
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     num_classes = params['global']['num_classes']
     task = params['global']['task']
@@ -297,7 +302,7 @@ def main(params, config_path):
         num_classes_corrected = num_classes
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    model, checkpoint, model_name = net(params, num_classes_corrected)
+    model, checkpoint, model_name = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
     tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
@@ -335,7 +340,7 @@ def main(params, config_path):
 
     progress_log = Path(output_path) / 'progress.log'
     if not progress_log.exists():
-        progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))    # Add header
+        progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))  # Add header
 
     trn_log = InformationLogger(output_path, 'trn')
     val_log = InformationLogger(output_path, 'val')
@@ -347,11 +352,11 @@ def main(params, config_path):
     lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-    print(f"Number of cuda devices requested: {params['global']['num_gpus']}. Cuda devices available: {lst_device_ids}")
+    print(f"Number of cuda devices requested: {params['global']['num_gpus']}. Cuda devices available: {lst_device_ids}\n")
     if num_devices == 1:
-        print(f"Using Cuda device {lst_device_ids[0]}")
+        print(f"Using Cuda device {lst_device_ids[0]}\n")
     elif num_devices > 1:
-        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
+        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
         try: # FIXME: For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
@@ -362,8 +367,9 @@ def main(params, config_path):
                                     device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
 
     else:
-        warnings.warn(f"No Cuda device available. This process will only run on CPU")
+        warnings.warn(f"No Cuda device available. This process will only run on CPU\n")
 
+    tqdm.write(f'Creating dataloaders from data in {samples_folder}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
                                                                        batch_size=batch_size,
                                                                        task=task,
@@ -371,13 +377,14 @@ def main(params, config_path):
                                                                        params=params,
                                                                        samples_folder=samples_folder)
 
+    tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
     model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
 
     criterion = criterion.to(device)
     try: # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
         model.to(device)
     except RuntimeError:
-        warnings.warn(f"Unable to use device. Trying device 0")
+        warnings.warn(f"Unable to use device. Trying device 0...\n")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
 
@@ -386,8 +393,8 @@ def main(params, config_path):
     # VISUALIZATION: generate pngs of inputs, labels and outputs
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
     if vis_batch_range is not None:
-        # Make sure user-provided range is a tuple with 2 or 3 integers. Check once for all visualization tasks.
-        assert isinstance(vis_batch_range, list) and 2 <= len(vis_batch_range) <= 3 and all(isinstance(x, int) for x in vis_batch_range)
+        # Make sure user-provided range is a tuple with 3 integers (start, finish, increment). Check once for all visualization tasks.
+        assert isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int) for x in vis_batch_range)
         assert task == 'segmentation', f'Visualization is only for semantic segmentation tasks'
         vis_at_init = get_key_def('vis_at_init', params['visualization'], False)
         vis_at_init_dataset = get_key_def('vis_at_init_dataset', params['visualization'], 'val')
@@ -416,7 +423,8 @@ def main(params, config_path):
                            ep_idx=epoch,
                            progress_log=progress_log,
                            vis_params=params,
-                           device=device)
+                           device=device,
+                           debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
 
@@ -431,7 +439,8 @@ def main(params, config_path):
                                 vis_params=params,
                                 batch_metrics=params['training']['batch_metrics'],
                                 dataset='val',
-                                device=device)
+                                device=device,
+                                debug=debug)
         val_loss = val_report['loss'].avg
         if params['training']['batch_metrics'] is not None:
             val_log.add_values(val_report, epoch)
@@ -566,7 +575,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
             train_metrics['loss'].update(loss.item(), batch_size)
 
-            if device.type == 'cuda' and debug: #FIXME: not showing in HPC
+            if device.type == 'cuda' and debug:
                 res, mem = gpu_stats(device=device.index)
                 _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
                                               gpu_perc=f'{res.gpu} %',
@@ -585,7 +594,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     return train_metrics
 
 
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None):
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -723,10 +732,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     config_path = Path(args.param_file)
     params = read_parameters(args.param_file)
-
-    debug = get_key_def('debug_mode', params['global'], False)
-    if debug:
-        warnings.warn(f'Debug mode activated. Some debug functions may cause delays in execution.')
 
     main(params, config_path)
     print('End of training')
