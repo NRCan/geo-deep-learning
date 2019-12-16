@@ -28,7 +28,7 @@ sample:
   min_annotated_percent: 10 # Min % of non background pixels in stored samples. Default: 0
   mask_reference: False
 
-# Training parameters; used in train_model.py ----------------------
+# Training parameters; used in train_segmentation.py ----------------------
 
 training:
   state_dict_path:    # optional

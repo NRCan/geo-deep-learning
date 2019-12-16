@@ -7,12 +7,12 @@
     * [Models available](#models-available)
     * [csv preparation](#csv-preparation)
     * [images_to_samples.py](#images_to_samplespy)
-    * [train_model.py](#train_modelpy)
+    * [train_segmentation.py](#train_segmentationpy)
     * [inference.py](#inferencepy)
 - [Classification Task](#Classification-Task)
     * [Models available](#models-available-1)
     * [Data preparation](#Data-preparation)
-    * [train_model.py](#train_modelpy-1)
+    * [train_classification.py](#train_classificationpy-1)
     * [inference.py](#inferencepy-1)
     
 # Geo-Deep-Learning overview
@@ -62,7 +62,7 @@ After installing the required computing environment (see next section), one need
 1. Start your task using one of the following command:
     ```shell
     python images_to_samples.py ./conf/config.yaml
-    python train_model.py ./conf/config.yaml
+    python train_segmentation.py ./conf/config.yaml
     python inference.py ./conf/config.yaml
     ```
 
@@ -149,13 +149,13 @@ Process:
     - Divide images in smaller samples of size and distance specified in the configuration file. Visual representation of this is provided [here](https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f)
     - Write samples into the "val", "trn" or "tst" hdfs file, depending on the value contained in the csv file.
 
-## train_model.py
+## train_segmentation.py
 
 The crux of the learning process is in this phase : training.  Samples labeled "trn" as per above are used to train the neural network.  Samples labeled "val" are used to estimate the training error on a set of sub-images not used for training, after every epoch. At the end of all epochs, the model with the lowest error on validation data is loaded and samples labeled "tst" are used to estimate the accuracy of the model on sub-images not used during training or validation.
 
 To launch the program:
 ```
-python train_model.py path/to/config/file/config.yaml
+python train_segmentation.py path/to/config/file/config.yaml
 ```
 Details on parameters used by this module:
 ```yaml
@@ -297,14 +297,14 @@ data_path
 ```
 
 
-## train_model.py
+## train_classification.py
 Samples in the "trn" folder are used to train the model. Samples in the  "val" folder are used to estimate the training error on a set of images not used for training.
 
 During this phase of the classification task, a list of classes is made based on the subfolders in the trn path. The list of classes is saved in a csv file in the same folder as the trained model so that it can be referenced during the classification step.
 
 To launch the program:
 ```
-python train_model.py path/to/config/file/config.yaml
+python train_classification.py path/to/config/file/config.yaml
 ```
 Details on parameters used by this module:
 ```yaml

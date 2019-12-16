@@ -141,7 +141,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
             # Resize the output array to the size of the input image and write it
             output_mask_cropped = output_mask[overlay:(h + overlay), overlay:(w + overlay)].astype(np.uint8)
             output_mask_softmax_cropped = np.moveaxis(output_mask_softmax, 0, -1)
-            output_mask_softmax_cropped = output_mask_softmax_cropped[overlay:(h + overlay), overlay:(w + overlay), :].astype(np.uint8)
+            output_mask_softmax_cropped = output_mask_softmax_cropped[overlay:(h + overlay), overlay:(w + overlay), :]
 
 
             return output_mask_cropped, output_mask_softmax_cropped
@@ -321,10 +321,12 @@ def main(params):
                     inference_image = working_folder.joinpath(f"{img_name.split('.')[0]}_inference.tif")
 
                 assert local_img.is_file(), f"Could not open raster file at {local_img}"
+
+                scale = get_key_def('scale_data', params['global'], None)
                 with rasterio.open(local_img, 'r') as raster:
 
                     np_input_image = image_reader_as_array(input_image=raster,
-                                                           scale=get_key_def('scale_data', params['global'], None),
+                                                           scale=scale,
                                                            aux_vector_file=get_key_def('aux_vector_file',
                                                                                        params['global'], None),
                                                            aux_vector_attrib=get_key_def('aux_vector_attrib',
@@ -363,8 +365,8 @@ def main(params):
                         OrderedDict(result_min_val=np.min(sem_seg_results), result_max_val=np.max(sem_seg_results)))
 
                 if debug and len(np.unique(sem_seg_results)) == 1:
-                    print(
-                        f'Something is wrong. Inference contains only one value. Make sure data scale is coherent with training domain values.')
+                    warnings.warn(f'Inference contains only {np.unique(sem_seg_results)} value. Make sure data scale '
+                                  f'{scale} is identical with scale used for training model.')
 
                 # CREATE GEOTIF FROM METADATA OF ORIGINAL IMAGE
                 tqdm.write(f'Saving inference...')
@@ -375,9 +377,8 @@ def main(params):
                     colormap_file = get_key_def('colormap_file', params['visualization'], None)
                     classes, _ = colormap_reader(colormap_file) if colormap_file is not None else range(0, sem_seg_results_per_class.shape[2])
                     for i in range(sem_seg_results_per_class.shape[2]):  # for each channel (i.e. class) in output
-                        perclass_output = sem_seg_results_per_class[:, :, i]
-                        heatmap = np.uint8(cm.get_cmap('inferno')(perclass_output) * 255)  # Convert with colormap, extend to 0-255 range, change to uint8 type
-                        heatmap_name = working_folder.joinpath(f"{img_name.split('.')[0]}_inference_{classes[i]}.tif")
+                        heatmap = (sem_seg_results_per_class[:, :, i] * 255).astype(np.uint8)
+                        heatmap_name = working_folder.joinpath(f"{img_name.split('.')[0]}_inference_heatmap_{classes[i]}.tif")
                         create_new_raster_from_base(local_img, heatmap_name, heatmap)
 
                 tqdm.write(f"\n\nSemantic segmentation of image {img_name} completed\n\n")

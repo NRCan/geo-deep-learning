@@ -115,10 +115,9 @@ def vis(params, input, output, vis_path, sample_num, label=None, dataset='', ep_
     input = minmax_scale(img=input, orig_range=(scale[0], scale[1]), scale_range=(0, 255)) if scale else input
     if input.shape[2] == 2:
         input = input[:, :, :1]  # take first band (will become grayscale image)
-        mode = 'L'  # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
     elif input.shape[2] > 3:
         input = input[:, :, :3]  # take three first bands assuming they are RGB in correct order
-        mode = 'RGB'
+    mode = 'L' if input.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
     input_PIL = Image.fromarray(input.astype(np.uint8), mode=mode) # TODO: test this with grayscale input.
 
     if label is not None and ignore_index < 0:  # TODO: test when ignore_index is smaller than 1.

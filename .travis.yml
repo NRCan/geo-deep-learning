@@ -8,7 +8,7 @@ install:
   - hash -r
   - conda config --set always_yes yes
   - conda config --set changeps1 no
-  - conda config --prepend channels conda-forge
+  # - conda config --prepend channels conda-forge
   - conda config --prepend channels pytorch
   - conda update -q conda
   - conda info -a
@@ -20,8 +20,8 @@ before_script:
   - unzip ./data/classification_data.zip -d ./data
 script:
   - python images_to_samples.py ./conf/config_ci_segmentation_local.yaml
-  - python train_model.py ./conf/config_ci_segmentation_local.yaml
+  - python train_segmentation.py ./conf/config_ci_segmentation_local.yaml
   - python inference.py ./conf/config_ci_segmentation_local.yaml
-  - python train_model.py ./conf/config_ci_classification_local.yaml
+  - python train_classification.py ./conf/config_ci_classification_local.yaml
   - python inference.py ./conf/config_ci_classification_local.yaml
   

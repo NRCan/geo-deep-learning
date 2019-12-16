@@ -113,14 +113,13 @@ def get_local_classes(num_classes, data_path, output_path):
         wr.writerow(classes)
 
 
-def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
+def download_s3_files(bucket_name, data_path, output_path, num_classes):
     """
     Function to download the required training files from s3 bucket and sets ec2 paths.
     :param bucket_name: (str) bucket in which data is stored if using AWS S3
     :param data_path: (str) EC2 file path of the folder containing h5py files
     :param output_path: (str) EC2 file path in which the model will be saved
     :param num_classes: (int) number of classes
-    :param task: (str) classification or segmentation
     :return: (S3 object) bucket, (str) bucket_output_path, (str) local_output_path, (str) data_path
     """
     bucket_output_path = output_path
@@ -132,81 +131,39 @@ def download_s3_files(bucket_name, data_path, output_path, num_classes, task):
     s3 = boto3.resource('s3')
     bucket = s3.Bucket(bucket_name)
 
-    if task == 'classification':
-        for i in ['trn', 'val', 'tst']:
-            get_s3_classification_images(i, bucket, bucket_name, data_path, output_path, num_classes)
-            class_file = os.path.join(output_path, 'classes.csv')
-            bucket.upload_file(class_file, os.path.join(bucket_output_path, 'classes.csv'))
-        data_path = 'Images'
-
-    elif task == 'segmentation':
-        if data_path:
-            bucket.download_file(os.path.join(data_path, 'samples/trn_samples.hdf5'),
-                                 'samples/trn_samples.hdf5')
-            bucket.download_file(os.path.join(data_path, 'samples/val_samples.hdf5'),
-                                 'samples/val_samples.hdf5')
-            bucket.download_file(os.path.join(data_path, 'samples/tst_samples.hdf5'),
-                                 'samples/tst_samples.hdf5')
-    else:
-        raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
+    for i in ['trn', 'val', 'tst']:
+        get_s3_classification_images(i, bucket, bucket_name, data_path, output_path, num_classes)
+        class_file = os.path.join(output_path, 'classes.csv')
+        bucket.upload_file(class_file, os.path.join(bucket_output_path, 'classes.csv'))
+    data_path = 'Images'
 
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(data_path, batch_size, task, num_devices, params, samples_folder=None):
+def create_classif_dataloader(data_path, batch_size, num_devices):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param data_path: (str) path to the samples folder
     :param batch_size: (int) batch size
-    :param task: (str) classification or segmentation
     :param num_devices: (int) number of GPUs used
-    :param samples_folder: path to folder containting .hdf5 files if task is segmentation
-    :param params: (dict) Parameters found in the yaml config file.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
-    if task == 'classification':
-        num_samples = {}
-        trn_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "trn"),
-                                                       transform=transforms.Compose(
-                                                           [transforms.RandomRotation((0, 275)),
-                                                            transforms.RandomHorizontalFlip(),
-                                                            transforms.Resize(299), transforms.ToTensor()]),
-                                                       loader=loader)
-        val_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "val"),
-                                                       transform=transforms.Compose(
-                                                           [transforms.Resize(299), transforms.ToTensor()]),
-                                                       loader=loader)
-        tst_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "tst"),
-                                                       transform=transforms.Compose(
-                                                           [transforms.Resize(299), transforms.ToTensor()]),
-                                                       loader=loader)
-        num_samples['tst'] = len([f for f in Path(data_path).joinpath('tst').glob('**/*')]) #FIXME assert that f is a file
-    elif task == 'segmentation':
-        assert Path(samples_folder).is_dir(), f'Could not locate: {samples_folder}'
-        assert len([f for f in Path(samples_folder).glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
-        num_samples = get_num_samples(samples_path=samples_folder, params=params)
-        print(f"Number of samples : {num_samples}\n")
-        meta_map = get_key_def("meta_map", params["global"], {})
-        if not meta_map:
-            dataset_constr = CreateDataset.SegmentationDataset
-        else:
-            dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
-        dontcare = get_key_def("ignore_index", params["training"], None)
-        if dontcare == 0:
-            warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
-                          " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-                          " will be remapped to -1 while loading the dataset, and inside the config from now on.")
-            params["training"]["ignore_index"] = -1
-        datasets = []
-
-        for subset in ["trn", "val", "tst"]:
-            datasets.append(dataset_constr(samples_folder, subset,
-                                           max_sample_count=num_samples[subset],
-                                           dontcare=dontcare,
-                                           transform=aug.compose_transforms(params, subset)))
-        trn_dataset, val_dataset, tst_dataset = datasets
-    else:
-        raise ValueError(f"The task should be either classification or segmentation. The provided value is {task}")
+    num_samples = {}
+    trn_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "trn"),
+                                                   transform=transforms.Compose(
+                                                       [transforms.RandomRotation((0, 275)),
+                                                        transforms.RandomHorizontalFlip(),
+                                                        transforms.Resize(299), transforms.ToTensor()]),
+                                                   loader=loader)
+    val_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "val"),
+                                                   transform=transforms.Compose(
+                                                       [transforms.Resize(299), transforms.ToTensor()]),
+                                                   loader=loader)
+    tst_dataset = torchvision.datasets.ImageFolder(os.path.join(data_path, "tst"),
+                                                   transform=transforms.Compose(
+                                                       [transforms.Resize(299), transforms.ToTensor()]),
+                                                   loader=loader)
+    num_samples['tst'] = len([f for f in Path(data_path).joinpath('tst').glob('**/*')]) #FIXME assert that f is a file
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
     num_workers = num_devices * 4 if num_devices > 1 else 4
@@ -296,47 +253,34 @@ def main(params, config_path):
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     num_classes = params['global']['num_classes']
     task = params['global']['task']
-    if task == 'segmentation':
-        num_classes_corrected = num_classes + 1 # + 1 for background # FIXME temporary patch for num_classes problem.
-    elif task == 'classification':
-        num_classes_corrected = num_classes
+    batch_size = params['training']['batch_size']
+    assert task == 'classification', f"The task should be classification. The provided value is {task}"
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    model, checkpoint, model_name = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
-    tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
+    model, checkpoint, model_name = net(params, num_classes)  # pretrained could become a yaml parameter.
+    tqdm.write(f'Instantiated {model_name} model with {num_classes} output channels.\n')
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
 
-    samples_size = params["global"]["samples_size"]
-    overlap = params["sample"]["overlap"]
-    min_annot_perc = params['sample']['min_annotated_percent']
-    num_bands = params['global']['number_of_bands']
-    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: preferred name structure? document!
-    samples_folder = Path(data_path).joinpath(samples_folder_name) if task == 'segmentation' else Path(data_path)
-
     modelname = config_path.stem
-    output_path = Path(samples_folder).joinpath('model') / modelname
+    output_path = Path(data_path).joinpath('model') / modelname
     if output_path.is_dir():
         output_path = Path(str(output_path)+'_'+now)
     output_path.mkdir(parents=True, exist_ok=False)
     shutil.copy(str(config_path), str(output_path))
     tqdm.write(f'Model and log files will be saved to: {output_path}\n\n')
-    task = params['global']['task']
-    batch_size = params['training']['batch_size']
 
     if bucket_name:
         bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
                                                                                data_path=data_path,
                                                                                output_path=output_path,
-                                                                               num_classes=num_classes_corrected,
-                                                                               task=task)
+                                                                               num_classes=num_classes)
 
-    elif not bucket_name and task == 'classification':
+    elif not bucket_name:
         get_local_classes(num_classes, data_path, output_path)
 
     since = time.time()
     best_loss = 999
-    last_vis_epoch = 0
 
     progress_log = Path(output_path) / 'progress.log'
     if not progress_log.exists():
@@ -369,16 +313,13 @@ def main(params, config_path):
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU\n")
 
-    tqdm.write(f'Creating dataloaders from data in {samples_folder}...\n')
-    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
-                                                                       batch_size=batch_size,
-                                                                       task=task,
-                                                                       num_devices=num_devices,
-                                                                       params=params,
-                                                                       samples_folder=samples_folder)
+    tqdm.write(f'Creating dataloaders from data in {Path(data_path)}...\n')
+    trn_dataloader, val_dataloader, tst_dataloader = create_classif_dataloader(data_path=data_path,
+                                                                               batch_size=batch_size,
+                                                                               num_devices=num_devices,)
 
     tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
-    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
+    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes, model, checkpoint)
 
     criterion = criterion.to(device)
     try: # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
@@ -390,25 +331,6 @@ def main(params, config_path):
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
-    # VISUALIZATION: generate pngs of inputs, labels and outputs
-    vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
-    if vis_batch_range is not None:
-        # Make sure user-provided range is a tuple with 3 integers (start, finish, increment). Check once for all visualization tasks.
-        assert isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int) for x in vis_batch_range)
-        assert task == 'segmentation', f'Visualization is only for semantic segmentation tasks'
-        vis_at_init = get_key_def('vis_at_init', params['visualization'], False)
-        vis_at_init_dataset = get_key_def('vis_at_init_dataset', params['visualization'], 'val')
-        if vis_at_init:
-            tqdm.write(f'Visualizing initialized model on batch range {vis_batch_range} from {vis_at_init_dataset} dataset...\n')
-            vis_from_dataloader(params=params,
-                                eval_loader=val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader,
-                                model=model,
-                                ep_num=0,
-                                output_path=output_path,
-                                dataset=vis_at_init_dataset,
-                                device=device,
-                                vis_batch_range=vis_batch_range)
-
     for epoch in range(0, params['training']['num_epochs']):
         print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
 
@@ -417,12 +339,10 @@ def main(params, config_path):
                            criterion=criterion,
                            optimizer=optimizer,
                            scheduler=lr_scheduler,
-                           num_classes=num_classes_corrected,
+                           num_classes=num_classes,
                            batch_size=batch_size,
-                           task=task,
                            ep_idx=epoch,
                            progress_log=progress_log,
-                           vis_params=params,
                            device=device,
                            debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
@@ -431,12 +351,10 @@ def main(params, config_path):
         val_report = evaluation(eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
-                                num_classes=num_classes_corrected,
+                                num_classes=num_classes,
                                 batch_size=batch_size,
-                                task=task,
                                 ep_idx=epoch,
                                 progress_log=progress_log,
-                                vis_params=params,
                                 batch_metrics=params['training']['batch_metrics'],
                                 dataset='val',
                                 device=device,
@@ -462,23 +380,6 @@ def main(params, config_path):
                 bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
 
-            # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
-            vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
-            ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4) # FIXME: document this in README
-            vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
-            if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
-                if last_vis_epoch == 0:
-                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for batches {vis_batch_range}')
-                vis_from_dataloader(params=params,
-                                    eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
-                                    model=model,
-                                    ep_num=epoch+1,
-                                    output_path=output_path,
-                                    dataset=vis_at_ckpt_dataset,
-                                    device=device,
-                                    vis_batch_range=vis_batch_range)
-                last_vis_epoch = epoch
-
         if bucket_name:
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
 
@@ -494,12 +395,10 @@ def main(params, config_path):
         tst_report = evaluation(eval_loader=tst_dataloader,
                                 model=model,
                                 criterion=criterion,
-                                num_classes=num_classes_corrected,
+                                num_classes=num_classes,
                                 batch_size=batch_size,
-                                task=task,
                                 ep_idx=params['training']['num_epochs'],
                                 progress_log=progress_log,
-                                vis_params=params,
                                 batch_metrics=params['training']['batch_metrics'],
                                 dataset='tst',
                                 device=device)
@@ -514,7 +413,7 @@ def main(params, config_path):
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
-def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx, progress_log, vis_params, device, debug=False):
+def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, ep_idx, progress_log, device, debug=False):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -524,52 +423,23 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     :param scheduler: learning rate scheduler
     :param num_classes: number of classes
     :param batch_size: number of samples to process simultaneously
-    :param task: segmentation or classification
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
-    :param vis_params: (dict) Parameters found in the yaml config file. Named vis_params because they are only used for
-                        visualization functions.
     :param device: device used by pytorch (cpu ou cuda)
     :return: Updated training loss
     """
     model.train()
     train_metrics = create_metrics_dict(num_classes)
-    vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
-    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-    min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
             progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
-            if task == 'classification':
-                inputs, labels = data
-                inputs = inputs.to(device)
-                labels = labels.to(device)
-                optimizer.zero_grad()
-                outputs = model(inputs)
-            elif task == 'segmentation':
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
-
-                # forward
-                optimizer.zero_grad()
-                outputs = model(inputs)
-                # added for torchvision models that output an OrderedDict with outputs in 'out' key.
-                # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
-                if isinstance(outputs, OrderedDict):
-                    outputs = outputs['out']
-
-                if vis_batch_range is not None and vis_at_train and batch_index in range(min_vis_batch, max_vis_batch, increment):
-                        vis_path = progress_log.parent.joinpath('visualization')
-                        if ep_idx == 0:
-                            tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
-                        vis_from_batch(params, inputs, outputs,
-                                       batch_index=batch_index,
-                                       vis_path=vis_path,
-                                       labels=labels,
-                                       dataset='trn',
-                                       ep_num=ep_idx+1)
+            inputs, labels = data
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(inputs)
 
             loss = criterion(outputs, labels)
 
@@ -583,8 +453,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                                               lr=optimizer.param_groups[0]['lr'],
                                               img=data['sat_img'].numpy().shape[1:],
                                               smpl=data['map_img'].numpy().shape,
-                                              bs=batch_size,
-                                              out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
+                                              bs=batch_size))
 
             loss.backward()
             optimizer.step()
@@ -594,7 +463,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     return train_metrics
 
 
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, batch_metrics=None, dataset='val', device=None, debug=False):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -602,7 +471,6 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     :param criterion: loss criterion
     :param num_classes: number of classes
     :param batch_size: number of samples to process simultaneously
-    :param task: segmentation or classification
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
     :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
@@ -612,45 +480,19 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     """
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
-    vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
-    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-    min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
             progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
             with torch.no_grad():
-                if task == 'classification':
-                    inputs, labels = data
-                    inputs = inputs.to(device)
-                    labels = labels.to(device)
-                    labels_flatten = labels
+                inputs, labels = data
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                labels_flatten = labels
 
-                    outputs = model(inputs)
-                    outputs_flatten = outputs
-                elif task == 'segmentation':
-                    inputs = data['sat_img'].to(device)
-                    labels = data['map_img'].to(device)
-                    labels_flatten = flatten_labels(labels)
-
-                    outputs = model(inputs)
-                    if isinstance(outputs, OrderedDict):
-                        outputs = outputs['out']
-
-                    if vis_batch_range is not None and vis_at_eval and batch_index in range(min_vis_batch, max_vis_batch, increment):
-                            vis_path = progress_log.parent.joinpath('visualization')
-                            if ep_idx == 0:
-                                tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
-                                           f'images will be saved to {vis_path}\n')
-                            vis_from_batch(params, inputs, outputs,
-                                           batch_index=batch_index,
-                                           vis_path=vis_path,
-                                           labels=labels,
-                                           dataset=dataset,
-                                           ep_num=ep_idx+1)
-
-                    outputs_flatten = flatten_outputs(outputs, num_classes)
+                outputs = model(inputs)
+                outputs_flatten = outputs
 
                 loss = criterion(outputs, labels)
 
@@ -683,45 +525,6 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
         print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
 
     return eval_metrics
-
-
-def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
-    """
-    Use a model and dataloader to provide outputs that can then be sent to vis_from_batch function to visualize performances of model, for example.
-    :param params: (dict) Parameters found in the yaml config file.
-    :param eval_loader: data loader
-    :param model: model to evaluate
-    :param ep_num: epoch index (for file naming purposes)
-    :param dataset: (str) 'val or 'tst'
-    :param device: device used by pytorch (cpu ou cuda)
-    :param vis_batch_range: (int) max number of samples to perform visualization on
-
-    :return:
-    """
-    assert params['global']['task'] == 'segmentation'
-    vis_path = output_path.joinpath(f'visualization')
-    tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
-    min_vis_batch, max_vis_batch, increment = vis_batch_range
-
-    model.eval()
-    with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
-        for batch_index, data in enumerate(_tqdm):
-            if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
-                with torch.no_grad():
-                    inputs = data['sat_img'].to(device)
-                    labels = data['map_img'].to(device)
-
-                    outputs = model(inputs)
-                    if isinstance(outputs, OrderedDict):
-                        outputs = outputs['out']
-
-                    vis_from_batch(params, inputs, outputs,
-                                   batch_index=batch_index,
-                                   vis_path=vis_path,
-                                   labels=labels,
-                                   dataset=dataset,
-                                   ep_num=ep_num)
-    tqdm.write(f'Saved visualization figures.\n')
 
 
 if __name__ == '__main__':
