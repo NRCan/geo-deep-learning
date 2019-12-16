@@ -61,6 +61,7 @@ inference:
   state_dict_path: ./data/samples256_overlap33_min-annot10_3bands/model/config_ci_segmentation_local/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
+  heatmaps: True
 
 # Visualization parameters
 
@@ -73,7 +74,6 @@ visualization:
   vis_at_init_dataset: val
   vis_at_evaluation: True #val during training, tst at end of training
   vis_at_train: True
-  vis_at_inference: True
   grid: True
   heatmaps: True
   colormap_file: ./data/colormap.csv

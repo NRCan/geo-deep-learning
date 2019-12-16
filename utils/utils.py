@@ -276,3 +276,33 @@ def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     return scale_img
 
 
+def create_new_raster_from_base(input_raster, output_raster, write_array):
+    """Function to use info from input raster to create new one.
+    Args:
+        input_raster: input raster path and name
+        output_raster: raster name and path to be created with info from input
+        write_array (optional): array to write into the new raster
+
+    Return:
+        none
+    """
+    if len(write_array.shape) == 2:  # 2D array
+        count = 1
+    elif len(write_array.shape) == 3:  # 3D array
+        count = 3
+    else:
+        raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
+
+    with rasterio.open(input_raster, 'r') as src:
+        with rasterio.open(output_raster, 'w',
+                           driver=src.driver,
+                           width=src.width,
+                           height=src.height,
+                           count=count,
+                           crs=src.crs,
+                           dtype=np.uint8,
+                           transform=src.transform) as dst:
+            if count == 1:
+                dst.write(write_array[:, :], 1)
+            elif count == 3:
+                dst.write(write_array[:, :, :3])  # Take only first three bands assuming they are RGB.

@@ -5,34 +5,36 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from PIL import Image
 from matplotlib import pyplot as plt, gridspec, cm, colors
 import csv
 
-from utils.utils import minmax_scale, get_key_def
+from utils.utils import minmax_scale, get_key_def, create_new_raster_from_base
 
-def grid_vis(input, output, heatmaps, classes, label=None):
+
+def grid_vis(input, output, heatmaps_dict, label=None, heatmaps=True):
     """ Create a grid with PIL images and titles
     :param input: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
     :param output: (tensor) output array as pytorch tensor, e.g. as returned by dataloader
-    :param heatmaps: (dict) Dictionary of heatmaps where key is grayscale value of class and value is color heatmap as PIL object
-    :param classes: (list) list of titles that will be given above each subplot containing a heatmap
+    :param heatmaps_dict: (dict) Dictionary of heatmaps where key is grayscale value of class and value a dict {'class_name': (str), 'heatmap_PIL': (PIL object))
     :param label: (tensor) label array as pytorch tensor, e.g. as returned by dataloader (optional)
+    :param heatmaps: (bool) if True, include heatmaps in grid
     :return: Saves .png to disk
     """
 
     list_imgs_pil = [input, label, output] if label is not None else [input, output]
     list_titles = ['input', 'label', 'output'] if label is not None else ['input', 'output']
 
-    num_tiles = (len(list_imgs_pil)+len(heatmaps))
+    num_tiles = (len(list_imgs_pil) + len(heatmaps_dict))
     height = math.ceil(num_tiles/4)
     width = num_tiles if num_tiles < 4 else 4
     plt.figure(figsize=(width*6, height*6))
     grid_spec = gridspec.GridSpec(height, width)
 
-    for index, key in enumerate(heatmaps.keys()):
-        list_imgs_pil.append(heatmaps[key])
-        list_titles.append(classes[index])
+    for key in heatmaps_dict.keys():
+        list_imgs_pil.append(heatmaps_dict[key]['heatmap_PIL'])
+        list_titles.append(heatmaps_dict[key]['class_name'])
 
     assert len(list_imgs_pil) == len(list_titles)
     for index, zipped in enumerate(zip(list_imgs_pil, list_titles)):
@@ -47,8 +49,8 @@ def grid_vis(input, output, heatmaps, classes, label=None):
     return plt
 
 
-def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, dataset='', ep_num=0): #FIXME: document
-    """ Provide indiviual input, output and label (optional) from batch to visualization function
+def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, dataset='', ep_num=0, debug=False): #FIXME: document
+    """ Provide indiviual input, output and label from batch to visualization function
     :param params: (dict) Parameters found in the yaml config file.
     :param inputs: (tensor) inputs as pytorch tensors with dimensions (batch_size, channels, width, height)
     :param outputs: (tensor) outputs as pytorch tensors with dimensions (batch_size, channels, width, height)
@@ -60,7 +62,7 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
     :return:
     """
     assert params['global']['task'] == 'segmentation'
-    labels = [None]*(len(outputs)) if labels is None else labels # Creaty empty list of labels to enable zip operation below if no label
+    labels = [None]*(len(outputs)) if labels is None else labels  # Creaty empty list of labels to enable zip operation below if no label FIXME obsolete. This function should arrive get labels
 
     for batch_samp_index, zipped in enumerate(zip(inputs, labels, outputs)):
         epoch_samp_index = batch_samp_index + len(inputs) * batch_index
@@ -70,10 +72,11 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
             sample_num=epoch_samp_index+1,
             label=label,
             dataset=dataset,
-            ep_num=ep_num)
+            ep_num=ep_num,
+            debug=debug)
 
 
-def vis(params, input, output, vis_path, sample_num, label=None, dataset='', ep_num=0):
+def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', ep_num=0, inference_input_path=False, debug=True):
     '''
     :param params: parameters from .yaml config file
     :param input: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
@@ -90,27 +93,15 @@ def vis(params, input, output, vis_path, sample_num, label=None, dataset='', ep_
     heatmaps = get_key_def('heatmaps', params['visualization'], False)
     grid = get_key_def('grid', params['visualization'], False)
     ignore_index = get_key_def('ignore_index', params['training'], -1)
+    inference = True if inference_input_path else False
 
     assert vis_path.parent.is_dir()
     vis_path.mkdir(exist_ok=True)
-    softmax = torch.nn.Softmax(dim=0)
-    output = softmax(output)
 
-    input = input.cpu().permute(1, 2, 0).numpy()  # channels last
-    label = label.cpu().numpy() if label is not None else None
-    output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
-
-    # PREPARE HEATMAPS FROM SOFTMAX OUTPUT
-    heatmaps_dict = {}
-    if heatmaps:  # save per class heatmap  FIXME: document this in README
-        for i in range(output.shape[2]):  # for each channel (i.e. class) in output
-            perclass_output = output[:, :, i]
-            # perclass_output = minmax_scale(img=perclass_output, orig_range=(0, 1), scale_range=(0, 255))
-            # https://stackoverflow.com/questions/10965417/how-to-convert-numpy-array-to-pil-image-applying-matplotlib-colormap
-            perclass_output_PIL = Image.fromarray(np.uint8(cm.get_cmap('inferno')(perclass_output) * 255))
-            heatmaps_dict[i] = perclass_output_PIL
-
-    output_argmax = np.argmax(output, axis=2)
+    if not inference:  # FIXME: function parameters should not come in as different types if inference or not.
+        input = input.cpu().permute(1, 2, 0).numpy()  # channels last
+        output = F.softmax(output, dim=0)  # Inference output is already softmax
+        output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
 
     input = minmax_scale(img=input, orig_range=(scale[0], scale[1]), scale_range=(0, 255)) if scale else input
     if input.shape[2] == 2:
@@ -120,64 +111,99 @@ def vis(params, input, output, vis_path, sample_num, label=None, dataset='', ep_
     mode = 'L' if input.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
     input_PIL = Image.fromarray(input.astype(np.uint8), mode=mode) # TODO: test this with grayscale input.
 
-    if label is not None and ignore_index < 0:  # TODO: test when ignore_index is smaller than 1.
+    if not inference and ignore_index < 0:  # TODO: test when ignore_index is smaller than 1.
         warnings.warn('Choose 255 as ignore_index to visualize. Problems may occur otherwise...')
-        label[label == ignore_index] = 255  # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
+        new_ignore_index = 255
+        label[label == ignore_index] = new_ignore_index  # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
+
+    # Give value of class to band with highest value in final inference
+    output_argmax = np.argmax(output, axis=2).astype(np.uint8) # Flatten along channels axis. Convert to 8bit
 
     # DEFINE COLORMAP AND NAMES OF CLASSES WITH RESPECT TO GRAYSCALE VALUES
-    if colormap_file:
-        classes, html_colors = colormap_reader(colormap_file)
-        assert len(html_colors) >= len(np.unique(output_argmax))
-        if label is not None and ignore_index in np.unique(label):
-            html_colors.append('white')  # for ignore_index values in labels. #TODO: test this with a label containt ignore_index values
-        cmap = colors.ListedColormap(html_colors)
-    else:
-        classes = range(0, output.shape[2]) # TODO: since list of classes are only useful for naming each heatmap, this list could be inside the heatmaps_dict, e.g. {1: {heatmap: perclass_output_PIL, class_name: 'roads'}, ...}
-        cmap = cm.get_cmap('Set1')
+    classes, cmap = colormap_reader(output, colormap_file, default_colormap='Set1')
 
-    # CONVERT OUTPUT AND LABEL, IF PROVIDED, TO RGB WITH MATPLOTLIB'S COLORMAP OBJECT
+    heatmaps_dict = heatmaps_to_dict(output, classes, inference=inference)  # Prepare heatmaps from softmax output
+
+    # Convert output and label, if provided, to RGB with matplotlib's colormap object
     output_argmax_color = cmap(output_argmax)
     output_argmax_PIL = Image.fromarray((output_argmax_color[:, :, :3] * 255).astype(np.uint8), mode='RGB')
-    if label is not None:
+    if not inference:
         label_color = cmap(label)
         label_PIL = Image.fromarray((label_color[:, :, :3] * 255).astype(np.uint8), mode='RGB')
     else:
         label_PIL = None
 
-    if grid:  # SAVE PIL IMAGES AS GRID
-        grid = grid_vis(input_PIL, output_argmax_PIL, heatmaps_dict, classes, label=label_PIL)
+    if inference:
+        if debug and len(np.unique(output_argmax)) == 1:
+            warnings.warn(f'Inference contains only {np.unique(output_argmax)} value. Make sure data scale '
+                          f'{scale} is identical with scale used for training model.')
+        output_name = vis_path.joinpath(f"{inference_input_path.stem}_inference.tif")
+        create_new_raster_from_base(inference_input_path, output_name, output_argmax)
+        if get_key_def('heatmaps', params['inference'], False):
+            for key in heatmaps_dict.keys():
+                heatmap = np.array(heatmaps_dict[key]['heatmap_PIL'])
+                class_name = heatmaps_dict[key]['class_name']
+                heatmap_name = vis_path.joinpath(f"{inference_input_path.stem}_inference_heatmap_{class_name}.tif")
+                create_new_raster_from_base(inference_input_path, heatmap_name, heatmap)
+    elif grid:  # SAVE PIL IMAGES AS GRID
+        grid = grid_vis(input_PIL, output_argmax_PIL, heatmaps_dict, label=label_PIL, heatmaps=heatmaps)
         grid.savefig(vis_path.joinpath(f'{dataset}_{sample_num:03d}_ep{ep_num:03d}.png'))
         plt.close()
     else:  # SAVE PIL IMAGES DIRECTLY TO FILE
         if not vis_path.joinpath(f'{dataset}_{sample_num:03d}_satimg.jpg').is_file():
             input_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_satimg.jpg'))
-            if label is not None:
+            if not inference:
                 label_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_label.png')) # save label
         output_argmax_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_output_ep{ep_num:03d}.png'))
 
 
-def colormap_reader(colormap_path):
+def heatmaps_to_dict(output, classes=[], inference=False):
+    ''' Store heatmap into a dictionary
+    :param output: softmax tensor
+    :return: dictionary where key is value of class and value is numpy array
+    '''
+    heatmaps_dict = {}
+    classes = range(output.shape[2]) if len(classes) == 0 else classes
+    for i in range(output.shape[2]):  # for each channel (i.e. class) in output
+        perclass_output = output[:, :, i]
+        if inference:  # Don't color heatmap if in inference
+            perclass_output_PIL = Image.fromarray(np.uint8(perclass_output) * 255)
+        else:  # https://stackoverflow.com/questions/10965417/how-to-convert-numpy-array-to-pil-image-applying-matplotlib-colormap
+            perclass_output_PIL = Image.fromarray(np.uint8(cm.get_cmap('inferno')(perclass_output) * 255))
+        heatmaps_dict[i] = {'class_name': classes[i], 'heatmap_PIL': perclass_output_PIL}
+
+    return heatmaps_dict
+
+
+def colormap_reader(output, colormap_path=None, default_colormap='Set1'):
     """
     :param colormap_path: csv file (with header) containing 3 columns (input grayscale value, classes, html colors (#RRGGBB))
     :return: list of classes and list of html colors to map to grayscale values associated with classes
     """
-    assert Path(colormap_path).is_file(), f'Could not locate {colormap_path}'
-    input_val = []
-    classes_list = ['background']
-    html_colors = ['#000000']
-    with open(colormap_path, 'rt') as file:
-        reader = csv.reader(file)
-        next(reader)  # Skip header
-        rows = list(reader)
-    input_val.extend([int(row[0]) for row in rows])
-    csv_classes = [row[1] for row in rows]  # Take second element in row. Should be class name
-    csv_html_colors = [row[2] for row in rows]  # Take third element in row. Should be hex color code
-    sorted_classes = [x for _, x in sorted(zip(input_val, csv_classes))]  # sort according to grayscale values order
-    sorted_colors = [x for _, x in sorted(zip(input_val, csv_html_colors))]
-    for color in sorted_colors:
-        match = re.search(r'^#(?:[0-9a-fA-F]{3}){1,2}$', color)
-        assert match, f'Submitted color {color} does not match HEX color code pattern'
-    classes_list.extend(sorted_classes)
-    html_colors.extend(sorted_colors)
+    if colormap_path is not None:
+        assert Path(colormap_path).is_file(), f'Could not locate {colormap_path}'
+        input_val = []
+        classes_list = ['background']
+        html_colors = ['#000000']
+        with open(colormap_path, 'rt') as file:
+            reader = csv.reader(file)
+            next(reader)  # Skip header
+            rows = list(reader)
+        input_val.extend([int(row[0]) for row in rows])
+        csv_classes = [row[1] for row in rows]  # Take second element in row. Should be class name
+        csv_html_colors = [row[2] for row in rows]  # Take third element in row. Should be hex color code
+        sorted_classes = [x for _, x in sorted(zip(input_val, csv_classes))]  # sort according to grayscale values order
+        sorted_colors = [x for _, x in sorted(zip(input_val, csv_html_colors))]
+        for color in sorted_colors:
+            match = re.search(r'^#(?:[0-9a-fA-F]{3}){1,2}$', color)
+            assert match, f'Submitted color {color} does not match HEX color code pattern'
+        classes_list.extend(sorted_classes)
+        html_colors.extend(sorted_colors)
+        assert len(html_colors) == len(classes_list) >= output.shape[2], f'Not enough colors and class names for number of classes in output'
+        html_colors.append('white')  # for ignore_index values in labels. #TODO: test this with a label containt ignore_index values
+        cmap = colors.ListedColormap(html_colors)
+    else:
+        classes_list = range(0, output.shape[2])  # TODO: since list of classes are only useful for naming each heatmap, this list could be inside the heatmaps_dict, e.g. {1: {heatmap: perclass_output_PIL, class_name: 'roads'}, ...}
+        cmap = cm.get_cmap(default_colormap)
 
-    return classes_list, html_colors
+    return classes_list, cmap

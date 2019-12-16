@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
 import numpy as np
 import os
@@ -13,7 +14,6 @@ import math
 from collections import OrderedDict
 import warnings
 
-from matplotlib import cm
 from tqdm import tqdm
 from pathlib import Path
 
@@ -21,35 +21,12 @@ from models.model_choice import net
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
 from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.CreateDataset import MetaSegmentationDataset
-from utils.visualization import vis_from_batch, vis, colormap_reader
+from utils.visualization import vis
 
 try:
     import boto3
 except ModuleNotFoundError:
     pass
-
-
-def create_new_raster_from_base(input_raster, output_raster, write_array):
-    """Function to use info from input raster to create new one.
-    Args:
-        input_raster: input raster path and name
-        output_raster: raster name and path to be created with info from input
-        write_array (optional): array to write into the new raster
-
-    Return:
-        none
-    """
-
-    with rasterio.open(input_raster, 'r') as src:
-        with rasterio.open(output_raster, 'w',
-                           driver=src.driver,
-                           width=src.width,
-                           height=src.height,
-                           count=1,
-                           crs=src.crs,
-                           dtype=np.uint8,
-                           transform=src.transform) as dst:
-            dst.write(write_array[:, :], 1)
 
 
 def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device, meta_map=None, metadata=None, output_path=Path(os.getcwd())):
@@ -111,6 +88,8 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                         # forward
                         outputs = model(inputs)
 
+                        outputs = F.softmax(outputs)
+
                         # torchvision models give output in 'out' key. May cause problems in future versions of torchvision.
                         if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
                             outputs = outputs['out']
@@ -132,19 +111,16 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
             if debug:
                 output_counts_PIL = Image.fromarray(output_counts.astype(np.uint8), mode='L')
                 output_counts_PIL.save(output_path.joinpath(f'output_counts.png'))
+                tqdm.write(f'Dividing array according to output counts...')
 
             # Divide array according to output counts. Manages overlap and returns a softmax array as if only one forward pass had been done.
-            output_mask_softmax = np.divide(output_probs, np.maximum(output_counts, 1))
-            # Give value of class to band with highest value in final inference
-            output_mask = np.argmax(output_mask_softmax, axis = 0)
+            output_mask_raw = np.divide(output_probs, np.maximum(output_counts, 1))
 
             # Resize the output array to the size of the input image and write it
-            output_mask_cropped = output_mask[overlay:(h + overlay), overlay:(w + overlay)].astype(np.uint8)
-            output_mask_softmax_cropped = np.moveaxis(output_mask_softmax, 0, -1)
-            output_mask_softmax_cropped = output_mask_softmax_cropped[overlay:(h + overlay), overlay:(w + overlay), :]
+            output_mask_raw_cropped = np.moveaxis(output_mask_raw, 0, -1)
+            output_mask_raw_cropped = output_mask_raw_cropped[overlay:(h + overlay), overlay:(w + overlay), :]
 
-
-            return output_mask_cropped, output_mask_softmax_cropped
+            return output_mask_raw_cropped
     else:
         raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
 
@@ -243,7 +219,7 @@ def main(params):
     img_dir_or_csv = params['inference']['img_dir_or_csv_file']
 
     default_working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
-    working_folder = get_key_def('working_folder', params['inference'], default_working_folder)
+    working_folder = Path(get_key_def('working_folder', params['inference'], default_working_folder))
     Path.mkdir(working_folder, exist_ok=True)
     print(f'Inferences will be saved to: {working_folder}\n\n')
 
@@ -357,29 +333,14 @@ def main(params):
                     continue
 
                 # START INFERENCES ON SUB-IMAGES
-                sem_seg_results, sem_seg_results_per_class = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_corrected,
+                sem_seg_results_per_class = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_corrected,
                                                     device, meta_map, metadata, output_path=working_folder)
 
-                if debug:
-                    _tqdm.set_postfix(
-                        OrderedDict(result_min_val=np.min(sem_seg_results), result_max_val=np.max(sem_seg_results)))
-
-                if debug and len(np.unique(sem_seg_results)) == 1:
-                    warnings.warn(f'Inference contains only {np.unique(sem_seg_results)} value. Make sure data scale '
-                                  f'{scale} is identical with scale used for training model.')
-
                 # CREATE GEOTIF FROM METADATA OF ORIGINAL IMAGE
-                tqdm.write(f'Saving inference...')
-                create_new_raster_from_base(local_img, inference_image, sem_seg_results)
-
-                if get_key_def('vis_at_inference', params['visualization'], False):  # VISUALIZATION  # FIXME: consider refactoring visualization functions for this
-                    tqdm.write(f'Saving heatmaps...')
-                    colormap_file = get_key_def('colormap_file', params['visualization'], None)
-                    classes, _ = colormap_reader(colormap_file) if colormap_file is not None else range(0, sem_seg_results_per_class.shape[2])
-                    for i in range(sem_seg_results_per_class.shape[2]):  # for each channel (i.e. class) in output
-                        heatmap = (sem_seg_results_per_class[:, :, i] * 255).astype(np.uint8)
-                        heatmap_name = working_folder.joinpath(f"{img_name.split('.')[0]}_inference_heatmap_{classes[i]}.tif")
-                        create_new_raster_from_base(local_img, heatmap_name, heatmap)
+                tqdm.write(f'Saving inference...\n')
+                if get_key_def('heatmaps', params['inference'], False):
+                    tqdm.write(f'Heatmaps will be saved.\n')
+                vis(params, np_input_image, sem_seg_results_per_class, working_folder, inference_input_path=local_img)
 
                 tqdm.write(f"\n\nSemantic segmentation of image {img_name} completed\n\n")
                 if bucket:
