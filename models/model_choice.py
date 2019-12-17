@@ -80,7 +80,7 @@ def net(net_params, num_channels, inference=False):
         assert Path(net_params['inference']['state_dict_path']).is_file(), f"Could not locate {net_params['inference']['state_dict_path']}"
         checkpoint = load_checkpoint(state_dict_path)
     elif train_state_dict_path is not None:
-        assert Path(train_state_dict_path).is_file()
+        assert Path(train_state_dict_path).is_file(), f'Could not locate checkpoint at {train_state_dict_path}'
         checkpoint = load_checkpoint(train_state_dict_path)
     elif pretrained and (model_name == ('deeplabv3_resnet101' or 'fcn_resnet101')):
         print(f'Retrieving coco checkpoint for {model_name}...\n')

@@ -238,6 +238,7 @@ def main(params, config_path):
     tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
+    assert Path(data_path).is_dir(), f'Could not locate data path {data_path}'
 
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
@@ -550,7 +551,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
 
                 if vis_batch_range is not None and vis_at_eval and batch_index in range(min_vis_batch, max_vis_batch, increment):
                         vis_path = progress_log.parent.joinpath('visualization')
-                        if ep_idx == 0:
+                        if ep_idx == 0 and batch_index == min_vis_batch:
                             tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
                                        f'images will be saved to {vis_path}\n')
                         vis_from_batch(params, inputs, outputs,

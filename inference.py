@@ -21,7 +21,7 @@ from models.model_choice import net
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
 from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.CreateDataset import MetaSegmentationDataset
-from utils.visualization import vis
+from utils.visualization import vis, vis_from_batch
 
 try:
     import boto3
@@ -29,7 +29,7 @@ except ModuleNotFoundError:
     pass
 
 
-def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device, meta_map=None, metadata=None, output_path=Path(os.getcwd())):
+def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device, meta_map=None, metadata=None, output_path=Path(os.getcwd()), index=0, debug=False):
     """Inference on images using semantic segmentation
     Args:
         model: model to use for inference
@@ -40,6 +40,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
         meta_map:
         metadata:
         output_path: path to save debug files
+        index: (int) index of array from list of images on which inference is performed
 
         returns a numpy array of the same size (h,w) as the input image, where each value is the predicted output.
     """
@@ -88,11 +89,17 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                         # forward
                         outputs = model(inputs)
 
-                        outputs = F.softmax(outputs)
-
                         # torchvision models give output in 'out' key. May cause problems in future versions of torchvision.
                         if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
                             outputs = outputs['out']
+
+                        if debug:
+                            if index == 0:
+                                tqdm.write(f'(debug mode) Visualizing inferred tiles...')
+                            vis_from_batch(params, inputs, outputs, batch_index=0, vis_path=output_path,
+                                        dataset=f'{row_start}_{col_start}_inf', ep_num=index, debug=True)
+
+                        outputs = F.softmax(outputs, dim=1)
 
                         output_counts[row_start:row_end, col_start:col_end] += 1
 
@@ -111,10 +118,10 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
             if debug:
                 output_counts_PIL = Image.fromarray(output_counts.astype(np.uint8), mode='L')
                 output_counts_PIL.save(output_path.joinpath(f'output_counts.png'))
-                tqdm.write(f'Dividing array according to output counts...')
+                tqdm.write(f'Dividing array according to output counts...\n')
 
             # Divide array according to output counts. Manages overlap and returns a softmax array as if only one forward pass had been done.
-            output_mask_raw = np.divide(output_probs, np.maximum(output_counts, 1))
+            output_mask_raw = np.divide(output_probs, np.maximum(output_counts, 1))  # , 1 is added to overwrite 0 values.
 
             # Resize the output array to the size of the input image and write it
             output_mask_raw_cropped = np.moveaxis(output_mask_raw, 0, -1)
@@ -334,13 +341,13 @@ def main(params):
 
                 # START INFERENCES ON SUB-IMAGES
                 sem_seg_results_per_class = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_corrected,
-                                                    device, meta_map, metadata, output_path=working_folder)
+                                                    device, meta_map, metadata, output_path=working_folder, index=_tqdm.n, debug=debug)
 
                 # CREATE GEOTIF FROM METADATA OF ORIGINAL IMAGE
                 tqdm.write(f'Saving inference...\n')
                 if get_key_def('heatmaps', params['inference'], False):
                     tqdm.write(f'Heatmaps will be saved.\n')
-                vis(params, np_input_image, sem_seg_results_per_class, working_folder, inference_input_path=local_img)
+                vis(params, np_input_image, sem_seg_results_per_class, working_folder, inference_input_path=local_img, debug=debug)
 
                 tqdm.write(f"\n\nSemantic segmentation of image {img_name} completed\n\n")
                 if bucket:
