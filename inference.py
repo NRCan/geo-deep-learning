@@ -210,6 +210,10 @@ def main(params):
     # SET BASIC VARIABLES AND PATHS
     since = time.time()
 
+    debug = get_key_def('debug_mode', params['global'], False)
+    if debug:
+        warnings.warn(f'Debug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.')
+
     num_classes = params['global']['num_classes']
     if params['global']['task'] == 'segmentation':
         # assume background is implicitly needed (makes no sense to predict with one class, for example.)
@@ -367,7 +371,5 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
-
-    debug = True if params['global']['debug_mode'] else False
 
     main(params)

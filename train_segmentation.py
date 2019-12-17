@@ -225,7 +225,7 @@ def main(params, config_path):
     """
     debug = get_key_def('debug_mode', params['global'], False)
     if debug:
-        warnings.warn(f'Debug mode activated. Some debug functions may cause delays in execution.')
+        warnings.warn(f'Debug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.')
 
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     num_classes = params['global']['num_classes']

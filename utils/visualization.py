@@ -105,11 +105,12 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
         input = input.cpu().permute(1, 2, 0).numpy()  # channels last
         output = F.softmax(output, dim=0)  # Inference output is already softmax
         output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
-        label = label.cpu() if label is not None else label
-        if ignore_index < 0: # TODO: test when ignore_index is smaller than 1.
-            warnings.warn('Choose 255 as ignore_index to visualize. Problems may occur otherwise...')
-            new_ignore_index = 255
-            label[label == ignore_index] = new_ignore_index  # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
+        if label is not None:
+            label = label.cpu()
+            if ignore_index < 0: # TODO: test when ignore_index is smaller than 1.
+                warnings.warn('Choose 255 as ignore_index to visualize. Problems may occur otherwise...')
+                new_ignore_index = 255
+                label[label == ignore_index] = new_ignore_index  # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
 
     input = minmax_scale(img=input, orig_range=(scale[0], scale[1]), scale_range=(0, 255)) if scale else input
     if input.shape[2] == 2:
