@@ -184,7 +184,7 @@ def main(params):
 
     if samples_folder.is_dir():
         warnings.warn(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')
-        samples_folder = Path(str(samples_folder) + '_' + now) #FIXME: document all this!!
+        samples_folder = Path(str(samples_folder) + '_' + now)
     else:
         tqdm.write(f'Writing samples to {samples_folder}')
     Path.mkdir(samples_folder, exist_ok=False)    #FIXME: what if we want to append samples to existing hdf5?
@@ -207,7 +207,7 @@ def main(params):
             invalid_features = {}
             for info in _tqdm:
                 # Extract vector features to burn in the raster image
-                with fiona.open(info['gpkg'], 'r') as src:
+                with fiona.open(info['gpkg'], 'r') as src:  # TODO: refactor as independent function
                     lst_vector = [vector for vector in src]
                 shapes = lst_ids(list_vector=lst_vector, attr_name=info['attribute_name'])
                 for index, item in enumerate(tqdm([v for vecs in shapes.values() for v in vecs], leave=False, position=1)):
