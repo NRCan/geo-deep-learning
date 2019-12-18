@@ -236,7 +236,7 @@ def get_key_recursive(key, config):
     return val
 
 
-def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True): # FIXME: documentation!
+def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
     '''
     Generates a dictionary from a list of vectors where keys are class numbers and values are corresponding features in a list.
     :param list_vector: list of vectors as returned by fiona.open

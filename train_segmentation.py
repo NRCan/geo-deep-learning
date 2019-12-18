@@ -391,7 +391,7 @@ def main(params, config_path):
 
             # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
             vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
-            ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4) # FIXME: document this in README
+            ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4)
             vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if last_vis_epoch == 0:

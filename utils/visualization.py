@@ -50,7 +50,7 @@ def grid_vis(input, output, heatmaps_dict, label=None, heatmaps=True):
     return plt
 
 
-def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, dataset='', ep_num=0, debug=False): #FIXME: document
+def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, dataset='', ep_num=0, debug=False):
     """ Provide indiviual input, output and label from batch to visualization function
     :param params: (dict) Parameters found in the yaml config file.
     :param inputs: (tensor) inputs as pytorch tensors with dimensions (batch_size, channels, width, height)
@@ -79,7 +79,7 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
 
 
 def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', ep_num=0, inference_input_path=False, debug=False):
-    '''
+    '''saves input, output and label (if given) as .png in a grid or as individual pngs
     :param params: parameters from .yaml config file
     :param input: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
     :param output: (tensor) output array as pytorch tensor before argmax, e.g. as returned by dataloader
@@ -123,7 +123,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
     # Give value of class to band with highest value in final inference
     output_argmax = np.argmax(output, axis=2).astype(np.uint8) # Flatten along channels axis. Convert to 8bit
 
-    # DEFINE COLORMAP AND NAMES OF CLASSES WITH RESPECT TO GRAYSCALE VALUES
+    # Define colormap and names of classes with respect to grayscale values
     classes, cmap = colormap_reader(output, colormap_file, default_colormap='Set1')
 
     heatmaps_dict = heatmaps_to_dict(output, classes, inference=inference, debug=debug)  # Prepare heatmaps from softmax output

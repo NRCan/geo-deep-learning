@@ -4,6 +4,7 @@
   * [Installation on your workstation](#installation-on-your-workstation)
   * [config.yaml](#configyaml)
 - [Semantic segmentation](#semantic-segmentation)
+    * [Folder structure](#folder-structure)
     * [Models available](#models-available)
     * [csv preparation](#csv-preparation)
     * [images_to_samples.py](#images_to_samplespy)
@@ -20,14 +21,13 @@
 
 The `geo-deep-learning` project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced data sets.
 
-The overall learning process comprises three broad stages: data preparation, training & validation, and inference.  The data preparation phase (sampling) allows creating sub-images that will be used for either training or validation. The training & validation phase learns using the data prepared in the previous phase. Finally, the inference phase allows the use of a trained model on new input data. The training & validation and inference phases currently allow the use of a variety of neural networks to perform classification and semantic segmentation tasks.
+The overall learning process comprises three broad stages: (1) data preparation, (2) training (along with validation and testing), and (3) inference.  The data preparation phase (sampling) allows creating sub-images that will be used for either training, validation or testing. The training phase learns using the data prepared in the previous phase. Finally, the inference phase allows the use of a trained model on new input data. The training and inference phases currently allow the use of a variety of neural networks to perform classification and semantic segmentation tasks.
 
 > The term `classification` in this project is used as it has been traditionally used in the remote sensing community: a process of assigning land cover classes to pixels.  The meaning of the word in the deep learning community differs somewhat, where classification is simply to assign a label to the whole input image. This usage of the term classification will always be referred to as a ```classification task``` in the context of this project. Other uses of the term classification refer to the final phase of the learning process when a trained model is applied to new images, regardless of whether `semantic segmentation`, ["the process of assigning a label to every pixel in an image"](https://en.wikipedia.org/wiki/Image_segmentation), or a `classification task` is being used.
 
 After installing the required computing environment (see next section), one needs to replace the config.yaml file boilerplate path and other items to point to images and other data.  The full sequence of steps is described in the sections below.
 
 > This project comprises a set of commands to be run at a shell command prompt.  Examples used here are for a bash shell in an Ubuntu GNU/Linux environment.
-
 
 ## Requirements  
 - Python 3.6 with the following libraries:
@@ -109,12 +109,12 @@ Suggested high level structure:
 Structure as created by geo-deep-learning
 ```
 ├── {data_path}
-    └── {samples_folder} (See: images_to_samples.py / Outputs)
+    └── {samples_folder}*
         └── trn_samples.hdf5
         └── val_samples.hdf5
         └── tst_samples.hdf5
         └── model
-            └── {model_name}
+            └── {model_name}**
                 └── checkpoint.pth.tar
                 └── {log files}
                 └── copy of config.yaml (automatic)
@@ -123,6 +123,10 @@ Structure as created by geo-deep-learning
                 └── inference
                     └── {.tifs from inference}
 ```
+*See: [images_to_samples.py / Outputs](samples_outputs)
+
+**See: [train_segmentation.py / Outputs](training_outputs)
+
 ## Models available
 - [Unet](https://arxiv.org/abs/1505.04597)
 - [Deeplabv3 (backbone: resnet101, optional: pretrained on coco dataset)](https://arxiv.org/abs/1706.05587)
@@ -178,6 +182,16 @@ sample:
   mask_reference: False                  # When True, mask the input image where there is no reference data.
 ```
 
+### Process
+1. Read csv file and validate existence of all input files and GeoPackages. 
+2. Read csv file and for each line in the file, do the following:
+    1. Convert GeoPackage vector information into the "label" raster with `utils.utils.vector_to_raster()`. The pixel value is determined by the attribute in the csv file.
+    2. Read input image as array with `utils.readers.image_reader_as_array()`
+    3. Create a new raster called "label" with the same properties as the input image
+    4. Read metadata and add to input as new bands (*more details to come*)
+    5. Crop arrays in smaller samples of size `samples_size` and distance `num_classes` specified in the configuration file. Visual representation of this is provided [here](https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f)
+    6. Write samples from input image and label into the "val", "trn" or "tst" hdf5 file, depending on the value contained in the csv file. Refer to `samples_preparation()`. 
+
 ### <a name="samples_outputs"></a> Outputs
 - 3 .hdf5 files with input images and reference data, stored as arrays, with following structure:
 ```
@@ -187,17 +201,11 @@ sample:
         └── val_samples.hdf5
         └── tst_samples.hdf5
 ```
-*{samples_folder} is set from values in .yaml: samples{`samples_size`}\_overlap{`overlap`}\_min-annot{`min_annot_perc`}\_{`num_bands`}bands. If folder already exists, a suffix with `_YYYY-MM-DD_HH-MM` is added
+*{samples_folder} is set from values in .yaml: 
 
-### Process
-1. Validate existence of all input files and GeoPackages. 
-2. Read csv file and for each line in the file, do the following:
-    1. Convert GeoPackage vector information into the "label" raster with `utils.utils.vector_to_raster()`. The pixel value is determined by the attribute in the csv file.
-    2. Read input image as array with `utils.readers.image_reader_as_array()`
-    3. Create a new raster called "label" with the same properties as the input image
-    4. Read metadata and add to input as new bands (*more details to come*)
-    5. Crop arrays in smaller samples of size `samples_size` and distance `num_classes` specified in the configuration file. Visual representation of this is provided [here](https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f)
-    6. Write samples from input image and label into the "val", "trn" or "tst" hdf5 file, depending on the value contained in the csv file. Refer to `samples_preparation()`. 
+"samples{`samples_size`}\_overlap{`overlap`}\_min-annot{`min_annot_perc`}\_{`num_bands`}bands" 
+
+>If folder already exists, a suffix with `_YYYY-MM-DD_HH-MM` is added
 
 ### Debug mode
 - Images_to_samples.py will assert that:
@@ -261,7 +269,18 @@ training:
 - samples folder as created by `images_to_samples.py` (See: [Images_to_samples.py / Outputs](#samples_outputs)) containing:
     - `trn_samples.hdf5`, `val_samples.hdf5`, `tst_samples.hdf5`. Each hdf5 file contains input images and reference data as arrays used for training, validation and test, respectively.
 
-### Output
+### Process
+1. Model is instantiated and checkpoint is loaded from path, if provided in `config.yaml`.
+2. GPUs are requested according to desired amount of `num_gpus` and available GPUs.
+3. If more than 1 GPU is requested, model is casted to [`DataParallel`](https://pytorch.org/tutorials/beginner/blitz/data_parallel_tutorial.html) model
+4. Dataloaders are created with `create_dataloader()`
+5. Loss criterion, optimizer and learning rate are set with `set_hyperparameters()` as requested in `config.yaml`.
+5. Using these hyperparameters, the application will try to minimize the loss on the training data and evaluate every epoch on the validation data.
+6. For every epoch, the application shows and logs the loss on "trn" and "val" datasets.
+7. For every epoch (if `batch_metrics: 1`), the application shows and logs the accuracy, recall and f-score on "val" dataset. Those metrics are also computed on each classes.  
+8. At the end of the training process, the application shows and logs the accuracy, recall and f-score on "tst" dataset. Those metrics are also computed on each classes.
+
+### <a name="training_outputs"></a> Output
 - Trained model weights as `checkpoint.pth.tar`. Corresponding to the training state where the validation loss was the lowest during the training process.
 
 ```
@@ -274,17 +293,6 @@ training:
                 └── copy of config.yaml (automatic)
 ```
 *{model_name} is set from yaml name. Therefore, **yaml name should be relevant and unique**. If folder already exists, a suffix with `_YYYY-MM-DD_HH-MM` is added.
-
-### Process
-1. Model is instantiated and checkpoint is loaded from path, if provided in `config.yaml`.
-2. GPUs are requested according to desired amount of `num_gpus` and available GPUs.
-3. If more than 1 GPU is requested, model is casted to [`DataParallel`](https://pytorch.org/tutorials/beginner/blitz/data_parallel_tutorial.html) model
-4. Dataloaders are created with `create_dataloader()`
-5. Loss criterion, optimizer and learning rate are set with `set_hyperparameters()` as set in `config.yaml`.
-5. Using these hyperparameters, the application will try to minimize the loss on the training data and evaluate every epoch on the validation data.
-6. For every epoch, the application shows and log the loss on "trn" and "val" datasets.
-7. For every epoch (if `batch_metrics: 1`), the application shows and log the accuracy, recall and f-score on "val" dataset. Those metrics are also computed on each classes.  
-8. At the end of the training process, the application shows and logs the accuracy, recall and f-score on "tst" dataset. Those metrics are also computed on each classes.
 
 ### Loss functions
 - Cross-Entropy (standard loss functions as implemented in [torch.nn](https://pytorch.org/docs/stable/_modules/torch/nn/modules/loss.html))
@@ -305,16 +313,16 @@ training:
     - input image shape
     - label shape
     - batch size
-    - number of values in given output (if only one value, there's a problem!)   
+    - number of predicted classes in each output array (if only one predicted class, there's a problem!)   
 
 ### Advanced features
-- To check how a pretrained model performs on test split without fine-tuning, simply:
-    1. Specify state_dict_path in training parameters
-    2. In same parameter section, set num_epochs to 0.
+- To check how a trained model performs on test split without fine-tuning, simply:
+    1. Specify `training` / `state_dict_path` for this model in `config.yaml` 
+    2. In same parameter section, set `num_epochs` to 0. The execution will then jump right away to `evaluation` on test set with loaded model without training.
 
 ## inference.py
 
-The final step in the process is to assign very pixel in the original image a value corresponding to the most probable class.
+The final step in the process is to assign every pixel in the original image a value corresponding to the most probable class.
 
 To launch the program:
 ```
@@ -367,7 +375,7 @@ inference:
 Details on parameters used by this module:
 ```yaml
 visualization:
-  vis_batch_range: [0,200,10] #start, finish, increment  # TODO: document. If empty, no visualization will be performed no matter the value of other parameters
+  vis_batch_range: [0,200,10] #first batch to visualize on, last batch (excluded), increment. If empty, no visualization will be performed no matter the value of other parameters.
   vis_at_checkpoint: True     # Visualize samples every time a checkpoint is saved 
   vis_at_ckpt_min_ep_diff: 0  # Define minimum number of epoch that must separate two checkpoints in order to visualize at checkpoint 
   vis_at_ckpt_dataset: val    # define dataset to be used for vis_at_checkpoint. Default: 'val'
@@ -377,17 +385,45 @@ visualization:
   vis_at_train: True          # Visualize on training samples during training
   grid: True                  # Save visualization outputs as a grid. If false, each image is saved as separate .png. Default: False
   heatmaps: True              # Also save heatmaps (activation maps) for each class as given by model before argmax.
-  colormap_file: ./data/colormap.csv # Custom colormap to define custom class names and colors for visualization
+  colormap_file: ./data/colormap.csv # Custom colormap to define custom class names and colors for visualization. Optional
 ```
 
 ### Colormap
-...
-### Process
-...
-### Outputs
-...
+
+All visualization functions use a colormap for two main purposes: 
+1. Assign colors to grayscale outputs (as outputted by pytorch) and labels, if given (i.e. not during inference).
+2. Assign a name to each heatmap. This name is displayed above heatmap in grid if `grid: True`. Otherwise, each heatmap is saved as a .png. Class name is then added in the name of .png.
+If left empty, a default colormap is used and integers are assigned for each class in output.  
+
+If desired, the user can therefore specify a path to a custom colormap with the `colormap_file` parameter in the `config.yaml`.
+The custom colormap must be a .csv with 3 columns, as shown below. One line is added for each desired class.
+
+Input grayscale value|Class name|Html color (#RRGGBB)
+---|---|---
+1|vegetation|#00680d
+2|hydro|#b2e0e6
+3|roads|#990000
+4|buildings|#efcd08   
+
+### Process and Outputs
+Visualization is called in three main functions:
+1. `vis_from_dataloader()`: iterates through a provided dataloader and sends batch outputs, along with inputs and labels to `vis_from_batch()`. Is used when parameters `vis_at_checkpoint` or `vis_at_init` is `True`
+2. `vis_from_batch()`: iterates though items of a batch and sends them to `vis()` 
+3. `vis()`: 
+    1. converts input to 8bit image if scaling had been performed during training (e.g. scaling between 0 and 1).
+    2. iterates through channels of output to extract each heatmap (i.e. activation map)
+    3. builds dictionary with heatmap where key is grayscale value and value is `{'class_name': 'name_of_class', 'heatmap_PIL': heatmap_as_PIL_Image}` 
+    4. saves 8bit input, color output and color label (if given) as .png in a grid or as individual pngs.
+ 
+The `vis_batch_range` parameter plays a central role in visualization. First number in list is first batch to visualize on. Second number is last batch (excluded) from which no more visualization is done. Last number in list is increment in batch index. For example, if `vis_batch_range = [10,20,2]`, visualization will occur (as requested by other visualization parameters) on batches 10, 12, 14, 16 et 18. **If `vis_batch_range` is left empty, no visualization will be performed no matter the value of other parameters.**
+
+> Outputs are sent to visualization functions immediately after line `outputs = model(inputs)`, i.e. before `argmax()` function is used to flatten outputs and keep only value to most probable class, pixel-wise.
+
+> During inference, visualization functions are also called, but instead of outputting .pngs, `vis()` outputs a georeferenced .tif. Heatmaps, if `inference`/`heatmaps` is `True`, are also saved as georeferenced .tifs, in grayscale format (i.e. single band).
+ 
 ### Debug mode
-...
+- if in inference, `vis()` will print all unique values in each heatmap array. If there are only a few values, it gives a hint on usefulness of heatmap.
+- if in inference, `vis()` will check number of predicted classes in output array. If only one predicted class, a warning is sent.
 
 # Classification Task
 The classification task allows images to be recognized as a whole rather than identifying the class of each pixel individually as is done in semantic segmentation.
