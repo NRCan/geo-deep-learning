@@ -49,7 +49,7 @@ class AverageMeter(object):
         return self.avg
 
 
-def report_classification(pred, label, batch_size, metrics_dict):
+def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1):
     """Computes precision, recall and f-score for each class and average of all classes.
     http://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
     """
@@ -57,7 +57,7 @@ def report_classification(pred, label, batch_size, metrics_dict):
 
     class_score = {}
     for key, value in class_report.items():
-        if key not in ['micro avg', 'macro avg', 'weighted avg', 'accuracy']:
+        if key not in ['micro avg', 'macro avg', 'weighted avg', 'accuracy'] and key != str(ignore_index):
             class_score[key] = value
 
             metrics_dict['precision_' + key].update(class_score[key]['precision'], batch_size)

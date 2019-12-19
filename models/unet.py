@@ -103,7 +103,7 @@ class UNet(nn.Module):
         decode2 = self.decode2(conv2, decode3)
         decode1 = self.decode1(conv1, decode2)
 
-        final = nn.functional.interpolate(self.final(decode1), input_data.size()[2:], mode='bilinear')
+        final = nn.functional.interpolate(self.final(decode1), input_data.size()[2:], mode='bilinear', align_corners=True)
 
         return final
 

@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 import torch
 import warnings
 import torchvision.models as models
@@ -9,13 +11,11 @@ from utils.utils import chop_layer, get_key_def
 def load_checkpoint(filename):
     ''' Loads checkpoint from provided path
     :param filename: path to checkpoint as .pth.tar or .pth
-    :return: (dict) checkpoint ready to be loaded into model instance 
+    :return: (dict) checkpoint ready to be loaded into model instance
     '''
     try:
-        print("=> loading model '{}'".format(filename))
-
+        print(f"=> loading model '{filename}'\n")
         checkpoint = torch.load(filename) if torch.cuda.is_available() else torch.load(filename, map_location='cpu')
-
         # For loading external models with different structure in state dict. May cause problems when trying to load optimizer
         if 'model' not in checkpoint.keys():
             temp_checkpoint = {}
@@ -27,58 +27,40 @@ def load_checkpoint(filename):
         raise FileNotFoundError(f"=> No model found at '{filename}'")
 
 
-def net(net_params, inference=False):
+def net(net_params, num_channels, inference=False):
     """Define the neural net"""
     model_name = net_params['global']['model_name'].lower()
-    num_classes = net_params['global']['num_classes']
-    if num_classes == 1:
-        warnings.warn("config specified that number of classes is 1, but model will be instantiated"
-                      " with a minimum of two regardless (will assume that 'background' exists)")
-        num_classes = 2
+    num_bands = int(net_params['global']['number_of_bands'])
     msg = f'Number of bands specified incompatible with this model. Requires 3 band data.'
-    state_dict_path = ''
+    train_state_dict_path = get_key_def('state_dict_path', net_params['training'], None)
+    pretrained = get_key_def('pretrained', net_params['training'], True) if not inference else False
+    dropout = get_key_def('dropout', net_params['training'], False)
+    dropout_prob = get_key_def('dropout_prob', net_params['training'], 0.5)
+
     if model_name == 'unetsmall':
-        model = unet.UNetSmall(num_classes,
-                                       net_params['global']['number_of_bands'],
-                                       net_params['training']['dropout'],
-                                       net_params['training']['dropout_prob'])
+        model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'unet':
-        model = unet.UNet(num_classes,
-                                  net_params['global']['number_of_bands'],
-                                  net_params['training']['dropout'],
-                                  net_params['training']['dropout_prob'])
+        model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'ternausnet':
-        assert net_params['global']['number_of_bands'] == 3, msg
-        model = TernausNet.ternausnet(num_classes)
+        assert num_bands == 3, msg
+        model = TernausNet.ternausnet(num_channels)
     elif model_name == 'checkpointed_unet':
-        model = checkpointed_unet.UNetSmall(num_classes,
-                                       net_params['global']['number_of_bands'],
-                                       net_params['training']['dropout'],
-                                       net_params['training']['dropout_prob'])
+        model = checkpointed_unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'inception':
-        model = inception.Inception3(num_classes,
-                                     net_params['global']['number_of_bands'])
+        model = inception.Inception3(num_channels, num_bands)
     elif model_name == 'fcn_resnet101':
-        assert net_params['global']['number_of_bands'] == 3, msg
-        coco_model = models.segmentation.fcn_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
-        model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_classes,
+        assert num_bands == 3, msg
+        model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
                                                   aux_loss=None)
-        chopped_dict = chop_layer(coco_model.state_dict(), layer_names=['classifier.4'])
-        del coco_model
-        # load the new state dict
-        # When strict=False, allows to load only the variables that are identical between the two models irrespective of
-        # whether one is subset/superset of the other.
-        model.load_state_dict(chopped_dict, strict=False)
     elif model_name == 'deeplabv3_resnet101':
-        assert net_params['global']['number_of_bands'] == 3, msg
-        # pretrained on coco (21 classes)
-        coco_model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True,
-                                                        num_classes=21, aux_loss=None)
-        model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True,
-                                                        num_classes=num_classes, aux_loss=None)
-        chopped_dict = chop_layer(coco_model.state_dict(), layer_names=['classifier.4'])
-        del coco_model
-        model.load_state_dict(chopped_dict, strict=False)
+        try:
+            model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, in_channels=num_bands,
+                                                            num_classes=num_channels, aux_loss=None)
+        except:
+            assert num_bands==3, 'Edit torchvision scripts segmentation.py and resnet.py to build deeplabv3_resnet ' \
+                                 'with more or less than 3 bands'
+            model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True,
+                                                            num_classes=num_channels, aux_loss=None)
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
 
@@ -93,12 +75,28 @@ def net(net_params, inference=False):
         model = coordconv.swap_coordconv_layers(model, centered=centered, normalized=normalized, noise=noise,
                                                 radius_channel=radius_channel, scale=scale)
 
-    if net_params['training']['state_dict_path']:
-        state_dict_path = net_params['training']['state_dict_path']
-        checkpoint = load_checkpoint(state_dict_path)
-    elif inference:
+    if inference:
         state_dict_path = net_params['inference']['state_dict_path']
+        assert Path(net_params['inference']['state_dict_path']).is_file(), f"Could not locate {net_params['inference']['state_dict_path']}"
         checkpoint = load_checkpoint(state_dict_path)
+    elif train_state_dict_path is not None:
+        assert Path(train_state_dict_path).is_file(), f'Could not locate checkpoint at {train_state_dict_path}'
+        checkpoint = load_checkpoint(train_state_dict_path)
+    elif pretrained and (model_name == ('deeplabv3_resnet101' or 'fcn_resnet101')):
+        print(f'Retrieving coco checkpoint for {model_name}...\n')
+        if model_name == 'deeplabv3_resnet101':  # default to pretrained on coco (21 classes)
+            coco_model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
+        else:
+            coco_model = models.segmentation.fcn_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
+        checkpoint = coco_model.state_dict()
+        # Place entire state_dict inside 'model' key for compatibility with the rest of GDL workflow
+        temp_checkpoint = {}
+        temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}
+        del coco_model, checkpoint
+        checkpoint = temp_checkpoint
+    elif pretrained:
+        warnings.warn(f'No pretrained checkpoint found for {model_name}.')
+        checkpoint = None
     else:
         checkpoint = None
 

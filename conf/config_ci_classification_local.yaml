@@ -23,12 +23,12 @@ global:
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
-  prep_csv_file: ./data/images_to_samples_ci_csv.csv
-  samples_dist: 200
-  min_annotated_percent: 10 # Min % of non background pixels in stored samples. Default: 0
-  mask_reference: False
+  prep_csv_file:
+  overlap:
+  min_annotated_percent: # Min % of non background pixels in stored samples. Default: 0
+  mask_reference:
 
-# Training parameters; used in train_model.py ----------------------
+# Training parameters; used in train_classification.py ----------------------
 
 training:
   state_dict_path:    # optional
@@ -57,3 +57,16 @@ inference:
   state_dict_path: ./data/model/config_ci_classification_local/checkpoint.pth.tar
   chunk_size:
   overlap:
+
+# Visualization parameters
+
+visualization:
+  vis_at_checkpoint:
+  vis_at_ckpt_min_ep_diff:
+  vis_at_evaluation:
+  vis_at_train:
+  vis_at_init:
+  max_num_vis_samples:
+  grid:
+  heatmaps:
+  colormap_file:
