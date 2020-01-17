@@ -343,7 +343,7 @@ def main(params):
                     #  provided number of band and image number of band.
                     warnings.warn(f"Input image has more band than the number provided in the yaml file ({params['global']['number_of_bands']}). "
                                   f"Will use the first {params['global']['number_of_bands']} bands of the input image.")
-                    np_input_image = np_input_image[:, :, 0:params['global']['number_of_bands']-1]
+                    np_input_image = np_input_image[:, :, 0:params['global']['number_of_bands']]
                     print(f"Input image's new shape: {np_input_image.shape}")
 
                 elif input_band_count < params['global']['number_of_bands']:
