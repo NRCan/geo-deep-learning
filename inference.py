@@ -338,9 +338,17 @@ def main(params):
                                                   img_max_val=np.max(np_input_image)))
 
                 input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
-                if input_band_count != params['global']['number_of_bands']:
-                    warnings.warn(f"Skipping image: The number of bands in the input image ({input_band_count}) and the parameter" \
-                    f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical")
+                if input_band_count > params['global']['number_of_bands']:
+                    # FIXME: Following statements should be reconsidered to better manage inconsistencies between
+                    #  provided number of band and image number of band.
+                    warnings.warn(f"Input image has more band than the number provided in the yaml file ({params['global']['number_of_bands']}). "
+                                  f"Will use the first {params['global']['number_of_bands']} bands of the input image.")
+                    np_input_image = np_input_image[:, :, 0:params['global']['number_of_bands']-1]
+                    print(f"Input image's new shape: {np_input_image.shape}")
+
+                elif input_band_count < params['global']['number_of_bands']:
+                    warnings.warn(f"Skipping image: The number of bands requested in the yaml file ({params['global']['number_of_bands']})"
+                                  f"can not be larger than the number of band in the input image ({input_band_count}).")
                     continue
 
                 # START INFERENCES ON SUB-IMAGES
