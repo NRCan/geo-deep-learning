@@ -16,7 +16,7 @@ Here is an example of the dedicated data_analysis section in the YAML file :
 
 data_analysis:
   create_csv: True
-  optimal_parameters_search : True
+  optimal_parameters_search : False
   sampling: {'method':['min_annotated_percent', 'class_proportion'], 'map': 0, '0':0, '1':0, '2':0}
 ```
 1. **create_csv**
@@ -29,10 +29,30 @@ data_analysis:
       
 1. **optimal_parameters_search**
 
-    When this parameter is set to `True`, it activates the optimal sampling parameters search function. This function aims to find wich sampling parameters produce the most balanced dataset based on the standard deviation between the proportions of each class in the dataset. This function returns the best sampling parameter(s) value(s) depending on the sampling method(s) chosen.
+    When this parameter is set to `True`, it activates the optimal sampling parameters search function. This function aims to find wich sampling parameters produce the most balanced dataset based on the standard deviation between the proportions of each class in the dataset.
+    
+    The sampling method(s) used for the search function must first be specified in the `sampling` dictionary in the `data_analysis` section of the YAML file. It does not take into account the values of the other keys in the dictionnary.
+    
+    ###### Example
+    ```YAML
+    data_analysis:
+      create_csv: False
+      optimal_parameters_search : True
+      sampling: {'method':['min_annotated_percent', 'class_proportion'], 'map': 0, '0':0, '1':0, '2':0}
+    ```    
+    <p align="center">
+       <img align="center" src="/docs/screenshots/optimal_parameters.png">
+    </p>
 
+    The function first returns the optimal threshold(s) for the chosen sampling method(s). It then returns the proportions of each classes and the size of the final dataset.
+    
 1. **sampling dictionnary**
     1. 'method'
+    
+    To specify the desired sampling method, write one or both of `'min_annotated_percent'` and `'class_proportion'`. These sampling methods can be used together in any order. They have to be in quotes and contained in a list.
+    
+    This part of the `sampling` dictionnary is also used for the `optimal_parameters_search` function.
+    
     1. 'map'
     1. following keys
     
