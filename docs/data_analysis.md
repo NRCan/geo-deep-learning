@@ -31,7 +31,7 @@ data_analysis:
 
     When this parameter is set to `True`, it activates the optimal sampling parameters search function. This function aims to find wich sampling parameters produce the most balanced dataset based on the standard deviation between the proportions of each class in the dataset.
     
-    The sampling method(s) used for the search function must first be specified in the `sampling` dictionary in the `data_analysis` section of the YAML file. It does not take into account the values of the other keys in the dictionnary.
+    The sampling method(s) used for the search function must first be specified in the `sampling` dictionary in the `data_analysis` section of the YAML file. It does not take into account the values of the other keys in the dictionary.
     
     ###### Example
     ```YAML
@@ -46,19 +46,34 @@ data_analysis:
 
     The function first returns the optimal threshold(s) for the chosen sampling method(s). It then returns the proportions of each classes and the size of the final dataset.
     
-1. **sampling dictionnary**
+1. **sampling dictionary**
 
 
     a) 'method'
     
     To specify the desired sampling method, write one or both of `'min_annotated_percent'` and `'class_proportion'`. These sampling methods can be used on their own or together in any order. They have to be in quotes and contained in a list.
     
-    This part of the `sampling` dictionnary is also used for the `optimal_parameters_search` function.
+    This part of the `sampling` dictionary is also used for the `optimal_parameters_search` function.
     
     
     b) 'map'
     
+    'map' stands for 'minimum annotated percent' : Minimum percent of non background pixels in sample
+    
+    Specify the targeted mininum annotated percent with an integer. For this value to be taken into account, the `optimal_paramters_search` function must be turned off and 'min_annotated_percent' must be listed in the `'method'` key of the `sampling` dictionary.
+    
+     ###### Example
+      
+      ```YAML
+        'map':25
+      ```
     
     c) following keys
     
+    The followings keys of the dictionary should be the number of each classes in the images, in quotes. Specify the minimum class proportion of one or all classes with integer(s) or float(s). For these values to be taken into account, the `optimal_paramters_search` function must be turned off and 'class_proportion' must be listed in the `'method'` key of the `sampling` dictionary.
+    
+    ###### Example
+      ```YAML
+        '0':0, '1':10, '2':5, '3':5, ...
+      ```
     
