@@ -41,7 +41,7 @@ data_analysis:
       sampling: {'method':['min_annotated_percent', 'class_proportion'], 'map': 0, '0':0, '1':0, '2':0}
     ```    
     <p align="center">
-       <img align="center" src="/docs/screenshots/optimal_parameters.png">
+       <img align="center" src="/docs/screenshots/stats_parameters_search_map_cp.PNG">
     </p>
 
     The function first returns the optimal threshold(s) for the chosen sampling method(s). It then returns the proportions of each classes and the size of the final dataset.
@@ -51,7 +51,7 @@ data_analysis:
 
     a) 'method'
     
-    To specify the desired sampling method, write one or both of `'min_annotated_percent'` and `'class_proportion'`. These sampling methods can be used together in any order. They have to be in quotes and contained in a list.
+    To specify the desired sampling method, write one or both of `'min_annotated_percent'` and `'class_proportion'`. These sampling methods can be used on their own or together in any order. They have to be in quotes and contained in a list.
     
     This part of the `sampling` dictionnary is also used for the `optimal_parameters_search` function.
     
