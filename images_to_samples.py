@@ -7,6 +7,7 @@ import rasterio
 import time
 from tqdm import tqdm
 from collections import OrderedDict
+import data_analysis
 
 from utils.CreateDataset import create_files_and_datasets, MetaSegmentationDataset
 from utils.utils import (
@@ -56,8 +57,76 @@ def append_to_dataset(dataset, sample):
     return old_size  # the index to the newly added sample, or the previous size of the dataset
 
 
+def check_sampling_dict():
+    for i, (key, value) in enumerate(params['sample']['sampling'].items()):
+
+        if i == 0:
+            if key == 'method':
+                for j in range(len(value)):
+                    if value[j] == 'min_annotated_percent' or value[j] == 'class_proportion':
+                        pass
+                    else:
+                        raise ValueError(f"Method value must be min_annotated_percent or class_proportion."
+                                         f" Provided value is {value[j]}")
+            else:
+                raise ValueError(f"Ordereddict first key value must be method. Provided value is {key}")
+        elif i == 1:
+            if key == 'map':
+                if type(value) == int:
+                    pass
+                else:
+                    raise ValueError(f"Value type must be 'int'. Provided value is {type(value)}")
+            else:
+                raise ValueError(f"Ordereddict second key value must be map. Provided value is {key}")
+        elif i >= 2:
+            if type(int(key)) == int:
+                pass
+                # if type(value) == int:
+                    # pass
+                # else:
+                    # raise ValueError(f"Value type must be 'int'. Provided value is {type(value)}")
+            # else:
+                # raise ValueError(f"Value type must be numerical and 'str'. Provided value is {type(value)}")
+
+
+def minimum_annotated_percent(target_background_percent, min_annotated_percent):
+    if float(target_background_percent) <= 100 - min_annotated_percent:
+        return True
+
+    return False
+
+
+def class_proportion(target):
+    prop_classes = {}
+    sample_total = (params['global']['samples_size']) ** 2
+    for i in range(0, params['global']['num_classes'] + 1):
+        prop_classes.update({str(i): 0})
+        if i in np.unique(target.flatten()):
+            prop_classes[str(i)] = (round((np.bincount(target.flatten())[i] / sample_total) * 100, 1))
+
+    condition = []
+    for i, (key, value) in enumerate(params['sample']['sampling'].items()):
+        if i >= 2 and prop_classes[key] >= value:
+            condition.append(1)
+
+    if sum(condition) == (params['global']['num_classes'] + 1):
+        return True
+
+    return False
+
+
+def compute_classes(samples_file, data, target, metadata_idx, dict_classes):
+    append_to_dataset(samples_file["sat_img"], data)
+    append_to_dataset(samples_file["map_img"], target)
+    append_to_dataset(samples_file["meta_idx"], metadata_idx)
+
+    # adds pixel count to pixel_classes dict for each class in the image
+    for i in (np.unique(target)):
+        dict_classes[i] += (np.bincount(target.flatten()))[i]
+
+
 def samples_preparation(in_img_array, label_array, sample_size, dist_samples, samples_count, num_classes, samples_file,
-                        dataset, min_annotated_percent=0, image_metadata=None):
+                        dataset, pixel_classes, min_annotated_percent=0, image_metadata=None):
     """
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
@@ -104,13 +173,32 @@ def samples_preparation(in_img_array, label_array, sample_size, dist_samples, sa
             target = np.squeeze(pad_label_array[row:row + sample_size, column:column + sample_size, :], axis=2)
 
             u, count = np.unique(target, return_counts=True)
-            target_background_percent = count[0] / np.sum(count) * 100 if 0 in u else 0
+            target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
 
-            if target_background_percent < 100 - min_annotated_percent:
-                append_to_dataset(samples_file["sat_img"], data)
-                append_to_dataset(samples_file["map_img"], target)
-                append_to_dataset(samples_file["meta_idx"], metadata_idx)
-                idx_samples += 1
+            if len(params['sample']['sampling']['method']) == 1:
+                if params['sample']['sampling']['method'][0] == 'min_annotated_percent':
+                    if minimum_annotated_percent(target_background_percent, params['sample']['sampling']['map']):
+                        compute_classes(samples_file, data, target, metadata_idx, pixel_classes)
+                        idx_samples += 1
+                if params['sample']['sampling']['method'][0] == 'class_proportion':
+                    if class_proportion(target):
+                        compute_classes(samples_file, data, target, metadata_idx, pixel_classes)
+                        idx_samples += 1
+
+            if len(params['sample']['sampling']['method']) == 2:
+                if params['sample']['sampling']['method'][0] == 'min_annotated_percent':
+                    if minimum_annotated_percent(target_background_percent, params['sample']['sampling']['map']):
+                        if params['sample']['sampling']['method'][1] == 'class_proportion':
+                            if class_proportion(target):
+                                compute_classes(samples_file, data, target, metadata_idx, pixel_classes)
+                                idx_samples += 1
+
+                elif params['sample']['sampling']['method'][0] == 'class_proportion':
+                    if class_proportion(target):
+                        if params['sample']['sampling']['method'][1] == 'min_annotated_percent':
+                            if minimum_annotated_percent(target_background_percent, params['sample']['sampling']['map']):
+                                compute_classes(samples_file, data, target, metadata_idx, pixel_classes)
+                                idx_samples += 1
 
             target_class_num = np.max(u)
             if num_classes < target_class_num:
@@ -162,6 +250,14 @@ def main(params):
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
+
+    # 'sampling' ordereddict validation
+    check_sampling_dict()
+
+    pixel_classes = {}
+    # creates pixel_classes dict and keys
+    for i in range(0, params['global']['num_classes'] + 1):
+        pixel_classes.update({i: 0})
 
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
 
@@ -236,7 +332,8 @@ def main(params):
                                                                  number_classes,
                                                                  out_file,
                                                                  info['dataset'],
-                                                                 params['sample']['min_annotated_percent'],
+                                                                 pixel_classes,
+                                                                 params['sample']['sampling']['map'],
                                                                  metadata)
 
             _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
@@ -245,6 +342,15 @@ def main(params):
     trn_hdf5.close()
     val_hdf5.close()
     tst_hdf5.close()
+
+    pixel_total = 0
+    # adds up the number of pixels for each class in pixel_classes dict
+    for i in pixel_classes:
+        pixel_total += pixel_classes[i]
+
+    # prints the proportion of pixels of each class for the samples created
+    for i in pixel_classes:
+        print('Pixels from class', i, ':', round((pixel_classes[i] / pixel_total) * 100, 1), '%')
 
     print("Number of samples created: ", number_samples)
 
