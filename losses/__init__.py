@@ -12,7 +12,7 @@ class MultiClassCriterion(nn.Module):
     def __init__(self, loss_type='CrossEntropy', **kwargs):
         super().__init__()
         if loss_type == 'CrossEntropy':
-            self.criterion = nn.CrossEntropyLoss(**kwargs)
+            self.criterion = nn.CrossEntropyLoss(**kwargs)  # FIXME: this error happens with CrossEntropy: https://discuss.pytorch.org/t/is-there-anybody-happen-this-error/17416
         elif loss_type == 'Lovasz':
             self.criterion = LovaszSoftmax(**kwargs)
         elif loss_type == 'OhemCrossEntropy':

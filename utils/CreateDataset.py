@@ -1,5 +1,7 @@
 import collections
 import os
+import warnings
+
 import h5py
 from torch.utils.data import Dataset
 import numpy as np
@@ -28,7 +30,10 @@ def create_files_and_datasets(params, samples_folder):
         hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
                                  maxshape=(None, samples_size, samples_size))
         hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
-        hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+        try:
+            hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+        except AttributeError as e:
+            warnings.warn(f'Ignoring error: {e}. Make sure no metadata is used or update h5py to version 2.10 or higher')
         hdf5_files.append(hdf5_file)
     return hdf5_files
 
@@ -81,7 +86,7 @@ class SegmentationDataset(Dataset):
             metadata = None
             if meta_idx != -1:
                 metadata = self.metadata[meta_idx]
-        sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata}
+        sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata, "hdf5_path": self.hdf5_path}
         if self.transform:
             sample = self.transform(sample)
         return sample
