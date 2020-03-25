@@ -11,7 +11,6 @@ import time
 
 from tqdm import tqdm
 from collections import OrderedDict
-import data_analysis
 
 from utils.CreateDataset import create_files_and_datasets, MetaSegmentationDataset
 from utils.utils import vector_to_raster, get_key_def, lst_ids
