@@ -7,9 +7,6 @@ import rasterio.features
 import warnings
 import collections
 import fiona
-import matplotlib
-
-matplotlib.use('Agg')
 
 try:
     from ruamel_yaml import YAML
@@ -96,6 +93,76 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference=False):
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
         optimizer.load_state_dict(checkpoint['optimizer'])
     return model, optimizer
+
+
+def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vector_attrib=None, aux_vector_ids=None,
+                          aux_vector_dist_maps=False, aux_vector_dist_log=True, aux_vector_scale=None):
+    """Read an image from a file and return a 3d array (h,w,c)
+    Args:
+        input_image: Rasterio file handle holding the (already opened) input raster
+        scale: optional scaling factor for the raw data
+        aux_vector_file: optional vector file from which to extract auxiliary shapes
+        aux_vector_attrib: optional vector file attribute name to parse in order to fetch ids
+        aux_vector_ids: optional vector ids to target in the vector file above
+        aux_vector_dist_maps: flag indicating whether aux vector bands should be distance maps or binary maps
+        aux_vector_dist_log: flag indicating whether log distances should be used in distance maps or not
+        aux_vector_scale: optional floating point scale factor to multiply to rasterized vector maps
+
+    Return:
+        numpy array of the image (possibly concatenated with auxiliary vector channels)
+    """
+    np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
+    for i in range(input_image.count):
+        np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
+
+    # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
+    # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
+    if scale:
+        sc_min, sc_max = scale
+        np_array = minmax_scale(img=np_array,
+                                orig_range=(np.min(np_array), np.max(np_array)),
+                                scale_range=(sc_min, sc_max))
+
+    # if requested, load vectors from external file, rasterize, and append distance maps to array
+    if aux_vector_file is not None:
+        vec_tensor = vector_to_raster(vector_file=aux_vector_file,
+                                      input_image=input_image,
+                                      attribute_name=aux_vector_attrib,
+                                      fill=0,
+                                      target_ids=aux_vector_ids,
+                                      merge_all=False)
+        if aux_vector_dist_maps:
+            import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
+            vec_tensor = vec_tensor.astype(np.float32)
+            for vec_band_idx in range(vec_tensor.shape[2]):
+                mask = vec_tensor[:, :, vec_band_idx]
+                mask = cv.dilate(mask, (3, 3))  # make points and linestring easier to work with
+                #display_resize = cv.resize(np.where(mask, np.uint8(0), np.uint8(255)), (1000, 1000))
+                #cv.imshow("mask", display_resize)
+                dmap = cv.distanceTransform(np.where(mask, np.uint8(0), np.uint8(255)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
+                if aux_vector_dist_log:
+                    dmap = np.log(dmap + 1)
+                #display_resize = cv.resize(cv.normalize(dmap, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
+                #cv.imshow("dmap1", display_resize)
+                dmap_inv = cv.distanceTransform(np.where(mask, np.uint8(255), np.uint8(0)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
+                if aux_vector_dist_log:
+                    dmap_inv = np.log(dmap_inv + 1)
+                #display_resize = cv.resize(cv.normalize(dmap_inv, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
+                #cv.imshow("dmap2", display_resize)
+                vec_tensor[:, :, vec_band_idx] = np.where(mask, -dmap_inv, dmap)
+                #display = cv.normalize(vec_tensor[:, :, vec_band_idx], None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F)
+                #display_resize = cv.resize(display, (1000, 1000))
+                #cv.imshow("distmap", display_resize)
+                #cv.waitKey(0)
+        if aux_vector_scale:
+            for vec_band_idx in vec_tensor.shape[2]:
+                vec_tensor[:, :, vec_band_idx] *= aux_vector_scale
+        num_file = 0
+        filename = '/export/sata01/wspace/dataset_kingston_rgb/tst_CRIM/Images/' + str(num_file) + '.png'
+        cv.imwrite(filename, vec_tensor)
+        num_file += 1
+        np_array = np.concatenate([np_array, vec_tensor], axis=2)
+    return np_array
 
 
 def vector_to_raster(vector_file, input_image, attribute_name, fill=0, target_ids=None, merge_all=True):
