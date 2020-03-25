@@ -11,6 +11,7 @@ import time
 
 from tqdm import tqdm
 from collections import OrderedDict
+import data_analysis
 
 from utils.CreateDataset import create_files_and_datasets, MetaSegmentationDataset
 from utils.utils import vector_to_raster, get_key_def, lst_ids
@@ -131,7 +132,6 @@ def compute_classes(samples_file, data, target, metadata_idx, dict_classes):
 
 def samples_preparation(in_img_array, label_array, sample_size, overlap, samples_count, num_classes, samples_file,
                         dataset, pixel_classes, image_metadata=None):
-
     """
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
@@ -231,6 +231,7 @@ def samples_preparation(in_img_array, label_array, sample_size, overlap, samples
                     num_classes = target_class_num
 
                 _tqdm.set_postfix(Excld_samples=excl_samples, Added_samples=f'{added_samples}/{len(_tqdm)*len(range(0, w, dist_samples))}', Target_annot_perc=100-target_background_percent)
+
 
     if dataset == 'trn':
         samples_count['trn'] = idx_samples

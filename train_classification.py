@@ -26,7 +26,6 @@ import torch.optim as optim
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
-import numpy as np
 from PIL import Image
 
 from utils import augmentation as aug, CreateDataset
