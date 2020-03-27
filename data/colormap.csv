@@ -3,3 +3,4 @@ input grayscale value,classes,html colors (#RRGGBB)
 2,hydro,#b2e0e6
 3,roads,#990000
 4,vegetation,#00680d
+5,other,#fcba03
