@@ -57,10 +57,19 @@ def net(net_params, num_channels, inference=False):
             model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, in_channels=num_bands,
                                                             num_classes=num_channels, aux_loss=None)
         except:
-            assert num_bands==3, 'Edit torchvision scripts segmentation.py and resnet.py to build deeplabv3_resnet ' \
-                                 'with more or less than 3 bands'
+            # assert num_bands==3, 'Edit torchvision scripts segmentation.py and resnet.py to build deeplabv3_resnet ' \
+            #                      'with more or less than 3 bands'
+
+            print('Testing with 4 bands')
+            import numpy as np
+            import torch.nn as nn
             model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True,
                                                             num_classes=num_channels, aux_loss=None)
+            conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
+            depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
+            conv1 = np.append(conv1, depth, axis=1)
+            conv1 = torch.from_numpy(conv1)
+            model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
 

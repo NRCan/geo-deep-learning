@@ -1,5 +1,5 @@
 input grayscale value,classes,html colors (#RRGGBB)
-1,buildings,#efcd08
+1,vegetation,#00680d
 2,hydro,#b2e0e6
-3,roads,#990000
-4,vegetation,#00680d
+3,roads,#efcd08
+4,buildings,#990000
