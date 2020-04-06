@@ -7,6 +7,9 @@ import rasterio.features
 import warnings
 import collections
 import fiona
+import matplotlib
+
+matplotlib.use('Agg')
 
 try:
     from ruamel_yaml import YAML
