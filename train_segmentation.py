@@ -242,7 +242,7 @@ def main(params, config_path):
 
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
-    min_annot_perc = params['sample']['min_annotated_percent']
+    min_annot_perc = params['sample']['sampling']['map']
     num_bands = params['global']['number_of_bands']
     samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: preferred name structure? document!
     samples_folder = Path(data_path).joinpath(samples_folder_name) if task == 'segmentation' else Path(data_path)
