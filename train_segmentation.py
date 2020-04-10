@@ -242,7 +242,7 @@ def main(params, config_path):
 
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
-    min_annot_perc = params['sample']['min_annotated_percent']
+    min_annot_perc = params['sample']['sampling']['map']
     num_bands = params['global']['number_of_bands']
     samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: preferred name structure? document!
     samples_folder = Path(data_path).joinpath(samples_folder_name) if task == 'segmentation' else Path(data_path)
@@ -306,15 +306,15 @@ def main(params, config_path):
                                                                        samples_folder=samples_folder)
 
     tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
-    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
-
-    criterion = criterion.to(device)
-    try: # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
+    try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
         model.to(device)
     except RuntimeError:
         warnings.warn(f"Unable to use device. Trying device 0...\n")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
+    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
+
+    criterion = criterion.to(device)
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
