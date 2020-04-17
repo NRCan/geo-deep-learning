@@ -1,15 +1,13 @@
 import argparse
 import datetime
 import os
-from pathlib import Path
-
 import fiona
 import numpy as np
 import warnings
 import rasterio
-import random
 import time
 
+from pathlib import Path
 from tqdm import tqdm
 from collections import OrderedDict
 
@@ -66,6 +64,7 @@ def pad_diff(arr, w, h, arr_shape):
 
     return padded_arr
 
+
 def append_to_dataset(dataset, sample):
     old_size = dataset.shape[0]  # this function always appends samples on the first axis
     dataset.resize(old_size + 1, axis=0)
@@ -97,12 +96,6 @@ def check_sampling_dict():
         elif i >= 2:
             if type(int(key)) == int:
                 pass
-                # if type(value) == int:
-                # pass
-                # else:
-                # raise ValueError(f"Value type must be 'int'. Provided value is {type(value)}")
-            # else:
-            # raise ValueError(f"Value type must be numerical and 'str'. Provided value is {type(value)}")
 
 
 def minimum_annotated_percent(target_background_percent, min_annotated_percent):
@@ -134,21 +127,15 @@ def class_proportion(target):
 def compute_classes(dataset, samples_file, val_sample_file, data, target, metadata_idx, dict_classes):
     val = False
     if dataset == 'trn':
-        random_val = random.randint(1, 100)
-
+        random_val = np.random.randint(1, 100)
         if random_val > 5:
-            _samples_file = samples_file
+            pass
         else:
             val = True
-            _samples_file = val_sample_file
-        append_to_dataset(_samples_file["sat_img"], data)
-        append_to_dataset(_samples_file["map_img"], target)
-        append_to_dataset(_samples_file["meta_idx"], metadata_idx)
-
-    else:
-        append_to_dataset(samples_file["sat_img"], data)
-        append_to_dataset(samples_file["map_img"], target)
-        append_to_dataset(samples_file["meta_idx"], metadata_idx)
+            samples_file = val_sample_file
+    append_to_dataset(samples_file["sat_img"], data)
+    append_to_dataset(samples_file["map_img"], target)
+    append_to_dataset(samples_file["meta_idx"], metadata_idx)
 
     # adds pixel count to pixel_classes dict for each class in the image
     for i in (np.unique(target)):
@@ -369,7 +356,7 @@ def main(params):
                     geom = getattr(geom, '__geo_interface__', None) or geom
                     if not is_valid_geom(geom):
                         gpkg_stem = str(Path(info['gpkg']).stem)
-                        if gpkg_stem not in invalid_features.keys(): # create key with name of gpkg
+                        if gpkg_stem not in invalid_features.keys():  # create key with name of gpkg
                             invalid_features[gpkg_stem] = []
                         if lst_vector[index]["id"] not in invalid_features[gpkg_stem]:  # ignore feature is already appended
                             invalid_features[gpkg_stem].append(lst_vector[index]["id"])
@@ -385,6 +372,7 @@ def main(params):
     # creates pixel_classes dict and keys
     for i in range(0, params['global']['num_classes'] + 1):
         pixel_classes.update({i: 0})
+    pixel_classes.update({ignore_index: 0})  # FIXME: pixel_classes dict needs to be populated with classes obtained from target
 
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
 
@@ -412,8 +400,8 @@ def main(params):
                     np_label_raster = vector_to_raster(vector_file=info['gpkg'],
                                                        input_image=raster,
                                                        attribute_name=info['attribute_name'],
-                                                       fill=get_key_def('ignore_idx', get_key_def('training', params, {}), 0))
-
+                                                       fill=get_key_def('ignore_idx',
+                                                                        get_key_def('training', params, {}), 0))
                     # Read the input raster image
                     np_input_image = image_reader_as_array(input_image=raster,
                                                            scale=get_key_def('scale_data', params['global'], None),
@@ -437,8 +425,6 @@ def main(params):
                 if info['dataset'] == 'trn':
                     out_file = trn_hdf5
                     val_file = val_hdf5
-                # elif info['dataset'] == 'val':
-                #     out_file = val_hdf5
                 elif info['dataset'] == 'tst':
                     out_file = tst_hdf5
                 else:

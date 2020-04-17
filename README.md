@@ -135,6 +135,7 @@ Structure as created by geo-deep-learning
 ## Models available
 - [Unet](https://arxiv.org/abs/1505.04597)
 - [Deeplabv3 (backbone: resnet101, optional: pretrained on coco dataset)](https://arxiv.org/abs/1706.05587)
+- Experimental: Deeplabv3 (default: pretrained on coco dataset) adapted for RGB-NIR(4 Bands) supported
 - Unet small (less deep version of Unet)
 - Checkpointed Unet (same as Unet small, but uses less GPU memory and recomputes data during the backward pass)
 - [Ternausnet](https://arxiv.org/abs/1801.05746)
