@@ -184,6 +184,7 @@ global:
 sample:
   prep_csv_file: /path/to/file_name.csv  # Path to CSV file used in preparation.
   overlap: 200                           # (int) Percentage of overlap between 2 samples. Mandatory
+  val_percent: 5                         # Percentage of validation samples created from train set (0 - 100)
   min_annotated_percent: 10              # Min % of non background pixels in stored samples. Mandatory
   mask_reference: False                  # When True, mask the input image where there is no reference data.
 ```

@@ -54,6 +54,7 @@ def mask_image(arrayA, arrayB):
 
 
 def pad_diff(arr, w, h, arr_shape):
+    """ Pads img_arr width or height < samples_size with zeros """
     w_diff = arr_shape - w
     h_diff = arr_shape - h
 
@@ -124,11 +125,12 @@ def class_proportion(target):
     return False
 
 
-def compute_classes(dataset, samples_file, val_sample_file, data, target, metadata_idx, dict_classes):
+def compute_classes(dataset, samples_file, val_percent, val_sample_file, data, target, metadata_idx, dict_classes):
+    """ Creates Dataset (trn, val, tst) appended to Hdf5 and computes pixel classes(%) """
     val = False
     if dataset == 'trn':
         random_val = np.random.randint(1, 100)
-        if random_val > 5:
+        if random_val > val_percent:
             pass
         else:
             val = True
@@ -151,6 +153,7 @@ def samples_preparation(in_img_array,
                         samples_count,
                         num_classes,
                         samples_file,
+                        val_percent,
                         val_sample_file,
                         dataset,
                         pixel_classes,
@@ -164,6 +167,7 @@ def samples_preparation(in_img_array,
     :param samples_count: (dict) Current number of samples created (will be appended and return)
     :param num_classes: (dict) Number of classes in reference data (will be appended and return)
     :param samples_file: (hdf5 dataset) hdfs file where samples will be written
+    :param val_percent: (int) percentage of validation samples
     :param val_sample_file: (hdf5 dataset) hdfs file where samples will be written (val)
     :param dataset: (str) Type of dataset where the samples will be written. Can be 'trn' or 'val' or 'tst'
     :param pixel_classes: (dict) samples pixel statistics
@@ -215,7 +219,7 @@ def samples_preparation(in_img_array,
                 if len(params['sample']['sampling']['method']) == 1:
                     if params['sample']['sampling']['method'][0] == 'min_annotated_percent':
                         if minimum_annotated_percent(target_background_percent, params['sample']['sampling']['map']):
-                            val = compute_classes(dataset, samples_file, val_sample_file,
+                            val = compute_classes(dataset, samples_file, val_percent, val_sample_file,
                                                   data, target, metadata_idx, pixel_classes)
                             if val:
                                 idx_samples_v += 1
@@ -227,7 +231,7 @@ def samples_preparation(in_img_array,
 
                     if params['sample']['sampling']['method'][0] == 'class_proportion':
                         if class_proportion(target):
-                            val = compute_classes(dataset, samples_file, val_sample_file,
+                            val = compute_classes(dataset, samples_file, val_percent, val_sample_file,
                                                   data, target, metadata_idx, pixel_classes)
                             if val:
                                 idx_samples_v += 1
@@ -242,7 +246,7 @@ def samples_preparation(in_img_array,
                         if minimum_annotated_percent(target_background_percent, params['sample']['sampling']['map']):
                             if params['sample']['sampling']['method'][1] == 'class_proportion':
                                 if class_proportion(target):
-                                    val = compute_classes(dataset, samples_file, val_sample_file,
+                                    val = compute_classes(dataset, samples_file, val_percent, val_sample_file,
                                                           data, target, metadata_idx, pixel_classes)
                                     if val:
                                         idx_samples_v += 1
@@ -257,7 +261,7 @@ def samples_preparation(in_img_array,
                             if params['sample']['sampling']['method'][1] == 'min_annotated_percent':
                                 if minimum_annotated_percent(target_background_percent,
                                                              params['sample']['sampling']['map']):
-                                    val = compute_classes(dataset, samples_file, val_sample_file,
+                                    val = compute_classes(dataset, samples_file, val_percent, val_sample_file,
                                                           data, target, metadata_idx, pixel_classes)
                                     if val:
                                         idx_samples_v += 1
@@ -300,6 +304,7 @@ def main(params):
     data_path = Path(params['global']['data_path'])
     Path.mkdir(data_path, exist_ok=True, parents=True)
     csv_file = params['sample']['prep_csv_file']
+    val_percent = params['sample']['val_percent']
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
     min_annot_perc = params['sample']['sampling']['map']
@@ -450,6 +455,7 @@ def main(params):
                                                                      number_samples,
                                                                      number_classes,
                                                                      out_file,
+                                                                     val_percent,
                                                                      val_file,
                                                                      info['dataset'],
                                                                      pixel_classes,

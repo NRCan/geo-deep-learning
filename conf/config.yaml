@@ -41,6 +41,7 @@ data_analysis:
 
 sample:
   prep_csv_file: /path/to/csv/file.csv
+  val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
   overlap: 25
   sampling: {'method':['min_annotated_percent'], 'map': 0, '0':0, '1':0, '2':0} # One of class_proportion, annotated_percent
     # 'method' : One or both in any order of min_annotated_percent, class_proportion; must be presented in list format
