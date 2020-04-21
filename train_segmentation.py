@@ -107,14 +107,12 @@ def download_s3_files(bucket_name, data_path, output_path):
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(data_path, batch_size, task, num_devices, params, samples_folder=None):
+def create_dataloader(samples_folder, batch_size, num_devices, params):
     """
     Function to create dataloader objects for training, validation and test datasets.
-    :param data_path: (str) path to the samples folder
-    :param batch_size: (int) batch size
-    :param task: (str) classification or segmentation
-    :param num_devices: (int) number of GPUs used
     :param samples_folder: path to folder containting .hdf5 files if task is segmentation
+    :param batch_size: (int) batch size
+    :param num_devices: (int) number of GPUs used
     :param params: (dict) Parameters found in the yaml config file.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
@@ -135,11 +133,12 @@ def create_dataloader(data_path, batch_size, task, num_devices, params, samples_
         params["training"]["ignore_index"] = -1
     datasets = []
 
-    for subset in ["trn", "val", "tst"]:
+    for subset in ["trn", "val", "tst"]:  # FIXME: randomly separate train/val 85/15 sets.
         datasets.append(dataset_constr(samples_folder, subset,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare,
-                                       transform=aug.compose_transforms(params, subset)))
+                                       radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
+                                       geom_transform=aug.compose_transforms(params, subset, type='geometric')))
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
@@ -298,12 +297,10 @@ def main(params, config_path):
         warnings.warn(f"No Cuda device available. This process will only run on CPU\n")
 
     tqdm.write(f'Creating dataloaders from data in {samples_folder}...\n')
-    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
+    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
-                                                                       task=task,
                                                                        num_devices=num_devices,
-                                                                       params=params,
-                                                                       samples_folder=samples_folder)
+                                                                       params=params)
 
     tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
     model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)

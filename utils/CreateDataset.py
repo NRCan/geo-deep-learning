@@ -41,12 +41,13 @@ def create_files_and_datasets(params, samples_folder):
 class SegmentationDataset(Dataset):
     """Semantic segmentation dataset based on HDF5 parsing."""
 
-    def __init__(self, work_folder, dataset_type, max_sample_count=None, dontcare=None, transform=None):
+    def __init__(self, work_folder, dataset_type, max_sample_count=None, dontcare=None, radiom_transform=None, geom_transform=None):
         # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.work_folder = work_folder
         self.max_sample_count = max_sample_count
         self.dataset_type = dataset_type
-        self.transform = transform
+        self.radiom_transform = radiom_transform
+        self.geom_transform = geom_transform
         self.metadata = []
         self.dontcare = dontcare
         self.hdf5_path = os.path.join(self.work_folder, self.dataset_type + "_samples.hdf5")
@@ -87,8 +88,10 @@ class SegmentationDataset(Dataset):
             if meta_idx != -1:
                 metadata = self.metadata[meta_idx]
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata, "hdf5_path": self.hdf5_path}
-        if self.transform:
-            sample = self.transform(sample)
+        if self.radiom_transform:  # radiometric transforms should always precede geometric ones
+            sample = self.radiom_transform(sample)
+        if self.geom_transform:  # rotation, geometric scaling, flip and crop. Will also put channels first and convert to torch tensor from numpy.
+            sample = self.geom_transform(sample)
         return sample
 
 
@@ -97,12 +100,12 @@ class MetaSegmentationDataset(SegmentationDataset):
 
     metadata_handling_modes = ["const_channel", "scaled_channel"]
 
-    def __init__(self, work_folder, dataset_type, meta_map, max_sample_count=None, dontcare=None, transform=None):
+    def __init__(self, work_folder, dataset_type, meta_map, max_sample_count=None, dontcare=None, geom_transform=None):
         assert meta_map is None or isinstance(meta_map, dict), "unexpected metadata mapping object type"
         assert meta_map is None or all([isinstance(k, str) and v in self.metadata_handling_modes for k, v in meta_map.items()]), \
             "unexpected metadata key type or value handling mode"
         super().__init__(work_folder=work_folder, dataset_type=dataset_type, max_sample_count=max_sample_count,
-                         dontcare=dontcare, transform=transform)
+                         dontcare=dontcare, geom_transform=geom_transform)
         assert all([isinstance(m, (dict, collections.OrderedDict)) for m in self.metadata]), \
             "cannot use provided metadata object type with meta-mapping dataset interface"
         self.meta_map = meta_map
@@ -141,9 +144,11 @@ class MetaSegmentationDataset(SegmentationDataset):
             sat_img = hdf5_file["sat_img"][index, ...]
             map_img = self._remap_labels(hdf5_file["map_img"][index, ...])
             meta_idx = int(hdf5_file["meta_idx"][index]) if "meta_idx" in hdf5_file else -1
-            assert meta_idx != -1, f"metadata unvailable in sample #{index}"
-            sat_img = self.append_meta_layers(sat_img, self.meta_map, self.metadata[meta_idx])
+            assert meta_idx != -1, f"metadata unavailable in sample #{index}"
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": self.metadata[meta_idx]}
-        if self.transform:
-            sample = self.transform(sample)
+        if self.radiom_transform:  # radiometric transforms should always precede geometric ones
+            sample = self.radiom_transform(sample)  # FIXME: test this
+        sample["sat_img"] = self.append_meta_layers(sat_img, self.meta_map, self.metadata[meta_idx])  # Overwrite sat_img with sat_img with metalayers
+        if self.geom_transform:
+            sample = self.geom_transform(sample)  # rotation, geometric scaling, flip and crop. Will also put channels first and convert to torch tensor from numpy.
         return sample
