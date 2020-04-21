@@ -95,6 +95,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
     scale = get_key_def('scale_data', params['global'], None)
     colormap_file = get_key_def('colormap_file', params['visualization'], None)
     heatmaps = get_key_def('heatmaps', params['visualization'], False)
+    heatmaps_inf = get_key_def('heatmaps', params['inference'], False)
     grid = get_key_def('grid', params['visualization'], False)
     ignore_index = get_key_def('ignore_index', params['training'], -1)
 
@@ -126,7 +127,8 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
     # Define colormap and names of classes with respect to grayscale values
     classes, cmap = colormap_reader(output, colormap_file, default_colormap='Set1')
 
-    heatmaps_dict = heatmaps_to_dict(output, classes, inference=inference, debug=debug)  # Prepare heatmaps from softmax output
+    if heatmaps_inf:
+        heatmaps_dict = heatmaps_to_dict(output, classes, inference=inference, debug=debug)  # Prepare heatmaps from softmax output
 
     # Convert output and label, if provided, to RGB with matplotlib's colormap object
     output_argmax_color = cmap(output_argmax)
@@ -143,7 +145,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
                           f'{scale} is identical with scale used for training model.')
         output_name = vis_path.joinpath(f"{inference_input_path.stem}_inference.tif")
         create_new_raster_from_base(inference_input_path, output_name, output_argmax)
-        if get_key_def('heatmaps', params['inference'], False):
+        if heatmaps_inf:
             for key in heatmaps_dict.keys():
                 heatmap = np.array(heatmaps_dict[key]['heatmap_PIL'])
                 class_name = heatmaps_dict[key]['class_name']

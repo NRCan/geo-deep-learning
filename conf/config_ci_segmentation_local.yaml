@@ -9,7 +9,7 @@
 # Global parameters
 
 global:
-  samples_size: 256
+  samples_size: 512
   num_classes: 1  # will automatically create a 'background' class
   data_path: ./data
   number_of_bands: 3
@@ -48,10 +48,16 @@ training:
   class_weights: [1.0, 2.0]
   batch_metrics: 1
   ignore_index:  # Specifies a target value that is ignored and does not contribute to the input gradient
+
   augmentation:
     rotate_limit: 45
     rotate_prob: 0.5
     hflip_prob: 0.5
+    radiom_trim_range: [0.1, 2.0] # range of values (%) for trimming (same value used for left and right trim)
+    geom_scale_range:
+    brightness_contrast_range: # Not yet implemented
+    noise: # Not yet implemented
+    crop_size: 256
 
 # Inference parameters; used in inference.py --------
 

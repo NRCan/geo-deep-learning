@@ -115,10 +115,10 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                                                           inp_size=inputs.cpu().numpy().shape,
                                                           out_size=outputs.cpu().numpy().shape,
                                                           overlay=overlay))
-            if debug:
-                output_counts_PIL = Image.fromarray(output_counts.astype(np.uint8), mode='L')
-                output_counts_PIL.save(output_path.joinpath(f'output_counts.png'))
-                tqdm.write(f'Dividing array according to output counts...\n')
+            # if debug:
+            #     output_counts_PIL = Image.fromarray(output_counts.astype(np.uint8), mode='L')
+            #     output_counts_PIL.save(output_path.joinpath(f'output_counts.png'))
+            #     tqdm.write(f'Dividing array according to output counts...\n')
 
             # Divide array according to output counts. Manages overlap and returns a softmax array as if only one forward pass had been done.
             output_mask_raw = np.divide(output_probs, np.maximum(output_counts, 1))  # , 1 is added to overwrite 0 values.
@@ -331,11 +331,10 @@ def main(params):
                         "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"
                     metadata = read_parameters(img['meta'])
 
-                if debug:
-                    _tqdm.set_postfix(OrderedDict(img_name=img_name,
-                                                  img=np_input_image.shape,
-                                                  img_min_val=np.min(np_input_image),
-                                                  img_max_val=np.max(np_input_image)))
+                _tqdm.set_postfix(OrderedDict(img_name=img_name,
+                                              img=np_input_image.shape,
+                                              img_min_val=np.min(np_input_image),
+                                              img_max_val=np.max(np_input_image)))
 
                 input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
                 if input_band_count > params['global']['number_of_bands']:
