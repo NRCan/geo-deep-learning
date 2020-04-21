@@ -115,6 +115,7 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                                                           inp_size=inputs.cpu().numpy().shape,
                                                           out_size=outputs.cpu().numpy().shape,
                                                           overlay=overlay))
+
             # if debug:
             #     output_counts_PIL = Image.fromarray(output_counts.astype(np.uint8), mode='L')
             #     output_counts_PIL.save(output_path.joinpath(f'output_counts.png'))

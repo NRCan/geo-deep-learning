@@ -247,11 +247,13 @@ def main(params):
                         info['meta'] = info['meta'].split('/')[-1]
 
                 with rasterio.open(info['tif'], 'r') as raster:
+
                     # 1. Burn vector file in a raster file
                     np_label_raster = vector_to_raster(vector_file=info['gpkg'],
                                                        input_image=raster,
                                                        attribute_name=info['attribute_name'],
                                                        fill=get_key_def('ignore_idx', get_key_def('training', params, {}), 0))
+
 
                     # 2. Read the input raster image  FIXME: test with 16 bit raster. Any problems?
                     np_input_image = image_reader_as_array(input_image=raster,
@@ -289,6 +291,7 @@ def main(params):
                     f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
 
                 np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
+
                 # 3. Prepare samples
                 number_samples, number_classes = samples_preparation(np_input_image,
                                                                      np_label_raster,

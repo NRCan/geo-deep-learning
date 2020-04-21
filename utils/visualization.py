@@ -145,6 +145,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
                           f'{scale} is identical with scale used for training model.')
         output_name = vis_path.joinpath(f"{inference_input_path.stem}_inference.tif")
         create_new_raster_from_base(inference_input_path, output_name, output_argmax)
+        
         if heatmaps_inf:
             for key in heatmaps_dict.keys():
                 heatmap = np.array(heatmaps_dict[key]['heatmap_PIL'])
