@@ -33,6 +33,7 @@ After installing the required computing environment (see next section), one need
 - Python 3.6 with the following libraries:
     - pytorch # With your choice of CUDA toolkit
     - torchvision
+    - opencv
     - rasterio
     - fiona
     - ruamel_yaml
@@ -48,14 +49,18 @@ After installing the required computing environment (see next section), one need
 1. Using conda, you can set and activate your python environment with the following commands:  
     With GPU (defaults to CUDA 10.0 if `cudatoolkit=X.0` is not specified):
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch torchvision -c pytorch
     source activate YOUR_ENV
+    conda install opencv -c conda-forge
+    conda install ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c conda-forge
     conda install nvidia-ml-py3 -c fastai
     ```
     CPU only:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c pytorch
+    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision -c pytorch
     source activate YOUR_ENV
+    conda install opencv -c conda-forge
+    conda install ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c conda-forge
     ```
     > For Windows user, you might want to install rasterio, fiona and gdal first, before installing the rest. We've experienced some [installation issues](https://github.com/conda-forge/gdal-feedstock/issues/213), with those libraries.
 1. Set your parameters in the `config.yaml` (see section below)
@@ -130,6 +135,7 @@ Structure as created by geo-deep-learning
 ## Models available
 - [Unet](https://arxiv.org/abs/1505.04597)
 - [Deeplabv3 (backbone: resnet101, optional: pretrained on coco dataset)](https://arxiv.org/abs/1706.05587)
+- Experimental: Deeplabv3 (default: pretrained on coco dataset) adapted for RGB-NIR(4 Bands) supported
 - Unet small (less deep version of Unet)
 - Checkpointed Unet (same as Unet small, but uses less GPU memory and recomputes data during the backward pass)
 - [Ternausnet](https://arxiv.org/abs/1801.05746)
@@ -178,6 +184,7 @@ global:
 sample:
   prep_csv_file: /path/to/file_name.csv  # Path to CSV file used in preparation.
   overlap: 200                           # (int) Percentage of overlap between 2 samples. Mandatory
+  val_percent: 5                         # Percentage of validation samples created from train set (0 - 100)
   min_annotated_percent: 10              # Min % of non background pixels in stored samples. Mandatory
   mask_reference: False                  # When True, mask the input image where there is no reference data.
 ```

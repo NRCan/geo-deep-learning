@@ -1,34 +1,38 @@
 # Deep learning configuration file ------------------------------------------------
-# Five sections :
+# Six sections :
 #   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
 #   2) Data analysis parameters
-#   4) Sampling parameters
-#   5) Training parameters
-#   6) Inference parameters
-#   7) Model parameters
+#   3) Sampling parameters
+#   4) Training parameters
+#   5) Inference parameters
+#   6) Model parameters
 
 # Global parameters
 
 global:
-  samples_size: 256
-  num_classes: 2
-  data_path: path/to/data/
-  number_of_bands: 3
-  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
+  samples_size: 512
+  num_classes: 5
+  data_path: /export/sata01/wspace/dataset_kingston_rgb/tst_CRIM/dist_map_rotation/
+  number_of_bands: 4
+  model_name: unet     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
-  num_gpus: 2
-  aux_vector_file: 
-  aux_vector_dist_map: False
+  num_gpus: 1
+  aux_vector_file: /export/sata01/wspace/dataset_kingston_rgb/tst_CRIM/RRN_clipped_UTM18N_rotation.gpkg
+  aux_vector_attrib:
+  aux_vector_ids:
+  aux_vector_dist_maps: True
+  aux_vector_dist_log: True
+  aux_vector_scale:
   scale_data: [0,1]
-  debug_mode: True
+  debug_mode: True.
   
 # Data analysis parameters; used in data_analysis.py ------------------
 
 data_analysis:
   create_csv: False
   optimal_parameters_search : False
-  sampling: {'method':['min_annotated_percent', 'class_proportion'], 'map': 0, '0':0, '1':0, '2':0}
+  sampling: {'method':['min_annotated_percent', 'class_proportion'], 'map': 0, '0':0, '1':10, '2':10}
   # 'method' : One or both in any order of min_annotated_percent, class_proportion; must be presented in list format
     # 'map' : Min % of non background pixels in stored samples. Default: 0
     # following keys:
@@ -40,8 +44,7 @@ data_analysis:
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
-  prep_csv_file: /path/to/csv/file.csv
-  val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
+  prep_csv_file: /export/sata01/wspace/dataset_kingston_rgb/tst_CRIM/trn_val_tst_Kingston.csv
   overlap: 25
   sampling: {'method':['min_annotated_percent'], 'map': 0, '0':0, '1':0, '2':0} # One of class_proportion, annotated_percent
     # 'method' : One or both in any order of min_annotated_percent, class_proportion; must be presented in list format
@@ -54,16 +57,15 @@ sample:
 
   mask_reference: False
 
-
-# Training parameters; used in train_segmentation.py ----------------------
+# Training parameters; used in train_model.py ----------------------
 
 training:
-  state_dict_path: path/to/pretrained/file/checkpoint.pth.tar    # optional
-  num_trn_samples: 4960
-  num_val_samples: 2208
-  num_tst_samples: 1000
-  batch_size: 32
-  num_epochs: 100
+  state_dict_path:     # optional
+  num_trn_samples: 14880
+  num_val_samples: 11200
+  num_tst_samples: 8320
+  batch_size: 11
+  num_epochs: 50
   loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
   optimizer: adabound # One of adam, sgd or adabound
   learning_rate: 0.0001
@@ -72,9 +74,9 @@ training:
   gamma: 0.9
   dropout: False    # (bool) Use dropout or not
   dropout_prob:    # (float) Set dropout probability, e.g. 0.5
-  class_weights: [1.0, 2.0]
-  batch_metrics:    # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
-  ignore_index: 0 # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
+  class_weights: 
+  batch_metrics: 2  # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
+  ignore_index:   # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
   augmentation:
     rotate_limit: 45
     rotate_prob: 0.5
@@ -83,8 +85,23 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
-  working_folder: /path/to/folder/with/resulting/images
-  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
+  img_dir_or_csv_file: /export/sata01/wspace/dataset_lac_rivieres/tuiles_complete/inference_rivs_tuiles_complete.csv
+  working_folder: /export/sata01/wspace/dataset_lac_rivieres/tuiles_complete/model/config_2020-01-28_08-23/inference/
+  state_dict_path: /export/sata01/wspace/dataset_lac_rivieres/tuiles_complete/model/config_2020-01-28_08-23/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
+
+# Visualization parameters
+
+visualization:
+  vis_batch_range: [0,200,10] #start, finish, increment
+  vis_at_checkpoint: True
+  vis_at_ckpt_min_ep_diff: 0
+  vis_at_ckpt_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.
+  vis_at_init: True
+  vis_at_init_dataset: val
+  vis_at_evaluation: True #val during training, tst at end of training
+  vis_at_train: False
+  grid: True
+  heatmaps: True
+  colormap_file: /home/flegare/geo-deep-learning/data/colormap.csv
