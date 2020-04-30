@@ -56,7 +56,7 @@ def net(net_params, num_channels, inference=False):
     elif model_name == 'deeplabv3_resnet101':
         assert (num_bands == 3 or num_bands == 4), msg
         if num_bands == 3:
-            model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, in_channels=num_bands,
+            model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True,  # in_channels=num_bands,
                                                             num_classes=num_channels, aux_loss=None)
         elif num_bands == 4:
             print('Finetuning pretrained deeplabv3 with 4 bands')

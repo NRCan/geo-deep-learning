@@ -13,7 +13,7 @@ global:
   num_classes: 1  # will automatically create a 'background' class
   data_path: ./data
   number_of_bands: 3
-  model_name: checkpointed_unet     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
+  model_name: deeplabv3_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 0
@@ -24,9 +24,14 @@ global:
 
 sample:
   prep_csv_file: ./data/images_to_samples_ci_csv.csv
-  overlap: 33
-  min_annotated_percent: 10 # Min % of non background pixels in stored samples. Default: 0
+  val_percent: 20
+  overlap: 10
   mask_reference: False
+  sampling: # class_proportion or min_annotated_percent
+    'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
+    'class_proportion': {'0':0, '1':0}
+    # keys (numerical values in 'string' format) must include all classes present in the images
+    # values (int) represent class minimum threshold targeted in samples
 
 # Training parameters; used in train_segmentation.py ----------------------
 
@@ -35,7 +40,7 @@ training:
   num_trn_samples:
   num_val_samples:
   num_tst_samples:
-  batch_size: 4
+  batch_size: 2
   num_epochs: 2
   loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
   optimizer: adam # One of adam, sgd or adabound
@@ -57,7 +62,7 @@ training:
     geom_scale_range:
     brightness_contrast_range: # Not yet implemented
     noise: # Not yet implemented
-    crop_size: 256
+    crop_size: 100
 
 # Inference parameters; used in inference.py --------
 
@@ -71,7 +76,7 @@ inference:
 # Visualization parameters
 
 visualization:
-  vis_batch_range: [0,200,10] #start, finish, increment
+  vis_batch_range: # [0,200,10] #start, finish, increment
   vis_at_checkpoint: True
   vis_at_ckpt_min_ep_diff: 0
   vis_at_ckpt_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.

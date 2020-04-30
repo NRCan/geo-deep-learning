@@ -1,3 +1,6 @@
+import numbers
+from typing import Sequence
+
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
@@ -117,14 +120,6 @@ def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vec
     np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
     for i in range(input_image.count):
         np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
-
-    # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
-    # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
-    if scale:
-        sc_min, sc_max = scale
-        np_array = minmax_scale(img=np_array,
-                                orig_range=(np.min(np_array), np.max(np_array)),
-                                scale_range=(sc_min, sc_max))
 
     # if requested, load vectors from external file, rasterize, and append distance maps to array
     if aux_vector_file is not None:
@@ -376,3 +371,57 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
                 dst.write(write_array[:, :], 1)
             elif count == 3:
                 dst.write(write_array[:, :, :3])  # Take only first three bands assuming they are RGB.
+
+
+def pad(img, padding, fill=0):
+    r"""Pad the given ndarray on all sides with specified padding mode and fill value.
+    Adapted from https://github.com/pytorch/vision/blob/master/torchvision/transforms/functional.py#L255
+    Args:
+        img (ndarray): Image to be padded.
+        padding (int or tuple): Padding on each border. If a single int is provided this
+            is used to pad all borders. If tuple of length 2 is provided this is the padding
+            on left/right and top/bottom respectively. If a tuple of length 4 is provided
+            this is the padding for the left, top, right and bottom borders
+            respectively.
+        fill: Pixel fill value for constant fill. Default is 0. If a tuple of
+            length 3, it is used to fill R, G, B channels respectively.
+            This value is only used when the padding_mode is constant
+    Returns:
+        ndarray: Padded image.
+    """
+    if not isinstance(padding, (numbers.Number, tuple)):
+        raise TypeError('Got inappropriate padding arg')
+    if not isinstance(fill, (numbers.Number, str, tuple)):
+        raise TypeError('Got inappropriate fill arg')
+
+    if isinstance(padding, Sequence) and len(padding) not in [2, 4]:
+        raise ValueError("Padding must be an int or a 2, or 4 element tuple, not a " +
+                         "{} element tuple".format(len(padding)))
+
+    if isinstance(padding, int):
+        pad_left = pad_right = pad_top = pad_bottom = padding
+    if isinstance(padding, Sequence) and len(padding) == 2:
+        pad_left = pad_right = padding[0]
+        pad_top = pad_bottom = padding[1]
+    if isinstance(padding, Sequence) and len(padding) == 4:
+        pad_left = padding[0]
+        pad_top = padding[1]
+        pad_right = padding[2]
+        pad_bottom = padding[3]
+
+    # RGB image
+    if len(img.shape) == 3:
+        img = np.pad(img, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)), constant_values=fill)
+    # Grayscale image
+    elif len(img.shape) == 2:
+        img = np.pad(img, ((pad_top, pad_bottom), (pad_left, pad_right)), constant_values=fill)
+
+    return img
+
+
+def pad_diff(actual_height, actual_width, desired_shape):
+    """ Pads img_arr width or height < samples_size with zeros """
+    h_diff = desired_shape - actual_height
+    w_diff = desired_shape - actual_width
+
+    return h_diff, w_diff

@@ -32,14 +32,12 @@ global:
 data_analysis:
   create_csv: False
   optimal_parameters_search : False
-  sampling: {'method':['min_annotated_percent', 'class_proportion'], 'map': 0, '0':0, '1':10, '2':10}
-  # 'method' : One or both in any order of min_annotated_percent, class_proportion; must be presented in list format
-    # 'map' : Min % of non background pixels in stored samples. Default: 0
-    # following keys:
-      # keys must be all classes present in the images
-      # keys must be numerical values in 'string' format
-      # class value must be in 'integer' format
-      # class value represent class minimum threshold targeted in samples
+  sampling: # class_proportion or min_annotated_percent
+    'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
+    'class_proportion': {'0':0, '1':10, '2':10}
+    # keys (numerical values in 'string' format) must include all classes present in the images
+    # values (int) represent class minimum threshold targeted in samples
+
 
 # Sample parameters; used in images_to_samples.py -------------------
 

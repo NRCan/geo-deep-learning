@@ -125,7 +125,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
         dataset_constr = CreateDataset.SegmentationDataset
     else:
         dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
-    dontcare = get_key_def("ignore_index", params["training"], None)
+    dontcare = get_key_def("ignore_index", params["training"], -1)
     if dontcare == 0:
         warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
                       " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
@@ -133,12 +133,13 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
         params["training"]["ignore_index"] = -1
     datasets = []
 
-    for subset in ["trn", "val", "tst"]:  # FIXME: randomly separate train/val 85/15 sets.
+    for subset in ["trn", "val", "tst"]:
         datasets.append(dataset_constr(samples_folder, subset,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare,
                                        radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
-                                       geom_transform=aug.compose_transforms(params, subset, type='geometric')))
+                                       geom_transform=aug.compose_transforms(params, subset, type='geometric',
+                                                                             ignore_index=dontcare)))
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
@@ -241,9 +242,8 @@ def main(params, config_path):
 
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
-    min_annot_perc = params['sample']['sampling']['map']
     num_bands = params['global']['number_of_bands']
-    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: preferred name structure? document!
+    samples_folder_name = f'samples{samples_size}_overlap{overlap}_{num_bands}bands'  # FIXME: won't check if folder has datetime suffix (if multiple folders)
     samples_folder = Path(data_path).joinpath(samples_folder_name) if task == 'segmentation' else Path(data_path)
 
     modelname = config_path.stem
@@ -438,7 +438,20 @@ def main(params, config_path):
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
-def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx, progress_log, vis_params, device, debug=False):
+def train(train_loader,
+          model,
+          criterion,
+          optimizer,
+          scheduler,
+          num_classes,
+          batch_size,
+          task,
+          ep_idx,
+          progress_log,
+          vis_params,
+          device,
+          debug=False
+          ):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -460,7 +473,6 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     train_metrics = create_metrics_dict(num_classes)
     vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-    min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
@@ -477,7 +489,9 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             if isinstance(outputs, OrderedDict):
                 outputs = outputs['out']
 
-            if vis_batch_range is not None and vis_at_train and batch_index in range(min_vis_batch, max_vis_batch, increment):
+            if vis_batch_range and vis_at_train:
+                min_vis_batch, max_vis_batch, increment = vis_batch_range
+                if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0:
                         tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
@@ -531,7 +545,6 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     model.eval()
     vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-    min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
@@ -546,7 +559,9 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
-                if vis_batch_range is not None and vis_at_eval and batch_index in range(min_vis_batch, max_vis_batch, increment):
+                if vis_batch_range and vis_at_eval:
+                    min_vis_batch, max_vis_batch, increment = vis_batch_range
+                    if batch_index in range(min_vis_batch, max_vis_batch, increment):
                         vis_path = progress_log.parent.joinpath('visualization')
                         if ep_idx == 0 and batch_index == min_vis_batch:
                             tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '

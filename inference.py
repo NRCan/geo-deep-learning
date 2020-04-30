@@ -18,6 +18,7 @@ from tqdm import tqdm
 from pathlib import Path
 
 from models.model_choice import net
+from utils.augmentation import Scale
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
 from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.CreateDataset import MetaSegmentationDataset
@@ -29,7 +30,18 @@ except ModuleNotFoundError:
     pass
 
 
-def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device, meta_map=None, metadata=None, output_path=Path(os.getcwd()), index=0, debug=False):
+def sem_seg_inference(model,
+                      nd_array,
+                      overlay,
+                      chunk_size,
+                      scale,
+                      num_classes,
+                      device,
+                      meta_map=None,
+                      metadata=None,
+                      output_path=Path(os.getcwd()),
+                      index=0,
+                      debug=False):
     """Inference on images using semantic segmentation
     Args:
         model: model to use for inference
@@ -81,9 +93,12 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                         chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
                         if meta_map:
                             chunk_input = MetaSegmentationDataset.append_meta_layers(chunk_input, meta_map, metadata)
+                        scale_transform = Scale(scale)
+                        chunk_input = scale_transform(chunk_input) # FIXME: test this!!!
+
                         inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
-                        inputs.unsqueeze_(0) #Add dummy batch dimension
+                        inputs.unsqueeze_(0)  # Add dummy batch dimension
 
                         inputs = inputs.to(device)
                         # forward
@@ -310,11 +325,9 @@ def main(params):
 
                 assert local_img.is_file(), f"Could not open raster file at {local_img}"
 
-                scale = get_key_def('scale_data', params['global'], None)
                 with rasterio.open(local_img, 'r') as raster:
 
                     np_input_image = image_reader_as_array(input_image=raster,
-                                                           scale=scale,
                                                            aux_vector_file=get_key_def('aux_vector_file',
                                                                                        params['global'], None),
                                                            aux_vector_attrib=get_key_def('aux_vector_attrib',
@@ -351,9 +364,20 @@ def main(params):
                                   f"can not be larger than the number of band in the input image ({input_band_count}).")
                     continue
 
+                scale = get_key_def('scale_data', params['global'], None)
                 # START INFERENCES ON SUB-IMAGES
-                sem_seg_results_per_class = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_corrected,
-                                                    device, meta_map, metadata, output_path=working_folder, index=_tqdm.n, debug=debug)
+                sem_seg_results_per_class = sem_seg_inference(model,
+                                                              np_input_image,
+                                                              nbr_pix_overlap,
+                                                              chunk_size,
+                                                              scale,
+                                                              num_classes_corrected,
+                                                              device,
+                                                              meta_map,
+                                                              metadata,
+                                                              output_path=working_folder,
+                                                              index=_tqdm.n,
+                                                              debug=debug)
 
                 # CREATE GEOTIF FROM METADATA OF ORIGINAL IMAGE
                 tqdm.write(f'Saving inference...\n')

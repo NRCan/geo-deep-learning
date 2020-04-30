@@ -12,9 +12,9 @@ install:
   - conda config --prepend channels pytorch
   - conda update -q conda
   - conda info -a
-  - conda create -n ci_env python=3.7 pytorch-cpu torchvision-cpu torchvision ruamel_yaml h5py>=2.10 scikit-image scikit-learn rasterio tqdm
+  - conda create -n ci_env python=3.7 pytorch-cpu torchvision-cpu torchvision ruamel_yaml h5py>=2.10 scikit-image scikit-learn scikit-image rasterio tqdm matplotlib
   - source activate ci_env
-  - pip install fiona
+  - conda install fiona
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
   - unzip ./data/classification_data.zip -d ./data

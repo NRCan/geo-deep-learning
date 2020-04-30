@@ -31,9 +31,10 @@ def create_files_and_datasets(params, samples_folder):
                                  maxshape=(None, samples_size, samples_size))
         hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
         try:
+            hdf5_file.create_dataset("sat_img_dtype", shape=(0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
         except AttributeError as e:
-            warnings.warn(f'Ignoring error: {e}. Make sure no metadata is used or update h5py to version 2.10 or higher')
+            raise (f'{e}. Update h5py to version 2.10 or higher')
         hdf5_files.append(hdf5_file)
     return hdf5_files
 
@@ -70,7 +71,8 @@ class SegmentationDataset(Dataset):
         return self.max_sample_count
 
     def _remap_labels(self, map_img):
-        # note: will do nothing if 'dontcare' is not set in constructor, or set to non-zero value
+        map_img = np.nan_to_num(map_img, copy=False, nan=self.dontcare)  # FIXME: test this.
+        # note: will do nothing if 'dontcare' is not set in constructor, or set to non-zero value # TODO: seems like a temporary patch... dontcare should never be == 0, right ?
         if self.dontcare is None or self.dontcare != 0:
             return map_img
         # for now, the current implementation only handles the original 'dontcare' value as zero
@@ -87,7 +89,9 @@ class SegmentationDataset(Dataset):
             metadata = None
             if meta_idx != -1:
                 metadata = self.metadata[meta_idx]
-        sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata, "hdf5_path": self.hdf5_path}
+            sat_img_dtype = hdf5_file["sat_img_dtype"][index, ...][0]
+        sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
+                  "sat_img_dtype": sat_img_dtype, "hdf5_path": self.hdf5_path}
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
             sample = self.radiom_transform(sample)
         if self.geom_transform:  # rotation, geometric scaling, flip and crop. Will also put channels first and convert to torch tensor from numpy.
@@ -149,6 +153,6 @@ class MetaSegmentationDataset(SegmentationDataset):
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
             sample = self.radiom_transform(sample)  # FIXME: test this
         sample["sat_img"] = self.append_meta_layers(sat_img, self.meta_map, self.metadata[meta_idx])  # Overwrite sat_img with sat_img with metalayers
-        if self.geom_transform:
+        if self.geom_transform:  # TODO: geom transform should always be True as it includes ToTensorTarget.
             sample = self.geom_transform(sample)  # rotation, geometric scaling, flip and crop. Will also put channels first and convert to torch tensor from numpy.
         return sample
