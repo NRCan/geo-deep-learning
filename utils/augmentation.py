@@ -9,7 +9,6 @@ import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import random
 import numpy as np
-from scipy import ndimage
 from skimage import transform, exposure
 from torchvision import transforms
 
@@ -25,13 +24,13 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
     :return: (obj) PyTorch's compose object of the transformations to be applied.
     """
     lst_trans = []
+    scale = get_key_def('scale_data', params['global'], None)
     if dataset == 'trn':
 
         if type == 'radiometric':
             radiom_trim_range = get_key_def('radiom_trim_range', params['training']['augmentation'], None)
             brightness_contrast_range = get_key_def('brightness_contrast_range', params['training']['augmentation'], None)
             noise = get_key_def('noise', params['training']['augmentation'], None)
-            scale = get_key_def('scale_data', params['global'], None)
 
             if radiom_trim_range:  # Contrast stretching
                 lst_trans.append(RadiometricTrim(range=radiom_trim_range))  # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
@@ -43,9 +42,6 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             if noise:
                 # lst_trans.append()
                 pass
-
-            if scale:
-                lst_trans.append(Scale(scale))
 
         elif type == 'geometric':
             geom_scale_range = get_key_def('geom_scale_range', params['training']['augmentation'], None)
@@ -66,14 +62,14 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             if crop_size:
                 lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=ignore_index))
 
-            lst_trans.append(ToTensorTarget())  # Send channels first, convert numpy array to torch tensor
+    if scale:
+        lst_trans.append(Scale(scale))  # FIXME: assert coherence with below normalization
 
-    else:
-        scale = get_key_def('scale_data', params['global'], None)
-        if scale:
-            lst_trans.append(Scale(scale))
-        lst_trans.append(ToTensorTarget())  # Send channels first, convert numpy array to torch tensor
+    if params['training']['normalization']['mean'] and params['training']['normalization']['std']:
+        lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
+                                   std=params['training']['normalization']['std']))
 
+    lst_trans.append(ToTensorTarget(params['global']['num_classes'])) # Send channels first, convert numpy array to torch tensor
     return transforms.Compose(lst_trans)
 
 
@@ -184,9 +180,7 @@ class HorizontalFlip(object):
             map_img = np.ascontiguousarray(sample['map_img'][:, ::-1, ...])
             sample['sat_img'] = sat_img
             sample['map_img'] = map_img
-            return sample
-        else:
-            return sample
+        return sample
 
 
 class RandomCrop(object):  # TODO: what to do with overlap in samples_prep (images_to_samples, l.106)? overlap doesn't need to be larger than, say, 5%
@@ -260,12 +254,29 @@ class RandomCrop(object):  # TODO: what to do with overlap in samples_prep (imag
         sample['map_img'] = map_img
         return sample
 
+
+class Normalize(object):
+    """Normalize Image with Mean and STD and similar to Pytorch(transform.Normalize) function """
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, sample):
+        if self.mean or self.std != []:
+            sat_img = (sample['sat_img'] - self.mean) / self.std
+            map_img = sample['map_img']
+            return {'sat_img': sat_img, 'map_img': map_img}
+        else:
+            return sample
+
     def __repr__(self):
         return self.__class__.__name__ + '(size={0}, padding={1})'.format(self.size, self.padding)
 
 
 class ToTensorTarget(object):
     """Convert ndarrays in sample to Tensors."""
+    def __init__(self, num_classes):
+        self.num_classes = num_classes
 
     def __call__(self, sample):
         sat_img = np.nan_to_num(sample['sat_img'], copy=False, nan=0.0)
@@ -273,5 +284,6 @@ class ToTensorTarget(object):
         sat_img = torch.from_numpy(sat_img)
 
         map_img = np.int64(sample['map_img'])
+        # map_img[map_img > self.num_classes] = 0  # FIXME: why? what if ignore_index=255?
         map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}

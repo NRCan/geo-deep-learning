@@ -65,36 +65,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference=False):
         model: model to replace
         optimizer: optimiser to be used
     """
-    # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
-    # https://github.com/bearpaw/pytorch-classification/issues/27
-    # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
-    if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
-        new_state_dict = model.state_dict().copy()
-        new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
-        del checkpoint
-        checkpoint = {}
-        checkpoint['model'] = new_state_dict['model']
-
-    try:
-        model.load_state_dict(checkpoint['model'])
-    except RuntimeError as error:
-        try:
-            list_errors = str(error).split('\n\t')
-            mismatched_layers = []
-            for error in list_errors:
-                if error.startswith('size mismatch'):
-                    mismatch_layer = error.split("size mismatch for ")[1].split(":")[0]    # get name of problematic layer
-                    warnings.warn(f'Oups. {error}. We will try chopping "{mismatch_layer}" out of pretrained dictionary.')
-                    mismatched_layers.append(mismatch_layer)
-            if inference:
-                assert len(mismatched_layers) == 0, f"Layers {mismatched_layers} mismatch with current model. During " \
-                                                    f"inference, layers shouldn't be chopped."
-            chopped_checkpt = chop_layer(checkpoint['model'], layer_names=mismatched_layers)
-            # overwrite entries in the existing state dict
-            model.load_state_dict(chopped_checkpt, strict=False)
-        except RuntimeError as error:
-            raise RuntimeError(error)
-
+    model.load_state_dict(checkpoint['model'])
     print(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
         optimizer.load_state_dict(checkpoint['optimizer'])
@@ -427,3 +398,14 @@ def pad_diff(actual_height, actual_width, desired_shape):
     w_diff = desired_shape - actual_width
 
     return h_diff, w_diff
+
+
+def unnormalize(input_img, mean, std):
+
+    """
+    :param input_img: (numpy array) Image to be "unnormalized"
+    :param mean: (list of mean values) for each channel
+    :param std:  (list of std values) for each channel
+    :return: (numpy_array) "Unnormalized" image
+    """
+    return (input_img * std) + mean
