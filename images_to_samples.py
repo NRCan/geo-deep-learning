@@ -224,11 +224,12 @@ def samples_preparation(in_img_array,
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
 
-                min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling'], 0)
+                min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling'], None)
                 class_prop = get_key_def('class_proportion', params['sample']['sampling'], None)
+                class_prop_pass = False if class_prop is not None else True
 
                 if minimum_annotated_percent(target_background_percent, min_annot_perc) and \
-                        class_proportion(target, sample_size, class_prop):
+                        (class_prop_pass or class_proportion(target, sample_size, class_prop)):
                     val = compute_classes(dataset=dataset,
                                           samples_file=samples_file,
                                           val_percent=val_percent,

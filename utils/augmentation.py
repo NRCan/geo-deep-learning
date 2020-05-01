@@ -9,13 +9,14 @@ import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import random
 import numpy as np
+from scipy import ndimage
 from skimage import transform, exposure
 from torchvision import transforms
 
 from utils.utils import get_key_def, pad, minmax_scale, pad_diff
 
 
-def compose_transforms(params, dataset, type='', ignore_index=None): # FIXME: how to get ignroe index for randomcrop?
+def compose_transforms(params, dataset, type='', ignore_index=None):
     """
     Function to compose the transformations to be applied on every batches.
     :param params: (dict) Parameters found in the yaml config file
@@ -53,14 +54,14 @@ def compose_transforms(params, dataset, type='', ignore_index=None): # FIXME: ho
             rotate_limit = get_key_def('rotate_limit', params['training']['augmentation'], None)
             crop_size = get_key_def('crop_size', params['training']['augmentation'], None)
 
-            if geom_scale_range:
+            if geom_scale_range:  # TODO: test this.
                 lst_trans.append(GeometricScale(range=geom_scale_range))
 
             if hflip:
                 lst_trans.append(HorizontalFlip(prob=params['training']['augmentation']['hflip_prob']))
 
             if rotate_limit and rotate_prob:
-                lst_trans.append(RandomRotationTarget(limit=rotate_limit, prob=rotate_prob))
+                lst_trans.append(RandomRotationTarget(limit=rotate_limit, prob=rotate_prob, ignore_index=ignore_index))
 
             if crop_size:
                 lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=ignore_index))
@@ -150,15 +151,16 @@ class GeometricScale(object):
 
 class RandomRotationTarget(object):
     """Rotate the image and target randomly."""
-    def __init__(self, limit, prob):
+    def __init__(self, limit, prob, ignore_index):
         self.limit = limit
         self.prob = prob
+        self.ignore_index = ignore_index
 
     def __call__(self, sample):
         if random.random() < self.prob:
             angle = np.random.uniform(-self.limit, self.limit)
-            sat_img = transform.rotate(sample['sat_img'], angle, preserve_range=True)
-            map_img = transform.rotate(sample['map_img'], angle, preserve_range=True)
+            sat_img = transform.rotate(sample['sat_img'], angle, preserve_range=True, cval=np.nan)
+            map_img = transform.rotate(sample['map_img'], angle, preserve_range=True, order=0, cval=self.ignore_index)
             sample['sat_img'] = sat_img
             sample['map_img'] = map_img
             return sample
@@ -215,7 +217,7 @@ class RandomCrop(object):  # TODO: what to do with overlap in samples_prep (imag
         j = random.randint(0, w - tw)
         return i, j, th, tw
 
-    def __call__(self, sample):  # TODO: test this!!!
+    def __call__(self, sample):
         """
         Args:
             sample (ndarray): Image to be cropped.
@@ -267,6 +269,4 @@ class ToTensorTarget(object):
 
         map_img = np.int64(sample['map_img'])
         map_img = torch.from_numpy(map_img)
-        sample['sat_img'] = sat_img
-        sample['map_img'] = map_img
-        return sample
+        return {'sat_img': sat_img, 'map_img': map_img}
