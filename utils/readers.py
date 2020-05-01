@@ -5,7 +5,7 @@ from ruamel_yaml import YAML
 from tqdm import tqdm
 from pathlib import Path
 
-from utils.utils import vector_to_raster
+from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
 
 
 def read_parameters(param_file):
@@ -22,7 +22,7 @@ def read_parameters(param_file):
 
 
 def image_reader_as_array(input_image, aux_vector_file=None, aux_vector_attrib=None, aux_vector_ids=None,
-                          aux_vector_dist_maps=False, aux_vector_dist_log=True, aux_vector_scale=None):
+                          aux_vector_dist_maps=False, aux_vector_dist_log=True, aux_vector_scale=None, clip_gpkg=None):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
         input_image: Rasterio file handle holding the (already opened) input raster
@@ -37,9 +37,14 @@ def image_reader_as_array(input_image, aux_vector_file=None, aux_vector_attrib=N
     Return:
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
-    np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
-    for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
-        np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0  # TODO: reading a large image >10Gb is VERY slow. Is this line the culprit?
+    if clip_gpkg:
+        np_array, out_transform = clip_raster_with_gpkg(input_image, clip_gpkg, debug=False)
+        np_array = np.transpose(np_array, (1, 2, 0))  # send channels last
+
+    else:
+        np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
+        for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
+            np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0  # TODO: reading a large image >10Gb is VERY slow. Is this line the culprit?
 
     # if requested, load vectors from external file, rasterize, and append distance maps to array
     if aux_vector_file is not None:

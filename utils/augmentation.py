@@ -284,6 +284,7 @@ class ToTensorTarget(object):
         sat_img = torch.from_numpy(sat_img)
 
         map_img = np.int64(sample['map_img'])
-        # map_img[map_img > self.num_classes] = 0  # FIXME: why? what if ignore_index=255?
+        # map_img[map_img > self.num_classes] = 0  # FIXME: what if ignore_index=255?
+        # FIXME: assert no new class values in map_img
         map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}

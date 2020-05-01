@@ -13,7 +13,8 @@ from tqdm import tqdm
 from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets, MetaSegmentationDataset
-from utils.utils import vector_to_raster, get_key_def, lst_ids, pad, pad_diff
+from utils.utils import get_key_def, pad, pad_diff, BGR_to_RGB
+from utils.geoutils import vector_to_raster, validate_features_from_gpkg, lst_ids, clip_raster_with_gpkg
 from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.verifications import is_valid_geom, validate_num_classes
 
@@ -322,28 +323,25 @@ def main(params):
         assert Path(info['tif']).is_file(), f'Could not locate "{info["tif"]}". Make sure file exists in this directory.'
         assert Path(info['gpkg']).is_file(), f'Could not locate "{info["gpkg"]}". Make sure file exists in this directory.'
     if debug:
+        # Assert num_classes parameters == number of actual classes in gpkg
         for info in tqdm(list_data_prep, position=0, desc=f"Validating presence of {params['global']['num_classes']} "
                                                           f"classes in attribute \"{info['attribute_name']}\" for vector "
                                                           f"file \"{Path(info['gpkg']).stem}\""):
             validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
+
+            meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
+            # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
+            #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
+            with rasterio.open(info['tif'], 'r') as raster:
+                input_band_count = raster.meta['count'] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
+            assert input_band_count == num_bands, \
+                f"The number of bands in the input image ({input_band_count}) and the parameter" \
+                f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
+
         with tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files") as _tqdm:
-            invalid_features = {}
             for info in _tqdm:
-                # Extract vector features to burn in the raster image
-                with fiona.open(info['gpkg'], 'r') as src:  # TODO: refactor as independent function
-                    lst_vector = [vector for vector in src]
-                shapes = lst_ids(list_vector=lst_vector, attr_name=info['attribute_name'])
-                for index, item in enumerate(tqdm([v for vecs in shapes.values() for v in vecs], leave=False, position=1)):
-                    # geom must be a valid GeoJSON geometry type and non-empty
-                    geom, value = item
-                    geom = getattr(geom, '__geo_interface__', None) or geom
-                    if not is_valid_geom(geom):
-                        gpkg_stem = str(Path(info['gpkg']).stem)
-                        if gpkg_stem not in invalid_features.keys():  # create key with name of gpkg
-                            invalid_features[gpkg_stem] = []
-                        if lst_vector[index]["id"] not in invalid_features[gpkg_stem]:  # ignore feature is already appended
-                            invalid_features[gpkg_stem].append(lst_vector[index]["id"])
-            assert len(invalid_features.values()) == 0, f'Invalid geometry object(s) for "gpkg:ids": \"{invalid_features}\"'
+                invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])  # TODO: test this.
+                assert not invalid_features, f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'"
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
@@ -379,15 +377,10 @@ def main(params):
                         info['meta'] = info['meta'].split('/')[-1]
 
                 with rasterio.open(info['tif'], 'r') as raster:
-                    # 1. Burn vector file in a raster file
-                    np_label_raster = vector_to_raster(vector_file=info['gpkg'],
-                                                       input_image=raster,
-                                                       attribute_name=info['attribute_name'],
-                                                       fill=get_key_def('ignore_idx',
-                                                                        get_key_def('training', params, {}), 0))
-                    # 2. Read the input raster image
+                    # 1. Read the input raster image
                     dtype = raster.meta["dtype"]
                     np_input_image = image_reader_as_array(input_image=raster,
+                                                           clip_gpkg=info['gpkg'],
                                                            aux_vector_file=get_key_def('aux_vector_file',
                                                                                        params['global'], None),
                                                            aux_vector_attrib=get_key_def('aux_vector_attrib',
@@ -401,6 +394,18 @@ def main(params):
                                                            aux_vector_scale=get_key_def('aux_vector_scale',
                                                                                         params['global'], None))
 
+                    bgr_to_rgb = get_key_def('BGR_to_RGB', params['global'], True)  # TODO: add to config
+                    np_input_image = BGR_to_RGB(np_input_image) if bgr_to_rgb else np_input_image
+
+                    # 2. Burn vector file in a raster file
+                    np_label_raster = vector_to_raster(vector_file=info['gpkg'],
+                                                       input_image=raster,
+                                                       out_shape=np_input_image.shape[:2],
+                                                       attribute_name=info['attribute_name'],
+                                                       fill=get_key_def('ignore_idx', # FIXME: what's this? always fill with 0 right?
+                                                                        get_key_def('training', params, {}), 0))
+
+
                 # Mask the zeros from input image into label raster.
                 if params['sample']['mask_reference']:
                     np_label_raster = mask_image(np_input_image, np_label_raster)
@@ -413,17 +418,8 @@ def main(params):
                 else:
                     raise ValueError(f"Dataset value must be trn or val or tst. Provided value is {info['dataset']}")
 
-                meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
                 if info['meta'] is not None and isinstance(info['meta'], str) and Path(info['meta']).is_file():
                     metadata = read_parameters(info['meta'])
-
-                # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
-                #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
-                input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
-                # FIXME: could this assert be done before getting into this big for loop?
-                assert input_band_count == num_bands, \
-                    f"The number of bands in the input image ({input_band_count}) and the parameter" \
-                    f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
 
                 np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
                 # 3. Prepare samples!

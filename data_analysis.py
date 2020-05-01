@@ -1,7 +1,10 @@
 import argparse
 import os
 from pathlib import Path
-from utils.utils import read_parameters, read_csv, validate_num_classes, vector_to_raster, image_reader_as_array, get_key_def
+from utils.utils import get_key_def
+from utils.geoutils import vector_to_raster
+from utils.readers import read_parameters, read_csv, image_reader_as_array
+from utils.verifications import validate_num_classes
 import time
 import rasterio
 import csv
@@ -49,7 +52,6 @@ def create_csv():
 
                 # Read the input raster image
                 np_input_image = image_reader_as_array(input_image=raster,
-                                                       scale=get_key_def('scale_data', params['global'], None),
                                                        aux_vector_file=get_key_def('aux_vector_file', params['global'],
                                                                                    None),
                                                        aux_vector_attrib=get_key_def('aux_vector_attrib',

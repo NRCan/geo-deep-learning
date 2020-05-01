@@ -10,7 +10,8 @@ from PIL import Image
 from matplotlib import pyplot as plt, gridspec, cm, colors
 import csv
 
-from utils.utils import minmax_scale, unnormalize, get_key_def, create_new_raster_from_base
+from utils.utils import minmax_scale, unnormalize, get_key_def
+from utils.geoutils import create_new_raster_from_base
 
 
 def grid_vis(input, output, heatmaps_dict, label=None, heatmaps=True):

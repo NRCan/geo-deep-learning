@@ -5,11 +5,8 @@ import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
 import numpy as np
-import rasterio
-import rasterio.features
 import warnings
 import collections
-import fiona
 import matplotlib
 
 matplotlib.use('Agg')
@@ -70,108 +67,6 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference=False):
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
         optimizer.load_state_dict(checkpoint['optimizer'])
     return model, optimizer
-
-
-def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vector_attrib=None, aux_vector_ids=None,
-                          aux_vector_dist_maps=False, aux_vector_dist_log=True, aux_vector_scale=None):
-    """Read an image from a file and return a 3d array (h,w,c)
-    Args:
-        input_image: Rasterio file handle holding the (already opened) input raster
-        scale: optional scaling factor for the raw data
-        aux_vector_file: optional vector file from which to extract auxiliary shapes
-        aux_vector_attrib: optional vector file attribute name to parse in order to fetch ids
-        aux_vector_ids: optional vector ids to target in the vector file above
-        aux_vector_dist_maps: flag indicating whether aux vector bands should be distance maps or binary maps
-        aux_vector_dist_log: flag indicating whether log distances should be used in distance maps or not
-        aux_vector_scale: optional floating point scale factor to multiply to rasterized vector maps
-
-    Return:
-        numpy array of the image (possibly concatenated with auxiliary vector channels)
-    """
-    np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
-    for i in range(input_image.count):
-        np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
-
-    # if requested, load vectors from external file, rasterize, and append distance maps to array
-    if aux_vector_file is not None:
-        vec_tensor = vector_to_raster(vector_file=aux_vector_file,
-                                      input_image=input_image,
-                                      attribute_name=aux_vector_attrib,
-                                      fill=0,
-                                      target_ids=aux_vector_ids,
-                                      merge_all=False)
-        if aux_vector_dist_maps:
-            import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
-            vec_tensor = vec_tensor.astype(np.float32)
-            for vec_band_idx in range(vec_tensor.shape[2]):
-                mask = vec_tensor[:, :, vec_band_idx]
-                mask = cv.dilate(mask, (3, 3))  # make points and linestring easier to work with
-                #display_resize = cv.resize(np.where(mask, np.uint8(0), np.uint8(255)), (1000, 1000))
-                #cv.imshow("mask", display_resize)
-                dmap = cv.distanceTransform(np.where(mask, np.uint8(0), np.uint8(255)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
-                if aux_vector_dist_log:
-                    dmap = np.log(dmap + 1)
-                #display_resize = cv.resize(cv.normalize(dmap, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
-                #cv.imshow("dmap1", display_resize)
-                dmap_inv = cv.distanceTransform(np.where(mask, np.uint8(255), np.uint8(0)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
-                if aux_vector_dist_log:
-                    dmap_inv = np.log(dmap_inv + 1)
-                #display_resize = cv.resize(cv.normalize(dmap_inv, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
-                #cv.imshow("dmap2", display_resize)
-                vec_tensor[:, :, vec_band_idx] = np.where(mask, -dmap_inv, dmap)
-                #display = cv.normalize(vec_tensor[:, :, vec_band_idx], None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F)
-                #display_resize = cv.resize(display, (1000, 1000))
-                #cv.imshow("distmap", display_resize)
-                #cv.waitKey(0)
-        if aux_vector_scale:
-            for vec_band_idx in vec_tensor.shape[2]:
-                vec_tensor[:, :, vec_band_idx] *= aux_vector_scale
-        num_file = 0
-        filename = '/export/sata01/wspace/dataset_kingston_rgb/tst_CRIM/Images/' + str(num_file) + '.png'
-        cv.imwrite(filename, vec_tensor)
-        num_file += 1
-        np_array = np.concatenate([np_array, vec_tensor], axis=2)
-    return np_array
-
-
-def vector_to_raster(vector_file, input_image, attribute_name, fill=0, target_ids=None, merge_all=True):
-    """Function to rasterize vector data.
-    Args:
-        vector_file: Path and name of reference GeoPackage
-        input_image: Rasterio file handle holding the (already opened) input raster
-        attribute_name: Attribute containing the identifier for a vector (may contain slashes if recursive)
-        fill: default background value to use when filling non-contiguous regions
-        target_ids: list of identifiers to burn from the vector file (None = use all)
-        merge_all: defines whether all vectors should be burned with their identifiers in a
-            single layer or in individual layers (in the order provided by 'target_ids')
-
-    Return:
-        numpy array of the burned image
-    """
-
-    # Extract vector features to burn in the raster image
-    with fiona.open(vector_file, 'r') as src:
-        lst_vector = [vector for vector in src]
-
-    # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
-    if attribute_name is not None:
-        lst_vector.sort(key=lambda vector: get_key_recursive(attribute_name, vector))
-
-    lst_vector_tuple = lst_ids(list_vector=lst_vector, attr_name=attribute_name, target_ids=target_ids, merge_all=merge_all)
-
-    if merge_all:
-        return rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
-                                           fill=fill,
-                                           out_shape=input_image.shape,
-                                           transform=input_image.transform,
-                                           dtype=np.int16)
-    else:
-        burned_rasters = [rasterio.features.rasterize(lst_vector_tuple[id],
-                                                      fill=fill,
-                                                      out_shape=input_image.shape,
-                                                      transform=input_image.transform,
-                                                      dtype=np.int16) for id in lst_vector_tuple]
-        return np.stack(burned_rasters, axis=-1)
 
 
 def list_s3_subfolders(bucket, data_path):
@@ -274,31 +169,6 @@ def get_key_recursive(key, config):
     return val
 
 
-def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
-    '''
-    Generates a dictionary from a list of vectors where keys are class numbers and values are corresponding features in a list.
-    :param list_vector: list of vectors as returned by fiona.open
-    :param attr_name: Attribute containing the identifier for a vector (may contain slashes if recursive)
-    :param target_ids: list of identifiers to burn from the vector file (None = use all)
-    :param merge_all: defines whether all vectors should be burned with their identifiers in a
-            single layer or in individual layers (in the order provided by 'target_ids')
-    :return: list of tuples in format (vector, class_id).
-    '''
-    lst_vector_tuple = {}
-    for vector in list_vector:
-        id = get_key_recursive(attr_name, vector) if attr_name is not None else None
-        if target_ids is None or id in target_ids:
-            if id not in lst_vector_tuple:
-                lst_vector_tuple[id] = []
-            if merge_all:
-                # here, we assume that the id can be cast to int!
-                lst_vector_tuple[id].append((vector['geometry'], int(id) if id is not None else 0))
-            else:
-                # if not merging layers, just use '1' as the value for each target
-                lst_vector_tuple[id].append((vector['geometry'], 1))
-    return lst_vector_tuple
-
-
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     """Rescale data values from original range to specified range
 
@@ -312,38 +182,6 @@ def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     # range(min_value, max_value)
     scale_img = scale_img * (scale_range[1] - scale_range[0]) + scale_range[0]
     return scale_img
-
-
-def create_new_raster_from_base(input_raster, output_raster, write_array):
-    """Function to use info from input raster to create new one.
-    Args:
-        input_raster: input raster path and name
-        output_raster: raster name and path to be created with info from input
-        write_array (optional): array to write into the new raster
-
-    Return:
-        none
-    """
-    if len(write_array.shape) == 2:  # 2D array
-        count = 1
-    elif len(write_array.shape) == 3:  # 3D array
-        count = 3
-    else:
-        raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
-
-    with rasterio.open(input_raster, 'r') as src:
-        with rasterio.open(output_raster, 'w',
-                           driver=src.driver,
-                           width=src.width,
-                           height=src.height,
-                           count=count,
-                           crs=src.crs,
-                           dtype=np.uint8,
-                           transform=src.transform) as dst:
-            if count == 1:
-                dst.write(write_array[:, :], 1)
-            elif count == 3:
-                dst.write(write_array[:, :, :3])  # Take only first three bands assuming they are RGB.
 
 
 def pad(img, padding, fill=0):
@@ -409,3 +247,11 @@ def unnormalize(input_img, mean, std):
     :return: (numpy_array) "Unnormalized" image
     """
     return (input_img * std) + mean
+
+
+def BGR_to_RGB(array):
+    assert array.shape[2] >= 3, f"Not enough channels in array of shape {array.shape}"
+    BGR_channels = array[..., :3]
+    RGB_channels = np.ascontiguousarray(BGR_channels[..., ::-1])
+    array[:, :, :3] = RGB_channels
+    return array

@@ -96,7 +96,7 @@ def sem_seg_inference(model,
                             chunk_input = MetaSegmentationDataset.append_meta_layers(chunk_input, meta_map, metadata)
 
                         orig_range = Scale.range_values_raster(chunk_input, src_raster_dtype)  # FIXME: test this
-                        ScaleInst = Scale(scale)
+                        ScaleInst = Scale(scale)  # FIXME: NORMALIZE!
                         chunk_input = minmax_scale(img=chunk_input, orig_range=orig_range,
                                                          scale_range=(ScaleInst.sc_min, ScaleInst.sc_max))
 

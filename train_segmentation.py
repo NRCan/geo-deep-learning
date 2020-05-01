@@ -122,6 +122,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     print(f"Number of samples : {num_samples}\n")
     meta_map = get_key_def("meta_map", params["global"], {})
     num_bands = get_key_def("number_of_bands", params["global"], {})
+    nodata = get_key_def("nodata", params["global"], 0)  # TODO: add to config
     if not meta_map:
          dataset_constr = CreateDataset.SegmentationDataset
     else:
@@ -140,7 +141,8 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
                                        dontcare=dontcare,
                                        radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
                                        geom_transform=aug.compose_transforms(params, subset, type='geometric',
-                                                                             ignore_index=dontcare)))
+                                                                             ignore_index=dontcare),
+                                       nodata=nodata))
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
