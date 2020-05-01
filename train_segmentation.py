@@ -231,7 +231,7 @@ def main(params, config_path):
     num_classes = params['global']['num_classes']
     task = params['global']['task']
     assert task == 'segmentation', f"The task should be segmentation. The provided value is {task}"
-    num_classes_corrected = num_classes + 1 # + 1 for background # FIXME temporary patch for num_classes problem.
+    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model, checkpoint, model_name = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
@@ -284,7 +284,7 @@ def main(params, config_path):
         print(f"Using Cuda device {lst_device_ids[0]}\n")
     elif num_devices > 1:
         print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
-        try: # FIXME: For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
+        try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
             warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")

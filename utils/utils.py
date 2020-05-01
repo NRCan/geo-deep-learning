@@ -263,10 +263,12 @@ def get_key_def(key, config, default=None, msg=None, delete=False):
     :param config: (dict) dictionary containing keys corresponding to parameters used in script
     :param default: default value assigned if no value found with provided key
     :param msg: message returned with AssertionError si length of key is smaller or equal to 1
-    :param delete: (bool) if True, deletes parameter FIXME: check if this is true. Not sure I understand why we would want to delete a parameter.
+    :param delete: (bool) if True, deletes parameter, e.g. for one-time use.
     :return:
     """
-    if isinstance(key, list): # is key a list?
+    if not config:
+        return default
+    elif isinstance(key, list): # is key a list?
         if len(key) <= 1: # is list of length 1 or shorter? else --> default
             if msg is not None:
                 raise AssertionError(msg)
@@ -280,10 +282,10 @@ def get_key_def(key, config, default=None, msg=None, delete=False):
                 return val
         return default
     else: # if key is not a list
-        if key not in config or config[key] is None: # if key not in config dict
+        if key not in config or config[key] is None:  # if key not in config dict
             return default
         else:
-            val = config[key]
+            val = config[key] if config[key] != 'None' else None
             if delete:
                 del config[key]
             return val

@@ -71,7 +71,6 @@ class SegmentationDataset(Dataset):
         return self.max_sample_count
 
     def _remap_labels(self, map_img):
-        map_img = np.nan_to_num(map_img, copy=False, nan=self.dontcare)  # FIXME: test this.
         # note: will do nothing if 'dontcare' is not set in constructor, or set to non-zero value # TODO: seems like a temporary patch... dontcare should never be == 0, right ?
         if self.dontcare is None or self.dontcare != 0:
             return map_img
@@ -94,6 +93,7 @@ class SegmentationDataset(Dataset):
                   "sat_img_dtype": sat_img_dtype, "hdf5_path": self.hdf5_path}
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
             sample = self.radiom_transform(sample)
+        # TODO: geom transform should always be True as it includes ToTensorTarget.
         if self.geom_transform:  # rotation, geometric scaling, flip and crop. Will also put channels first and convert to torch tensor from numpy.
             sample = self.geom_transform(sample)
         return sample
@@ -151,8 +151,8 @@ class MetaSegmentationDataset(SegmentationDataset):
             assert meta_idx != -1, f"metadata unavailable in sample #{index}"
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": self.metadata[meta_idx]}
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
-            sample = self.radiom_transform(sample)  # FIXME: test this
+            sample = self.radiom_transform(sample)  # FIXME: test this for MetaSegmentationDataset
         sample["sat_img"] = self.append_meta_layers(sat_img, self.meta_map, self.metadata[meta_idx])  # Overwrite sat_img with sat_img with metalayers
-        if self.geom_transform:  # TODO: geom transform should always be True as it includes ToTensorTarget.
+        if self.geom_transform:
             sample = self.geom_transform(sample)  # rotation, geometric scaling, flip and crop. Will also put channels first and convert to torch tensor from numpy.
         return sample

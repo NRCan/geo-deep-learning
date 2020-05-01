@@ -19,7 +19,7 @@ from pathlib import Path
 
 from models.model_choice import net
 from utils.augmentation import Scale
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, minmax_scale
 from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.CreateDataset import MetaSegmentationDataset
 from utils.visualization import vis, vis_from_batch
@@ -37,6 +37,7 @@ def sem_seg_inference(model,
                       scale,
                       num_classes,
                       device,
+                      src_raster_dtype=None,
                       meta_map=None,
                       metadata=None,
                       output_path=Path(os.getcwd()),
@@ -93,8 +94,11 @@ def sem_seg_inference(model,
                         chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
                         if meta_map:
                             chunk_input = MetaSegmentationDataset.append_meta_layers(chunk_input, meta_map, metadata)
-                        scale_transform = Scale(scale)
-                        chunk_input = scale_transform(chunk_input) # FIXME: test this!!!
+
+                        orig_range = Scale.range_values_raster(chunk_input, src_raster_dtype)  # FIXME: test this
+                        ScaleInst = Scale(scale)
+                        chunk_input = minmax_scale(img=chunk_input, orig_range=orig_range,
+                                                         scale_range=(ScaleInst.sc_min, ScaleInst.sc_max))
 
                         inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
@@ -289,7 +293,7 @@ def main(params):
         else:
             img_dir = Path(img_dir_or_csv)
             assert img_dir.is_dir(), f'Could not find directory "{img_dir_or_csv}"'
-            list_img_paths = sorted(img_dir.glob('*.tif'))  # FIXME: what if .tif is in caps (.TIF) ?
+            list_img_paths = sorted(img_dir.glob('*.tif'))  # FIXME: what if .tif is in caps (.TIF) ? linux is case-sensitive
             list_img = []
             for img_path in list_img_paths:
                 img = {}
@@ -326,7 +330,7 @@ def main(params):
                 assert local_img.is_file(), f"Could not open raster file at {local_img}"
 
                 with rasterio.open(local_img, 'r') as raster:
-
+                    dtype = raster.meta["dtype"]
                     np_input_image = image_reader_as_array(input_image=raster,
                                                            aux_vector_file=get_key_def('aux_vector_file',
                                                                                        params['global'], None),
@@ -375,6 +379,7 @@ def main(params):
                                                               device,
                                                               meta_map,
                                                               metadata,
+                                                              src_raster_dtype=dtype,
                                                               output_path=working_folder,
                                                               index=_tqdm.n,
                                                               debug=debug)

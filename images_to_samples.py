@@ -17,7 +17,7 @@ from utils.utils import vector_to_raster, get_key_def, lst_ids, pad, pad_diff
 from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.verifications import is_valid_geom, validate_num_classes
 
-# from rasterio.features import is_valid_geom #FIXME: wait for https://github.com/mapbox/rasterio/issues/1815 to be solved
+# from rasterio.features import is_valid_geom #FIXME: https://github.com/mapbox/rasterio/issues/1815 is solved. Update rasterio package.
 
 try:
     import boto3
@@ -61,7 +61,7 @@ def append_to_dataset(dataset, sample):
     return old_size  # the index to the newly added sample, or the previous size of the dataset
 
 
-def check_sampling_dict():  # TODO replace with get_key_def() ?
+def check_sampling_dict():
     for i, (key, value) in enumerate(params['sample']['sampling'].items()):
 
         if i == 0:
@@ -88,13 +88,17 @@ def check_sampling_dict():  # TODO replace with get_key_def() ?
 
 
 def minimum_annotated_percent(target_background_percent, min_annotated_percent):
-    if float(target_background_percent) <= 100 - min_annotated_percent:
+    if not min_annotated_percent:
+        return True
+    elif float(target_background_percent) <= 100 - min_annotated_percent:
         return True
 
     return False
 
 
 def class_proportion(target, sample_size: int, class_min_prop: dict):
+    if not class_min_prop:
+        return True
     prop_classes = {}
     sample_total = (sample_size) ** 2
     for i in range(0, params['global']['num_classes'] + 1):
@@ -226,10 +230,9 @@ def samples_preparation(in_img_array,
 
                 min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling'], None)
                 class_prop = get_key_def('class_proportion', params['sample']['sampling'], None)
-                class_prop_pass = False if class_prop is not None else True
 
                 if minimum_annotated_percent(target_background_percent, min_annot_perc) and \
-                        (class_prop_pass or class_proportion(target, sample_size, class_prop)):
+                        class_proportion(target, sample_size, class_prop):
                     val = compute_classes(dataset=dataset,
                                           samples_file=samples_file,
                                           val_percent=val_percent,
@@ -298,7 +301,7 @@ def main(params):
             final_samples_folder = os.path.join(data_path, "samples")
         else:
             final_samples_folder = "samples"
-        samples_folder = f'samples{samples_size}_overlap{overlap}_{num_bands}bands'  # TODO: validate this is preferred name structure
+        samples_folder = f'samples{samples_size}_overlap{overlap}_{num_bands}bands'  # TODO: check if this is preferred name structure
 
     else:
         list_data_prep = read_csv(csv_file)
@@ -346,7 +349,7 @@ def main(params):
     number_classes = 0
 
     # 'sampling' ordereddict validation
-    # check_sampling_dict() # TODO replace with get_key_def() ?
+    # check_sampling_dict() # TODO replace with get_key_def(). Add type check to get_key_def.
 
     pixel_classes = {}
     # creates pixel_classes dict and keys

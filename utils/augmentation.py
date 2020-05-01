@@ -107,6 +107,22 @@ class Scale(object):
         else:
             raise TypeError('Got inappropriate scale arg')
 
+    @staticmethod
+    def range_values_raster(raster, dtype):
+        min_val, max_val = np.nanmin(raster), np.nanmax(raster)
+        if 'int' in dtype:
+            orig_range = (np.iinfo(dtype).min, np.iinfo(dtype).max)
+        elif min_val >= 0 and max_val <= 65535:
+            orig_range = (0, 65535)
+            warnings.warn(f"Values in input image of shape {raster.shape} "
+                          f"range from {min_val} to {max_val}."
+                          f"Image will be considered 16 bit for scaling.")
+        else:
+            raise ValueError(f"Invalid values in input image. They should range from 0 to 255 or 65535, not"
+                             f"{min_val} to {max_val}.")
+        return orig_range
+
+
     def __call__(self, sample):
         """
         Args:
@@ -115,19 +131,8 @@ class Scale(object):
         Returns:
             ndarray: Scaled image.
         """
-        min_val, max_val = np.nanmin(sample['sat_img']), np.nanmax(sample['sat_img'])
         out_dtype = sample['sat_img_dtype']
-        if 'int' in out_dtype:
-            orig_range = (np.iinfo(out_dtype).min, np.iinfo(out_dtype).max)
-        elif min_val >= 0 and max_val <= 65535:
-            orig_range = (0, 65535)
-            warnings.warn(f"Values in input image of shape {sample['sat_img'].shape} "
-                          f"range from {min_val} to {max_val}."
-                          f"Image will be considered 16 bit for scaling.")
-        else:
-            raise ValueError(f"Invalid values in input image. They should range from 0 to 255 or 65535, not"
-                             f"{min_val} to {max_val}.")
-
+        orig_range = self.range_values_raster(sample['sat_img'], out_dtype)
         sample['sat_img'] = minmax_scale(img=sample['sat_img'], orig_range=orig_range, scale_range=(self.sc_min, self.sc_max))
 
         return sample

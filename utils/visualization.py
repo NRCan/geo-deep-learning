@@ -119,7 +119,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
     elif input.shape[2] > 3:
         input = input[:, :, :3]  # take three first bands assuming they are RGB in correct order
     mode = 'L' if input.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
-    input_PIL = Image.fromarray(input.astype(np.uint8), mode=mode) # FIXME: test this with grayscale input.
+    input_PIL = Image.fromarray(input.astype(np.uint8), mode=mode)  # FIXME: test this with grayscale input.
 
     # Give value of class to band with highest value in final inference
     output_argmax = np.argmax(output, axis=2).astype(np.uint8) # Flatten along channels axis. Convert to 8bit
