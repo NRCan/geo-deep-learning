@@ -26,7 +26,11 @@ def compose_transforms(params, dataset):
             lst_trans.append(RandomRotationTarget(limit=params['training']['augmentation']['rotate_limit'],
                                                   prob=params['training']['augmentation']['rotate_prob']))
 
-    lst_trans.append(ToTensorTarget())
+    if params['training']['normalization']['mean'] and params['training']['normalization']['std']:
+        lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
+                                   std=params['training']['normalization']['std']))
+
+    lst_trans.append(ToTensorTarget(params['global']['num_classes']))
     return transforms.Compose(lst_trans)
 
 
@@ -60,10 +64,28 @@ class HorizontalFlip(object):
             return sample
 
 
+class Normalize(object):
+    """Normalize Image with Mean and STD and similar to Pytorch(transform.Normalize) function """
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, sample):
+        if self.mean or self.std != []:
+            sat_img = (sample['sat_img'] - self.mean) / self.std
+            map_img = sample['map_img']
+            return {'sat_img': sat_img, 'map_img': map_img}
+        else:
+            return sample
+
+
 class ToTensorTarget(object):
     """Convert ndarrays in sample to Tensors."""
+    def __init__(self, num_classes):
+        self.num_classes = num_classes
 
     def __call__(self, sample):
         sat_img = np.float32(np.transpose(sample['sat_img'], (2, 0, 1)))
         map_img = np.int64(sample['map_img'])
+        map_img[map_img > self.num_classes] = 0
         return {'sat_img': torch.from_numpy(sat_img), 'map_img': torch.from_numpy(map_img)}

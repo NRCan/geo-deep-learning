@@ -123,8 +123,9 @@ def create_dataloader(data_path, batch_size, task, num_devices, params, samples_
     num_samples = get_num_samples(samples_path=samples_folder, params=params)
     print(f"Number of samples : {num_samples}\n")
     meta_map = get_key_def("meta_map", params["global"], {})
+    num_bands = get_key_def("number_of_bands", params["global"], {})
     if not meta_map:
-        dataset_constr = CreateDataset.SegmentationDataset
+         dataset_constr = CreateDataset.SegmentationDataset
     else:
         dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
     dontcare = get_key_def("ignore_index", params["training"], None)
@@ -136,7 +137,7 @@ def create_dataloader(data_path, batch_size, task, num_devices, params, samples_
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
-        datasets.append(dataset_constr(samples_folder, subset,
+        datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare,
                                        transform=aug.compose_transforms(params, subset)))
@@ -146,9 +147,12 @@ def create_dataloader(data_path, batch_size, task, num_devices, params, samples_
     num_workers = num_devices * 4 if num_devices > 1 else 4
 
     # Shuffle must be set to True.
-    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
-    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False) if num_samples['tst'] > 0 else None
+    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
+                                drop_last=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
+                                drop_last=True)
+    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
+                                drop_last=True) if num_samples['tst'] > 0 else None
 
     return trn_dataloader, val_dataloader, tst_dataloader
 
@@ -306,15 +310,15 @@ def main(params, config_path):
                                                                        samples_folder=samples_folder)
 
     tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
-    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
-
-    criterion = criterion.to(device)
-    try: # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
+    try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
         model.to(device)
     except RuntimeError:
         warnings.warn(f"Unable to use device. Trying device 0...\n")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
+    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
+
+    criterion = criterion.to(device)
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
@@ -532,6 +536,9 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     """
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
+    for m in model.modules():
+        if isinstance(m, nn.BatchNorm2d):
+            m.track_running_stats = False
     vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
     min_vis_batch, max_vis_batch, increment = vis_batch_range
