@@ -63,10 +63,12 @@ def append_to_dataset(dataset, sample):
 
 
 def check_sampling_dict(dictionary):
+    assert isinstance(dictionary, dict), f"Class_propotion parameter should be a dictionary. Got type {type(dictionary)}"
     for key, value in dictionary.items():
         try:
-            int(str(key))
-        except ValueError:
+            assert isinstance(key, str)
+            int(key)
+        except (ValueError, AssertionError):
             f"Class should be a string castable as an integer. Got {key} of type {type(key)}"
         assert isinstance(value, int), f"Class value should be an integer, got {value} of type {type(value)}"
 
@@ -212,8 +214,8 @@ def samples_preparation(in_img_array,
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
 
-                min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling'], None, expected_type=int)
-                class_prop = get_key_def('class_proportion', params['sample']['sampling'], None, expected_type=dict)
+                min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
+                class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
 
                 if minimum_annotated_percent(target_background_percent, min_annot_perc) and \
                         class_proportion(target, sample_size, class_prop):
@@ -330,7 +332,7 @@ def main(params):
     number_classes = 0
 
     # 'sampling' ordereddict validation
-    # check_sampling_dict() # TODO replace with get_key_def(). Add type check to get_key_def.
+    check_sampling_dict(params["sampling_method"]["class_proportion"])
 
     # creates pixel_classes dict and keys
     pixel_classes = {key: 0 for key in gpkg_classes}

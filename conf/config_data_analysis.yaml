@@ -37,6 +37,7 @@ data_analysis:
     'class_proportion': {'0':0, '1':10, '2':10}
     # keys (numerical values in 'string' format) must include all classes present in the images
     # values (int) represent class minimum threshold targeted in samples
+  # FIXME: update with current implementation
 
 
 # Sample parameters; used in images_to_samples.py -------------------
@@ -52,6 +53,7 @@ sample:
       # keys must be numerical values in 'string' format
       # class value must be in 'integer' format
       # class value represents class minimum threshold targeted in samples
+  # FIXME: update with current implementation
 
   mask_reference: False
 
