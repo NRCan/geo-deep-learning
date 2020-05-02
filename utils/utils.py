@@ -40,21 +40,6 @@ class Interpolate(torch.nn.Module):
         return x
 
 
-def chop_layer(pretrained_dict,
-               layer_names=["logits"]):  # https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2
-    """
-    Removes keys from a layer in state dictionary of model architecture.
-    :param model: (nn.Module) model with original architecture
-    :param layer_names: (list) names of layers to be chopped.
-    :return: (nn.Module) model
-    """
-    # filter out weights from undesired keys. ex.: size mismatch.
-    for layer in layer_names:
-        chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer) == -1}
-        pretrained_dict = chopped_dict  # overwrite values in pretrained dict with chopped dict
-    return chopped_dict
-
-
 def load_from_checkpoint(checkpoint, model, optimizer=None, inference=False):
     """Load weights from a previous checkpoint
     Args:
@@ -123,7 +108,7 @@ def gpu_stats(device=0):
     return res, mem
 
 
-def get_key_def(key, config, default=None, msg=None, delete=False):
+def get_key_def(key, config, default=None, msg=None, delete=False, expected_type=None):
     """Returns a value given a dictionary key, or the default value if it cannot be found.
     :param key: key in dictionary (e.g. generated from .yaml)
     :param config: (dict) dictionary containing keys corresponding to parameters used in script
@@ -133,7 +118,7 @@ def get_key_def(key, config, default=None, msg=None, delete=False):
     :return:
     """
     if not config:
-        return default
+        val = default
     elif isinstance(key, list): # is key a list?
         if len(key) <= 1: # is list of length 1 or shorter? else --> default
             if msg is not None:
@@ -145,16 +130,17 @@ def get_key_def(key, config, default=None, msg=None, delete=False):
                 val = config[k]
                 if delete: # optionally delete parameter after defining a variable with it
                     del config[k]
-                return val
-        return default
+        val = default
     else: # if key is not a list
         if key not in config or config[key] is None:  # if key not in config dict
-            return default
+            val = default
         else:
             val = config[key] if config[key] != 'None' else None
             if delete:
                 del config[key]
-            return val
+    if expected_type:
+        assert isinstance(val, expected_type), f"{val} is of type {type(val)}, expected {expected_type}"
+    return val
 
 
 def get_key_recursive(key, config):

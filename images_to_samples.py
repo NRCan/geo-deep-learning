@@ -62,30 +62,13 @@ def append_to_dataset(dataset, sample):
     return old_size  # the index to the newly added sample, or the previous size of the dataset
 
 
-def check_sampling_dict():
-    for i, (key, value) in enumerate(params['sample']['sampling'].items()):
-
-        if i == 0:
-            if key == 'method':
-                for j in range(len(value)):
-                    if value[j] == 'min_annotated_percent' or value[j] == 'class_proportion':
-                        pass
-                    else:
-                        raise ValueError(f"Method value must be min_annotated_percent or class_proportion."
-                                         f" Provided value is {value[j]}")
-            else:
-                raise ValueError(f"Ordereddict first key value must be method. Provided value is {key}")
-        elif i == 1:
-            if key == 'map':
-                if type(value) == int:
-                    pass
-                else:
-                    raise ValueError(f"Value type must be 'int'. Provided value is {type(value)}")
-            else:
-                raise ValueError(f"Ordereddict second key value must be map. Provided value is {key}")
-        elif i >= 2:
-            if type(int(key)) == int:
-                pass
+def check_sampling_dict(dictionary):
+    for key, value in dictionary.items():
+        try:
+            int(str(key))
+        except ValueError:
+            f"Class should be a string castable as an integer. Got {key} of type {type(key)}"
+        assert isinstance(value, int), f"Class value should be an integer, got {value} of type {type(value)}"
 
 
 def minimum_annotated_percent(target_background_percent, min_annotated_percent):
@@ -229,8 +212,8 @@ def samples_preparation(in_img_array,
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
 
-                min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling'], None)
-                class_prop = get_key_def('class_proportion', params['sample']['sampling'], None)
+                min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling'], None, expected_type=int)
+                class_prop = get_key_def('class_proportion', params['sample']['sampling'], None, expected_type=dict)
 
                 if minimum_annotated_percent(target_background_percent, min_annot_perc) and \
                         class_proportion(target, sample_size, class_prop):
@@ -327,7 +310,7 @@ def main(params):
         for info in tqdm(list_data_prep, position=0, desc=f"Validating presence of {params['global']['num_classes']} "
                                                           f"classes in attribute \"{info['attribute_name']}\" for vector "
                                                           f"file \"{Path(info['gpkg']).stem}\""):
-            validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
+            gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
 
             meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
             # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
@@ -349,11 +332,8 @@ def main(params):
     # 'sampling' ordereddict validation
     # check_sampling_dict() # TODO replace with get_key_def(). Add type check to get_key_def.
 
-    pixel_classes = {}
     # creates pixel_classes dict and keys
-    for i in range(0, params['global']['num_classes'] + 1):
-        pixel_classes.update({i: 0})
-    pixel_classes.update({ignore_index: 0})  # FIXME: pixel_classes dict needs to be populated with classes obtained from target
+    pixel_classes = {key: 0 for key in gpkg_classes}
 
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
 
@@ -402,9 +382,7 @@ def main(params):
                                                        input_image=raster,
                                                        out_shape=np_input_image.shape[:2],
                                                        attribute_name=info['attribute_name'],
-                                                       fill=get_key_def('ignore_idx', # FIXME: what's this? always fill with 0 right?
-                                                                        get_key_def('training', params, {}), 0))
-
+                                                       fill=0)  # This will become background value in raster.
 
                 # Mask the zeros from input image into label raster.
                 if params['sample']['mask_reference']:
