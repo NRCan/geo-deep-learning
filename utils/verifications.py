@@ -118,3 +118,5 @@ def validate_num_classes(vector_file, num_classes, attribute_name, ignore_index,
     if detected_classes != num_classes:
         raise ValueError('The number of classes in the yaml.config {} is different than the number of classes in '
                          'the file {} {}'.format (num_classes, vector_file, str(list(distinct_att))))
+
+    return distinct_att

@@ -10,7 +10,8 @@ from PIL import Image
 from matplotlib import pyplot as plt, gridspec, cm, colors
 import csv
 
-from utils.utils import minmax_scale, get_key_def, create_new_raster_from_base
+from utils.utils import minmax_scale, unnormalize, get_key_def
+from utils.geoutils import create_new_raster_from_base
 
 
 def grid_vis(input, output, heatmaps_dict, label=None, heatmaps=True):
@@ -98,6 +99,8 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
     heatmaps_inf = get_key_def('heatmaps', params['inference'], False)
     grid = get_key_def('grid', params['visualization'], False)
     ignore_index = get_key_def('ignore_index', params['training'], -1)
+    mean = get_key_def('mean', params['training']['normalization'])
+    std = get_key_def('std', params['training']['normalization'])
 
     assert vis_path.parent.is_dir()
     vis_path.mkdir(exist_ok=True)
@@ -113,13 +116,15 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
                 new_ignore_index = 255
                 label[label == ignore_index] = new_ignore_index  # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
 
+    if params['training']['normalization']['mean'] and params['training']['normalization']['std']:
+        input = unnormalize(input_img=input, mean=mean, std=std)
     input = minmax_scale(img=input, orig_range=(scale[0], scale[1]), scale_range=(0, 255)) if scale else input
     if input.shape[2] == 2:
         input = input[:, :, :1]  # take first band (will become grayscale image)
     elif input.shape[2] > 3:
         input = input[:, :, :3]  # take three first bands assuming they are RGB in correct order
     mode = 'L' if input.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
-    input_PIL = Image.fromarray(input.astype(np.uint8), mode=mode) # TODO: test this with grayscale input.
+    input_PIL = Image.fromarray(input.astype(np.uint8), mode=mode)  # FIXME: test this with grayscale input.
 
     # Give value of class to band with highest value in final inference
     output_argmax = np.argmax(output, axis=2).astype(np.uint8) # Flatten along channels axis. Convert to 8bit

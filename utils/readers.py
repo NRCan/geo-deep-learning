@@ -5,7 +5,7 @@ from ruamel_yaml import YAML
 from tqdm import tqdm
 from pathlib import Path
 
-from utils.utils import vector_to_raster, minmax_scale
+from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
 
 
 def read_parameters(param_file):
@@ -21,8 +21,8 @@ def read_parameters(param_file):
     return params
 
 
-def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vector_attrib=None, aux_vector_ids=None,
-                          aux_vector_dist_maps=False, aux_vector_dist_log=True, aux_vector_scale=None):
+def image_reader_as_array(input_image, aux_vector_file=None, aux_vector_attrib=None, aux_vector_ids=None,
+                          aux_vector_dist_maps=False, aux_vector_dist_log=True, aux_vector_scale=None, clip_gpkg=None):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
         input_image: Rasterio file handle holding the (already opened) input raster
@@ -37,20 +37,14 @@ def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vec
     Return:
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
-    np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
-    for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
-        np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0  # TODO: reading a large image >10Gb is VERY slow. Is this line the culprit?
+    if clip_gpkg:
+        np_array, out_transform = clip_raster_with_gpkg(input_image, clip_gpkg, debug=False)
+        np_array = np.transpose(np_array, (1, 2, 0))  # send channels last
 
-    # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
-    # Scale array values from range [0,255] to values in config (e.g. [0,1])
-    if scale:
-        sc_min, sc_max = scale
-        assert np.min(np_array) >= 0 and np.max(np_array) <= 255, f'Values in input image of shape {np_array.shape} ' \
-                                                                  f'range from {np.min(np_array)} to {np.max(np_array)}.' \
-                                                                  f'They should range from 0 to 255 (8bit).'
-        np_array = minmax_scale(img=np_array,
-                                orig_range=(0, 255),
-                                scale_range=(sc_min, sc_max))
+    else:
+        np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
+        for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
+            np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0  # TODO: reading a large image >10Gb is VERY slow. Is this line the culprit?
 
     # if requested, load vectors from external file, rasterize, and append distance maps to array
     if aux_vector_file is not None:

@@ -1,32 +1,59 @@
 # Deep learning configuration file ------------------------------------------------
 # Five sections :
 #   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
-#   2) Sampling parameters
-#   3) Training parameters
-#   4) Inference parameters
-#   5) Model parameters
+#   2) Data analysis parameters
+#   4) Sampling parameters
+#   5) Training parameters
+#   6) Inference parameters
+#   7) Model parameters
 
 # Global parameters
 
 global:
   samples_size: 256
   num_classes: 2
-  data_path: /path/to/data/
+  data_path: path/to/data/
   number_of_bands: 3
   model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 2
+  aux_vector_file: 
+  aux_vector_dist_map: False
   scale_data: [0,1]
   debug_mode: True
+  
+# Data analysis parameters; used in data_analysis.py ------------------
+
+data_analysis:
+  create_csv: False
+  optimal_parameters_search : False
+  sampling: {'method':['min_annotated_percent', 'class_proportion'], 'map': 0, '0':0, '1':0, '2':0}
+  # 'method' : One or both in any order of min_annotated_percent, class_proportion; must be presented in list format
+    # 'map' : Min % of non background pixels in stored samples. Default: 0
+    # following keys:
+      # keys must be all classes present in the images
+      # keys must be numerical values in 'string' format
+      # class value must be in 'integer' format
+      # class value represent class minimum threshold targeted in samples
 
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
   prep_csv_file: /path/to/csv/file.csv
-  samples_dist: 200
-  min_annotated_percent: 10 # Min % of non background pixels in stored samples. Default: 0
+  val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
+  overlap: 25
+  sampling_method: {'min_annotated_percent': 0, 'class_proportion': {'0':0, '1':0}} # FIXME. # One of class_proportion or min_annotated_percent
+    # 'method' : One or both in any order of min_annotated_percent, class_proportion; must be presented in list format
+    # 'map' : Min % of non background pixels in samples. Default: 0
+    # following keys:
+      # keys must include all classes present in the images
+      # keys must be numerical values in 'string' format
+      # class value must be in 'integer' format
+      # class value represents class minimum threshold targeted in samples
+
   mask_reference: False
+
 
 # Training parameters; used in train_segmentation.py ----------------------
 
@@ -48,16 +75,36 @@ training:
   class_weights: [1.0, 2.0]
   batch_metrics:    # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
   ignore_index: 0 # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
+
   augmentation:
     rotate_limit: 45
     rotate_prob: 0.5
     hflip_prob: 0.5
+    radiom_trim_range: [0.1, 2.0] # range of values (%) for trimming (same value used for left and right trim)
+    geom_scale_range:
+    brightness_contrast_range: # Not yet implemented
+    noise: # Not yet implemented
+    crop_size: 256
 
 # Inference parameters; used in inference.py --------
 
 inference:
   img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
-  working_folder: /path/to/folder/with/resulting/images
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
-  overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
+  heatmaps: True
+
+# Visualization parameters
+
+visualization:
+  vis_batch_range: [0,200,10] #start, finish, increment
+  vis_at_checkpoint: True
+  vis_at_ckpt_min_ep_diff: 0
+  vis_at_ckpt_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.
+  vis_at_init: True
+  vis_at_init_dataset: val
+  vis_at_evaluation: True #val during training, tst at end of training
+  vis_at_train: True
+  grid: True
+  heatmaps: True
+  colormap_file: ./data/colormap.csv

@@ -121,11 +121,13 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     num_samples = get_num_samples(samples_path=samples_folder, params=params)
     print(f"Number of samples : {num_samples}\n")
     meta_map = get_key_def("meta_map", params["global"], {})
+    num_bands = get_key_def("number_of_bands", params["global"], {})
+    nodata = get_key_def("nodata", params["global"], 0)  # TODO: add to config
     if not meta_map:
-        dataset_constr = CreateDataset.SegmentationDataset
+         dataset_constr = CreateDataset.SegmentationDataset
     else:
         dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
-    dontcare = get_key_def("ignore_index", params["training"], None)
+    dontcare = get_key_def("ignore_index", params["training"], -1)
     if dontcare == 0:
         warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
                       " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
@@ -133,21 +135,26 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
         params["training"]["ignore_index"] = -1
     datasets = []
 
-    for subset in ["trn", "val", "tst"]:  # FIXME: randomly separate train/val 85/15 sets.
-        datasets.append(dataset_constr(samples_folder, subset,
+    for subset in ["trn", "val", "tst"]:
+        datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare,
                                        radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
-                                       geom_transform=aug.compose_transforms(params, subset, type='geometric')))
+                                       geom_transform=aug.compose_transforms(params, subset, type='geometric',
+                                                                             ignore_index=dontcare),
+                                       nodata=nodata))
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
     num_workers = num_devices * 4 if num_devices > 1 else 4
 
     # Shuffle must be set to True.
-    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True, drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False)
-    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False) if num_samples['tst'] > 0 else None
+    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
+                                drop_last=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
+                                drop_last=True)
+    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
+                                drop_last=True) if num_samples['tst'] > 0 else None
 
     return trn_dataloader, val_dataloader, tst_dataloader
 
@@ -230,7 +237,7 @@ def main(params, config_path):
     num_classes = params['global']['num_classes']
     task = params['global']['task']
     assert task == 'segmentation', f"The task should be segmentation. The provided value is {task}"
-    num_classes_corrected = num_classes + 1 # + 1 for background # FIXME temporary patch for num_classes problem.
+    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model, checkpoint, model_name = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
@@ -241,9 +248,8 @@ def main(params, config_path):
 
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
-    min_annot_perc = params['sample']['min_annotated_percent']
     num_bands = params['global']['number_of_bands']
-    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: preferred name structure? document!
+    samples_folder_name = f'samples{samples_size}_overlap{overlap}_{num_bands}bands'  # FIXME: won't check if folder has datetime suffix (if multiple folders)
     samples_folder = Path(data_path).joinpath(samples_folder_name) if task == 'segmentation' else Path(data_path)
 
     modelname = config_path.stem
@@ -284,7 +290,7 @@ def main(params, config_path):
         print(f"Using Cuda device {lst_device_ids[0]}\n")
     elif num_devices > 1:
         print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
-        try: # FIXME: For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
+        try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
             warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
@@ -303,15 +309,15 @@ def main(params, config_path):
                                                                        params=params)
 
     tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
-    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
-
-    criterion = criterion.to(device)
-    try: # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
+    try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
         model.to(device)
     except RuntimeError:
         warnings.warn(f"Unable to use device. Trying device 0...\n")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
+    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
+
+    criterion = criterion.to(device)
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
@@ -438,7 +444,20 @@ def main(params, config_path):
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
-def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx, progress_log, vis_params, device, debug=False):
+def train(train_loader,
+          model,
+          criterion,
+          optimizer,
+          scheduler,
+          num_classes,
+          batch_size,
+          task,
+          ep_idx,
+          progress_log,
+          vis_params,
+          device,
+          debug=False
+          ):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -460,7 +479,6 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     train_metrics = create_metrics_dict(num_classes)
     vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-    min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
@@ -477,7 +495,9 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             if isinstance(outputs, OrderedDict):
                 outputs = outputs['out']
 
-            if vis_batch_range is not None and vis_at_train and batch_index in range(min_vis_batch, max_vis_batch, increment):
+            if vis_batch_range and vis_at_train:
+                min_vis_batch, max_vis_batch, increment = vis_batch_range
+                if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0:
                         tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
@@ -529,9 +549,11 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     """
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
+    for m in model.modules():
+        if isinstance(m, nn.BatchNorm2d):
+            m.track_running_stats = False
     vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-    min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
@@ -546,7 +568,9 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
-                if vis_batch_range is not None and vis_at_eval and batch_index in range(min_vis_batch, max_vis_batch, increment):
+                if vis_batch_range and vis_at_eval:
+                    min_vis_batch, max_vis_batch, increment = vis_batch_range
+                    if batch_index in range(min_vis_batch, max_vis_batch, increment):
                         vis_path = progress_log.parent.joinpath('visualization')
                         if ep_idx == 0 and batch_index == min_vis_batch:
                             tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '

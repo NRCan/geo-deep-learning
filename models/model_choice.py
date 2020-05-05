@@ -1,11 +1,12 @@
 import os
 from pathlib import Path
-
-import torch
+import numpy as np
 import warnings
+import torch
+import torch.nn as nn
 import torchvision.models as models
-from models import TernausNet, unet, checkpointed_unet, inception, coordconv
-from utils.utils import chop_layer, get_key_def
+from models import TernausNet, unet, checkpointed_unet, inception, coordconv, common
+from utils.utils import get_key_def
 
 
 def load_checkpoint(filename):
@@ -53,14 +54,20 @@ def net(net_params, num_channels, inference=False):
         model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
                                                   aux_loss=None)
     elif model_name == 'deeplabv3_resnet101':
-        try:
-            model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, in_channels=num_bands,
-                                                            num_classes=num_channels, aux_loss=None)
-        except:
-            assert num_bands==3, 'Edit torchvision scripts segmentation.py and resnet.py to build deeplabv3_resnet ' \
-                                 'with more or less than 3 bands'
-            model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True,
-                                                            num_classes=num_channels, aux_loss=None)
+        assert (num_bands == 3 or num_bands == 4), msg
+        if num_bands == 3:
+            print('Finetuning pretrained deeplabv3 with 3 bands')
+            model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True, aux_loss=None)
+            model.classifier = common.DeepLabHead(2048, num_channels)
+        elif num_bands == 4:
+            print('Finetuning pretrained deeplabv3 with 4 bands')
+            model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True, aux_loss=None)
+            conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
+            depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
+            conv1 = np.append(conv1, depth, axis=1)
+            conv1 = torch.from_numpy(conv1).float()
+            model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
+            model.classifier = common.DeepLabHead(2048, num_channels)
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
 
@@ -82,21 +89,6 @@ def net(net_params, num_channels, inference=False):
     elif train_state_dict_path is not None:
         assert Path(train_state_dict_path).is_file(), f'Could not locate checkpoint at {train_state_dict_path}'
         checkpoint = load_checkpoint(train_state_dict_path)
-    elif pretrained and (model_name == ('deeplabv3_resnet101' or 'fcn_resnet101')):
-        print(f'Retrieving coco checkpoint for {model_name}...\n')
-        if model_name == 'deeplabv3_resnet101':  # default to pretrained on coco (21 classes)
-            coco_model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
-        else:
-            coco_model = models.segmentation.fcn_resnet101(pretrained=True, progress=True, num_classes=21, aux_loss=None)
-        checkpoint = coco_model.state_dict()
-        # Place entire state_dict inside 'model' key for compatibility with the rest of GDL workflow
-        temp_checkpoint = {}
-        temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}
-        del coco_model, checkpoint
-        checkpoint = temp_checkpoint
-    elif pretrained:
-        warnings.warn(f'No pretrained checkpoint found for {model_name}.')
-        checkpoint = None
     else:
         checkpoint = None
 

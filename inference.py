@@ -18,7 +18,8 @@ from tqdm import tqdm
 from pathlib import Path
 
 from models.model_choice import net
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
+from utils.augmentation import Scale
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, minmax_scale
 from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.CreateDataset import MetaSegmentationDataset
 from utils.visualization import vis, vis_from_batch
@@ -29,7 +30,19 @@ except ModuleNotFoundError:
     pass
 
 
-def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device, meta_map=None, metadata=None, output_path=Path(os.getcwd()), index=0, debug=False):
+def sem_seg_inference(model,
+                      nd_array,
+                      overlay,
+                      chunk_size,
+                      scale,
+                      num_classes,
+                      device,
+                      src_raster_dtype=None,
+                      meta_map=None,
+                      metadata=None,
+                      output_path=Path(os.getcwd()),
+                      index=0,
+                      debug=False):
     """Inference on images using semantic segmentation
     Args:
         model: model to use for inference
@@ -81,9 +94,15 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                         chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
                         if meta_map:
                             chunk_input = MetaSegmentationDataset.append_meta_layers(chunk_input, meta_map, metadata)
+
+                        orig_range = Scale.range_values_raster(chunk_input, src_raster_dtype)  # FIXME: test this
+                        ScaleInst = Scale(scale)  # FIXME: NORMALIZE!
+                        chunk_input = minmax_scale(img=chunk_input, orig_range=orig_range,
+                                                         scale_range=(ScaleInst.sc_min, ScaleInst.sc_max))
+
                         inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
-                        inputs.unsqueeze_(0) #Add dummy batch dimension
+                        inputs.unsqueeze_(0)  # Add dummy batch dimension
 
                         inputs = inputs.to(device)
                         # forward
@@ -274,7 +293,7 @@ def main(params):
         else:
             img_dir = Path(img_dir_or_csv)
             assert img_dir.is_dir(), f'Could not find directory "{img_dir_or_csv}"'
-            list_img_paths = sorted(img_dir.glob('*.tif'))  # FIXME: what if .tif is in caps (.TIF) ?
+            list_img_paths = sorted(img_dir.glob('*.tif'))  # FIXME: what if .tif is in caps (.TIF) ? linux is case-sensitive
             list_img = []
             for img_path in list_img_paths:
                 img = {}
@@ -310,11 +329,9 @@ def main(params):
 
                 assert local_img.is_file(), f"Could not open raster file at {local_img}"
 
-                scale = get_key_def('scale_data', params['global'], None)
                 with rasterio.open(local_img, 'r') as raster:
-
+                    dtype = raster.meta["dtype"]
                     np_input_image = image_reader_as_array(input_image=raster,
-                                                           scale=scale,
                                                            aux_vector_file=get_key_def('aux_vector_file',
                                                                                        params['global'], None),
                                                            aux_vector_attrib=get_key_def('aux_vector_attrib',
@@ -351,9 +368,21 @@ def main(params):
                                   f"can not be larger than the number of band in the input image ({input_band_count}).")
                     continue
 
+                scale = get_key_def('scale_data', params['global'], None)
                 # START INFERENCES ON SUB-IMAGES
-                sem_seg_results_per_class = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_corrected,
-                                                    device, meta_map, metadata, output_path=working_folder, index=_tqdm.n, debug=debug)
+                sem_seg_results_per_class = sem_seg_inference(model,
+                                                              np_input_image,
+                                                              nbr_pix_overlap,
+                                                              chunk_size,
+                                                              scale,
+                                                              num_classes_corrected,
+                                                              device,
+                                                              meta_map,
+                                                              metadata,
+                                                              src_raster_dtype=dtype,
+                                                              output_path=working_folder,
+                                                              index=_tqdm.n,
+                                                              debug=debug)
 
                 # CREATE GEOTIF FROM METADATA OF ORIGINAL IMAGE
                 tqdm.write(f'Saving inference...\n')

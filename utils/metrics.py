@@ -71,7 +71,7 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
     return metrics_dict
 
 
-def iou(pred, target, batch_size, metrics_dict):  # FIXME: activate IoU
+def iou(pred, target, batch_size, metrics_dict):  # TODO: activate IoU
     """Calculate the intersection over union (or Jaccard index) between two datasets.
     The Jaccard distance (or dissimilarity) would be 1-iou.
     """
