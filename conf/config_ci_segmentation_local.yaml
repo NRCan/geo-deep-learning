@@ -29,7 +29,7 @@ sample:
   mask_reference: False
   sampling_method: # class_proportion or min_annotated_percent
     'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
-    'class_proportion': {'0':'hello', '1':0}
+    'class_proportion': {'0':0, '1':0}
     # keys (numerical values in 'string' format) must include all classes present in the images
     # values (int) represent class minimum threshold targeted in samples
 

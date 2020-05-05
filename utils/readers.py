@@ -40,6 +40,7 @@ def image_reader_as_array(input_image, aux_vector_file=None, aux_vector_attrib=N
     if clip_gpkg:
         np_array, out_transform = clip_raster_with_gpkg(input_image, clip_gpkg, debug=False)
         np_array = np.transpose(np_array, (1, 2, 0))  # send channels last
+        # FIXME: convert to float32. Is this really necessary or can we keep arrays as uint8, uint16, etc. ?
 
     else:
         np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)

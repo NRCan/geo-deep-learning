@@ -12,7 +12,7 @@ install:
   - conda config --prepend channels pytorch
   - conda update -q conda
   - conda info -a
-  - conda create -n ci_env python=3.7 pytorch-cpu torchvision-cpu torchvision ruamel_yaml h5py>=2.10 scikit-image scikit-learn scikit-image rasterio tqdm matplotlib
+  - conda create -n ci_env python=3.7 pytorch-cpu torchvision-cpu pillow<7 torchvision ruamel_yaml h5py>=2.10 scikit-image scikit-learn scikit-image rasterio tqdm matplotlib geopandas
   - source activate ci_env
   - conda install fiona
 before_script:
