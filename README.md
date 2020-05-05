@@ -135,6 +135,7 @@ Structure as created by geo-deep-learning
 ## Models available
 - [Unet](https://arxiv.org/abs/1505.04597)
 - [Deeplabv3 (backbone: resnet101, optional: pretrained on coco dataset)](https://arxiv.org/abs/1706.05587)
+- Experimental: Deeplabv3 (default: pretrained on coco dataset) adapted for RGB-NIR(4 Bands) supported
 - Unet small (less deep version of Unet)
 - Checkpointed Unet (same as Unet small, but uses less GPU memory and recomputes data during the backward pass)
 - [Ternausnet](https://arxiv.org/abs/1801.05746)
@@ -183,6 +184,7 @@ global:
 sample:
   prep_csv_file: /path/to/file_name.csv  # Path to CSV file used in preparation.
   overlap: 200                           # (int) Percentage of overlap between 2 samples. Mandatory
+  val_percent: 5                         # Percentage of validation samples created from train set (0 - 100)
   min_annotated_percent: 10              # Min % of non background pixels in stored samples. Mandatory
   mask_reference: False                  # When True, mask the input image where there is no reference data.
 ```

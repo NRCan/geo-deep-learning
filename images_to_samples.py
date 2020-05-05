@@ -1,14 +1,13 @@
 import argparse
 import datetime
 import os
-from pathlib import Path
-
 import fiona
 import numpy as np
 import warnings
 import rasterio
 import time
 
+from pathlib import Path
 from tqdm import tqdm
 from collections import OrderedDict
 
@@ -54,6 +53,19 @@ def mask_image(arrayA, arrayB):
     return ma_array
 
 
+def pad_diff(arr, w, h, arr_shape):
+    """ Pads img_arr width or height < samples_size with zeros """
+    w_diff = arr_shape - w
+    h_diff = arr_shape - h
+
+    if len(arr.shape) > 2:
+        padded_arr = np.pad(arr, ((0, w_diff), (0, h_diff), (0, 0)), "constant", constant_values=(0, 0))
+    else:
+        padded_arr = np.pad(arr, ((0, w_diff), (0, h_diff)), "constant", constant_values=(0, 0))
+
+    return padded_arr
+
+
 def append_to_dataset(dataset, sample):
     old_size = dataset.shape[0]  # this function always appends samples on the first axis
     dataset.resize(old_size + 1, axis=0)
@@ -85,12 +97,6 @@ def check_sampling_dict():
         elif i >= 2:
             if type(int(key)) == int:
                 pass
-                # if type(value) == int:
-                    # pass
-                # else:
-                    # raise ValueError(f"Value type must be 'int'. Provided value is {type(value)}")
-            # else:
-                # raise ValueError(f"Value type must be numerical and 'str'. Provided value is {type(value)}")
 
 
 def minimum_annotated_percent(target_background_percent, min_annotated_percent):
@@ -119,7 +125,16 @@ def class_proportion(target):
     return False
 
 
-def compute_classes(samples_file, data, target, metadata_idx, dict_classes):
+def compute_classes(dataset, samples_file, val_percent, val_sample_file, data, target, metadata_idx, dict_classes):
+    """ Creates Dataset (trn, val, tst) appended to Hdf5 and computes pixel classes(%) """
+    val = False
+    if dataset == 'trn':
+        random_val = np.random.randint(1, 100)
+        if random_val > val_percent:
+            pass
+        else:
+            val = True
+            samples_file = val_sample_file
     append_to_dataset(samples_file["sat_img"], data)
     append_to_dataset(samples_file["map_img"], target)
     append_to_dataset(samples_file["meta_idx"], metadata_idx)
@@ -128,9 +143,21 @@ def compute_classes(samples_file, data, target, metadata_idx, dict_classes):
     for i in (np.unique(target)):
         dict_classes[i] += (np.bincount(target.flatten()))[i]
 
+    return val
 
-def samples_preparation(in_img_array, label_array, sample_size, overlap, samples_count, num_classes, samples_file,
-                        dataset, pixel_classes, image_metadata=None):
+
+def samples_preparation(in_img_array,
+                        label_array,
+                        sample_size,
+                        overlap,
+                        samples_count,
+                        num_classes,
+                        samples_file,
+                        val_percent,
+                        val_sample_file,
+                        dataset,
+                        pixel_classes,
+                        image_metadata=None):
     """
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
@@ -140,6 +167,8 @@ def samples_preparation(in_img_array, label_array, sample_size, overlap, samples
     :param samples_count: (dict) Current number of samples created (will be appended and return)
     :param num_classes: (dict) Number of classes in reference data (will be appended and return)
     :param samples_file: (hdf5 dataset) hdfs file where samples will be written
+    :param val_percent: (int) percentage of validation samples
+    :param val_sample_file: (hdf5 dataset) hdfs file where samples will be written (val)
     :param dataset: (str) Type of dataset where the samples will be written. Can be 'trn' or 'val' or 'tst'
     :param pixel_classes: (dict) samples pixel statistics
     :param image_metadata: (Ruamel) list of optionnal metadata specified in the associated metadata file
@@ -149,58 +178,66 @@ def samples_preparation(in_img_array, label_array, sample_size, overlap, samples
     # read input and reference images as array
 
     h, w, num_bands = in_img_array.shape
-
     if dataset == 'trn':
         idx_samples = samples_count['trn']
-    elif dataset == 'val':
-        idx_samples = samples_count['val']
     elif dataset == 'tst':
         idx_samples = samples_count['tst']
     else:
         raise ValueError(f"Dataset value must be trn or val. Provided value is {dataset}")
 
     metadata_idx = -1
+    idx_samples_v = samples_count['val']
     if image_metadata:
         # there should be one set of metadata per raster
         # ...all samples created by tiling below will point to that metadata by index
         metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
 
-    # half tile padding
-    half_tile = int(sample_size / 2)
-    pad_in_img_array = np.pad(in_img_array, ((half_tile, half_tile), (half_tile, half_tile), (0, 0)),
-                              mode='constant')
-    pad_label_array = np.pad(label_array, ((half_tile, half_tile), (half_tile, half_tile), (0, 0)), mode='constant')
-
-    dist_samples = round(sample_size*(1-(overlap/100)))
+    dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
     excl_samples = 0
 
     with tqdm(range(0, h, dist_samples), position=1, leave=True,
-                        desc=f'Writing samples to "{dataset}" dataset. Dataset currently contains {idx_samples} '
-                             f'samples.') as _tqdm:
+              desc=f'Writing samples to "{dataset}" dataset. Dataset currently contains {idx_samples} '
+                   f'samples.') as _tqdm:
 
         for row in _tqdm:
             for column in range(0, w, dist_samples):
-                data = (pad_in_img_array[row:row + sample_size, column:column + sample_size, :])
-                target = np.squeeze(pad_label_array[row:row + sample_size, column:column + sample_size, :], axis=2)
+                data = (in_img_array[row:row + sample_size, column:column + sample_size, :])
+                target = np.squeeze(label_array[row:row + sample_size, column:column + sample_size, :], axis=2)
+                data_row = data.shape[0]
+                data_col = data.shape[1]
+                if data_row < sample_size or data_col < sample_size:
+                    data = pad_diff(data, data_row, data_col, sample_size)
 
+                target_row = target.shape[0]
+                target_col = target.shape[1]
+                if target_row < sample_size or target_col < sample_size:
+                    target = pad_diff(target, target_row, target_col, sample_size)
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
 
                 if len(params['sample']['sampling']['method']) == 1:
                     if params['sample']['sampling']['method'][0] == 'min_annotated_percent':
                         if minimum_annotated_percent(target_background_percent, params['sample']['sampling']['map']):
-                            compute_classes(samples_file, data, target, metadata_idx, pixel_classes)
-                            idx_samples += 1
-                            added_samples += 1
+                            val = compute_classes(dataset, samples_file, val_percent, val_sample_file,
+                                                  data, target, metadata_idx, pixel_classes)
+                            if val:
+                                idx_samples_v += 1
+                            else:
+                                idx_samples += 1
+                                added_samples += 1
                         else:
                             excl_samples += 1
 
                     if params['sample']['sampling']['method'][0] == 'class_proportion':
                         if class_proportion(target):
-                            compute_classes(samples_file, data, target, metadata_idx, pixel_classes)
-                            idx_samples += 1
-                            added_samples += 1
+                            val = compute_classes(dataset, samples_file, val_percent, val_sample_file,
+                                                  data, target, metadata_idx, pixel_classes)
+                            if val:
+                                idx_samples_v += 1
+                            else:
+                                idx_samples += 1
+                                added_samples += 1
                         else:
                             excl_samples += 1
 
@@ -209,19 +246,28 @@ def samples_preparation(in_img_array, label_array, sample_size, overlap, samples
                         if minimum_annotated_percent(target_background_percent, params['sample']['sampling']['map']):
                             if params['sample']['sampling']['method'][1] == 'class_proportion':
                                 if class_proportion(target):
-                                    compute_classes(samples_file, data, target, metadata_idx, pixel_classes)
-                                    idx_samples += 1
-                                    added_samples += 1
+                                    val = compute_classes(dataset, samples_file, val_percent, val_sample_file,
+                                                          data, target, metadata_idx, pixel_classes)
+                                    if val:
+                                        idx_samples_v += 1
+                                    else:
+                                        idx_samples += 1
+                                        added_samples += 1
                                 else:
                                     excl_samples += 1
 
                     elif params['sample']['sampling']['method'][0] == 'class_proportion':
                         if class_proportion(target):
                             if params['sample']['sampling']['method'][1] == 'min_annotated_percent':
-                                if minimum_annotated_percent(target_background_percent, params['sample']['sampling']['map']):
-                                    compute_classes(samples_file, data, target, metadata_idx, pixel_classes)
-                                    idx_samples += 1
-                                    added_samples += 1
+                                if minimum_annotated_percent(target_background_percent,
+                                                             params['sample']['sampling']['map']):
+                                    val = compute_classes(dataset, samples_file, val_percent, val_sample_file,
+                                                          data, target, metadata_idx, pixel_classes)
+                                    if val:
+                                        idx_samples_v += 1
+                                    else:
+                                        idx_samples += 1
+                                        added_samples += 1
                                 else:
                                     excl_samples += 1
 
@@ -229,16 +275,15 @@ def samples_preparation(in_img_array, label_array, sample_size, overlap, samples
                 if num_classes < target_class_num:
                     num_classes = target_class_num
 
-                _tqdm.set_postfix(Excld_samples=excl_samples, Added_samples=f'{added_samples}/{len(_tqdm)*len(range(0, w, dist_samples))}', Target_annot_perc=100-target_background_percent)
+                _tqdm.set_postfix(Excld_samples=excl_samples,
+                                  Added_samples=f'{added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}',
+                                  Target_annot_perc=100 - target_background_percent)
 
-
-    if dataset == 'trn':
-        samples_count['trn'] = idx_samples
-    elif dataset == 'val':
-        samples_count['val'] = idx_samples
-    elif dataset == 'tst':
+    if dataset == 'tst':
         samples_count['tst'] = idx_samples
-
+    else:
+        samples_count['trn'] = idx_samples
+        samples_count['val'] = idx_samples_v
     # return the appended samples count and number of classes.
     return samples_count, num_classes
 
@@ -257,8 +302,9 @@ def main(params):
     # SET BASIC VARIABLES AND PATHS. CREATE OUTPUT FOLDERS.
     bucket_name = params['global']['bucket_name']
     data_path = Path(params['global']['data_path'])
-    Path.mkdir(data_path, exist_ok=True)
+    Path.mkdir(data_path, exist_ok=True, parents=True)
     csv_file = params['sample']['prep_csv_file']
+    val_percent = params['sample']['val_percent']
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
     min_annot_perc = params['sample']['sampling']['map']
@@ -277,7 +323,7 @@ def main(params):
             final_samples_folder = os.path.join(data_path, "samples")
         else:
             final_samples_folder = "samples"
-        samples_folder = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands' # TODO: validate this is preferred name structure
+        samples_folder = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # TODO: validate this is preferred name structure
 
     else:
         list_data_prep = read_csv(csv_file)
@@ -288,7 +334,7 @@ def main(params):
         samples_folder = Path(str(samples_folder) + '_' + now)
     else:
         tqdm.write(f'Writing samples to {samples_folder}')
-    Path.mkdir(samples_folder, exist_ok=False)    #FIXME: what if we want to append samples to existing hdf5?
+    Path.mkdir(samples_folder, exist_ok=False)  # FIXME: what if we want to append samples to existing hdf5?
     tqdm.write(f'Samples will be written to {samples_folder}\n\n')
 
     tqdm.write(f'\nSuccessfully read csv file: {Path(csv_file).stem}\nNumber of rows: {len(list_data_prep)}\nCopying first entry:\n{list_data_prep[0]}\n')
@@ -297,13 +343,11 @@ def main(params):
     for info in tqdm(list_data_prep, position=0, desc=f'Asserting existence of tif and gpkg files in csv'):
         assert Path(info['tif']).is_file(), f'Could not locate "{info["tif"]}". Make sure file exists in this directory.'
         assert Path(info['gpkg']).is_file(), f'Could not locate "{info["gpkg"]}". Make sure file exists in this directory.'
-
     if debug:
         for info in tqdm(list_data_prep, position=0, desc=f"Validating presence of {params['global']['num_classes']} "
                                                           f"classes in attribute \"{info['attribute_name']}\" for vector "
                                                           f"file \"{Path(info['gpkg']).stem}\""):
             validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
-
         with tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files") as _tqdm:
             invalid_features = {}
             for info in _tqdm:
@@ -317,9 +361,9 @@ def main(params):
                     geom = getattr(geom, '__geo_interface__', None) or geom
                     if not is_valid_geom(geom):
                         gpkg_stem = str(Path(info['gpkg']).stem)
-                        if gpkg_stem not in invalid_features.keys(): # create key with name of gpkg
+                        if gpkg_stem not in invalid_features.keys():  # create key with name of gpkg
                             invalid_features[gpkg_stem] = []
-                        if lst_vector[index]["id"] not in invalid_features[gpkg_stem]: # ignore feature is already appended
+                        if lst_vector[index]["id"] not in invalid_features[gpkg_stem]:  # ignore feature is already appended
                             invalid_features[gpkg_stem].append(lst_vector[index]["id"])
             assert len(invalid_features.values()) == 0, f'Invalid geometry object(s) for "gpkg:ids": \"{invalid_features}\"'
 
@@ -333,13 +377,13 @@ def main(params):
     # creates pixel_classes dict and keys
     for i in range(0, params['global']['num_classes'] + 1):
         pixel_classes.update({i: 0})
+    pixel_classes.update({ignore_index: 0})  # FIXME: pixel_classes dict needs to be populated with classes obtained from target
 
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
 
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
     with tqdm(list_data_prep, position=0, leave=False, desc=f'Preparing samples') as _tqdm:
         for info in _tqdm:
-
             _tqdm.set_postfix(
                 OrderedDict(tif=f'{Path(info["tif"]).stem}', sample_size=params['global']['samples_size']))
             try:
@@ -361,17 +405,23 @@ def main(params):
                     np_label_raster = vector_to_raster(vector_file=info['gpkg'],
                                                        input_image=raster,
                                                        attribute_name=info['attribute_name'],
-                                                       fill=get_key_def('ignore_idx', get_key_def('training', params, {}), 0))
-
+                                                       fill=get_key_def('ignore_idx',
+                                                                        get_key_def('training', params, {}), 0))
                     # Read the input raster image
                     np_input_image = image_reader_as_array(input_image=raster,
                                                            scale=get_key_def('scale_data', params['global'], None),
-                                                           aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
-                                                           aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
-                                                           aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
-                                                           aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
-                                                           aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
-                                                           aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
+                                                           aux_vector_file=get_key_def('aux_vector_file',
+                                                                                       params['global'], None),
+                                                           aux_vector_attrib=get_key_def('aux_vector_attrib',
+                                                                                         params['global'], None),
+                                                           aux_vector_ids=get_key_def('aux_vector_ids',
+                                                                                      params['global'], None),
+                                                           aux_vector_dist_maps=get_key_def('aux_vector_dist_maps',
+                                                                                            params['global'], True),
+                                                           aux_vector_dist_log=get_key_def('aux_vector_dist_log',
+                                                                                           params['global'], True),
+                                                           aux_vector_scale=get_key_def('aux_vector_scale',
+                                                                                        params['global'], None))
 
                 # Mask the zeros from input image into label raster.
                 if params['sample']['mask_reference']:
@@ -379,8 +429,7 @@ def main(params):
 
                 if info['dataset'] == 'trn':
                     out_file = trn_hdf5
-                elif info['dataset'] == 'val':
-                    out_file = val_hdf5
+                    val_file = val_hdf5
                 elif info['dataset'] == 'tst':
                     out_file = tst_hdf5
                 else:
@@ -406,6 +455,8 @@ def main(params):
                                                                      number_samples,
                                                                      number_classes,
                                                                      out_file,
+                                                                     val_percent,
+                                                                     val_file,
                                                                      info['dataset'],
                                                                      pixel_classes,
                                                                      metadata)
@@ -447,11 +498,7 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.ParamFile)
-
     start_time = time.time()
-
     tqdm.write(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
-
     main(params)
-
     print("Elapsed time:{}".format(time.time() - start_time))
