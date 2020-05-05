@@ -48,7 +48,7 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             hflip = get_key_def('hflip_prob', params['training']['augmentation'], None)
             rotate_prob = get_key_def('rotate_prob', params['training']['augmentation'], None)
             rotate_limit = get_key_def('rotate_limit', params['training']['augmentation'], None)
-            crop_size = get_key_def('crop_size', params['training']['augmentation'], None)
+            crop_size = get_key_def('target_size', params['training'], None)
 
             if geom_scale_range:  # TODO: test this.
                 lst_trans.append(GeometricScale(range=geom_scale_range))
@@ -254,6 +254,9 @@ class RandomCrop(object):  # TODO: what to do with overlap in samples_prep (imag
         sample['map_img'] = map_img
         return sample
 
+    def __repr__(self):
+        return self.__class__.__name__ + '(size={0}, padding={1})'.format(self.size, self.padding)
+
 
 class Normalize(object):
     """Normalize Image with Mean and STD and similar to Pytorch(transform.Normalize) function """
@@ -268,9 +271,6 @@ class Normalize(object):
             return {'sat_img': sat_img, 'map_img': map_img}
         else:
             return sample
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(size={0}, padding={1})'.format(self.size, self.padding)
 
 
 class ToTensorTarget(object):

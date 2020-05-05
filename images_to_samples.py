@@ -62,15 +62,36 @@ def append_to_dataset(dataset, sample):
     return old_size  # the index to the newly added sample, or the previous size of the dataset
 
 
-def check_sampling_dict(dictionary):
-    assert isinstance(dictionary, dict), f"Class_propotion parameter should be a dictionary. Got type {type(dictionary)}"
-    for key, value in dictionary.items():
+def validate_class_prop_dict(actual_classes_dict, config_dict):
+    """
+    Populate dictionary containing class values found in vector data with values (thresholds) from sample/class_prop
+    parameter in config file
+
+    actual_classes_dict: dict
+        Dictionary where each key is a class found in vector data. Value is not relevant (should be 0)
+
+    config_dict:
+        Dictionary with class ids (keys and thresholds (values) from config file
+
+    """
+    # Validation of class proportion parameters (assert types).
+    assert isinstance(config_dict, dict), f"Class_proportion parameter should be a dictionary. Got type {type(config_dict)}"
+    for key, value in config_dict.items():
         try:
             assert isinstance(key, str)
             int(key)
         except (ValueError, AssertionError):
             f"Class should be a string castable as an integer. Got {key} of type {type(key)}"
         assert isinstance(value, int), f"Class value should be an integer, got {value} of type {type(value)}"
+
+    # Populate actual classes dictionary with values from config
+    for key, value in config_dict.items():
+        if int(key) in actual_classes_dict.keys():
+            actual_classes_dict[int(key)] = value
+        else:
+            warnings.warn(f"Class {key} not found in provided vector data.")
+
+    return actual_classes_dict
 
 
 def minimum_annotated_percent(target_background_percent, min_annotated_percent):
@@ -85,17 +106,11 @@ def minimum_annotated_percent(target_background_percent, min_annotated_percent):
 def class_proportion(target, sample_size: int, class_min_prop: dict):
     if not class_min_prop:
         return True
-    prop_classes = {}
-    sample_total = (sample_size) ** 2
-    for i in range(0, params['global']['num_classes'] + 1):
-        prop_classes.update({str(i): 0})
-        if i in np.unique(target.clip(min=0).flatten()):
-            prop_classes[str(i)] = (round((np.bincount(target.clip(min=0).flatten())[i] / sample_total) * 100, 1))
-
+    sample_total = sample_size ** 2
     for key, value in class_min_prop.items():
-        if prop_classes[key] < value:
+        target_prop_classwise = (round((np.bincount(target.clip(min=0).flatten())[key] / sample_total) * 100, 1))
+        if target_prop_classwise < value:
             return False
-
     return True
 
 
@@ -142,6 +157,8 @@ def samples_preparation(in_img_array,
                         val_sample_file,
                         dataset,
                         pixel_classes,
+                        min_annot_perc=None,
+                        class_prop=None,
                         image_metadata=None,
                         dtype=np.float32):
     """
@@ -213,9 +230,6 @@ def samples_preparation(in_img_array,
                     target = pad(target, padding, fill=dontcare)
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
-
-                min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
-                class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
 
                 if minimum_annotated_percent(target_background_percent, min_annot_perc) and \
                         class_proportion(target, sample_size, class_prop):
@@ -331,11 +345,12 @@ def main(params):
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 
-    # 'sampling' ordereddict validation
-    check_sampling_dict(params["sampling_method"]["class_proportion"])
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
+    class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
 
     # creates pixel_classes dict and keys
     pixel_classes = {key: 0 for key in gpkg_classes}
+    class_prop = validate_class_prop_dict(pixel_classes, class_prop)
 
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
 
@@ -414,6 +429,8 @@ def main(params):
                                                                      val_sample_file=val_file,
                                                                      dataset=info['dataset'],
                                                                      pixel_classes=pixel_classes,
+                                                                     min_annot_perc=min_annot_perc,
+                                                                     class_prop=class_prop,
                                                                      image_metadata=metadata,
                                                                      dtype=dtype)
 

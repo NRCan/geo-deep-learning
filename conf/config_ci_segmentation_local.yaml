@@ -29,8 +29,8 @@ sample:
   mask_reference: False
   sampling_method: # class_proportion or min_annotated_percent
     'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
-    'class_proportion': {'0':0, '1':0}
-    # keys (numerical values in 'string' format) must include all classes present in the images
+    'class_proportion': {'1':0} # See below:
+    # keys (numerical values in 'string' format) represent class id
     # values (int) represent class minimum threshold targeted in samples
 
 # Training parameters; used in train_segmentation.py ----------------------
@@ -42,6 +42,7 @@ training:
   num_tst_samples:
   batch_size: 2
   num_epochs: 2
+  target_size: 100
   loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
   optimizer: adam # One of adam, sgd or adabound
   learning_rate: 0.0001
@@ -62,7 +63,6 @@ training:
     geom_scale_range:
     brightness_contrast_range: # Not yet implemented
     noise: # Not yet implemented
-    crop_size: 100
 
 # Inference parameters; used in inference.py --------
 
@@ -76,7 +76,7 @@ inference:
 # Visualization parameters
 
 visualization:
-  vis_batch_range: # [0,200,10] #start, finish, increment
+  vis_batch_range: [0,200,10] #start, finish, increment
   vis_at_checkpoint: True
   vis_at_ckpt_min_ep_diff: 0
   vis_at_ckpt_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.
