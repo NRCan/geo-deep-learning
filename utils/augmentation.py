@@ -253,6 +253,9 @@ class RandomCrop(object):  # TODO: what to do with overlap in samples_prep (imag
         sample['sat_img'] = sat_img
         sample['map_img'] = map_img
         return sample
+    
+        def __repr__(self):
+        return self.__class__.__name__ + '(size={0}, padding={1})'.format(self.size, self.padding)
 
 
 class Normalize(object):
@@ -268,9 +271,6 @@ class Normalize(object):
             return {'sat_img': sat_img, 'map_img': map_img}
         else:
             return sample
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(size={0}, padding={1})'.format(self.size, self.padding)
 
 
 class ToTensorTarget(object):
