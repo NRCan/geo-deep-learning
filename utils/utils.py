@@ -118,28 +118,28 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
     :return:
     """
     if not config:
-        val = default
-    elif isinstance(key, list): # is key a list?
-        if len(key) <= 1: # is list of length 1 or shorter? else --> default
+        return default
+    elif isinstance(key, list):  # is key a list?
+        if len(key) <= 1:  # is list of length 1 or shorter? else --> default
             if msg is not None:
                 raise AssertionError(msg)
             else:
                 raise AssertionError("Must provide at least two valid keys to test")
-        for k in key: # iterate through items in list
-            if k in config: # if item is a key in config, set value.
+        for k in key:  # iterate through items in list
+            if k in config:  # if item is a key in config, set value.
                 val = config[k]
-                if delete: # optionally delete parameter after defining a variable with it
+                if delete:  # optionally delete parameter after defining a variable with it
                     del config[k]
         val = default
-    else: # if key is not a list
+    else:  # if key is not a list
         if key not in config or config[key] is None:  # if key not in config dict
             val = default
         else:
             val = config[key] if config[key] != 'None' else None
+            if expected_type:
+                assert isinstance(val, expected_type), f"{val} is of type {type(val)}, expected {expected_type}"
             if delete:
                 del config[key]
-    if expected_type:
-        assert isinstance(val, expected_type), f"{val} is of type {type(val)}, expected {expected_type}"
     return val
 
 
@@ -208,10 +208,10 @@ def pad(img, padding, fill=0):
 
     # RGB image
     if len(img.shape) == 3:
-        img = np.pad(img, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)), constant_values=fill)
+        img = np.pad(img, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)), mode='constant', constant_values=fill)
     # Grayscale image
     elif len(img.shape) == 2:
-        img = np.pad(img, ((pad_top, pad_bottom), (pad_left, pad_right)), constant_values=fill)
+        img = np.pad(img, ((pad_top, pad_bottom), (pad_left, pad_right)), mode='constant', constant_values=fill)
 
     return img
 

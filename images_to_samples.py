@@ -14,7 +14,7 @@ from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets, MetaSegmentationDataset
 from utils.utils import get_key_def, pad, pad_diff, BGR_to_RGB
-from utils.geoutils import vector_to_raster, validate_features_from_gpkg, lst_ids, clip_raster_with_gpkg
+from utils.geoutils import vector_to_raster, validate_features_from_gpkg
 from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.verifications import is_valid_geom, validate_num_classes
 
@@ -75,7 +75,11 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
 
     """
     # Validation of class proportion parameters (assert types).
-    assert isinstance(config_dict, dict), f"Class_proportion parameter should be a dictionary. Got type {type(config_dict)}"
+    if not isinstance(config_dict, dict):
+        warnings.warn(f"Class_proportion parameter should be a dictionary. Got type {type(config_dict)}. "
+                      f"Ignore if parameter was omitted)")
+        return None
+
     for key, value in config_dict.items():
         try:
             assert isinstance(key, str)
@@ -157,6 +161,7 @@ def samples_preparation(in_img_array,
                         val_sample_file,
                         dataset,
                         pixel_classes,
+                        dontcare=0,
                         min_annot_perc=None,
                         class_prop=None,
                         image_metadata=None,
@@ -199,16 +204,9 @@ def samples_preparation(in_img_array,
     added_samples = 0
     excl_samples = 0
 
-    dontcare = get_key_def("ignore_index", params["training"], -1)  # TODO: deduplicate with train_segmentation, l128
-    if dontcare == 0:
-        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
-                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
-        params["training"]["ignore_index"] = -1
-
     with tqdm(range(0, h, dist_samples), position=1, leave=True,
-              desc=f'Writing samples to "{dataset}" dataset. Dataset currently contains {idx_samples} '
-                   f'samples.') as _tqdm:
+              desc=f'Writing samples. Dataset currently contains {idx_samples} '
+                   f'samples') as _tqdm:
 
         for row in _tqdm:
             for column in range(0, w, dist_samples):
@@ -246,7 +244,7 @@ def samples_preparation(in_img_array,
                         idx_samples_v += 1
                     else:
                         idx_samples += 1
-                        added_samples += 1
+                    added_samples += 1
                 else:
                     excl_samples += 1
 
@@ -254,7 +252,9 @@ def samples_preparation(in_img_array,
                 if num_classes < target_class_num:
                     num_classes = target_class_num
 
-                _tqdm.set_postfix(Excld_samples=excl_samples,
+                dataset = 'val' if dataset == 'trn' and val else dataset
+                _tqdm.set_postfix(Dataset=dataset,
+                                  Excld_samples=excl_samples,
                                   Added_samples=f'{added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}',
                                   Target_annot_perc=100 - target_background_percent)
 
@@ -279,7 +279,7 @@ def main(params):
     assert params['global']['task'] == 'segmentation', f"images_to_samples.py isn't necessary when performing classification tasks"
 
     # SET BASIC VARIABLES AND PATHS. CREATE OUTPUT FOLDERS.
-    bucket_name = params['global']['bucket_name']
+    bucket_name = get_key_def('bucket_name', params['global'])
     data_path = Path(params['global']['data_path'])
     Path.mkdir(data_path, exist_ok=True, parents=True)
     csv_file = params['sample']['prep_csv_file']
@@ -292,6 +292,10 @@ def main(params):
         warnings.warn(f'Debug mode activate. Execution may take longer...')
 
     final_samples_folder = None
+
+    sample_path_name = f'samples{samples_size}_overlap{overlap}_{num_bands}bands'
+
+    # AWS
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
@@ -301,11 +305,11 @@ def main(params):
             final_samples_folder = os.path.join(data_path, "samples")
         else:
             final_samples_folder = "samples"
-        samples_folder = f'samples{samples_size}_overlap{overlap}_{num_bands}bands'  # TODO: check if this is preferred name structure
+        samples_folder = sample_path_name  # TODO: check if this is preferred name structure
 
     else:
         list_data_prep = read_csv(csv_file)
-        samples_folder = data_path.joinpath(f'samples{samples_size}_overlap{overlap}_{num_bands}bands')
+        samples_folder = data_path.joinpath(sample_path_name)
 
     if samples_folder.is_dir():
         warnings.warn(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')
@@ -315,32 +319,44 @@ def main(params):
     Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
     tqdm.write(f'Samples will be written to {samples_folder}\n\n')
 
-    tqdm.write(f'\nSuccessfully read csv file: {Path(csv_file).stem}\nNumber of rows: {len(list_data_prep)}\nCopying first entry:\n{list_data_prep[0]}\n')
+    tqdm.write(f'\nSuccessfully read csv file: {Path(csv_file).stem}\n'
+               f'Number of rows: {len(list_data_prep)}\n'
+               f'Copying first entry:\n{list_data_prep[0]}\n')
     ignore_index = get_key_def('ignore_index', params['training'], -1)
 
+    # VALIDATION: Assert existence of tif and gpkg files in csv
     for info in tqdm(list_data_prep, position=0, desc=f'Asserting existence of tif and gpkg files in csv'):
-        assert Path(info['tif']).is_file(), f'Could not locate "{info["tif"]}". Make sure file exists in this directory.'
-        assert Path(info['gpkg']).is_file(), f'Could not locate "{info["gpkg"]}". Make sure file exists in this directory.'
+        assert Path(info['tif']).is_file(), f'File not found "{info["tif"]}"'
+        assert Path(info['gpkg']).is_file(), f'File not found "{info["gpkg"]}"'
+
+    # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
+    for info in tqdm(list_data_prep, position=0, desc=f"Validating presence of {params['global']['num_classes']} "
+                                                      f"classes in attribute \"{info['attribute_name']}\" for vector "
+                                                      f"file \"{Path(info['gpkg']).stem}\""):
+        gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
+
+        meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
+        # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
+        #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
+        with rasterio.open(info['tif'], 'r') as raster:
+            input_band_count = raster.meta['count'] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
+            raster_crs = raster.crs
+
+        assert input_band_count == num_bands, \
+            f"The number of bands in the input image ({input_band_count}) and the parameter" \
+            f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
+
+        # (2) assert CRS match between gpkg and tif
+        with fiona.open(info['gpkg'], 'r') as src:
+            assert src.crs == raster_crs, f"CRS mismatch: \n" \
+                                          f"TIF file \"{info['tif']}\" has {raster_crs} CRS; \n" \
+                                          f"GPKG file \"{info['gpkg']}\" has {src.crs} CRS."
+
     if debug:
-        # Assert num_classes parameters == number of actual classes in gpkg
-        for info in tqdm(list_data_prep, position=0, desc=f"Validating presence of {params['global']['num_classes']} "
-                                                          f"classes in attribute \"{info['attribute_name']}\" for vector "
-                                                          f"file \"{Path(info['gpkg']).stem}\""):
-            gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
-
-            meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
-            # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
-            #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
-            with rasterio.open(info['tif'], 'r') as raster:
-                input_band_count = raster.meta['count'] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
-            assert input_band_count == num_bands, \
-                f"The number of bands in the input image ({input_band_count}) and the parameter" \
-                f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
-
-        with tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files") as _tqdm:
-            for info in _tqdm:
-                invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])  # TODO: test this.
-                assert not invalid_features, f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'"
+        # VALIDATION (debug only): Checking validity of features in vector files
+        for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
+            invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])  # TODO: test this.
+            assert not invalid_features, f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'"
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
@@ -350,9 +366,19 @@ def main(params):
 
     # creates pixel_classes dict and keys
     pixel_classes = {key: 0 for key in gpkg_classes}
+    background_val = 0
+    pixel_classes[background_val] = 0
     class_prop = validate_class_prop_dict(pixel_classes, class_prop)
 
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
+
+    # Set dontcare (aka ignore_index) value
+    dontcare = get_key_def("ignore_index", params["training"], -1)  # TODO: deduplicate with train_segmentation, l128
+    if dontcare == 0:
+        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
+                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
+                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
+        params["training"]["ignore_index"] = -1
 
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
     with tqdm(list_data_prep, position=0, leave=False, desc=f'Preparing samples') as _tqdm:
@@ -376,7 +402,7 @@ def main(params):
                 with rasterio.open(info['tif'], 'r') as raster:
                     # 1. Read the input raster image
                     dtype = raster.meta["dtype"]
-                    np_input_image = image_reader_as_array(input_image=raster,
+                    np_input_image, dataset_nodata = image_reader_as_array(input_image=raster,
                                                            clip_gpkg=info['gpkg'],
                                                            aux_vector_file=get_key_def('aux_vector_file',
                                                                                        params['global'], None),
@@ -399,7 +425,11 @@ def main(params):
                                                        input_image=raster,
                                                        out_shape=np_input_image.shape[:2],
                                                        attribute_name=info['attribute_name'],
-                                                       fill=0)  # This will become background value in raster.
+                                                       fill=background_val)  # background value in rasterized vector.
+
+                    if dataset_nodata:
+                        # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
+                        np_label_raster[dataset_nodata == 0] = dontcare
 
                 # Mask the zeros from input image into label raster.
                 if params['sample']['mask_reference']:
@@ -429,6 +459,7 @@ def main(params):
                                                                      val_sample_file=val_file,
                                                                      dataset=info['dataset'],
                                                                      pixel_classes=pixel_classes,
+                                                                     dontcare=dontcare,
                                                                      min_annot_perc=min_annot_perc,
                                                                      class_prop=class_prop,
                                                                      image_metadata=metadata,
@@ -436,7 +467,7 @@ def main(params):
 
                 _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
                 out_file.flush()
-            except IOError as e:
+            except OSError as e:
                 warnings.warn(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
                               f'{Path(info["gpkg"]).stem} (gpkg). Error: "{e}"')
                 continue

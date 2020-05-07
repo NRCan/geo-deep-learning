@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -104,7 +105,11 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     coords = getFeatures(geo)
 
     # clip the raster with the polygon
-    out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
+    try:
+        out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
+    except ValueError as e:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
+        # TODO: warning or exception?
+        warnings.warn(f'{e}')
 
     if debug:
         out_meta = raster.meta.copy()

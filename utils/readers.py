@@ -21,8 +21,15 @@ def read_parameters(param_file):
     return params
 
 
-def image_reader_as_array(input_image, aux_vector_file=None, aux_vector_attrib=None, aux_vector_ids=None,
-                          aux_vector_dist_maps=False, aux_vector_dist_log=True, aux_vector_scale=None, clip_gpkg=None):
+def image_reader_as_array(input_image,
+                          aux_vector_file=None,
+                          aux_vector_attrib=None,
+                          aux_vector_ids=None,
+                          aux_vector_dist_maps=False,
+                          aux_vector_dist_log=True,
+                          aux_vector_scale=None,
+                          clip_gpkg=None,
+                          nodata_to_nan=True):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
         input_image: Rasterio file handle holding the (already opened) input raster
@@ -40,12 +47,25 @@ def image_reader_as_array(input_image, aux_vector_file=None, aux_vector_attrib=N
     if clip_gpkg:
         np_array, out_transform = clip_raster_with_gpkg(input_image, clip_gpkg, debug=False)
         np_array = np.transpose(np_array, (1, 2, 0))  # send channels last
+        np_array = np_array.astype(np.float32)
         # FIXME: convert to float32. Is this really necessary or can we keep arrays as uint8, uint16, etc. ?
 
     else:
         np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
         for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
             np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0  # TODO: reading a large image >10Gb is VERY slow. Is this line the culprit?
+
+    dataset_nodata = None
+    if nodata_to_nan and input_image.nodata:  # TODO: test this!!
+        # See: https://rasterio.readthedocs.io/en/latest/topics/masks.html#dataset-masks
+        # create dataset nodata array filled with nodata value (0, see rasterio's doc)
+        dataset_nodata = np.full(input_image.shape, fill_value=input_image.nodata)
+        # for each band in array
+        for index in range(np_array.shape[2]):
+            # where bandwise array has no data values (0, according to rasterio docs), set as np.nan
+            np_array[:, :, i][input_image.read_masks(index+1) == 0] = np.nan
+            # for dataset nodata, keep no data only when present across all bands. Differs from rasterio dataset_mask()
+            dataset_nodata[input_image.read_masks(index+1) == 255] = 255.0
 
     # if requested, load vectors from external file, rasterize, and append distance maps to array
     if aux_vector_file is not None:
@@ -82,7 +102,7 @@ def image_reader_as_array(input_image, aux_vector_file=None, aux_vector_attrib=N
             for vec_band_idx in vec_tensor.shape[2]:
                 vec_tensor[:, :, vec_band_idx] *= aux_vector_scale
         np_array = np.concatenate([np_array, vec_tensor], axis=2)
-    return np_array
+    return np_array, dataset_nodata
 
 
 def read_csv(csv_file_name, inference=False):

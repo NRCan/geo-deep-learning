@@ -25,6 +25,9 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
     """
     lst_trans = []
     scale = get_key_def('scale_data', params['global'], None)
+    norm_mean = get_key_def('mean', params['training']['normalization'])
+    norm_std = get_key_def('std', params['training']['normalization'])
+
     if dataset == 'trn':
 
         if type == 'radiometric':
@@ -36,12 +39,10 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
                 lst_trans.append(RadiometricTrim(range=radiom_trim_range))  # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
 
             if brightness_contrast_range:
-                # lst_trans.append()
-                pass
+                raise NotImplementedError
 
             if noise:
-                # lst_trans.append()
-                pass
+                raise NotImplementedError
 
         elif type == 'geometric':
             geom_scale_range = get_key_def('geom_scale_range', params['training']['augmentation'], None)
@@ -65,7 +66,7 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
     if scale:
         lst_trans.append(Scale(scale))  # FIXME: assert coherence with below normalization
 
-    if params['training']['normalization']['mean'] and params['training']['normalization']['std']:
+    if norm_mean and norm_std:
         lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
                                    std=params['training']['normalization']['std']))
 
@@ -253,9 +254,6 @@ class RandomCrop(object):  # TODO: what to do with overlap in samples_prep (imag
         sample['sat_img'] = sat_img
         sample['map_img'] = map_img
         return sample
-    
-        def __repr__(self):
-        return self.__class__.__name__ + '(size={0}, padding={1})'.format(self.size, self.padding)
 
     def __repr__(self):
         return self.__class__.__name__ + '(size={0}, padding={1})'.format(self.size, self.padding)

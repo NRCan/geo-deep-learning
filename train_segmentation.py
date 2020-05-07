@@ -141,8 +141,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
                                        dontcare=dontcare,
                                        radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
                                        geom_transform=aug.compose_transforms(params, subset, type='geometric',
-                                                                             ignore_index=dontcare),
-                                       nodata=nodata))
+                                                                             ignore_index=dontcare)))
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
@@ -242,7 +241,7 @@ def main(params, config_path):
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model, checkpoint, model_name = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
     tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
-    bucket_name = params['global']['bucket_name']
+    bucket_name = get_key_def('bucket_name', params['global'])
     data_path = params['global']['data_path']
     assert Path(data_path).is_dir(), f'Could not locate data path {data_path}'
 
