@@ -29,7 +29,8 @@ def image_reader_as_array(input_image,
                           aux_vector_dist_log=True,
                           aux_vector_scale=None,
                           clip_gpkg=None,
-                          nodata_to_nan=True):
+                          nodata_to_nan=True,
+                          debug=False):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
         input_image: Rasterio file handle holding the (already opened) input raster
@@ -45,7 +46,7 @@ def image_reader_as_array(input_image,
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
     if clip_gpkg:
-        np_array, out_transform = clip_raster_with_gpkg(input_image, clip_gpkg, debug=False)
+        np_array, out_transform = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
         np_array = np.transpose(np_array, (1, 2, 0))  # send channels last
         np_array = np_array.astype(np.float32)
         # FIXME: convert to float32. Is this really necessary or can we keep arrays as uint8, uint16, etc. ?
@@ -53,7 +54,7 @@ def image_reader_as_array(input_image,
     else:
         np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
         for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
-            np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0  # TODO: reading a large image >10Gb is VERY slow. Is this line the culprit?
+            np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
 
     dataset_nodata = None
     if nodata_to_nan and input_image.nodata is not None:  # TODO: test this!!

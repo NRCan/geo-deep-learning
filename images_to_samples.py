@@ -432,16 +432,27 @@ def main(params):
                         np_label_raster[dataset_nodata] = dontcare
 
                 if debug:
-                    out_meta = raster.meta.copy
+                    out_meta = raster.meta.copy()
+                    np_image_debug = np_input_image.transpose(2, 0, 1).astype(out_meta['dtype'])
+                    out_meta.update({"driver": "GTiff",
+                                     "height": np_image_debug.shape[1],
+                                     "width": np_image_debug.shape[2]})
+                    out_tif = samples_folder / f"np_input_image_{_tqdm.n}.tif"
+                    print(f"DEBUG: writing clipped raster to {out_tif}")
+                    with rasterio.open(out_tif, "w", **out_meta) as dest:
+                        dest.write(np_image_debug)
+
+                    out_meta = raster.meta.copy()
                     np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(out_meta['dtype'])
                     out_meta.update({"driver": "GTiff",
                                      "height": np_label_debug.shape[1],
                                      "width": np_label_debug.shape[2],
-                                     "count": 1})
-                    out_tif = samples_folder / f"{Path(info['gpkg']).stem}_rasterized_{_tqdm.n}.tif"
-                    print(f"DEBUG: writing clipped raster to {out_tif}")
+                                    'count': 1})
+                    out_tif = samples_folder / f"np_label_rasterized_{_tqdm.n}.tif"
+                    print(f"DEBUG: writing final rasterized gpkg to {out_tif}")
                     with rasterio.open(out_tif, "w", **out_meta) as dest:
                         dest.write(np_label_debug)
+
 
                 # Mask the zeros from input image into label raster.
                 if params['sample']['mask_reference']:
@@ -460,24 +471,24 @@ def main(params):
 
                 np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
                 # 3. Prepare samples!
-                number_samples, number_classes = samples_preparation(in_img_array=np_input_image,
-                                                                     label_array=np_label_raster,
-                                                                     sample_size=samples_size,
-                                                                     overlap=overlap,
-                                                                     samples_count=number_samples,
-                                                                     num_classes=number_classes,
-                                                                     samples_file=out_file,
-                                                                     val_percent=val_percent,
-                                                                     val_sample_file=val_file,
-                                                                     dataset=info['dataset'],
-                                                                     pixel_classes=pixel_classes,
-                                                                     dontcare=dontcare,
-                                                                     min_annot_perc=min_annot_perc,
-                                                                     class_prop=class_prop,
-                                                                     image_metadata=metadata,
-                                                                     dtype=dtype)
-
-                _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
+                # number_samples, number_classes = samples_preparation(in_img_array=np_input_image,
+                #                                                      label_array=np_label_raster,
+                #                                                      sample_size=samples_size,
+                #                                                      overlap=overlap,
+                #                                                      samples_count=number_samples,
+                #                                                      num_classes=number_classes,
+                #                                                      samples_file=out_file,
+                #                                                      val_percent=val_percent,
+                #                                                      val_sample_file=val_file,
+                #                                                      dataset=info['dataset'],
+                #                                                      pixel_classes=pixel_classes,
+                #                                                      dontcare=dontcare,
+                #                                                      min_annot_perc=min_annot_perc,
+                #                                                      class_prop=class_prop,
+                #                                                      image_metadata=metadata,
+                #                                                      dtype=dtype)
+                #
+                # _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
                 out_file.flush()
             except OSError as e:
                 warnings.warn(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '

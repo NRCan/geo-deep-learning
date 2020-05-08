@@ -108,15 +108,15 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     try:
         out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
     except ValueError as e:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
-        # TODO: warning or exception?
-        warnings.warn(f'{e}')
+        # TODO: warning or exception? if warning, except must be set in images_to_samples
+        raise
 
     if debug:
         out_meta = raster.meta.copy()
         out_meta.update({"driver": "GTiff",
                          "height": out_img.shape[1],
-                         "width": out_img.shape[2],
-                         "transform": out_transform})
+                         "width": out_img.shape[2]})#,
+                         #"transform": out_transform})
         out_tif = Path(raster.name).parent / f"{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
         print(f"DEBUG: writing clipped raster to {out_tif}")
         with rasterio.open(out_tif, "w", **out_meta) as dest:
