@@ -41,12 +41,14 @@ def image_reader_as_array(input_image,
         aux_vector_dist_maps: flag indicating whether aux vector bands should be distance maps or binary maps
         aux_vector_dist_log: flag indicating whether log distances should be used in distance maps or not
         aux_vector_scale: optional floating point scale factor to multiply to rasterized vector maps
+        clip_gpkg: optional path to gpkg used to clip input_image
+        nodata_to_nan: if True, nodata values as given by rasterio dataset object will be set to np.nan
 
     Return:
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
     if clip_gpkg:
-        np_array, out_transform = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
+        np_array, input_image = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
         np_array = np.transpose(np_array, (1, 2, 0))  # send channels last
         np_array = np_array.astype(np.float32)
         # FIXME: convert to float32. Is this really necessary or can we keep arrays as uint8, uint16, etc. ?
@@ -100,7 +102,7 @@ def image_reader_as_array(input_image,
             for vec_band_idx in vec_tensor.shape[2]:
                 vec_tensor[:, :, vec_band_idx] *= aux_vector_scale
         np_array = np.concatenate([np_array, vec_tensor], axis=2)
-    return np_array, dataset_nodata
+    return np_array, input_image, dataset_nodata
 
 
 def read_csv(csv_file_name, inference=False):
