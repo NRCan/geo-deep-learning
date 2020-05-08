@@ -56,16 +56,13 @@ def image_reader_as_array(input_image,
             np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0  # TODO: reading a large image >10Gb is VERY slow. Is this line the culprit?
 
     dataset_nodata = None
-    if nodata_to_nan and input_image.nodata:  # TODO: test this!!
+    if nodata_to_nan and input_image.nodata is not None:  # TODO: test this!!
         # See: https://rasterio.readthedocs.io/en/latest/topics/masks.html#dataset-masks
-        # create dataset nodata array filled with nodata value (0, see rasterio's doc)
-        dataset_nodata = np.full(input_image.shape, fill_value=input_image.nodata)
-        # for each band in array
-        for index in range(np_array.shape[2]):
-            # where bandwise array has no data values (0, according to rasterio docs), set as np.nan
-            np_array[:, :, i][input_image.read_masks(index+1) == 0] = np.nan
-            # for dataset nodata, keep no data only when present across all bands. Differs from rasterio dataset_mask()
-            dataset_nodata[input_image.read_masks(index+1) == 255] = 255.0
+        dataset_nodata = np_array == input_image.nodata
+        # where bandwise array has no data values, set as np.nan
+        np_array[dataset_nodata] = np.nan
+        # Keep only nodata when present across all bands
+        dataset_nodata = np.all(dataset_nodata, axis=2)
 
     # if requested, load vectors from external file, rasterize, and append distance maps to array
     if aux_vector_file is not None:

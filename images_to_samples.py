@@ -427,9 +427,21 @@ def main(params):
                                                        attribute_name=info['attribute_name'],
                                                        fill=background_val)  # background value in rasterized vector.
 
-                    if dataset_nodata:
+                    if dataset_nodata is not None:
                         # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
-                        np_label_raster[dataset_nodata == 0] = dontcare
+                        np_label_raster[dataset_nodata] = dontcare
+
+                if debug:
+                    out_meta = raster.meta.copy
+                    np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(out_meta['dtype'])
+                    out_meta.update({"driver": "GTiff",
+                                     "height": np_label_debug.shape[1],
+                                     "width": np_label_debug.shape[2],
+                                     "count": 1})
+                    out_tif = samples_folder / f"{Path(info['gpkg']).stem}_rasterized_{_tqdm.n}.tif"
+                    print(f"DEBUG: writing clipped raster to {out_tif}")
+                    with rasterio.open(out_tif, "w", **out_meta) as dest:
+                        dest.write(np_label_debug)
 
                 # Mask the zeros from input image into label raster.
                 if params['sample']['mask_reference']:
