@@ -146,8 +146,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params, debug=Fal
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
-    num_workers = 0
-    # num_workers = num_devices * 4 if num_devices > 1 else 4
+    num_workers = num_devices * 4 if num_devices > 1 else 4
 
     # Shuffle must be set to True.
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
