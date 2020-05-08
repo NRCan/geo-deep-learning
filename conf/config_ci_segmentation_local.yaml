@@ -43,6 +43,7 @@ training:
   batch_size: 2
   num_epochs: 2
   target_size: 100
+  normalization:
   loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
   optimizer: adam # One of adam, sgd or adabound
   learning_rate: 0.0001

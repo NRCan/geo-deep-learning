@@ -1,6 +1,7 @@
 import collections
 import os
 import warnings
+import ast
 
 import h5py
 from torch.utils.data import Dataset
@@ -103,6 +104,8 @@ class SegmentationDataset(Dataset):
             metadata = None
             if meta_idx != -1:
                 metadata = self.metadata[meta_idx]
+                metadata = eval(metadata) if isinstance(metadata, str) else metadata  # FIXME!!! must provide dtype
+            sample_indices = hdf5_file["sample_indices"][index, ...]  # Only useful fur debugging
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
                   "hdf5_path": self.hdf5_path}
 
