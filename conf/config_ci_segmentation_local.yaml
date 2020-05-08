@@ -9,7 +9,7 @@
 # Global parameters
 
 global:
-  samples_size: 512
+  samples_size: 256
   num_classes: 1  # will automatically create a 'background' class
   data_path: ./data
   number_of_bands: 3

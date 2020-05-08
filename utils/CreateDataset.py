@@ -30,8 +30,8 @@ def create_files_and_datasets(params, samples_folder):
         hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
                                  maxshape=(None, samples_size, samples_size))
         hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
+        hdf5_file.create_dataset("sample_indices", (0, 2), dtype=np.int16, maxshape=(None, 2))
         try:
-            hdf5_file.create_dataset("sat_img_dtype", shape=(0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
         except AttributeError as e:
             warnings.warn(f'{e}. Update h5py to version 2.10 or higher')
@@ -49,8 +49,8 @@ class SegmentationDataset(Dataset):
                  max_sample_count=None,
                  dontcare=None,
                  radiom_transform=None,
-                 geom_transform=True,
-                 totensor_transform=True,
+                 geom_transform=None,
+                 totensor_transform=None,
                  debug=False):
         # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.work_folder = work_folder
@@ -103,9 +103,8 @@ class SegmentationDataset(Dataset):
             metadata = None
             if meta_idx != -1:
                 metadata = self.metadata[meta_idx]
-            sat_img_dtype = hdf5_file["sat_img_dtype"][index, ...][0]
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
-                  "sat_img_dtype": sat_img_dtype, "hdf5_path": self.hdf5_path}
+                  "hdf5_path": self.hdf5_path}
 
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
             sample = self.radiom_transform(sample)

@@ -95,7 +95,7 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
         else:
             warnings.warn(f"Class {key} not found in provided vector data.")
 
-    return actual_classes_dict
+    return actual_classes_dict.copy()
 
 
 def minimum_annotated_percent(target_background_percent, min_annotated_percent):
@@ -112,7 +112,10 @@ def class_proportion(target, sample_size: int, class_min_prop: dict):
         return True
     sample_total = sample_size ** 2
     for key, value in class_min_prop.items():
-        target_prop_classwise = (round((np.bincount(target.clip(min=0).flatten())[key] / sample_total) * 100, 1))
+        if key not in np.unique(target):
+            target_prop_classwise = 0
+        else:
+            target_prop_classwise = (round((np.bincount(target.clip(min=0).flatten())[key] / sample_total) * 100, 1))
         if target_prop_classwise < value:
             return False
     return True
@@ -126,8 +129,7 @@ def compute_classes(dataset,
                     target,
                     metadata_idx,
                     dict_classes,
-                    dtype="float32"
-                    ):
+                    sample_indices: tuple = (0, 0)):
     # TODO: rename this function?
     """ Creates Dataset (trn, val, tst) appended to Hdf5 and computes pixel classes(%) """
     val = False
@@ -139,9 +141,9 @@ def compute_classes(dataset,
             val = True
             samples_file = val_sample_file
     append_to_dataset(samples_file["sat_img"], data)
-    append_to_dataset(samples_file["sat_img_dtype"], dtype)
     append_to_dataset(samples_file["map_img"], target)
     append_to_dataset(samples_file["meta_idx"], metadata_idx)
+    append_to_dataset(samples_file["sample_indices"], sample_indices)
 
     # adds pixel count to pixel_classes dict for each class in the image
     for i in (np.unique(target)):
@@ -164,8 +166,7 @@ def samples_preparation(in_img_array,
                         dontcare=0,
                         min_annot_perc=None,
                         class_prop=None,
-                        image_metadata=None,
-                        dtype=np.float32):
+                        image_metadata=None):
     """
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
@@ -239,7 +240,7 @@ def samples_preparation(in_img_array,
                                           target=target,
                                           metadata_idx=metadata_idx,
                                           dict_classes=pixel_classes,
-                                          dtype=dtype)
+                                          sample_indices=(row, column))
                     if val:
                         idx_samples_v += 1
                     else:
@@ -364,11 +365,6 @@ def main(params):
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
     class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
 
-    # creates pixel_classes dict and keys
-    pixel_classes = {key: 0 for key in gpkg_classes}
-    background_val = 0
-    pixel_classes[background_val] = 0
-    class_prop = validate_class_prop_dict(pixel_classes, class_prop)
 
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
 
@@ -379,6 +375,13 @@ def main(params):
                       " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
                       " will be remapped to -1 while loading the dataset, and inside the config from now on.")
         params["training"]["ignore_index"] = -1
+
+    # creates pixel_classes dict and keys
+    pixel_classes = {key: 0 for key in gpkg_classes}
+    background_val = 0
+    pixel_classes[background_val] = 0
+    class_prop = validate_class_prop_dict(pixel_classes, class_prop)
+    pixel_classes[dontcare] = 0
 
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
     with tqdm(list_data_prep, position=0, leave=False, desc=f'Preparing samples') as _tqdm:
@@ -401,21 +404,20 @@ def main(params):
 
                 with rasterio.open(info['tif'], 'r') as raster:
                     # 1. Read the input raster image
-                    dtype = raster.meta["dtype"]
                     np_input_image, raster, dataset_nodata = image_reader_as_array(input_image=raster,
-                                                           clip_gpkg=info['gpkg'],
-                                                           aux_vector_file=get_key_def('aux_vector_file',
-                                                                                       params['global'], None),
-                                                           aux_vector_attrib=get_key_def('aux_vector_attrib',
-                                                                                         params['global'], None),
-                                                           aux_vector_ids=get_key_def('aux_vector_ids',
-                                                                                      params['global'], None),
-                                                           aux_vector_dist_maps=get_key_def('aux_vector_dist_maps',
-                                                                                            params['global'], True),
-                                                           aux_vector_dist_log=get_key_def('aux_vector_dist_log',
-                                                                                           params['global'], True),
-                                                           aux_vector_scale=get_key_def('aux_vector_scale',
-                                                                                        params['global'], None))
+                                                                                   clip_gpkg=info['gpkg'],
+                                                                                   aux_vector_file=get_key_def('aux_vector_file',
+                                                                                                               params['global'], None),
+                                                                                   aux_vector_attrib=get_key_def('aux_vector_attrib',
+                                                                                                                 params['global'], None),
+                                                                                   aux_vector_ids=get_key_def('aux_vector_ids',
+                                                                                                              params['global'], None),
+                                                                                   aux_vector_dist_maps=get_key_def('aux_vector_dist_maps',
+                                                                                                                    params['global'], True),
+                                                                                   aux_vector_dist_log=get_key_def('aux_vector_dist_log',
+                                                                                                                   params['global'], True),
+                                                                                   aux_vector_scale=get_key_def('aux_vector_scale',
+                                                                                                                params['global'], None))
 
                     bgr_to_rgb = get_key_def('BGR_to_RGB', params['global'], True)  # TODO: add to config
                     np_input_image = BGR_to_RGB(np_input_image) if bgr_to_rgb else np_input_image
@@ -447,7 +449,7 @@ def main(params):
                     out_meta.update({"driver": "GTiff",
                                      "height": np_label_debug.shape[1],
                                      "width": np_label_debug.shape[2],
-                                    'count': 1})
+                                     'count': 1})
                     out_tif = samples_folder / f"np_label_rasterized_{_tqdm.n}.tif"
                     print(f"DEBUG: writing final rasterized gpkg to {out_tif}")
                     with rasterio.open(out_tif, "w", **out_meta) as dest:
@@ -468,6 +470,8 @@ def main(params):
 
                 if info['meta'] is not None and isinstance(info['meta'], str) and Path(info['meta']).is_file():
                     metadata = read_parameters(info['meta'])
+                else:
+                    metadata = raster.meta
 
                 np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
                 # 3. Prepare samples!
@@ -485,8 +489,7 @@ def main(params):
                                                                      dontcare=dontcare,
                                                                      min_annot_perc=min_annot_perc,
                                                                      class_prop=class_prop,
-                                                                     image_metadata=metadata,
-                                                                     dtype=dtype)
+                                                                     image_metadata=metadata)
 
                 _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
                 out_file.flush()
