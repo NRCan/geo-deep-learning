@@ -107,7 +107,7 @@ def download_s3_files(bucket_name, data_path, output_path):
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(samples_folder, batch_size, num_devices, params):
+def create_dataloader(samples_folder, batch_size, num_devices, params, debug=False):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param samples_folder: path to folder containting .hdf5 files if task is segmentation
@@ -122,7 +122,6 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     print(f"Number of samples : {num_samples}\n")
     meta_map = get_key_def("meta_map", params["global"], {})
     num_bands = get_key_def("number_of_bands", params["global"], {})
-    nodata = get_key_def("nodata", params["global"], 0)  # TODO: add to config
     if not meta_map:
          dataset_constr = CreateDataset.SegmentationDataset
     else:
@@ -141,11 +140,14 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
                                        dontcare=dontcare,
                                        radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
                                        geom_transform=aug.compose_transforms(params, subset, type='geometric',
-                                                                             ignore_index=dontcare)))
+                                                                             ignore_index=dontcare),
+                                       totensor_transform=aug.compose_transforms(params, subset, type='totensor'),
+                                       debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
-    num_workers = num_devices * 4 if num_devices > 1 else 4
+    num_workers = 0
+    # num_workers = num_devices * 4 if num_devices > 1 else 4
 
     # Shuffle must be set to True.
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
@@ -305,7 +307,8 @@ def main(params, config_path):
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
                                                                        num_devices=num_devices,
-                                                                       params=params)
+                                                                       params=params,
+                                                                       debug=debug)
 
     tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
     try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.

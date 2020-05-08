@@ -63,14 +63,16 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             if crop_size:
                 lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=ignore_index))
 
-    if scale:
-        lst_trans.append(Scale(scale))  # FIXME: assert coherence with below normalization
+    if type == 'totensor':
+        if scale:
+            lst_trans.append(Scale(scale))  # FIXME: assert coherence with below normalization
 
-    if norm_mean and norm_std:
-        lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
-                                   std=params['training']['normalization']['std']))
+        if norm_mean and norm_std:
+            lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
+                                       std=params['training']['normalization']['std']))
 
-    lst_trans.append(ToTensorTarget(params['global']['num_classes'])) # Send channels first, convert numpy array to torch tensor
+        lst_trans.append(ToTensorTarget(params['global']['num_classes'])) # Send channels first, convert numpy array to torch tensor
+
     return transforms.Compose(lst_trans)
 
 
@@ -268,8 +270,8 @@ class Normalize(object):
     def __call__(self, sample):
         if self.mean or self.std != []:
             sat_img = (sample['sat_img'] - self.mean) / self.std
-            map_img = sample['map_img']
-            return {'sat_img': sat_img, 'map_img': map_img}
+            sample['sat_img'] = sat_img
+            return sample
         else:
             return sample
 
@@ -280,12 +282,11 @@ class ToTensorTarget(object):
         self.num_classes = num_classes
 
     def __call__(self, sample):
-        sat_img = np.nan_to_num(sample['sat_img'], copy=False, nan=0.0)
+        sat_img = np.nan_to_num(sample['sat_img'], copy=False)
         sat_img = np.float32(np.transpose(sat_img, (2, 0, 1)))
         sat_img = torch.from_numpy(sat_img)
 
         map_img = np.int64(sample['map_img'])
-        # map_img[map_img > self.num_classes] = 0  # FIXME: what if ignore_index=255?
-        # FIXME: assert no new class values in map_img
+        # map_img[map_img > self.num_classes] = 0  # FIXME: quick fix for crossentropy bug, but what if lovasz and ignore_index=255?
         map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
