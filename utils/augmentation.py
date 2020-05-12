@@ -83,7 +83,7 @@ class RadiometricTrim(object):
 
     def __call__(self, sample):
         trim = round(random.uniform(self.range[0], self.range[-1]), 1)
-        out_dtype = sample['sat_img_dtype']
+        out_dtype = sample['sat_img_dtype']  # FIXME: REPLACE
         rescaled_sat_img = np.empty(sample['sat_img'].shape, dtype=sample['sat_img'].dtype)
         for band_idx in range(sample['sat_img'].shape[2]):
             band = sample['sat_img'][:, :, band_idx]
@@ -130,7 +130,7 @@ class Scale(object):
         Returns:
             ndarray: Scaled image.
         """
-        out_dtype = sample['sat_img_dtype']
+        out_dtype = sample['sat_img_dtype']  # FIXME: REPLACE
         orig_range = self.range_values_raster(sample['sat_img'], out_dtype)
         sample['sat_img'] = minmax_scale(img=sample['sat_img'], orig_range=orig_range, scale_range=(self.sc_min, self.sc_max))
 

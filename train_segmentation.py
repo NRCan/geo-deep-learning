@@ -614,6 +614,8 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
         print(f"{dataset} precision: {eval_metrics['precision'].avg}")
         print(f"{dataset} recall: {eval_metrics['recall'].avg}")
         print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
+        print(f"{dataset} iou: {eval_metrics['iou'].avg}")
+
 
     return eval_metrics
 

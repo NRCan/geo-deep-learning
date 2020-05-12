@@ -111,7 +111,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
         output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
         if label is not None:
             label = label.cpu()
-            if ignore_index < 0: # TODO: test when ignore_index is smaller than 1.
+            if ignore_index < 0:  # TODO: test when ignore_index is smaller than 1.
                 warnings.warn('Choose 255 as ignore_index to visualize. Problems may occur otherwise...')
                 new_ignore_index = 255
                 label[label == ignore_index] = new_ignore_index  # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
@@ -119,15 +119,16 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
     if params['training']['normalization']['mean'] and params['training']['normalization']['std']:
         input = unnormalize(input_img=input, mean=mean, std=std)
     input = minmax_scale(img=input, orig_range=(scale[0], scale[1]), scale_range=(0, 255)) if scale else input
-    if input.shape[2] == 2:
+    if 1 <= input.shape[2] <= 2:
         input = input[:, :, :1]  # take first band (will become grayscale image)
-    elif input.shape[2] > 3:
+        input = np.squeeze(input)
+    elif input.shape[2] >= 3:
         input = input[:, :, :3]  # take three first bands assuming they are RGB in correct order
     mode = 'L' if input.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
-    input_PIL = Image.fromarray(input.astype(np.uint8), mode=mode)  # FIXME: test this with grayscale input.
+    input_PIL = Image.fromarray(input.astype(np.uint8), mode=mode)  # TODO: test this with grayscale input.
 
     # Give value of class to band with highest value in final inference
-    output_argmax = np.argmax(output, axis=2).astype(np.uint8) # Flatten along channels axis. Convert to 8bit
+    output_argmax = np.argmax(output, axis=2).astype(np.uint8)  # Flatten along channels axis. Convert to 8bit
 
     # Define colormap and names of classes with respect to grayscale values
     classes, cmap = colormap_reader(output, colormap_file, default_colormap='Set1')
