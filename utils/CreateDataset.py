@@ -1,7 +1,6 @@
 import collections
 import os
 import warnings
-import ast
 
 import h5py
 from torch.utils.data import Dataset
@@ -9,6 +8,9 @@ import numpy as np
 
 import models.coordconv
 from utils.utils import get_key_def, get_key_recursive
+
+from rasterio.crs import CRS
+from affine import Affine
 
 
 def create_files_and_datasets(params, samples_folder):
@@ -104,11 +106,10 @@ class SegmentationDataset(Dataset):
             metadata = None
             if meta_idx != -1:
                 metadata = self.metadata[meta_idx]
-                metadata = eval(metadata) if isinstance(metadata, str) else metadata  # FIXME!!! must provide dtype
-            sat_img_dtype = hdf5_file["sat_img_dtype"][index, ...][0]  # FIXME: replace
+                metadata = eval(metadata) if isinstance(metadata, str) else metadata
             # sample_indices = hdf5_file["sample_indices"][index, ...]  # Only useful fur debugging
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
-                  "hdf5_path": self.hdf5_path, "sat_img_dtype": sat_img_dtype}
+                  "hdf5_path": self.hdf5_path}
 
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
             sample = self.radiom_transform(sample)
