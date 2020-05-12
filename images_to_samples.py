@@ -1,6 +1,5 @@
 import argparse
 import datetime
-from math import floor, ceil
 import os
 import fiona
 import numpy as np
@@ -163,10 +162,10 @@ def samples_preparation(in_img_array,
                         val_sample_file,
                         dataset,
                         pixel_classes,
+                        image_metadata,
                         dontcare=0,
                         min_annot_perc=None,
-                        class_prop=None,
-                        image_metadata=None):
+                        class_prop=None):
     """
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
@@ -181,6 +180,9 @@ def samples_preparation(in_img_array,
     :param dataset: (str) Type of dataset where the samples will be written. Can be 'trn' or 'val' or 'tst'
     :param pixel_classes: (dict) samples pixel statistics
     :param image_metadata: (Ruamel) list of optionnal metadata specified in the associated metadata file
+    :param dontcare: Value in gpkg features that will ignored during training
+    :param min_annot_perc: optional, minimum annotated percent required for sample to be created
+    :param class_prop: optional, minimal proportion of pixels for each class required for sample to be created
     :return: updated samples count and number of classes.
     """
 
@@ -194,12 +196,10 @@ def samples_preparation(in_img_array,
     else:
         raise ValueError(f"Dataset value must be trn or val. Provided value is {dataset}")
 
-    metadata_idx = -1
     idx_samples_v = samples_count['val']
-    if image_metadata:
-        # there should be one set of metadata per raster
-        # ...all samples created by tiling below will point to that metadata by index
-        metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
+    # there should be one set of metadata per raster
+    # ...all samples created by tiling below will point to that metadata by index
+    metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
 
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
@@ -217,7 +217,7 @@ def samples_preparation(in_img_array,
                 data_col = data.shape[1]
                 if data_row < sample_size or data_col < sample_size:
                     h_diff, w_diff = pad_diff(data_row, data_col, sample_size) # array, actual height, actual width, desired size
-                    padding = ((floor(w_diff/2), floor(h_diff/2), ceil(w_diff/2), ceil(h_diff/2))) # left, top, right, bottom
+                    padding = (0, 0, w_diff, h_diff) # left, top, right, bottom
                     data = pad(data, padding, fill=np.nan)  # don't fill with 0 if possible. Creates false min value when scaling.
 
                 target_row = target.shape[0]
@@ -225,7 +225,7 @@ def samples_preparation(in_img_array,
                 if target_row < sample_size or target_col < sample_size:
                     h_diff, w_diff = pad_diff(target_row, target_col,
                                               sample_size)  # array, actual height, actual width, desired size
-                    padding = ((floor(w_diff/2), floor(h_diff/2), ceil(w_diff/2), ceil(h_diff/2)))
+                    padding = (0, 0, w_diff, h_diff) # left, top, right, bottom
                     target = pad(target, padding, fill=dontcare)
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
@@ -468,10 +468,10 @@ def main(params):
                 else:
                     raise ValueError(f"Dataset value must be trn or val or tst. Provided value is {info['dataset']}")
 
+                metadata = raster.meta
                 if info['meta'] is not None and isinstance(info['meta'], str) and Path(info['meta']).is_file():
-                    metadata = read_parameters(info['meta'])
-                else:
-                    metadata = raster.meta
+                    yaml_metadata = read_parameters(info['meta'])
+                    metadata.update(yaml_metadata)
 
                 np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
                 # 3. Prepare samples!

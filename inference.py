@@ -135,11 +135,6 @@ def sem_seg_inference(model,
                                                           out_size=outputs.cpu().numpy().shape,
                                                           overlay=overlay))
 
-            # if debug:
-            #     output_counts_PIL = Image.fromarray(output_counts.astype(np.uint8), mode='L')
-            #     output_counts_PIL.save(output_path.joinpath(f'output_counts.png'))
-            #     tqdm.write(f'Dividing array according to output counts...\n')
-
             # Divide array according to output counts. Manages overlap and returns a softmax array as if only one forward pass had been done.
             output_mask_raw = np.divide(output_probs, np.maximum(output_counts, 1))  # , 1 is added to overwrite 0 values.
 

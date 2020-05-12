@@ -97,7 +97,7 @@ class SegmentationDataset(Dataset):
 
     def __getitem__(self, index):
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
-            sat_img = hdf5_file["sat_img"][index, ...]
+            sat_img = hdf5_file["sat_img"][index, ...].astype(np.float32)
             assert self.num_bands <= sat_img.shape[-1]
             if self.num_bands < sat_img.shape[-1]:
                 sat_img = sat_img[:, :, :self.num_bands]
@@ -107,6 +107,8 @@ class SegmentationDataset(Dataset):
             if meta_idx != -1:
                 metadata = self.metadata[meta_idx]
                 metadata = eval(metadata) if isinstance(metadata, str) else metadata
+            # where bandwise array has no data values, set as np.nan
+            # sat_img[dataset_nodata] = np.nan  # FIXME
             # sample_indices = hdf5_file["sample_indices"][index, ...]  # Only useful fur debugging
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
                   "hdf5_path": self.hdf5_path}

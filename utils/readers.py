@@ -29,7 +29,6 @@ def image_reader_as_array(input_image,
                           aux_vector_dist_log=True,
                           aux_vector_scale=None,
                           clip_gpkg=None,
-                          nodata_to_nan=True,
                           debug=False):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
@@ -59,11 +58,9 @@ def image_reader_as_array(input_image,
             np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
 
     dataset_nodata = None
-    if nodata_to_nan and input_image.nodata is not None:  # TODO: test this!!
+    if input_image.nodata is not None:
         # See: https://rasterio.readthedocs.io/en/latest/topics/masks.html#dataset-masks
         dataset_nodata = np_array == input_image.nodata
-        # where bandwise array has no data values, set as np.nan
-        np_array[dataset_nodata] = np.nan
         # Keep only nodata when present across all bands
         dataset_nodata = np.all(dataset_nodata, axis=2)
 

@@ -283,7 +283,7 @@ class ToTensorTarget(object):
 
     def __call__(self, sample):
         sat_img = np.nan_to_num(sample['sat_img'], copy=False)
-        sat_img = np.float32(np.transpose(sat_img, (2, 0, 1)))
+        sat_img = np.transpose(sat_img, (2, 0, 1))
         sat_img = torch.from_numpy(sat_img)
 
         map_img = np.int64(sample['map_img'])
