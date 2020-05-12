@@ -49,13 +49,14 @@ def image_reader_as_array(input_image,
     if clip_gpkg:
         np_array, input_image = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
         np_array = np.transpose(np_array, (1, 2, 0))  # send channels last
-        np_array = np_array.astype(np.float32)
-        # FIXME: convert to float32. Is this really necessary or can we keep arrays as uint8, uint16, etc. ?
 
-    else:
-        np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
+    else:  # TODO: should this remain or should we systematically clip raster to gpkg? creates overhead.
+        np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.uint16)
         for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
             np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
+
+    assert np_array.dtype in ['uint8', 'uint16'], f"Invalid datatype {np_array.dtype}. " \
+                                                  f"Only uint8 and uint16 are supported in current version"
 
     dataset_nodata = None
     if input_image.nodata is not None:

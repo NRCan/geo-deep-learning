@@ -197,6 +197,7 @@ def samples_preparation(in_img_array,
         raise ValueError(f"Dataset value must be trn or val. Provided value is {dataset}")
 
     idx_samples_v = samples_count['val']
+
     # there should be one set of metadata per raster
     # ...all samples created by tiling below will point to that metadata by index
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))

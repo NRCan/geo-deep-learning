@@ -28,12 +28,12 @@ def create_files_and_datasets(params, samples_folder):
     hdf5_files = []
     for subset in ["trn", "val", "tst"]:
         hdf5_file = h5py.File(os.path.join(samples_folder, f"{subset}_samples.hdf5"), "w")
-        hdf5_file.create_dataset("sat_img", (0, samples_size, samples_size, real_num_bands), np.float32,
+        hdf5_file.create_dataset("sat_img", (0, samples_size, samples_size, real_num_bands), np.uint16,
                                  maxshape=(None, samples_size, samples_size, real_num_bands))
         hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
                                  maxshape=(None, samples_size, samples_size))
-        hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
-        hdf5_file.create_dataset("sample_indices", (0, 2), dtype=np.int16, maxshape=(None, 2))
+        hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.uint16, maxshape=(None, 1))
+        hdf5_file.create_dataset("sample_indices", (0, 2), dtype=np.uint8, maxshape=(None, 2))
         try:
             hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
         except AttributeError as e:
@@ -97,25 +97,22 @@ class SegmentationDataset(Dataset):
 
     def __getitem__(self, index):
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
-            sat_img = hdf5_file["sat_img"][index, ...].astype(np.float32)
+            sat_img = np.float32(hdf5_file["sat_img"][index, ...])
             assert self.num_bands <= sat_img.shape[-1]
             if self.num_bands < sat_img.shape[-1]:
                 sat_img = sat_img[:, :, :self.num_bands]
             map_img = self._remap_labels(hdf5_file["map_img"][index, ...])
-            meta_idx = int(hdf5_file["meta_idx"][index]) if "meta_idx" in hdf5_file else -1
-            metadata = None
-            if meta_idx != -1:
-                metadata = self.metadata[meta_idx]
-                metadata = eval(metadata) if isinstance(metadata, str) else metadata
+            meta_idx = int(hdf5_file["meta_idx"][index])
+            metadata = self.metadata[meta_idx]
+            metadata = eval(metadata) if isinstance(metadata, str) else metadata  # TODO: check if metadata was previously converted back to dict. Could cause bugs.
             # where bandwise array has no data values, set as np.nan
-            # sat_img[dataset_nodata] = np.nan  # FIXME
-            # sample_indices = hdf5_file["sample_indices"][index, ...]  # Only useful fur debugging
+            sat_img[sat_img == metadata['nodata']] = np.nan  # FIXME: TEST!
+            # sample_indices = hdf5_file["sample_indices"][index, ...]  # Only useful for debugging
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
                   "hdf5_path": self.hdf5_path}
 
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
             sample = self.radiom_transform(sample)
-        # TODO: geom transform should always be True as it includes ToTensorTarget.
         if self.geom_transform:  # rotation, geometric scaling, flip and crop. Will also put channels first and convert to torch tensor from numpy.
             sample = self.geom_transform(sample)
 
