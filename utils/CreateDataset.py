@@ -106,7 +106,7 @@ class SegmentationDataset(Dataset):
             metadata = self.metadata[meta_idx]
             metadata = eval(metadata) if isinstance(metadata, str) else metadata  # TODO: check if metadata was previously converted back to dict. Could cause bugs.
             # where bandwise array has no data values, set as np.nan
-            sat_img[sat_img == metadata['nodata']] = np.nan  # FIXME: TEST!
+            # sat_img[sat_img == metadata['nodata']] = np.nan # TODO: problem with lack of dynamic range. See: https://rasterio.readthedocs.io/en/latest/topics/masks.html
             # sample_indices = hdf5_file["sample_indices"][index, ...]  # Only useful for debugging
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
                   "hdf5_path": self.hdf5_path}
