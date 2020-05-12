@@ -463,6 +463,11 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     :param device: device used by pytorch (cpu ou cuda)
     :return: Updated training loss
     """
+
+    #################
+    print(model)
+    #################
+
     model.train()
     train_metrics = create_metrics_dict(num_classes)
     vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
@@ -479,6 +484,38 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             # forward
             optimizer.zero_grad()
             outputs = model(inputs)
+
+            ############################
+            # Test Implementation of the NIR
+            ############################
+
+            # Init NIR
+            inputs_NIR = data['NIR'].to(device)
+
+            # Creat the second model with only the NIR
+            output_NIR = model(inputs_NIR)
+
+            print('Testing with 4 bands at the deep {}'.format('conv1'))
+
+            #TODO: create a way to choose the good connection depending of the `qqch`
+
+            # Collect the weight for each model
+            depth = model.backbone._modules['conv1'].weight.detach().numpy()
+            depth_NIR = model_NIR.backbone._modules['conv1'].weight.detach().numpy()
+
+            # Adding Noise
+            #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7)) # TODO: Talk with the team if we add noise or not 
+            #conv1 = np.append(conv1, depth, axis=1)
+            #conv1 = torch.from_numpy(conv1)
+
+            # Connection
+            new_weight = torch.cat([depth, depth_NIR], 1)
+            model.backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
+
+            ############################
+            # End of the test implementation module
+            ############################
+
             # added for torchvision models that output an OrderedDict with outputs in 'out' key.
             # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
             if isinstance(outputs, OrderedDict):
