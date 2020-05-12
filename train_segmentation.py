@@ -519,7 +519,7 @@ def train(train_loader,
                                               gpu_perc=f'{res.gpu} %',
                                               gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
                                               lr=optimizer.param_groups[0]['lr'],
-                                              img=data['sat_img'].numpy().shape[1:],
+                                              img=data['sat_img'].numpy().shape,
                                               smpl=data['map_img'].numpy().shape,
                                               bs=batch_size,
                                               out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))

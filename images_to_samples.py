@@ -201,6 +201,7 @@ def samples_preparation(in_img_array,
     # there should be one set of metadata per raster
     # ...all samples created by tiling below will point to that metadata by index
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
+    append_to_dataset(val_sample_file["metadata"], repr(image_metadata))
 
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
