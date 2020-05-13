@@ -116,7 +116,10 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
                 new_ignore_index = 255
                 label[label == ignore_index] = new_ignore_index  # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
 
-    if params['training']['normalization']['mean'] and params['training']['normalization']['std']:
+    norm_mean = get_key_def('mean', params['training']['normalization'])
+    norm_std = get_key_def('std', params['training']['normalization'])
+
+    if norm_mean and norm_std:
         input = unnormalize(input_img=input, mean=mean, std=std)
     input = minmax_scale(img=input, orig_range=(scale[0], scale[1]), scale_range=(0, 255)) if scale else input
     if 1 <= input.shape[2] <= 2:

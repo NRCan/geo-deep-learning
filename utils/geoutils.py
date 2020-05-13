@@ -1,22 +1,17 @@
-import warnings
 from pathlib import Path
 
 import numpy as np
 
 import fiona
-from fiona.crs import from_epsg
 
 import rasterio
 from rasterio.features import is_valid_geom
-from rasterio.plot import show
-from rasterio.plot import show_hist
 from rasterio.mask import mask
 
-from shapely.geometry import box
 from tqdm import tqdm
 
-import geopandas as gpd
-
+# from shapely.geometry import box
+# import geopandas as gpd
 # import pycrs
 
 from utils.utils import get_key_recursive
@@ -86,6 +81,8 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     raster: Rasterio file handle holding the (already opened) input raster
     gpkg: Path and name of reference GeoPackage
     """
+    from shapely.geometry import box
+    import geopandas as gpd  # geopandas becomes a project dependency only during sample creation
     # Get extent of gpkg data with fiona
     with fiona.open(gpkg, 'r') as src:
         gpkg_crs = src.crs
