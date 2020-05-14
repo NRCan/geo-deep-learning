@@ -61,7 +61,8 @@ def net(net_params, num_channels, inference=False):
             model.classifier = common.DeepLabHead(2048, num_channels)
         elif num_bands == 4:
             print('Finetuning pretrained deeplabv3 with 4 bands')
-            model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True, aux_loss=None)
+            #model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True, aux_loss=None)
+            model = torch.hub.load('pytorch/vision:v0.6.0', 'deeplabv3_resnet101', pretrained=True)
             conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
             depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
             conv1 = np.append(conv1, depth, axis=1)

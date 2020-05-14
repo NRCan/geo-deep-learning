@@ -17,7 +17,7 @@ global:
   modalities: RGBN
   # Model must be in the follow list:
   # unet, unetsmall, checkpointed_unet, ternausnet,
-  # fcn_resnet101, deeplabv3_resnet50, deeplabv3_resnet101
+  # fcn_resnet101, deeplabv3_resnet101
   model_name: deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
