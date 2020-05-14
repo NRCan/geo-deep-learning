@@ -55,7 +55,7 @@ data_analysis:
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
-  prep_csv_file: /path/to/csv/file.csv
+  prep_csv_file: /home/cauthier/data/test4channel.csv # TODO: put in git ignor
   val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
   overlap: 25
   sampling: {'method':['min_annotated_percent'], 'map': 0, '0':0, '1':0, '2':0} # One of class_proportion, annotated_percent
@@ -73,7 +73,7 @@ sample:
 # Training parameters; used in train_segmentation.py ----------------------
 
 training:
-  state_dict_path: path/to/pretrained/file/checkpoint.pth.tar    # optional
+  state_dict_path: #path/to/pretrained/file/checkpoint.pth.tar (optional)
   num_trn_samples: 4960
   num_val_samples: 2208
   num_tst_samples: 1000
@@ -98,7 +98,7 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
+        img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
   working_folder: /path/to/folder/with/resulting/images
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
