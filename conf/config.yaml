@@ -98,7 +98,7 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-        img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
+  img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
   working_folder: /path/to/folder/with/resulting/images
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
