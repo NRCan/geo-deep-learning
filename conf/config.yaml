@@ -11,10 +11,14 @@
 
 global:
   samples_size: 256
-  num_classes: 2
-  data_path: path/to/data/
-  number_of_bands: 3
-  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
+  num_classes: 5
+  data_path: /home/cauthier/data/ # TODO: put it in the git ignor
+  number_of_bands: 4
+  modalities: RGBN
+  # Model must be in the follow list:
+  # unet, unetsmall, checkpointed_unet, ternausnet,
+  # fcn_resnet101, deeplabv3_resnet50, deeplabv3_resnet101
+  model_name: deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 2
@@ -22,6 +26,17 @@ global:
   aux_vector_dist_map: False
   scale_data: [0,1]
   debug_mode: True
+
+  #####
+  # Module to include the NIR (temporary)
+  # 1:'conv1',
+  # 4:'after the maxpooling',
+  # 6:'after the layer 2',
+  # 7:'after the layer 3',
+  # 8:'after the layer 4 (after the backbone)',
+  # 9:'after the ASPP module'
+  concatenate_depth: 1
+  #####
   
 # Data analysis parameters; used in data_analysis.py ------------------
 

@@ -488,7 +488,6 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             ############################
             # Test Implementation of the NIR
             ############################
-            print('test')
 
             # Init NIR
             inputs_NIR = data['NIR'].to(device)
