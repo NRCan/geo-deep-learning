@@ -126,9 +126,8 @@ def compute_classes(dataset,
                     val_sample_file,
                     data,
                     target,
-                    metadata_idx,
-                    dict_classes,
-                    sample_indices: tuple = (0, 0)):
+                    metadata,
+                    dict_classes):
     # TODO: rename this function?
     """ Creates Dataset (trn, val, tst) appended to Hdf5 and computes pixel classes(%) """
     val = False
@@ -141,8 +140,7 @@ def compute_classes(dataset,
             samples_file = val_sample_file
     append_to_dataset(samples_file["sat_img"], data)
     append_to_dataset(samples_file["map_img"], target)
-    append_to_dataset(samples_file["meta_idx"], metadata_idx)
-    append_to_dataset(samples_file["sample_indices"], sample_indices)
+    append_to_dataset(samples_file["metadata"], repr(metadata))
 
     # adds pixel count to pixel_classes dict for each class in the image
     for i in (np.unique(target)):
@@ -198,11 +196,6 @@ def samples_preparation(in_img_array,
 
     idx_samples_v = samples_count['val']
 
-    # there should be one set of metadata per raster
-    # ...all samples created by tiling below will point to that metadata by index
-    metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
-    append_to_dataset(val_sample_file["metadata"], repr(image_metadata))
-
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
     excl_samples = 0
@@ -213,6 +206,7 @@ def samples_preparation(in_img_array,
 
         for row in _tqdm:
             for column in range(0, w, dist_samples):
+                image_metadata['sample_indices'] = (row, column)
                 data = (in_img_array[row:row + sample_size, column:column + sample_size, :])
                 target = np.squeeze(label_array[row:row + sample_size, column:column + sample_size, :], axis=2)
                 data_row = data.shape[0]
@@ -240,9 +234,8 @@ def samples_preparation(in_img_array,
                                           val_sample_file=val_sample_file,
                                           data=data,
                                           target=target,
-                                          metadata_idx=metadata_idx,
-                                          dict_classes=pixel_classes,
-                                          sample_indices=(row, column))
+                                          metadata=image_metadata,
+                                          dict_classes=pixel_classes)
                     if val:
                         idx_samples_v += 1
                     else:
@@ -255,8 +248,8 @@ def samples_preparation(in_img_array,
                 if num_classes < target_class_num:
                     num_classes = target_class_num
 
-                dataset = 'val' if dataset == 'trn' and val else dataset
-                _tqdm.set_postfix(Dataset=dataset,
+                final_dataset = 'val' if dataset == 'trn' and val else dataset
+                _tqdm.set_postfix(Dataset=final_dataset,
                                   Excld_samples=excl_samples,
                                   Added_samples=f'{added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}',
                                   Target_annot_perc=100 - target_background_percent)
@@ -471,6 +464,8 @@ def main(params):
                     raise ValueError(f"Dataset value must be trn or val or tst. Provided value is {info['dataset']}")
 
                 metadata = raster.meta
+                metadata['name'] = raster.name
+                metadata['csv_info'] = info
                 if info['meta'] is not None and isinstance(info['meta'], str) and Path(info['meta']).is_file():
                     yaml_metadata = read_parameters(info['meta'])
                     metadata.update(yaml_metadata)

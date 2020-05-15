@@ -47,6 +47,16 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference=False):
         model: model to replace
         optimizer: optimiser to be used
     """
+    # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model	    model.load_state_dict(checkpoint['model'])
+    # https://github.com/bearpaw/pytorch-classification/issues/27
+    # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
+    if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
+        new_state_dict = model.state_dict().copy()
+        new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
+        del checkpoint
+        checkpoint = {}
+        checkpoint['model'] = new_state_dict['model']
+
     model.load_state_dict(checkpoint['model'])
     print(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer

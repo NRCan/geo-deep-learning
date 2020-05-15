@@ -136,8 +136,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
     # Define colormap and names of classes with respect to grayscale values
     classes, cmap = colormap_reader(output, colormap_file, default_colormap='Set1')
 
-    if heatmaps_inf:
-        heatmaps_dict = heatmaps_to_dict(output, classes, inference=inference, debug=debug)  # Prepare heatmaps from softmax output
+    heatmaps_dict = heatmaps_to_dict(output, classes, inference=inference, debug=debug)  # Prepare heatmaps from softmax output
 
     # Convert output and label, if provided, to RGB with matplotlib's colormap object
     output_argmax_color = cmap(output_argmax)

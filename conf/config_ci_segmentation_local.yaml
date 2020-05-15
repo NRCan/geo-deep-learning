@@ -9,7 +9,7 @@
 # Global parameters
 
 global:
-  samples_size: 256
+  samples_size: 128
   num_classes: 1  # will automatically create a 'background' class
   data_path: ./data
   number_of_bands: 3
@@ -37,7 +37,7 @@ sample:
 
 training:
   state_dict_path:    # optional
-  num_trn_samples:
+  num_trn_samples: 1
   num_val_samples:
   num_tst_samples:
   batch_size: 2

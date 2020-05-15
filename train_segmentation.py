@@ -169,7 +169,7 @@ def get_num_samples(samples_path, params):
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
 
     for i in ['trn', 'val', 'tst']:
-        if params['training'][f"num_{i}_samples"]:
+        if get_key_def(f"num_{i}_samples", params['training'], None) is not None:
             num_samples[i] = params['training'][f"num_{i}_samples"]
 
             with h5py.File(os.path.join(samples_path, f"{i}_samples.hdf5"), 'r') as hdf5_file:
@@ -528,7 +528,8 @@ def train(train_loader,
             optimizer.step()
 
     scheduler.step()
-    print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
+    if train_metrics["loss"].avg is not None:
+        print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
     return train_metrics
 
 
