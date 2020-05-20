@@ -74,6 +74,9 @@ training:
     rotate_limit: 45
     rotate_prob: 0.5
     hflip_prob: 0.5
+  normalization:
+    mean:
+    std:
 
 # Inference parameters; used in inference.py --------
 
