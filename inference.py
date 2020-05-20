@@ -71,7 +71,7 @@ def sem_seg_inference(model,
     # switch to evaluate mode
     model.eval()
 
-    inf_log = InformationLogger(output_path, 'val')
+    inf_log = InformationLogger(output_path, 'inf')
 
     if len(nd_array.shape) == 3:
         h, w, nb = nd_array.shape
@@ -154,7 +154,7 @@ def sem_seg_inference(model,
                                                           overlay=overlay))
 
             if label_array is not None:
-                inf_log.add_values(eval_metrics, 0)
+                inf_log.add_values(eval_metrics, 0)  # TODO: test this. Not sure exactly where it should go.
 
             # Divide array according to output counts. Manages overlap and returns a softmax array as if only one forward pass had been done.
             output_mask_raw = np.divide(output_probs, np.maximum(output_counts, 1))  # , 1 is added to overwrite 0 values.
