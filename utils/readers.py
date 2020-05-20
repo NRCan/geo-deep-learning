@@ -6,6 +6,7 @@ from tqdm import tqdm
 from pathlib import Path
 
 from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
+from utils.utils import BGR_to_RGB
 
 
 def read_parameters(param_file):
@@ -29,6 +30,7 @@ def image_reader_as_array(input_image,
                           aux_vector_dist_log=True,
                           aux_vector_scale=None,
                           clip_gpkg=None,
+                          bgr_to_rgb=False,
                           debug=False):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
@@ -100,6 +102,9 @@ def image_reader_as_array(input_image,
             for vec_band_idx in vec_tensor.shape[2]:
                 vec_tensor[:, :, vec_band_idx] *= aux_vector_scale
         np_array = np.concatenate([np_array, vec_tensor], axis=2)
+
+        np_array = BGR_to_RGB(np_array) if bgr_to_rgb else np_array
+
     return np_array, input_image, dataset_nodata
 
 
@@ -120,16 +125,18 @@ def read_csv(csv_file_name, inference=False):
     list_values = []
     with open(csv_file_name, 'r') as f:
         reader = csv.reader(f)
-        for row in reader:
-            if inference:
-                assert len(row) >= 2, 'unexpected number of columns in dataset CSV description file' \
-                    ' (for inference, should have two columns, i.e. raster file path and metadata file path)'
-                list_values.append({'tif': row[0], 'meta': row[1]})
-            else:
-                assert len(row) >= 5, 'unexpected number of columns in dataset CSV description file' \
-                    ' (should have five columns; see \'read_csv\' function for more details)'
-                list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
-    if inference:
-        return list_values
-    else:
-        return sorted(list_values, key=lambda k: k['dataset'])
+        for index, row in enumerate(reader):
+            row_length = len(row) if index == 0 else row_length
+            assert len(row) == row_length, "Rows in csv should be of same length"
+            row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
+            list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
+            assert Path(row[0].is_file()), f'Tif raster not found "{row[0]}"'
+            if row[2] is not None:
+                assert Path(row[2].is_file()), f'Gpkg not found "{row[2]}"'
+                assert isinstance(row[3], str)
+    try:
+        # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
+        list_values = sorted(list_values, key=lambda k: k['dataset'])
+    except TypeError:
+        list_values
+    return list_values

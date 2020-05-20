@@ -13,9 +13,10 @@ from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets, MetaSegmentationDataset
 from utils.utils import get_key_def, pad, pad_diff, BGR_to_RGB
-from utils.geoutils import vector_to_raster, validate_features_from_gpkg
+from utils.geoutils import vector_to_raster
 from utils.readers import read_parameters, image_reader_as_array, read_csv
-from utils.verifications import is_valid_geom, validate_num_classes
+from utils.verifications import is_valid_geom, validate_num_classes, assert_num_bands, assert_crs_match, \
+    validate_features_from_gpkg
 
 # from rasterio.features import is_valid_geom #FIXME: https://github.com/mapbox/rasterio/issues/1815 is solved. Update rasterio package.
 
@@ -319,39 +320,18 @@ def main(params):
                f'Number of rows: {len(list_data_prep)}\n'
                f'Copying first entry:\n{list_data_prep[0]}\n')
     ignore_index = get_key_def('ignore_index', params['training'], -1)
-
-    # VALIDATION: Assert existence of tif and gpkg files in csv
-    for info in tqdm(list_data_prep, position=0, desc=f'Asserting existence of tif and gpkg files in csv'):
-        assert Path(info['tif']).is_file(), f'File not found "{info["tif"]}"'
-        assert Path(info['gpkg']).is_file(), f'File not found "{info["gpkg"]}"'
+    meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
 
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
-    for info in tqdm(list_data_prep, position=0, desc=f"Validating presence of {params['global']['num_classes']} "
-                                                      f"classes in attribute \"{info['attribute_name']}\" for vector "
-                                                      f"file \"{Path(info['gpkg']).stem}\""):
+    for info in tqdm(list_data_prep, position=0):
+        assert_num_bands(info['tif'], num_bands, meta_map)
         gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
-
-        meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
-        # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
-        #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
-        with rasterio.open(info['tif'], 'r') as raster:
-            input_band_count = raster.meta['count'] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
-            raster_crs = raster.crs
-
-        assert input_band_count == num_bands, \
-            f"The number of bands in the input image ({input_band_count}) and the parameter" \
-            f"'number_of_bands' in the yaml file ({params['global']['number_of_bands']}) should be identical"
-
-        # (2) assert CRS match between gpkg and tif
-        with fiona.open(info['gpkg'], 'r') as src:
-            assert src.crs == raster_crs, f"CRS mismatch: \n" \
-                                          f"TIF file \"{info['tif']}\" has {raster_crs} CRS; \n" \
-                                          f"GPKG file \"{info['gpkg']}\" has {src.crs} CRS."
+        assert_crs_match(info['tif'], info['gpkg'])
 
     if debug:
         # VALIDATION (debug only): Checking validity of features in vector files
         for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
-            invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])  # TODO: test this.
+            invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])  # TODO: test this with invalid features.
             assert not invalid_features, f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'"
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
@@ -360,11 +340,10 @@ def main(params):
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
     class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
 
-
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
 
     # Set dontcare (aka ignore_index) value
-    dontcare = get_key_def("ignore_index", params["training"], -1)  # TODO: deduplicate with train_segmentation, l128
+    dontcare = get_key_def("ignore_index", params["training"], -1)  # TODO: deduplicate with train_segmentation, l300
     if dontcare == 0:
         warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
                       " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
@@ -399,23 +378,16 @@ def main(params):
 
                 with rasterio.open(info['tif'], 'r') as raster:
                     # 1. Read the input raster image
-                    np_input_image, raster, dataset_nodata = image_reader_as_array(input_image=raster,
-                                                                                   clip_gpkg=info['gpkg'],
-                                                                                   aux_vector_file=get_key_def('aux_vector_file',
-                                                                                                               params['global'], None),
-                                                                                   aux_vector_attrib=get_key_def('aux_vector_attrib',
-                                                                                                                 params['global'], None),
-                                                                                   aux_vector_ids=get_key_def('aux_vector_ids',
-                                                                                                              params['global'], None),
-                                                                                   aux_vector_dist_maps=get_key_def('aux_vector_dist_maps',
-                                                                                                                    params['global'], True),
-                                                                                   aux_vector_dist_log=get_key_def('aux_vector_dist_log',
-                                                                                                                   params['global'], True),
-                                                                                   aux_vector_scale=get_key_def('aux_vector_scale',
-                                                                                                                params['global'], None))
-
-                    bgr_to_rgb = get_key_def('BGR_to_RGB', params['global'], True)  # TODO: add to config
-                    np_input_image = BGR_to_RGB(np_input_image) if bgr_to_rgb else np_input_image
+                    np_input_image, raster, dataset_nodata = image_reader_as_array(
+                        input_image=raster,
+                        clip_gpkg=info['gpkg'],
+                        bgr_to_rgb=get_key_def('BGR_to_RGB', params['global'], True),  # FIXME: add param to config
+                        aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
+                        aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                        aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                        aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                        aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
+                        aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
                     # 2. Burn vector file in a raster file
                     np_label_raster = vector_to_raster(vector_file=info['gpkg'],

@@ -113,6 +113,7 @@ class SegmentationDataset(Dataset):
             final_class_ids = set(np.unique(sample['map_img'].numpy()))
             assert final_class_ids.issubset(initial_class_ids), \
                 f"Class ids for label before and after augmentations don't match. "
+        sample['index'] = index
         return sample
 
 

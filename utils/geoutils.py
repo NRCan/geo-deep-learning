@@ -8,13 +8,10 @@ import rasterio
 from rasterio.features import is_valid_geom
 from rasterio.mask import mask
 
-from tqdm import tqdm
 
 # from shapely.geometry import box
 # import geopandas as gpd
 # import pycrs
-
-from utils.utils import get_key_recursive
 
 
 def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
@@ -27,6 +24,7 @@ def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
             single layer or in individual layers (in the order provided by 'target_ids')
     :return: list of tuples in format (vector, class_id).
     '''
+    from utils.utils import get_key_recursive  # Solves ImportError (because of circular dependency?)
     lst_vector_tuple = {}
     for vector in list_vector:
         id = get_key_recursive(attr_name, vector) if attr_name is not None else None
@@ -40,23 +38,6 @@ def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
                 # if not merging layers, just use '1' as the value for each target
                 lst_vector_tuple[id].append((vector['geometry'], 1))
     return lst_vector_tuple
-
-
-def validate_features_from_gpkg(gpkg, attribute_name: str):
-    invalid_features_list = []
-    # Validate vector features to burn in the raster image
-    with fiona.open(gpkg, 'r') as src:  # TODO: refactor as independent function
-        lst_vector = [vector for vector in src]
-    shapes = lst_ids(list_vector=lst_vector, attr_name=attribute_name)
-    for index, item in enumerate(tqdm([v for vecs in shapes.values() for v in vecs], leave=False, position=1)):
-        # geom must be a valid GeoJSON geometry type and non-empty
-        geom, value = item
-        geom = getattr(geom, '__geo_interface__', None) or geom
-        if not is_valid_geom(geom):
-            gpkg_stem = str(Path(gpkg).stem)
-            if lst_vector[index]["id"] not in invalid_features_list:  # ignore if feature is already appended
-                invalid_features_list.append(lst_vector[index]["id"])
-    return invalid_features_list
 
 
 def channels_redistribution(raster, src_order: tuple, dst_order: tuple):
@@ -81,8 +62,8 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     raster: Rasterio file handle holding the (already opened) input raster
     gpkg: Path and name of reference GeoPackage
     """
-    from shapely.geometry import box
-    import geopandas as gpd  # geopandas becomes a project dependency only during sample creation
+    from shapely.geometry import box  # geopandas and shapely become a project dependency only during sample creation
+    import geopandas as gpd
     # Get extent of gpkg data with fiona
     with fiona.open(gpkg, 'r') as src:
         gpkg_crs = src.crs
@@ -136,7 +117,7 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
     Return:
         numpy array of the burned image
     """
-
+    from utils.utils import get_key_recursive  # Solves ImportError (because of circular dependency?)
     # Extract vector features to burn in the raster image
     with fiona.open(vector_file, 'r') as src:
         lst_vector = [vector for vector in src]

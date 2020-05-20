@@ -12,7 +12,7 @@ import numpy as np
 from skimage import transform, exposure
 from torchvision import transforms
 
-from utils.utils import get_key_def, pad, minmax_scale, pad_diff
+from utils.utils import get_key_def, pad, minmax_scale
 
 
 def compose_transforms(params, dataset, type='', ignore_index=None):
@@ -286,7 +286,9 @@ class ToTensorTarget(object):
         sat_img = np.float32(np.transpose(sat_img, (2, 0, 1)))
         sat_img = torch.from_numpy(sat_img)
 
-        map_img = np.int64(sample['map_img'])
-        # map_img[map_img > self.num_classes] = 0  # FIXME: quick fix for crossentropy bug, but what if lovasz and ignore_index=255?
-        map_img = torch.from_numpy(map_img)
+        map_img = None
+        if sample['map_img'] is not None:  # This can also be used in inference.
+            map_img = np.int64(sample['map_img'])
+            # map_img[map_img > self.num_classes] = 0  # FIXME: quick fix for crossentropy bug, but what if lovasz and ignore_index=255?
+            map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}

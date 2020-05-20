@@ -110,11 +110,12 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
         output = F.softmax(output, dim=0)  # Inference output is already softmax
         output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
         if label is not None:
-            label = label.cpu()
-            if ignore_index < 0:  # TODO: test when ignore_index is smaller than 1.
+            label_copy = label.cpu().numpy().copy()
+            if ignore_index < 0:
                 warnings.warn('Choose 255 as ignore_index to visualize. Problems may occur otherwise...')
                 new_ignore_index = 255
-                label[label == ignore_index] = new_ignore_index  # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
+                # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
+                label_copy[label_copy == ignore_index] = new_ignore_index
 
     norm_mean = get_key_def('mean', params['training']['normalization'])
     norm_std = get_key_def('std', params['training']['normalization'])
@@ -142,7 +143,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
     output_argmax_color = cmap(output_argmax)
     output_argmax_PIL = Image.fromarray((output_argmax_color[:, :, :3] * 255).astype(np.uint8), mode='RGB')
     if not inference and label is not None:
-        label_color = cmap(label)
+        label_color = cmap(label_copy)
         label_PIL = Image.fromarray((label_color[:, :, :3] * 255).astype(np.uint8), mode='RGB')
     else:
         label_PIL = None
@@ -168,7 +169,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
         if not vis_path.joinpath(f'{dataset}_{sample_num:03d}_satimg.jpg').is_file():
             input_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_satimg.jpg'))
             if not inference and label is not None:
-                label_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_label.png')) # save label
+                label_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_label.png'))  # save label
         output_argmax_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_output_ep{ep_num:03d}.png'))
         if heatmaps: # TODO: test this.
             for key in heatmaps_dict.keys():

@@ -1,5 +1,6 @@
 import numbers
-from typing import Sequence
+from pathlib import Path
+from typing import Sequence, List
 
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
@@ -8,6 +9,8 @@ import numpy as np
 import warnings
 import collections
 import matplotlib
+
+from utils.readers import read_csv
 
 matplotlib.use('Agg')
 
@@ -57,10 +60,10 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference=False):
         checkpoint = {}
         checkpoint['model'] = new_state_dict['model']
 
-    model.load_state_dict(checkpoint['model'])
+    model.load_state_dict(checkpoint['model'], strict=False)
     print(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-        optimizer.load_state_dict(checkpoint['optimizer'])
+        optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
     return model, optimizer
 
 
@@ -251,3 +254,47 @@ def BGR_to_RGB(array):
     RGB_channels = np.ascontiguousarray(BGR_channels[..., ::-1])
     array[:, :, :3] = RGB_channels
     return array
+
+
+def list_input_images(img_dir_or_csv: str,
+                      bucket_name: str = None,
+                      glob_patterns: List = None):
+    """
+    Create list of images from given directory or csv file.
+
+    :param img_dir_or_csv: (str) directory containing input images or csv with list of images
+    :param bucket_name: (str, optional) name of aws s3 bucket
+    :param glob_patterns: (list of str) if directory is given as input (not csv), these are the glob patterns that will be used
+                        to find desired images
+
+    returns list of dictionaries where keys are "tif" and values are paths to found images. "meta" key is also added
+        if input is csv and second column contains a metadata file. Then, value is path to metadata file.
+    """
+    if bucket_name:
+        s3 = boto3.resource('s3')
+        bucket = s3.Bucket(bucket_name)
+        if img_dir_or_csv.endswith('.csv'):
+            bucket.download_file(img_dir_or_csv, 'img_csv_file.csv')
+            list_img = read_csv('img_csv_file.csv')
+        else:
+            raise NotImplementedError(
+                'Specify a csv file containing images for inference. Directory input not implemented yet')
+    else:
+        if img_dir_or_csv.endswith('.csv'):
+            list_img = read_csv(img_dir_or_csv)
+        else:
+            img_dir = Path(img_dir_or_csv)
+            assert img_dir.is_dir(), f'Could not find directory "{img_dir_or_csv}"'
+
+            list_img_paths = set()
+            for glob_pattern in glob_patterns:
+                assert isinstance(glob_pattern, str), f'Invalid glob pattern: "{glob_pattern}"'
+                list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
+
+            list_img = []
+            for img_path in list_img_paths:
+                img = {}
+                img['tif'] = img_path
+                list_img.append(img)
+            assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
+    return list_img

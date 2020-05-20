@@ -37,8 +37,8 @@ sample:
 
 training:
   state_dict_path:    # optional
-  num_trn_samples: 1
-  num_val_samples:
+  num_trn_samples: 2
+  num_val_samples: 2
   num_tst_samples:
   batch_size: 2
   num_epochs: 2
@@ -69,7 +69,7 @@ training:
 
 inference:
   img_dir_or_csv_file: ./data/inference_sem_seg_ci_csv.csv
-  state_dict_path: ./data/samples512_overlap10_3bands/model/config_ci_segmentation_local/checkpoint.pth.tar
+  state_dict_path: ./data/samples128_overlap10_3bands/model/config_ci_segmentation_local/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
   heatmaps: True

@@ -107,7 +107,7 @@ def download_s3_files(bucket_name, data_path, output_path):
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(samples_folder, batch_size, num_devices, params, debug=False):
+def create_dataloader(samples_folder, batch_size, num_devices, params, dontcare_val, debug=False):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param samples_folder: path to folder containting .hdf5 files if task is segmentation
@@ -126,21 +126,15 @@ def create_dataloader(samples_folder, batch_size, num_devices, params, debug=Fal
          dataset_constr = CreateDataset.SegmentationDataset
     else:
         dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
-    dontcare = get_key_def("ignore_index", params["training"], -1)
-    if dontcare == 0:
-        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
-                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
-        params["training"]["ignore_index"] = -1
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
         datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
-                                       dontcare=dontcare,
+                                       dontcare=dontcare_val,
                                        radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
                                        geom_transform=aug.compose_transforms(params, subset, type='geometric',
-                                                                             ignore_index=dontcare),
+                                                                             ignore_index=dontcare_val),
                                        totensor_transform=aug.compose_transforms(params, subset, type='totensor'),
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
@@ -184,7 +178,7 @@ def get_num_samples(samples_path, params):
     return num_samples
 
 
-def set_hyperparameters(params, num_classes, model, checkpoint):
+def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
     """
     Function to set hyperparameters based on values provided in yaml config file.
     Will also set model to GPU, if available.
@@ -205,10 +199,11 @@ def set_hyperparameters(params, num_classes, model, checkpoint):
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
     if params['training']['class_weights']:
         verify_weights(num_classes, class_weights)
-    ignore_index = get_key_def('ignore_index', params['training'], -1)
 
     # Loss function
-    criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
+    criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'],
+                                    ignore_index=dontcare_val,
+                                    weight=class_weights)
 
     # Optimizer
     opt_fn = params['training']['optimizer']
@@ -302,11 +297,19 @@ def main(params, config_path):
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU\n")
 
+    dontcare = get_key_def("ignore_index", params["training"], -1)
+    if dontcare == 0:
+        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
+                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
+                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
+        params["training"]["ignore_index"] = -1
+
     tqdm.write(f'Creating dataloaders from data in {samples_folder}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
                                                                        num_devices=num_devices,
                                                                        params=params,
+                                                                       dontcare_val=dontcare,
                                                                        debug=debug)
 
     tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
@@ -316,7 +319,11 @@ def main(params, config_path):
         warnings.warn(f"Unable to use device. Trying device 0...\n")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
-    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
+    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params,
+                                                                    num_classes_corrected,
+                                                                    model,
+                                                                    checkpoint,
+                                                                    dontcare)
 
     criterion = criterion.to(device)
 
@@ -350,7 +357,6 @@ def main(params, config_path):
                            scheduler=lr_scheduler,
                            num_classes=num_classes_corrected,
                            batch_size=batch_size,
-                           task=task,
                            ep_idx=epoch,
                            progress_log=progress_log,
                            vis_params=params,
@@ -364,7 +370,6 @@ def main(params, config_path):
                                 criterion=criterion,
                                 num_classes=num_classes_corrected,
                                 batch_size=batch_size,
-                                task=task,
                                 ep_idx=epoch,
                                 progress_log=progress_log,
                                 vis_params=params,
@@ -399,7 +404,8 @@ def main(params, config_path):
             vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if last_vis_epoch == 0:
-                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for batches {vis_batch_range}')
+                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for '
+                               f'batches in range {vis_batch_range}')
                 vis_from_dataloader(params=params,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
                                     model=model,
@@ -427,7 +433,6 @@ def main(params, config_path):
                                 criterion=criterion,
                                 num_classes=num_classes_corrected,
                                 batch_size=batch_size,
-                                task=task,
                                 ep_idx=params['training']['num_epochs'],
                                 progress_log=progress_log,
                                 vis_params=params,
@@ -452,7 +457,6 @@ def train(train_loader,
           scheduler,
           num_classes,
           batch_size,
-          task,
           ep_idx,
           progress_log,
           vis_params,
@@ -468,7 +472,6 @@ def train(train_loader,
     :param scheduler: learning rate scheduler
     :param num_classes: number of classes
     :param batch_size: number of samples to process simultaneously
-    :param task: segmentation or classification
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
     :param vis_params: (dict) Parameters found in the yaml config file. Named vis_params because they are only used for
@@ -533,7 +536,7 @@ def train(train_loader,
     return train_metrics
 
 
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -541,7 +544,6 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     :param criterion: loss criterion
     :param num_classes: number of classes
     :param batch_size: number of samples to process simultaneously
-    :param task: segmentation or classification
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
     :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
@@ -597,11 +599,11 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                     if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
                         a, segmentation = torch.max(outputs_flatten, dim=1)
                         eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                             ignore_index=get_key_def("ignore_index", params["training"], None))
+                                                             ignore_index=eval_loader.dataset.dontcare)
                 elif dataset == 'tst':
                     a, segmentation = torch.max(outputs_flatten, dim=1)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                         ignore_index=get_key_def("ignore_index", params["training"], None))
+                                                         ignore_index=eval_loader.dataset.dontcare)
 
                 _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
