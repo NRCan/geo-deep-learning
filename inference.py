@@ -231,7 +231,7 @@ def main(params):
 
     default_working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
     working_folder = Path(get_key_def('working_folder', params['inference'], default_working_folder)) # TODO: remove working_folder parameter in all templates
-    Path.mkdir(working_folder, exist_ok=True)
+    working_folder.mkdir(parents=True, exist_ok=True)
     print(f'Inferences will be saved to: {working_folder}\n\n')
 
     bucket = None
