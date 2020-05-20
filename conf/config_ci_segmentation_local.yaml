@@ -26,7 +26,7 @@ sample:
   prep_csv_file: ./data/images_to_samples_ci_csv.csv
   overlap: 33
   val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
-    sampling: {'method':['min_annotated_percent'], 'map': 1, '0':0, '1':0, '2':0} # One of class_proportion, annotated_percent
+  sampling: {'method':['min_annotated_percent'], 'map': 1, '0':0, '1':0, '2':0} # One of class_proportion, annotated_percent
       # 'method' : One or both in any order of min_annotated_percent, class_proportion; must be presented in list format
       # 'map' : Min % of non background pixels in samples. Default: 0
       # following keys:
