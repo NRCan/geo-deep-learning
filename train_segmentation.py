@@ -165,6 +165,7 @@ def get_num_samples(samples_path, params):
     :return: (dict) number of samples for trn, val and tst.
     """
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
+    task_name = {'training': 'trn', 'validation': 'val', 'inference': 'tst'}
 
     for i in ['trn', 'val', 'tst']:
         if params['training'][f"num_{i}_samples"]:
@@ -173,8 +174,9 @@ def get_num_samples(samples_path, params):
             with h5py.File(os.path.join(samples_path, f"{i}_samples.hdf5"), 'r') as hdf5_file:
                 file_num_samples = len(hdf5_file['map_img'])
             if num_samples[i] > file_num_samples:
-                raise IndexError(f"The number of training samples in the configuration file ({num_samples[i]}) "
-                                 f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
+                raise IndexError(f"The number of {task_name[i]} samples in the configuration file"
+                                 f"({num_samples[i]}) exceeds the number of {task_name[i]} samples"
+                                 f"in the hdf5 {task_name[i]} dataset ({file_num_samples}).")
         else:
             with h5py.File(os.path.join(samples_path, f"{i}_samples.hdf5"), "r") as hdf5_file:
                 num_samples[i] = len(hdf5_file['map_img'])
