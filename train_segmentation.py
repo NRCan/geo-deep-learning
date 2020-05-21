@@ -468,6 +468,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
     #################
     print(model)
+    with open('out.txt', 'w') as f:
+        print(model, file=f)  # Python 3.x
     #################
 
     model.train()
