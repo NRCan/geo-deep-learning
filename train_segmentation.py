@@ -165,7 +165,7 @@ def get_num_samples(samples_path, params):
     :return: (dict) number of samples for trn, val and tst.
     """
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
-    task_name = {'training': 'trn', 'validation': 'val', 'inference': 'tst'}
+    task_name = {'trn':'training', 'val':'validation', 'tst':'inference'}
 
     for i in ['trn', 'val', 'tst']:
         if params['training'][f"num_{i}_samples"]:
