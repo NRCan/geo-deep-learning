@@ -11,7 +11,7 @@
 
 global:
   samples_size: 256
-  num_classes: 5
+  num_classes: 4 
   data_path: /home/cauthier/data/ # TODO: put it in the git ignor
   number_of_bands: 4
   modalities: RGBN
@@ -98,8 +98,8 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
-  working_folder: /path/to/folder/with/resulting/images
-  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
+  img_dir_or_csv_file: #/path/to/csv/containing/images/list.csv
+  working_folder: #/path/to/folder/with/resulting/images
+  state_dict_path: #/path/to/model/weights/for/inference/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
