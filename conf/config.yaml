@@ -75,7 +75,7 @@ sample:
 training:
   state_dict_path: #path/to/pretrained/file/checkpoint.pth.tar (optional)
   num_trn_samples: 4960
-  num_val_samples: 2208
+  num_val_samples: 847
   num_tst_samples: 1000
   batch_size: 32
   num_epochs: 100
@@ -94,6 +94,9 @@ training:
     rotate_limit: 45
     rotate_prob: 0.5
     hflip_prob: 0.5
+  normalization:  # Normalization parameters for finetuning (Ex. mean: [0.485, 0.456, 0.406], std: std: [0.229, 0.224, 0.225])
+    mean:
+    std:
 
 # Inference parameters; used in inference.py --------
 
