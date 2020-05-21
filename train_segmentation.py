@@ -31,7 +31,7 @@ from PIL import Image
 from utils import augmentation as aug, CreateDataset
 from utils.optimizer import create_optimizer
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
-from utils.metrics import report_classification, create_metrics_dict
+from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
 from utils.utils import load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, \
@@ -580,10 +580,12 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                         f"{len(_tqdm)}. Metrics in validation loop won't be computed"
                     if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
                         a, segmentation = torch.max(outputs_flatten, dim=1)
+                        eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                         eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
                                                              ignore_index=get_key_def("ignore_index", params["training"], None))
                 elif dataset == 'tst':
                     a, segmentation = torch.max(outputs_flatten, dim=1)
+                    eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
                                                          ignore_index=get_key_def("ignore_index", params["training"], None))
 
@@ -599,6 +601,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
         print(f"{dataset} precision: {eval_metrics['precision'].avg}")
         print(f"{dataset} recall: {eval_metrics['recall'].avg}")
         print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
+        print(f"{dataset} iou: {eval_metrics['iou'].avg}")
 
     return eval_metrics
 
