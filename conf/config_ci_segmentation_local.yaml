@@ -74,7 +74,7 @@ training:
     rotate_limit: 45
     rotate_prob: 0.5
     hflip_prob: 0.5
-  normalization:
+  normalization:  # Normalization parameters for finetuning (Ex. mean: [0.485, 0.456, 0.406], std: std: [0.229, 0.224, 0.225])
     mean:
     std:
 
