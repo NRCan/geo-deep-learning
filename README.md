@@ -168,6 +168,9 @@ To launch the program:
 python images_to_samples.py path/to/config/file/config.yaml
 ```
 
+> Note: A data analysis module can be found [here](./docs/data_analysis.md).  
+> It is useful for balancing training data.
+
 Details on parameters used by this module:
 
 ```yaml
