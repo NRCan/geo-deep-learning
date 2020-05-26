@@ -323,10 +323,14 @@ def main(params):
     meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
 
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
+    valid_gpkg_set = set()
     for info in tqdm(list_data_prep, position=0):
         assert_num_bands(info['tif'], num_bands, meta_map)
-        gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
-        assert_crs_match(info['tif'], info['gpkg'])
+        if info['gpkg'] not in valid_gpkg_set:
+            gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'],
+                                 ignore_index)
+            assert_crs_match(info['tif'], info['gpkg'])
+            valid_gpkg_set.add(info['gpkg'])
 
     if debug:
         # VALIDATION (debug only): Checking validity of features in vector files
@@ -381,7 +385,7 @@ def main(params):
                     np_input_image, raster, dataset_nodata = image_reader_as_array(
                         input_image=raster,
                         clip_gpkg=info['gpkg'],
-                        bgr_to_rgb=get_key_def('BGR_to_RGB', params['global'], True),  # FIXME: add param to config
+                        bgr_to_rgb=get_key_def('BGR_to_RGB', params['global'], False),
                         aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
                         aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
                         aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
@@ -429,11 +433,11 @@ def main(params):
 
                 if info['dataset'] == 'trn':
                     out_file = trn_hdf5
-                    val_file = val_hdf5
                 elif info['dataset'] == 'tst':
                     out_file = tst_hdf5
                 else:
-                    raise ValueError(f"Dataset value must be trn or val or tst. Provided value is {info['dataset']}")
+                    raise ValueError(f"Dataset value must be trn or tst. Provided value is {info['dataset']}")
+                val_file = val_hdf5
 
                 metadata = raster.meta
                 metadata['name'] = raster.name

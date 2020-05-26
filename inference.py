@@ -21,9 +21,9 @@ from models.model_choice import net
 from train_segmentation import flatten_outputs, flatten_labels
 from utils import augmentation
 from utils.augmentation import Scale
-from utils.geoutils import vector_to_raster
+from utils.geoutils import vector_to_raster, create_new_raster_from_base
 from utils.logger import InformationLogger
-from utils.metrics import create_metrics_dict, report_classification
+from utils.metrics import create_metrics_dict, report_classification, iou
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, minmax_scale, list_input_images
 from utils.readers import read_parameters, image_reader_as_array, read_csv
 from utils.CreateDataset import MetaSegmentationDataset
@@ -54,7 +54,7 @@ def sem_seg_inference(model,
     """Inference on images using semantic segmentation
     Args:
         model: model to use for inference
-        nd_array: nd_array
+        nd_array: input raster as array
         overlay: amount of overlay to apply
         chunk_size: size of individual chunks to be processed during inference
         num_classes: number of different classes that may be predicted by the model
@@ -70,8 +70,6 @@ def sem_seg_inference(model,
 
     # switch to evaluate mode
     model.eval()
-
-    inf_log = InformationLogger(output_path, 'inf')
 
     if len(nd_array.shape) == 3:
         h, w, nb = nd_array.shape
@@ -91,7 +89,12 @@ def sem_seg_inference(model,
     output_probs = np.empty([num_classes, h_padded, w_padded], dtype=np.float32)
     # Create identical 0-filled array without channels dimension to receive counts for number of outputs generated in specific area.
     output_counts = np.zeros([output_probs.shape[1], output_probs.shape[2]], dtype=np.int32)
-    eval_metrics = create_metrics_dict(num_classes)
+
+    eval_metrics = output_iou = None
+    if label_array is not None:
+        eval_metrics = create_metrics_dict(num_classes)
+        padded_label = np.pad(label_array, ((overlay, chunk_size), (overlay, chunk_size)), mode='constant')
+        output_iou = np.zeros([output_probs.shape[1], output_probs.shape[2]], dtype=np.uint8)
 
     if padded_array.any():
         with torch.no_grad():
@@ -110,6 +113,9 @@ def sem_seg_inference(model,
                         sample['sat_img'] = padded_array[row_start:row_end, col_start:col_end, :]
                         if meta_map:
                             sample['sat_img'] = MetaSegmentationDataset.append_meta_layers(sample['sat_img'], meta_map, metadata)
+
+                        if label_array is not None:
+                            sample['map_img'] = padded_label[row_start:row_end, col_start:col_end]
 
                         sample = totensor_transform(sample)
                         inputs = sample['sat_img'].unsqueeze_(0)  # Add dummy batch dimension
@@ -131,12 +137,15 @@ def sem_seg_inference(model,
                         outputs = F.softmax(outputs, dim=1)
 
                         if label_array is not None:
-                            outputs_flatten = flatten_outputs(outputs, num_classes)
-                            labels = np.expand_dims(labels, axis=0)
+                            labels = sample['map_img'].unsqueeze_(0)  # Add dummy batch dimension
                             labels_flatten = flatten_labels(labels)
+                            outputs_flatten = flatten_outputs(outputs, num_classes)
                             a, segmentation = torch.max(outputs_flatten, dim=1)
+                            eval_metrics = iou(segmentation, labels_flatten, 1, num_classes, eval_metrics)
                             eval_metrics = report_classification(segmentation, labels_flatten, 1, eval_metrics,
                                                                  ignore_index=ignore_index)
+                            output_iou[row_start:row_end, col_start:col_end] += int(eval_metrics['iou'].val*100)
+
 
                         output_counts[row_start:row_end, col_start:col_end] += 1
 
@@ -154,7 +163,13 @@ def sem_seg_inference(model,
                                                           overlay=overlay))
 
             if label_array is not None:
-                inf_log.add_values(eval_metrics, 0)  # TODO: test this. Not sure exactly where it should go.
+                output_iou = np.divide(output_iou, np.maximum(output_counts, 1))  # , 1 is added to overwrite 0 values.
+                # Resize the output array to the size of the input image and write it
+                output_iou_cropped = output_iou[overlay:(h + overlay), overlay:(w + overlay)]
+                print(f"precision: {eval_metrics['precision'].avg}")
+                print(f"recall: {eval_metrics['recall'].avg}")
+                print(f"fscore: {eval_metrics['fscore'].avg}")
+                print(f"iou: {eval_metrics['iou'].avg}")
 
             # Divide array according to output counts. Manages overlap and returns a softmax array as if only one forward pass had been done.
             output_mask_raw = np.divide(output_probs, np.maximum(output_counts, 1))  # , 1 is added to overwrite 0 values.
@@ -163,7 +178,7 @@ def sem_seg_inference(model,
             output_mask_raw_cropped = np.moveaxis(output_mask_raw, 0, -1)
             output_mask_raw_cropped = output_mask_raw_cropped[overlay:(h + overlay), overlay:(w + overlay), :]
 
-            return output_mask_raw_cropped
+            return output_mask_raw_cropped, output_iou_cropped, eval_metrics
     else:
         raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
 
@@ -268,7 +283,7 @@ def main(params):
 
     bucket = None
     bucket_file_cache = []
-    bucket_name = params['global']['bucket_name']
+    bucket_name = get_key_def('bucket_name', params['global'])
 
     # CONFIGURE MODEL
     model, state_dict_path, model_name = net(params, num_channels=num_classes_corrected, inference=True)
@@ -307,12 +322,14 @@ def main(params):
         meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
 
         # VALIDATION LOOP
+        valid_gpkg_set = set()
         for info in tqdm(list_img, position=0):
-            assert_num_bands(info['tif'], num_bands, meta_map)
-            if info['gpkg'] is not None:
+            # assert_num_bands(info['tif'], num_bands, meta_map)
+            if info['gpkg'] is not None and info['gpkg'] not in valid_gpkg_set:
                 validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'],
                                                     ignore_index)
                 assert_crs_match(info['tif'], info['gpkg'])
+                valid_gpkg_set.add(info['gpkg'])
 
         if debug and info['gpkg'] is not None:
             # VALIDATION (debug only): Checking validity of features in vector files
@@ -342,12 +359,14 @@ def main(params):
                 with rasterio.open(local_img, 'r') as raster:
                     np_input_image, raster, dataset_nodata = image_reader_as_array(
                                     input_image=raster,
+                                    bgr_to_rgb=get_key_def('BGR_to_RGB', params['global'], False),
                                     aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
                                     aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
                                     aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
                                     aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
                                     aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
+                np_label_raster = None
                 if img['gpkg'] is not None:
                     # 2. Burn vector file in a raster file
                     np_label_raster = vector_to_raster(vector_file=img['gpkg'],
@@ -358,6 +377,7 @@ def main(params):
                     if dataset_nodata is not None:
                         # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
                         np_label_raster[dataset_nodata] = ignore_index
+                    inf_log = InformationLogger(working_folder, 'tst')
 
                 if meta_map:
                     assert img['meta'] is not None and isinstance(img['meta'], str) and os.path.isfile(img['meta']), \
@@ -383,9 +403,8 @@ def main(params):
                                   f"can not be larger than the number of band in the input image ({input_band_count}).")
                     continue
 
-                scale = get_key_def('scale_data', params['global'], None)
                 # START INFERENCES ON SUB-IMAGES
-                sem_seg_results_per_class = sem_seg_inference(model,
+                sem_seg_results_per_class, output_iou, inf_metrics = sem_seg_inference(model,
                                                               np_input_image,
                                                               nbr_pix_overlap,
                                                               chunk_size,
@@ -396,7 +415,14 @@ def main(params):
                                                               metadata,
                                                               output_path=working_folder,
                                                               index=_tqdm.n,
+                                                              label_array=np_label_raster,
+                                                              ignore_index=ignore_index,
                                                               debug=debug)
+
+                if img['gpkg'] is not None:
+                    inf_log.add_values(inf_metrics, _tqdm.n)
+                    output_name = working_folder / f'{local_img.stem}_grid_iou.TIF'
+                    create_new_raster_from_base(local_img, output_name, output_iou.astype('uint8'))
 
                 # CREATE GEOTIF FROM METADATA OF ORIGINAL IMAGE
                 tqdm.write(f'Saving inference...\n')

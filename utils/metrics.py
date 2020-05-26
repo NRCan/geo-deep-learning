@@ -1,4 +1,5 @@
-from sklearn.metrics import classification_report, jaccard_similarity_score
+from sklearn.metrics import classification_report
+import numpy as np
 
 
 def create_metrics_dict(num_classes):
@@ -9,6 +10,7 @@ def create_metrics_dict(num_classes):
         metrics_dict['precision_' + str(i)] = AverageMeter()
         metrics_dict['recall_' + str(i)] = AverageMeter()
         metrics_dict['fscore_' + str(i)] = AverageMeter()
+        metrics_dict['iou_' + str(i)] = AverageMeter()
 
     return metrics_dict
 
@@ -68,15 +70,27 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
     metrics_dict['precision'].update(class_report['weighted avg']['precision'], batch_size)
     metrics_dict['recall'].update(class_report['weighted avg']['recall'], batch_size)
     metrics_dict['fscore'].update(class_report['weighted avg']['f1-score'], batch_size)
-    metrics_dict = iou(pred, label, batch_size, metrics_dict)
 
     return metrics_dict
 
 
-def iou(pred, target, batch_size, metrics_dict):
-    """Calculate the intersection over union (or Jaccard index) between two datasets.
-    The Jaccard distance (or dissimilarity) would be 1-iou.
-    """
-    iou = jaccard_similarity_score(target.cpu(), pred.cpu(), normalize=True)
-    metrics_dict['iou'].update(iou, batch_size)
-    return metrics_dict
+def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
+    """Calculate the intersection over union class-wise and mean-iou"""
+    min_val = 1e-6
+    ious = []
+    pred = pred.cpu()
+    label = label.cpu()
+    for i in range(num_classes):
+        c_label = label == i
+        if only_present and c_label.sum() == 0:
+            ious.append(np.nan)
+            continue
+        c_pred = pred == i
+        intersection = (c_pred & c_label).float().sum()
+        union = (c_pred | c_label).float().sum()
+        iou = (intersection + min_val) / (union + min_val)  # minimum value added to avoid Zero division
+        ious.append(iou)
+        metric_dict['iou_' + str(i)].update(iou.item(), batch_size)
+    mean_IOU = np.nanmean(ious)
+    metric_dict['iou'].update(mean_IOU, batch_size)
+    return metric_dict

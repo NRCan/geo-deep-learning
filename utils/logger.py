@@ -12,8 +12,7 @@ class InformationLogger(object):
         self.metrics = ['loss']
         self.metrics_classwise = []
         if mode == 'val' or mode == 'tst':
-            self.metrics += ['iou']
-            self.metrics_classwise += ['precision', 'recall', 'fscore']
+            self.metrics_classwise += ['precision', 'recall', 'fscore', 'iou']
 
         # Dicts of logs
         def open_log(metric_name, fmt_str="metric_{}_{}.log"):

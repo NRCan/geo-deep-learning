@@ -9,11 +9,11 @@
 # Global parameters
 
 global:
-  samples_size: 128
+  samples_size: 256
   num_classes: 1  # will automatically create a 'background' class
   data_path: ./data
   number_of_bands: 3
-  model_name: deeplabv3_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
+  model_name: checkpointed_unet     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 0
@@ -24,26 +24,41 @@ global:
 
 sample:
   prep_csv_file: ./data/images_to_samples_ci_csv.csv
-  val_percent: 20
-  overlap: 10
+  overlap: 33
+  val_percent: 30 # Percentage of validation samples created from train set (0 - 100)
+  sampling: {'method':['min_annotated_percent'], 'map': 1, '0':0, '1':0, '2':0} # One of class_proportion, annotated_percent
+      # 'method' : One or both in any order of min_annotated_percent, class_proportion; must be presented in list format
+      # 'map' : Min % of non background pixels in samples. Default: 0
+      # following keys:
+      # keys must include all classes present in the images
+      # keys must be numerical values in 'string' format
+    # class value must be in 'integer' format
+    # class value represents class minimum threshold targeted in samples
   mask_reference: False
-  sampling_method: # class_proportion or min_annotated_percent
-    'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
-    'class_proportion': {'1':0} # See below:
-    # keys (numerical values in 'string' format) represent class id
-    # values (int) represent class minimum threshold targeted in samples
+
+# Data analysis parameters; used in data_analysis.py ------------------
+
+data_analysis:
+  create_csv: False
+  optimal_parameters_search : False
+  sampling: {'method':['min_annotated_percent', 'class_proportion'], 'map': 0, '0':0, '1':10, '2':10}
+  # 'method' : One or both in any order of min_annotated_percent, class_proportion; must be presented in list format
+    # 'map' : Min % of non background pixels in stored samples. Default: 0
+    # following keys:
+      # keys must be all classes present in the images
+      # keys must be numerical values in 'string' format
+      # class value must be in 'integer' format
+      # class value represent class minimum threshold targeted in samples
 
 # Training parameters; used in train_segmentation.py ----------------------
 
 training:
   state_dict_path:    # optional
-  num_trn_samples: 2
-  num_val_samples: 2
+  num_trn_samples:
+  num_val_samples:
   num_tst_samples:
-  batch_size: 2
+  batch_size: 4
   num_epochs: 2
-  target_size: 100
-  normalization:
   loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
   optimizer: adam # One of adam, sgd or adabound
   learning_rate: 0.0001
@@ -55,21 +70,19 @@ training:
   class_weights: [1.0, 2.0]
   batch_metrics: 1
   ignore_index:  # Specifies a target value that is ignored and does not contribute to the input gradient
-
   augmentation:
     rotate_limit: 45
     rotate_prob: 0.5
     hflip_prob: 0.5
-    radiom_trim_range: [0.1, 2.0] # range of values (%) for trimming (same value used for left and right trim)
-    geom_scale_range:
-    brightness_contrast_range: # Not yet implemented
-    noise: # Not yet implemented
+  normalization:  # Normalization parameters for finetuning (Ex. mean: [0.485, 0.456, 0.406], std: std: [0.229, 0.224, 0.225])
+    mean:
+    std:
 
 # Inference parameters; used in inference.py --------
 
 inference:
   img_dir_or_csv_file: ./data/inference_sem_seg_ci_csv.csv
-  state_dict_path: ./data/samples128_overlap10_3bands/model/config_ci_segmentation_local/checkpoint.pth.tar
+  state_dict_path: ./data/samples256_overlap33_min-annot1_3bands/model/config_ci_segmentation_local/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
   heatmaps: True
