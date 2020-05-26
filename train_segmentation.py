@@ -14,6 +14,7 @@ from tqdm import tqdm
 from collections import OrderedDict
 import shutil
 import numpy as np
+import copy
 
 
 try:
@@ -488,7 +489,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
             # forward
             optimizer.zero_grad()
-            outputs = model(inputs)
+            #outputs = model(inputs)
 
             ############################
             # Test Implementation of the NIR
@@ -497,13 +498,29 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             # Init NIR   TODO: make a proper way to read the NIR channel 
             #                  and put an option to be able to give the idex of the NIR channel
             inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
+            inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
             inputs = inputs[:,:-1, ...] # Need to be change 
             #inputs_NIR = data['NIR'].to(device)
 
             # Creat the second model with only the NIR
-            output_NIR = model(inputs_NIR)
+            nir_model = copy.deepcopy(model)
 
-            print('Testing with 4 bands at the deep {}'.format('conv1')) # TODO: change to print the place where we concatenate
+            first_conv_layer = [nn.Conv2d(1, 3, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True)]
+            first_conv_layer.extend(list(nir_model.features))  
+            nir_model.features= nn.Sequential(*first_conv_layer)  
+
+            with open('nir_model.txt', 'w') as f:
+                print(model, file=f)  # 
+
+            output_NIR = nir_model(inputs_NIR)
+            
+
+
+
+            outputs = model(inputs) # TODO: need to put back up
+
+            # TODO: change to print the place where we concatenate
+            print('Testing with 4 bands at the deep {}'.format('conv1'))
 
             #TODO: create a way to choose the good connection depending of the `qqch`
 
