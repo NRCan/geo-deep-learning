@@ -216,10 +216,10 @@ def set_hyperparameters(params, num_classes, model, checkpoint):
 
     ############################
     # TODO: 
-    #optimizer_rgb = create_optimizer(params=model[0].parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
-    #optimizer_nir = create_optimizer(params=model[1].parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
-    optimizer_nir = create_optimizer(params=model[1].parameters()+model[0].parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
-
+    optimizer = create_optimizer(
+            params=[{'params': model[1].parameters()}, {'params': model[0].parameters()}],
+            mode=opt_fn, base_lr=lr, weight_decay=weight_decay
+            )
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
     ############################
 
@@ -547,8 +547,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             #TODO: create a way to choose the good connection depending of the `qqch`
 
             # Collect the weight for each model
-            depth = model.backbone._modules['conv1'].weight.detach().numpy()
-            depth_NIR = model_NIR.backbone._modules['conv1'].weight.detach().numpy()
+            depth = model[0].backbone._modules['conv1'].weight.detach().numpy()
+            depth_NIR = model[1].backbone._modules['conv1'].weight.detach().numpy()
 
             # Adding Noise
             #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7)) # TODO: Talk with the team if we add noise or not 
@@ -557,7 +557,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
             # Connection
             new_weight = torch.cat([depth, depth_NIR], 1)
-            model.backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
+            model[0].backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
 
             ############################
             # End of the test implementation module
@@ -707,7 +707,10 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
     tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
     min_vis_batch, max_vis_batch, increment = vis_batch_range
 
-    model.eval()
+    ###############
+    # TODO: NIR modification
+    model[0].eval()
+    ###############
     with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
         for batch_index, data in enumerate(_tqdm):
             if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
@@ -721,11 +724,12 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                     # TODO: remove after the merge of Remy branch with no visualization option
                     # TODO: or change it to match the reste of the implementation
                     inputs = inputs[:,:-1, ...] # Need to be change 
+                    
+                    outputs = model[0](inputs)
                     ############################
                     # Test Implementation of the NIR
                     ############################
 
-                    outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
 
