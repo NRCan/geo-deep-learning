@@ -84,7 +84,7 @@ def net(net_params, num_channels, inference=False):
             #model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
 
             #model = [model_rgb, model_nir]
-            model = MyEnsemble()
+            model = MyEnsemble(num_channels)
             ###################
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')

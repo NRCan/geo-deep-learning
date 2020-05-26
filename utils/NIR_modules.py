@@ -4,7 +4,7 @@ import copy
 import torchvision
 from torch import nn
 import torchvision.models as models
-from models import TernausNet, unet, checkpointed_unet, inception, coordconv, common
+from models import common
 
 
 class NIRExtractor(nn.Module):
@@ -40,7 +40,7 @@ class NIRExtractor(nn.Module):
 
 
 class MyEnsemble(nn.Module):
-    def __init__(self):
+    def __init__(self, num_channels):
         super(MyEnsemble, self).__init__()
         # TODO: documentation
         model_rgb = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, aux_loss=None)
