@@ -16,7 +16,7 @@ class NIRExtractor(nn.Module):
 
     def forward(self, x):
         if self.extracted_layer == 'conv1': 
-            print(list(self.submodule.children())[:4])
+            #print(list(self.submodule.children())[:4])
             modules = list(self.submodule.children())[:4]
         elif self.extracted_layer == 'inner-layer-3':                     
             modules = list(self.submodule.children())[:6]

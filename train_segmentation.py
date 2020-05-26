@@ -576,6 +576,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
             #model = MyEnsemble(model[0],model[1])
 
+            print('in', inputs_NIR.shape)
+
             output = model(inputs, inputs_NIR)
 
             ############################
@@ -749,7 +751,7 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                     inputs = inputs[:,:-1, ...] # Need to be change 
                     
                     #outputs = model[0](inputs)
-                    outputs = model(inputs, inputs)
+                    outputs = model(inputs, inputs_NIR)
                     ############################
                     # Test Implementation of the NIR
                     ############################
