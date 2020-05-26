@@ -216,10 +216,11 @@ def set_hyperparameters(params, num_classes, model, checkpoint):
 
     ############################
     # TODO: 
-    optimizer_rgb = create_optimizer(params=model[0].parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
-    optimizer_nir = create_optimizer(params=model[1].parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
+    #optimizer_rgb = create_optimizer(params=model[0].parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
+    #optimizer_nir = create_optimizer(params=model[1].parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
+    optimizer_nir = create_optimizer(params=model[1].parameters()+model[0].parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
 
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=[optimizer_rgb, optimizer_nir], step_size=step_size, gamma=gamma)
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
     ############################
 
     #optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
