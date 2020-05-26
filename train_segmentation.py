@@ -467,9 +467,10 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     """
 
     #################
-    print(model)
-    with open('out.txt', 'w') as f:
-        print(model, file=f)  # Python 3.x
+    # TODO: Remove after testing phase
+    #print(model)
+    #with open('out.txt', 'w') as f:
+    #    print(model, file=f)  # Python 3.x
     #################
 
     model.train()
@@ -493,13 +494,16 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             # Test Implementation of the NIR
             ############################
 
-            # Init NIR
-            inputs_NIR = data['NIR'].to(device)
+            # Init NIR   TODO: make a proper way to read the NIR channel 
+            #                  and put an option to be able to give the idex of the NIR channel
+            inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
+            inputs = inputs[:,:-1, ...] # Need to be change 
+            #inputs_NIR = data['NIR'].to(device)
 
             # Creat the second model with only the NIR
             output_NIR = model(inputs_NIR)
 
-            print('Testing with 4 bands at the deep {}'.format('conv1'))
+            print('Testing with 4 bands at the deep {}'.format('conv1')) # TODO: change to print the place where we concatenate
 
             #TODO: create a way to choose the good connection depending of the `qqch`
 
