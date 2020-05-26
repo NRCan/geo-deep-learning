@@ -7,6 +7,7 @@ import torch.nn as nn
 import torchvision.models as models
 from models import TernausNet, unet, checkpointed_unet, inception, coordconv, common
 from utils.utils import get_key_def
+import copy
 
 
 def load_checkpoint(filename):
@@ -61,13 +62,26 @@ def net(net_params, num_channels, inference=False):
             model.classifier = common.DeepLabHead(2048, num_channels)
         elif num_bands == 4:
             print('Finetuning pretrained deeplabv3 with 4 bands')
-            model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, aux_loss=None)
+            model_rgb = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, aux_loss=None)
+            
+            ###################
+            # TODO: See what to do with it
             #conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
             #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
             #conv1 = np.append(conv1, depth, axis=1)
             #conv1 = torch.from_numpy(conv1).float()
             #model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-            model.classifier = common.DeepLabHead(2048, num_channels)
+            ###################
+
+            model_rgb.classifier = common.DeepLabHead(2048, num_channels)
+
+            ###################
+            # TODO: find a more elegant way
+            model_nir = copy.deepcopy(model_rgb) # TODO: change to load only the part that we want
+            model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+
+            model = [model_rgb, model_nir]
+            ###################
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
 

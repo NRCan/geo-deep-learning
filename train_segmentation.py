@@ -293,13 +293,20 @@ def main(params, config_path):
     elif num_devices > 1:
         print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
         try: # FIXME: For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
-            model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            ##################
+            # TODO: 
+            model[0] = nn.DataParallel(model[0], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            model[1] = nn.DataParallel(model[1], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            ##################
         except AssertionError:
             warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
             device = torch.device('cuda:0')
             lst_device_ids = range(len(lst_device_ids))
-            model = nn.DataParallel(model,
-                                    device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            ##################
+            # TODO: 
+            model[0] = nn.DataParallel(model[0], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            model[1] = nn.DataParallel(model[1], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            ##################
 
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU\n")
@@ -314,11 +321,19 @@ def main(params, config_path):
 
     tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
     try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
-        model.to(device)
+        ##################
+        # TODO: 
+        model[0].to(device)
+        model[1].to(device)
+        ##################
     except RuntimeError:
         warnings.warn(f"Unable to use device. Trying device 0...\n")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-        model.to(device)
+        ##################
+        # TODO: 
+        model[0].to(device)
+        model[1].to(device)
+        ##################
     model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
 
     criterion = criterion.to(device)
@@ -326,6 +341,7 @@ def main(params, config_path):
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
+    # TODO: 
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment). Check once for all visualization tasks.
@@ -472,11 +488,15 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     #print(model)
     #with open('out.txt', 'w') as f:
     #    print(model, file=f)  # Python 3.x
-    nir_model = copy.deepcopy(model) # TODO: change to load only the part that we want
-    nir_model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    #nir_model = copy.deepcopy(model) # TODO: change to load only the part that we want
+    #nir_model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+
+    model[0].train()
+    model[1].train()
+
     #################
 
-    model.train()
+    #model.train()
     train_metrics = create_metrics_dict(num_classes)
     vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
@@ -507,9 +527,9 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             # Creat the second model with only the NIR
             #nir_model = copy.deepcopy(model) # TODO: change to load only the part that we want
             #nir_model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-            output_NIR = nir_model(inputs_NIR)
+            output_NIR = model[1](inputs_NIR)
             
-            outputs = model(inputs) # TODO: need to put back up
+            outputs = model[0](inputs) # TODO: need to put back up
 
             # TODO: change to print the place where we concatenate
             print('Testing with 4 bands at the deep {}'.format('conv1'))
