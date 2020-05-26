@@ -34,6 +34,9 @@ class MyEnsemble(nn.Module):
     def forward(self, x1, x2):
         x1 = self.modelA(x1)
         x2 = self.modelB(x2)
+    
+        with open('out.txt', 'w') as f:
+           print(x1, file=f)  # Python 3.x
         
         # Collect the weight for each model
         depth = x1.backbone._modules['conv1'].weight.detach().numpy()
