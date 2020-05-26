@@ -29,6 +29,10 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
 
+#######
+from utils.NIR_modules import MyEnsemble
+#######
+
 from utils import augmentation as aug, CreateDataset
 from utils.optimizer import create_optimizer
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
@@ -537,9 +541,9 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             # Creat the second model with only the NIR
             #nir_model = copy.deepcopy(model) # TODO: change to load only the part that we want
             #nir_model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-            output_NIR = model[1](inputs_NIR)
+            #output_NIR = model[1](inputs_NIR)
             
-            outputs = model[0](inputs) # TODO: need to put back up
+            #outputs = model[0](inputs) # TODO: need to put back up
 
             # TODO: change to print the place where we concatenate
             print('Testing with 4 bands at the deep {}'.format('conv1'))
@@ -547,8 +551,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             #TODO: create a way to choose the good connection depending of the `qqch`
 
             # Collect the weight for each model
-            depth = model[0].backbone._modules['conv1'].weight.detach().numpy()
-            depth_NIR = model[1].backbone._modules['conv1'].weight.detach().numpy()
+            #depth = model[0].backbone._modules['conv1'].weight.detach().numpy()
+            #depth_NIR = model[1].backbone._modules['conv1'].weight.detach().numpy()
 
             # Adding Noise
             #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7)) # TODO: Talk with the team if we add noise or not 
@@ -556,8 +560,12 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             #conv1 = torch.from_numpy(conv1)
 
             # Connection
-            new_weight = torch.cat([depth, depth_NIR], 1)
-            model[0].backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
+            #new_weight = torch.cat([depth, depth_NIR], 1)
+            #model[0].backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
+
+            model = MyEsemble(model[1],model[0])
+
+            output = model(inputs, inputs_NIR)
 
             ############################
             # End of the test implementation module
