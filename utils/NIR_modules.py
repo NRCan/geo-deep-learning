@@ -36,17 +36,17 @@ class MyEnsemble(nn.Module):
         x2 = self.modelB(x2)
         
         # Collect the weight for each model
-        depth = model[0].backbone._modules['conv1'].weight.detach().numpy()
-        depth_NIR = model[1].backbone._modules['conv1'].weight.detach().numpy()
+        depth = x1.backbone._modules['conv1'].weight.detach().numpy()
+        depth_NIR = x2.backbone._modules['conv1'].weight.detach().numpy()
 
         #x = torch.cat((x1, x2), dim=1)
         #x = self.classifier(F.relu(x))
 
         new_weight = torch.cat((depth, depth_NIR), dim=1)
-        model[0].backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
+        x1.backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
 
 
-        return x2
+        return x1
 
 ## Create models and load state_dicts    
 #modelA = MyModelA()

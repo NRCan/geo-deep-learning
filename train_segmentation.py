@@ -563,7 +563,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             #new_weight = torch.cat([depth, depth_NIR], 1)
             #model[0].backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
 
-            model = MyEsemble(model[1],model[0])
+            model = MyEnsemble(model[0],model[1])
 
             output = model(inputs, inputs_NIR)
 
