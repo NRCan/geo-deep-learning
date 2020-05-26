@@ -472,6 +472,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     #print(model)
     #with open('out.txt', 'w') as f:
     #    print(model, file=f)  # Python 3.x
+    nir_model = copy.deepcopy(model) # TODO: change to load only the part that we want
+    nir_model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
     #################
 
     model.train()
@@ -503,8 +505,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             #inputs_NIR = data['NIR'].to(device)
 
             # Creat the second model with only the NIR
-            nir_model = copy.deepcopy(model) # TODO: change to load only the part that we want
-            nir_model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
+            #nir_model = copy.deepcopy(model) # TODO: change to load only the part that we want
+            #nir_model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
             output_NIR = nir_model(inputs_NIR)
             
             outputs = model(inputs) # TODO: need to put back up
