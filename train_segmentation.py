@@ -743,6 +743,9 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                     ############################
                     # TODO: remove after the merge of Remy branch with no visualization option
                     # TODO: or change it to match the reste of the implementation
+                    #inputs = inputs[:,:-1, ...] # Need to be change 
+                    inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
+                    inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
                     inputs = inputs[:,:-1, ...] # Need to be change 
                     
                     #outputs = model[0](inputs)

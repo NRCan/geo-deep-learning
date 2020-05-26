@@ -48,7 +48,7 @@ class MyEnsemble(nn.Module):
 
         model_nir = copy.deepcopy(model_rgb)
         model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.modelB = NIRExtractior(model_nir, 'covid1')
+        self.modelB = NIRExtractor(model_nir, 'conv1')
 
 
         self.modelA = model_rgb
