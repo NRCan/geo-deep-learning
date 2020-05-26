@@ -4,7 +4,7 @@ import copy
 import torchvision
 from torch import nn
 import torchvision.models as models
-#from models import TernausNet, unet, checkpointed_unet, inception, coordconv, common
+from models import TernausNet, unet, checkpointed_unet, inception, coordconv, common
 
 
 class NIRExtractor(nn.Module):
