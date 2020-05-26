@@ -220,15 +220,17 @@ def set_hyperparameters(params, num_classes, model, checkpoint):
 
     ############################
     # TODO: 
-    optimizer = create_optimizer(
-            params=[{'params': model[1].parameters()}, {'params': model[0].parameters()}],
-            mode=opt_fn, base_lr=lr, weight_decay=weight_decay
-            )
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
+    #optimizer = create_optimizer(
+    #        params=[{'params': model[1].parameters()}, {'params': model[0].parameters()}],
+    #        mode=opt_fn, base_lr=lr, weight_decay=weight_decay
+    #        )
+
+    optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
     ############################
 
     #optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
-    #lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
+    
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
     if checkpoint:
         tqdm.write(f'Loading checkpoint...')
@@ -309,8 +311,10 @@ def main(params, config_path):
         try: # FIXME: For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             ##################
             # TODO: 
-            model[0] = nn.DataParallel(model[0], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-            model[1] = nn.DataParallel(model[1], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            #model[0] = nn.DataParallel(model[0], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            #model[1] = nn.DataParallel(model[1], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            
+            model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
             ##################
         except AssertionError:
             warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
@@ -318,8 +322,10 @@ def main(params, config_path):
             lst_device_ids = range(len(lst_device_ids))
             ##################
             # TODO: 
-            model[0] = nn.DataParallel(model[0], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-            model[1] = nn.DataParallel(model[1], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            #model[0] = nn.DataParallel(model[0], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            #model[1] = nn.DataParallel(model[1], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+            
+            model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
             ##################
 
     else:
@@ -337,16 +343,20 @@ def main(params, config_path):
     try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
         ##################
         # TODO: 
-        model[0].to(device)
-        model[1].to(device)
+        #model[0].to(device)
+        #model[1].to(device)
+        
+        model.to(device)
         ##################
     except RuntimeError:
         warnings.warn(f"Unable to use device. Trying device 0...\n")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         ##################
         # TODO: 
-        model[0].to(device)
-        model[1].to(device)
+        #model[0].to(device)
+        #model[1].to(device)
+        
+        model.to(device)
         ##################
     model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
 
@@ -505,12 +515,13 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     #nir_model = copy.deepcopy(model) # TODO: change to load only the part that we want
     #nir_model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
 
-    model[0].train()
-    model[1].train()
+    #model[0].train()
+    #model[1].train()
 
+
+    model.train()
     #################
 
-    #model.train()
     train_metrics = create_metrics_dict(num_classes)
     vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
@@ -563,7 +574,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             #new_weight = torch.cat([depth, depth_NIR], 1)
             #model[0].backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
 
-            model = MyEnsemble(model[0],model[1])
+            #model = MyEnsemble(model[0],model[1])
 
             output = model(inputs, inputs_NIR)
 
@@ -717,7 +728,8 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
 
     ###############
     # TODO: NIR modification
-    model[0].eval()
+    #model[0].eval()
+    model.eval()
     ###############
     with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
         for batch_index, data in enumerate(_tqdm):
@@ -733,7 +745,8 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                     # TODO: or change it to match the reste of the implementation
                     inputs = inputs[:,:-1, ...] # Need to be change 
                     
-                    outputs = model[0](inputs)
+                    #outputs = model[0](inputs)
+                    outputs = model(inputs, inputs)
                     ############################
                     # Test Implementation of the NIR
                     ############################
