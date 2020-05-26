@@ -1,7 +1,9 @@
 import argparse
 import os
 from pathlib import Path
-from utils.utils import read_parameters, read_csv, validate_num_classes, vector_to_raster, image_reader_as_array, get_key_def
+from utils.utils import vector_to_raster, get_key_def
+from utils.readers import read_parameters, read_csv, image_reader_as_array
+from utils.verifications import validate_num_classes
 import time
 import rasterio
 import csv
@@ -19,8 +21,8 @@ def create_csv():
 
     """
     prep_csv_path = params['sample']['prep_csv_file']
-    dist_samples = params['sample']['samples_dist']
     sample_size = params['global']['samples_size']
+    dist_samples = round(sample_size * (1 - (params['sample']['overlap'] / 100)))
     data_path = params['global']['data_path']
     Path.mkdir(Path(data_path), exist_ok=True)
     data_prep_csv = read_csv(prep_csv_path)
@@ -35,7 +37,8 @@ def create_csv():
             _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
 
             # Validate the number of class in the vector file
-            validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'])
+            ignore_index = get_key_def('ignore_index', params['training'], -1)
+            validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
 
             assert os.path.isfile(info['tif']), f"could not open raster file at {info['tif']}"
             with rasterio.open(info['tif'], 'r') as raster:
