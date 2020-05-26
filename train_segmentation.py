@@ -503,21 +503,10 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             #inputs_NIR = data['NIR'].to(device)
 
             # Creat the second model with only the NIR
-            nir_model = copy.deepcopy(model)
-
-            #first_conv_layer = [nn.Conv2d(1, 3, kernel_size=3, stride=1, padding=1, dilation=1, groups=1, bias=True)]
-            #first_conv_layer.extend(list(nir_model.features))  
-            #nir_model.features= nn.Sequential(*first_conv_layer)  
+            nir_model = copy.deepcopy(model) # TODO: change to load only the part that we want
             nir_model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-
-            with open('nir_model.txt', 'w') as f:
-                print(model, file=f)  # 
-
             output_NIR = nir_model(inputs_NIR)
             
-
-
-
             outputs = model(inputs) # TODO: need to put back up
 
             # TODO: change to print the place where we concatenate
@@ -693,6 +682,16 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                 with torch.no_grad():
                     inputs = data['sat_img'].to(device)
                     labels = data['map_img'].to(device)
+
+                    ############################
+                    # Test Implementation of the NIR
+                    ############################
+                    # TODO: remove after the merge of Remy branch with no visualization option
+                    # TODO: or change it to match the reste of the implementation
+                    inputs = inputs[:,:-1, ...] # Need to be change 
+                    ############################
+                    # Test Implementation of the NIR
+                    ############################
 
                     outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
