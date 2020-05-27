@@ -20,7 +20,7 @@ from pathlib import Path
 from models.model_choice import net
 from train_segmentation import flatten_outputs, flatten_labels
 from utils import augmentation
-from utils.augmentation import Scale
+from utils.augmentation import Scale, RadiometricTrim
 from utils.geoutils import vector_to_raster, create_new_raster_from_base
 from utils.logger import InformationLogger
 from utils.metrics import create_metrics_dict, report_classification, iou
@@ -144,7 +144,7 @@ def sem_seg_inference(model,
                             eval_metrics = iou(segmentation, labels_flatten, 1, num_classes, eval_metrics)
                             eval_metrics = report_classification(segmentation, labels_flatten, 1, eval_metrics,
                                                                  ignore_index=ignore_index)
-                            output_iou[row_start:row_end, col_start:col_end] += int(eval_metrics['iou'].val*100)
+                            output_iou[row_start:row_end, col_start:col_end] += int(eval_metrics['iou'].val.astype('uint8')*100)
 
 
                         output_counts[row_start:row_end, col_start:col_end] += 1
@@ -339,25 +339,28 @@ def main(params):
 
         # LOOP THROUGH LIST OF INPUT IMAGES
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
-            for img in _tqdm:
-                img_name = Path(img['tif']).name
+            for info in _tqdm:
+                img_name = Path(info['tif']).name
                 if bucket:
                     local_img = f"Images/{img_name}"
-                    bucket.download_file(img['tif'], local_img)
+                    bucket.download_file(info['tif'], local_img)
                     inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-                    if img['meta']:
-                        if img['meta'] not in bucket_file_cache:
-                            bucket_file_cache.append(img['meta'])
-                            bucket.download_file(img['meta'], img['meta'].split('/')[-1])
-                        img['meta'] = img['meta'].split('/')[-1]
+                    if info['meta']:
+                        if info['meta'] not in bucket_file_cache:
+                            bucket_file_cache.append(info['meta'])
+                            bucket.download_file(info['meta'], info['meta'].split('/')[-1])
+                        info['meta'] = info['meta'].split('/')[-1]
                 else:  # FIXME: else statement should support img['meta'] integration as well.
-                    local_img = Path(img['tif'])
+                    local_img = Path(info['tif'])
                     inference_image = working_folder.joinpath(f"{img_name.split('.')[0]}_inference.tif")
 
                 assert local_img.is_file(), f"Could not open raster file at {local_img}"
 
+                # Empty sample as dictionary
+                inf_sample = {'sat_img': None, 'map_img': None, 'metadata': None}
+
                 with rasterio.open(local_img, 'r') as raster:
-                    np_input_image, raster, dataset_nodata = image_reader_as_array(
+                    inf_sample['sat_img'], raster, dataset_nodata = image_reader_as_array(
                                     input_image=raster,
                                     bgr_to_rgb=get_key_def('BGR_to_RGB', params['global'], False),
                                     aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
@@ -366,37 +369,57 @@ def main(params):
                                     aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
                                     aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
-                np_label_raster = None
-                if img['gpkg'] is not None:
-                    # 2. Burn vector file in a raster file
-                    np_label_raster = vector_to_raster(vector_file=img['gpkg'],
+                metadata = raster.meta
+                metadata['name'] = raster.name
+                metadata['csv_info'] = info
+                inf_sample['metadata'] = metadata
+
+                radiom_trim_range = get_key_def('radiom_trim_range', params['training']['augmentation'], None)
+                if radiom_trim_range is not None:  # TODO: test this
+                    trim_at_inference = round((radiom_trim_range[-1]-radiom_trim_range[0])/2, 1)
+                    radiom_scaling = RadiometricTrim(range=[trim_at_inference, trim_at_inference])
+                    inf_sample = radiom_scaling(inf_sample)
+
+                    if debug:
+                        output_name = working_folder / f'{local_img.stem}_radiomtrim.TIF'
+                        out_meta = raster.meta.copy()
+                        np_image_debug = inf_sample['sat_img'].transpose(2, 0, 1).astype('uint8')
+                        out_meta.update({"driver": "GTiff"})
+                        with rasterio.open(output_name, "w", **out_meta) as dest:
+                            dest.write(np_image_debug)
+                        #create_new_raster_from_base(local_img, output_name, sample['sat_img'].astype('uint8'))
+                        print(f'DEBUG: Saved raster after radiometric trim to {output_name}')
+
+                if info['gpkg'] is not None:
+                    # Burn vector file in a raster file
+                    inf_sample['map_img'] = vector_to_raster(vector_file=info['gpkg'],
                                                        input_image=raster,
-                                                       out_shape=np_input_image.shape[:2],
-                                                       attribute_name=img['attribute_name'],
+                                                       out_shape=inf_sample['sat_img'].shape[:2],
+                                                       attribute_name=info['attribute_name'],
                                                        fill=0)  # background value in rasterized vector.
                     if dataset_nodata is not None:
                         # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
-                        np_label_raster[dataset_nodata] = ignore_index
+                        inf_sample['map_img'][dataset_nodata] = ignore_index
                     inf_log = InformationLogger(working_folder, 'tst')
 
                 if meta_map:
-                    assert img['meta'] is not None and isinstance(img['meta'], str) and os.path.isfile(img['meta']), \
+                    assert info['meta'] is not None and isinstance(info['meta'], str) and os.path.isfile(info['meta']), \
                         "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"
-                    metadata = read_parameters(img['meta'])
+                    metadata = read_parameters(info['meta'])
 
                 _tqdm.set_postfix(OrderedDict(img_name=img_name,
-                                              img=np_input_image.shape,
-                                              img_min_val=np.min(np_input_image),
-                                              img_max_val=np.max(np_input_image)))
+                                              img=inf_sample['sat_img'].shape,
+                                              img_min_val=np.min(inf_sample['sat_img']),
+                                              img_max_val=np.max(inf_sample['sat_img'])))
 
-                input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
+                input_band_count = inf_sample['sat_img'].shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
                 if input_band_count > num_bands:  # TODO: move as new function in utils.verifications
                     # FIXME: Following statements should be reconsidered to better manage inconsistencies between
                     #  provided number of band and image number of band.
                     warnings.warn(f"Input image has more band than the number provided in the yaml file ({num_bands}). "
                                   f"Will use the first {num_bands} bands of the input image.")
-                    np_input_image = np_input_image[:, :, 0:num_bands]
-                    print(f"Input image's new shape: {np_input_image.shape}")
+                    inf_sample['sat_img'] = inf_sample['sat_img'][:, :, 0:num_bands]
+                    print(f"Input image's new shape: {inf_sample['sat_img'].shape}")
 
                 elif input_band_count < num_bands:
                     warnings.warn(f"Skipping image: The number of bands requested in the yaml file ({num_bands})"
@@ -405,7 +428,7 @@ def main(params):
 
                 # START INFERENCES ON SUB-IMAGES
                 sem_seg_results_per_class, output_iou, inf_metrics = sem_seg_inference(model,
-                                                              np_input_image,
+                                                              inf_sample['sat_img'],
                                                               nbr_pix_overlap,
                                                               chunk_size,
                                                               num_classes_corrected,
@@ -415,11 +438,11 @@ def main(params):
                                                               metadata,
                                                               output_path=working_folder,
                                                               index=_tqdm.n,
-                                                              label_array=np_label_raster,
+                                                              label_array=inf_sample['map_img'],
                                                               ignore_index=ignore_index,
                                                               debug=debug)
 
-                if img['gpkg'] is not None:
+                if info['gpkg'] is not None:
                     inf_log.add_values(inf_metrics, _tqdm.n)
                     output_name = working_folder / f'{local_img.stem}_grid_iou.TIF'
                     create_new_raster_from_base(local_img, output_name, output_iou.astype('uint8'))
@@ -428,7 +451,7 @@ def main(params):
                 tqdm.write(f'Saving inference...\n')
                 if get_key_def('heatmaps', params['inference'], False):
                     tqdm.write(f'Heatmaps will be saved.\n')
-                vis(params, np_input_image, sem_seg_results_per_class, working_folder, inference_input_path=local_img, debug=debug)
+                vis(params, inf_sample['sat_img'], sem_seg_results_per_class, working_folder, inference_input_path=local_img, debug=debug)
 
                 tqdm.write(f"\n\nSemantic segmentation of image {img_name} completed\n\n")
                 if bucket:

@@ -108,7 +108,7 @@ def image_reader_as_array(input_image,
     return np_array, input_image, dataset_nodata
 
 
-def read_csv(csv_file_name, inference=False):
+def read_csv(csv_file_name):
     """Open csv file and parse it, returning a list of dict.
 
     If inference == True, the dict contains this info:
