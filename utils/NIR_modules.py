@@ -16,8 +16,13 @@ class NIRExtractor(nn.Module):
 
     def forward(self, x):
         if self.extracted_layer == 'conv1': 
-            #print(list(self.submodule.children())[:4])
-            modules = list(self.submodule.children())[:4]
+            # Extract all layers in the ResNet backbone
+            modules_resnet = list(self.submodule.children())[:1]
+            # Extract only the conv1 
+            modules = list(modules_resnet[0].children())[:1]
+            # Make a Sequence of those layers
+            modules = nn.Sequential(*modules)
+        # TODO: change the rest to fit the others entries
         elif self.extracted_layer == 'inner-layer-3':                     
             modules = list(self.submodule.children())[:6]
             third_module = list(self.submodule.children())[6]
@@ -58,9 +63,12 @@ class MyEnsemble(nn.Module):
         #self.classifier = nn.Linear(4, 2)
         
     def forward(self, x1, x2):
+
         x1 = self.modelA(x1)
         x2 = self.modelB(x2)
-    
+   
+        print('shape de x2 apres',x2.shape)
+
         # Collect the weight for each model
         #depth = x1.backbone._modules['conv1'].weight.detach().numpy()
         #depth_NIR = x2.backbone._modules['conv1'].weight.detach().numpy()

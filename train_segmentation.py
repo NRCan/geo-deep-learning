@@ -578,7 +578,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
             print('in', inputs_NIR.shape)
 
-            output = model(inputs, inputs_NIR)
+            outputs = model(inputs, inputs_NIR)
 
             ############################
             # End of the test implementation module
