@@ -7,9 +7,9 @@ import torchvision.models as models
 from models import common
 
 
-class NIRExtractor(nn.Module):
+class LayerExtractor(nn.Module):
     def __init__(self, submodule, extracted_layer):
-        super(NIRExtractor, self).__init__()
+        super(LayerExtractor, self).__init__()
         # TODO: documentation
         self.submodule = submodule
         self.extracted_layer = extracted_layer
@@ -50,24 +50,36 @@ class MyEnsemble(nn.Module):
         # TODO: documentation
         model_rgb = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, aux_loss=None)
         model_rgb.classifier = common.DeepLabHead(2048, num_channels)
+        #self.modelA = model_rgb
+        self.modelRGB = LayerExtractor(model_rgb, 'conv1')
 
         model_nir = copy.deepcopy(model_rgb)
         model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.modelB = NIRExtractor(model_nir, 'conv1')
-
-
-        self.modelA = model_rgb
+        self.modelNIR = LayerExtractor(model_nir, 'conv1')
 
         #self.modelA = modelA
         #self.modelB = modelB
         #self.classifier = nn.Linear(4, 2)
         
     def forward(self, x1, x2):
-
-        x1 = self.modelA(x1)
-        x2 = self.modelB(x2)
+        rbg = self.modelRGB(x1)
+        nir = self.modelNIR(x2)
    
-        print('shape de x2 apres',x2.shape)
+        print('shape de x1 apres', x1.shape)
+        print('shape de x2 apres', x2.shape)
+        
+        # TODO: concatenation
+        x = torch.cat((rgb, nir), dim=1)
+
+        print('shape of concatenation', x.shape)
+
+        # TODO: conv 1x1 need to match the enter of the bn1
+
+        print('shape after conv 1x1', x.shape)
+
+        # TODO: give the result to the reste of the network
+        
+        print('shape after conv 1x1', x.shape)
 
         # Collect the weight for each model
         #depth = x1.backbone._modules['conv1'].weight.detach().numpy()
@@ -81,7 +93,7 @@ class MyEnsemble(nn.Module):
 
         #new_weight = torch.cat((depth, depth_NIR), dim=1)
 
-        return x1
+        return x
 
 ## Create models and load state_dicts    
 #modelA = MyModelA()
