@@ -62,7 +62,7 @@ class MyEnsemble(nn.Module):
         #self.classifier = nn.Linear(4, 2)
         
     def forward(self, x1, x2):
-        rbg = self.modelRGB(x1)
+        rgb = self.modelRGB(x1)
         nir = self.modelNIR(x2)
    
         print('shape de x1 apres', x1.shape)
