@@ -65,8 +65,8 @@ class MyEnsemble(nn.Module):
         rgb = self.modelRGB(x1)
         nir = self.modelNIR(x2)
    
-        print('shape de x1 apres', x1.shape)
-        print('shape de x2 apres', x2.shape)
+        print('shape de rgb apres', rgb.shape)
+        print('shape de nir apres', nir.shape)
         
         # TODO: concatenation
         x = torch.cat((rgb, nir), dim=1)
