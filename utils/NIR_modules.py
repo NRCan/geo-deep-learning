@@ -8,11 +8,12 @@ from models import common
 
 
 class LayerExtractor(nn.Module):
-    def __init__(self, submodule, extracted_layer):
+    def __init__(self, submodule, extracted_layer, leftover=False):
         super(LayerExtractor, self).__init__()
         # TODO: documentation
         self.submodule = submodule
         self.extracted_layer = extracted_layer
+        self.leftover_out = leftover
         # Extract the output size of the layer to fit resize after the concatenation TODO put it in doc
         self.out_channels = self.submodule.backbone.conv1.out_channels
 
@@ -23,15 +24,11 @@ class LayerExtractor(nn.Module):
             modules = nn.Sequential(*modules)
             # Extract all the other layers following the layer of extraction
             leftover = list(self.submodule.backbone.children())[1:]
-            classifier = list(self.submodule.classifier.children())[1]
-
-            leftover = nn.Sequential(*leftover)
-
+            classifier = list(self.submodule.classifier.children())
             leftover.append(classifier)
-            #leftover = nn.Sequential(*leftover)
 
             with open('out.txt', 'w') as f:
-                print(list(classifier), file=f)
+                print(list(leftover), file=f)
 
         # TODO: change the rest to fit the others entries
         elif self.extracted_layer == 'inner-layer-3':                     
@@ -45,10 +42,16 @@ class LayerExtractor(nn.Module):
         else:                                               # after avg-pool
             modules = list(self.submodule.children())[:9]
 
-        self.submodule = nn.Sequential(*modules)
-        x = self.submodule(x)
 
-        return x, leftover
+        # Return the rest of the Network or only the first part
+        if self.leftover_out:
+            modules_layers = leftover
+        else:
+            modules_layers = modules
+
+        self.submodule = nn.Sequential(*modules_layers)
+        x = self.submodule(x)
+        return x
 
 
 class MyEnsemble(nn.Module):
@@ -63,6 +66,8 @@ class MyEnsemble(nn.Module):
         model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.modelNIR = LayerExtractor(model_nir, 'conv1')
 
+        self.leftover = LayerExtractor(model_rgb, 'conv1', leftover=True)
+
         self.conv1x1 = nn.Conv2d(
                 in_channels=self.modelRGB.out_channels*2,
                 out_channels=self.modelRGB.out_channels,
@@ -70,8 +75,8 @@ class MyEnsemble(nn.Module):
         )
 
     def forward(self, x1, x2):
-        rgb, leftover = self.modelRGB(x1)
-        nir, _ = self.modelNIR(x2)
+        rgb = self.modelRGB(x1)
+        nir = self.modelNIR(x2)
    
         print('shape de rgb apres', rgb.shape)
         print('shape de nir apres', nir.shape)
@@ -82,10 +87,12 @@ class MyEnsemble(nn.Module):
         print('shape of concatenation', x.shape)
 
         # TODO: conv 1x1 need to match the enter of the bn1
+        x = self.conv1x1(x)
 
         print('shape after conv 1x1', x.shape)
 
         # TODO: give the result to the reste of the network
+        x = self.leftover(x)
         
         print('shape after the rest of the network', x.shape)
 
