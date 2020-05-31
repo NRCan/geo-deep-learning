@@ -25,10 +25,7 @@ class LayerExtractor(nn.Module):
             # Extract all the other layers following the layer of extraction
             leftover = list(self.submodule.backbone.children())[1:]
             classifier = list(self.submodule.classifier.children())
-            leftover.append(classifier)
-
-            with open('out.txt', 'w') as f:
-                print(list(leftover), file=f)
+            leftover.extend(classifier)
 
         # TODO: change the rest to fit the others entries
         elif self.extracted_layer == 'inner-layer-3':                     
@@ -41,7 +38,6 @@ class LayerExtractor(nn.Module):
             modules = list(self.submodule.children())[:7]
         else:                                               # after avg-pool
             modules = list(self.submodule.children())[:9]
-
 
         # Return the rest of the Network or only the first part
         if self.leftover_out:
@@ -96,27 +92,5 @@ class MyEnsemble(nn.Module):
         
         print('shape after the rest of the network', x.shape)
 
-        # Collect the weight for each model
-        #depth = x1.backbone._modules['conv1'].weight.detach().numpy()
-        #depth_NIR = x2.backbone._modules['conv1'].weight.detach().numpy()
-
-        #x = torch.cat((x1, x2), dim=1)
-        #x = self.classifier(F.relu(x))
-
-        #new_weight = torch.cat((depth, depth_NIR), dim=1)
-        #x1.backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
-
-        #new_weight = torch.cat((depth, depth_NIR), dim=1)
-
         return x
 
-## Create models and load state_dicts    
-#modelA = MyModelA()
-#modelB = MyModelB()
-## Load state dicts
-#modelA.load_state_dict(torch.load(PATH))
-#modelB.load_state_dict(torch.load(PATH))
-#
-#model = MyEnsemble(modelA, modelB)
-#x1, x2 = torch.randn(1, 10), torch.randn(1, 20)
-#output = model(x1, x2)
