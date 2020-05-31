@@ -74,23 +74,23 @@ class MyEnsemble(nn.Module):
         rgb = self.modelRGB(x1)
         nir = self.modelNIR(x2)
    
-        print('shape de rgb apres', rgb.shape)
-        print('shape de nir apres', nir.shape)
+        #print('shape de rgb apres', rgb.shape)
+        #print('shape de nir apres', nir.shape)
         
         # TODO: concatenation
         x = torch.cat((rgb, nir), dim=1)
 
-        print('shape of concatenation', x.shape)
+        #print('shape of concatenation', x.shape)
 
         # TODO: conv 1x1 need to match the enter of the bn1
         x = self.conv1x1(x)
 
-        print('shape after conv 1x1', x.shape)
+        #print('shape after conv 1x1', x.shape)
 
         # TODO: give the result to the reste of the network
         x = self.leftover(x)
         
-        print('shape after the rest of the network', x.shape)
+        #print('shape after the rest of the network', x.shape)
 
         return x
 

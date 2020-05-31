@@ -575,10 +575,9 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             #model[0].backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
 
             #model = MyEnsemble(model[0],model[1])
-
-            print('in', inputs_NIR.shape)
-
             outputs = model(inputs, inputs_NIR)
+            print('output', outputs.shape)
+            print('labels', labels.shape)
 
             ############################
             # End of the test implementation module
@@ -728,11 +727,8 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
     tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
     min_vis_batch, max_vis_batch, increment = vis_batch_range
 
-    ###############
-    # TODO: NIR modification
-    #model[0].eval()
     model.eval()
-    ###############
+
     with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
         for batch_index, data in enumerate(_tqdm):
             if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
