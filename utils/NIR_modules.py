@@ -13,24 +13,25 @@ class LayerExtractor(nn.Module):
         # TODO: documentation
         self.submodule = submodule
         self.extracted_layer = extracted_layer
-        self.out_channels = 0
+        # Extract the output size of the layer to fit resize after the concatenation TODO put it in doc
+        self.out_channels = self.submodule.backbone.conv1.out_channels
 
     def forward(self, x):
         if self.extracted_layer == 'conv1': 
             # Extract all layers in the ResNet backbone and [:1] for the conv1
             modules = list(self.submodule.backbone.children())[:1]
-            # Make a Sequence of those layers
             modules = nn.Sequential(*modules)
-            # Extract the output size of the layer to fit resize after the concatenation
-            self.out_channels = self.submodule.backbone.conv1.out_channels
             # Extract all the other layers following the layer of extraction
             leftover = list(self.submodule.backbone.children())[1:]
-            classifier = list(self.submodule.classifier.children)
-            leftover.append(classifier)
+            classifier = list(self.submodule.classifier.children())[1]
+
             leftover = nn.Sequential(*leftover)
 
+            leftover.append(classifier)
+            #leftover = nn.Sequential(*leftover)
+
             with open('out.txt', 'w') as f:
-                print(list(leftover), file=f)
+                print(list(classifier), file=f)
 
         # TODO: change the rest to fit the others entries
         elif self.extracted_layer == 'inner-layer-3':                     
@@ -50,11 +51,6 @@ class LayerExtractor(nn.Module):
         return x, leftover
 
 
-# model_ft = models.resnet50(pretrained=True)
-# extractor = Resnet50Extractor(model_ft, extracted_layer)
-# features = extractor(input_tensor)
-
-
 class MyEnsemble(nn.Module):
     def __init__(self, num_channels):
         super(MyEnsemble, self).__init__()
@@ -71,12 +67,8 @@ class MyEnsemble(nn.Module):
                 in_channels=self.modelRGB.out_channels*2,
                 out_channels=self.modelRGB.out_channels,
                 kernel_size=1
-                )
+        )
 
-        #self.modelA = modelA
-        #self.modelB = modelB
-        #self.classifier = nn.Linear(4, 2)
-        
     def forward(self, x1, x2):
         rgb, leftover = self.modelRGB(x1)
         nir, _ = self.modelNIR(x2)
