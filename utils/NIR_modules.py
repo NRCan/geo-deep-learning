@@ -16,12 +16,21 @@ class LayerExtractor(nn.Module):
 
     def forward(self, x):
         if self.extracted_layer == 'conv1': 
-            # Extract all layers in the ResNet backbone
-            modules_resnet = list(self.submodule.children())[:1]
-            # Extract only the conv1 
-            modules = list(modules_resnet[0].children())[:1]
+            # Extract all layers in the ResNet backbone and [:1] for the conv1
+            modules = list(self.submodule.backbone.children())[:1]
             # Make a Sequence of those layers
             modules = nn.Sequential(*modules)
+            # Extract the output size of the layer to fit resize after the concatenation
+            out_channels = self.submodule.backbone.conv1.out_channels
+            # Extract all the other layers following the layer of extraction
+            leftover = list(self.submodule.backbone.children())[1:]
+            classifier = list(self.submodule.classifier.children)
+            leftover.append(classifier)
+            leftover = nn.Sequential(*leftover)
+
+            with open('out.txt', 'w') as f:
+                print(list(leftover), file=f)
+
         # TODO: change the rest to fit the others entries
         elif self.extracted_layer == 'inner-layer-3':                     
             modules = list(self.submodule.children())[:6]
@@ -36,7 +45,9 @@ class LayerExtractor(nn.Module):
 
         self.submodule = nn.Sequential(*modules)
         x = self.submodule(x)
-        return x
+
+
+        return x, leftover, out_channels
 
 
 # model_ft = models.resnet50(pretrained=True)
@@ -51,11 +62,13 @@ class MyEnsemble(nn.Module):
         model_rgb = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, aux_loss=None)
         model_rgb.classifier = common.DeepLabHead(2048, num_channels)
         #self.modelA = model_rgb
-        self.modelRGB = LayerExtractor(model_rgb, 'conv1')
+        self.modelRGB, , in_channels, out_channels = LayerExtractor(model_rgb, 'conv1')
 
         model_nir = copy.deepcopy(model_rgb)
         model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.modelNIR = LayerExtractor(model_nir, 'conv1')
+        self.modelNIR, _, _, _ = LayerExtractor(model_nir, 'conv1')
+
+        self.conv1x1 = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1)
 
         #self.modelA = modelA
         #self.modelB = modelB
@@ -79,7 +92,7 @@ class MyEnsemble(nn.Module):
 
         # TODO: give the result to the reste of the network
         
-        print('shape after conv 1x1', x.shape)
+        print('shape after the rest of the network', x.shape)
 
         # Collect the weight for each model
         #depth = x1.backbone._modules['conv1'].weight.detach().numpy()
