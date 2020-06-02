@@ -16,6 +16,12 @@ import shutil
 import numpy as np
 import copy
 
+############
+# TODO: remove after test
+import sys
+sys.path.append('../pytorch-summary/torchsummary')
+from torchsummary import summary
+############
 
 try:
     from pynvml import *
@@ -728,6 +734,11 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
     min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     model.eval()
+
+    ###################
+    # TODO: remove after test
+    summary(model, [(3,256,256),(1,256,256)], file_n='summary.txt')
+    ###################
 
     with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
         for batch_index, data in enumerate(_tqdm):

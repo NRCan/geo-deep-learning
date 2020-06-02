@@ -36,8 +36,6 @@ class LayerExtractor(nn.Module):
             modules.append(third_module)
         elif self.extracted_layer == 'layer-3':                     
             modules = list(self.submodule.children())[:7]
-        else:                                               # after avg-pool
-            modules = list(self.submodule.children())[:9]
 
         # Return the rest of the Network or only the first part
         if self.leftover_out:
@@ -58,9 +56,12 @@ class MyEnsemble(nn.Module):
         model_rgb.classifier = common.DeepLabHead(2048, num_channels)
         self.modelRGB = LayerExtractor(model_rgb, 'conv1')
 
-        model_nir = copy.deepcopy(model_rgb)
-        model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.modelNIR = LayerExtractor(model_nir, 'conv1')
+        #model_nir = copy.deepcopy(model_rgb)
+        #model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        #self.modelNIR = LayerExtractor(model_nir, 'conv1')
+
+        self.modelNIR = copy.deepcopy(self.modelRGB)
+        self.modelNIR.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
 
         self.leftover = LayerExtractor(model_rgb, 'conv1', leftover=True)
 
@@ -90,7 +91,7 @@ class MyEnsemble(nn.Module):
         # TODO: give the result to the reste of the network
         x = self.leftover(x)
         
-        #print('shape after the rest of the network', x.shape)
+        print('shape after the rest of the network', x.shape)
 
         return x
 
