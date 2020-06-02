@@ -73,6 +73,7 @@ class MyEnsemble(nn.Module):
     def forward(self, x1, x2):
         rgb = self.modelRGB(x1)
         #nir = self.modelNIR(x2)
+        x =rgb
    
         #print('shape de rgb apres', rgb.shape)
         #print('shape de nir apres', nir.shape)
@@ -90,6 +91,5 @@ class MyEnsemble(nn.Module):
         # TODO: give the result to the reste of the network
         x = self.leftover(x)
         print('shape after the rest of the network', x.shape)
-        #x =rgb
         return x
 
