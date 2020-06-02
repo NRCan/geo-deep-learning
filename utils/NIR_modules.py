@@ -56,12 +56,14 @@ class MyEnsemble(nn.Module):
         model_rgb.classifier = common.DeepLabHead(2048, num_channels)
         self.modelRGB = LayerExtractor(model_rgb, 'conv1')
 
-        #model_nir = copy.deepcopy(model_rgb)
-        #model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
-        #self.modelNIR = LayerExtractor(model_nir, 'conv1')
+        model_nir = copy.deepcopy(model_rgb)
+        model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        self.modelNIR = LayerExtractor(model_nir, 'conv1')
 
-        self.modelNIR = copy.deepcopy(self.modelRGB)
-        self.modelNIR.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        del model_nir
+
+        #self.modelNIR = copy.deepcopy(self.modelRGB)
+        #self.modelNIR.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
 
         self.leftover = LayerExtractor(model_rgb, 'conv1', leftover=True)
 
