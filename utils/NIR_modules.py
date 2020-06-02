@@ -60,7 +60,7 @@ class MyEnsemble(nn.Module):
         #model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
         #self.modelNIR = LayerExtractor(model_nir, 'conv1')
 
-        #self.leftover = LayerExtractor(model_rgb, 'conv1', leftover=True)
+        self.leftover = LayerExtractor(model_rgb, 'conv1', leftover=True)
 
         self.conv1x1 = nn.Conv2d(
                 in_channels=self.modelRGB.out_channels*2,
@@ -88,9 +88,8 @@ class MyEnsemble(nn.Module):
         #print('shape after conv 1x1', x.shape)
 
         # TODO: give the result to the reste of the network
-        #x = self.leftover(x)
-        
-        #print('shape after the rest of the network', x.shape)
-        x =rgb
+        x = self.leftover(x)
+        print('shape after the rest of the network', x.shape)
+        #x =rgb
         return x
 
