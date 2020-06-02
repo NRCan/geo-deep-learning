@@ -90,7 +90,7 @@ class MyEnsemble(nn.Module):
         # TODO: give the result to the reste of the network
         #x = self.leftover(x)
         
-        print('shape after the rest of the network', x.shape)
-
+        #print('shape after the rest of the network', x.shape)
+        x =rgb
         return x
 
