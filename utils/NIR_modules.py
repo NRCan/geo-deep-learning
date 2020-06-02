@@ -63,11 +63,11 @@ class MyEnsemble(nn.Module):
 
         #self.leftover = LayerExtractor(model_rgb, 'conv1', leftover=True)
 
-        self.conv1x1 = nn.Conv2d(
-                in_channels=self.modelRGB.out_channels*2,
-                out_channels=self.modelRGB.out_channels,
-                kernel_size=1
-        )
+        #self.conv1x1 = nn.Conv2d(
+        #        in_channels=self.modelRGB.out_channels*2,
+        #        out_channels=self.modelRGB.out_channels,
+        #        kernel_size=1
+        #)
         
         #del model_nir, model_rgb
 
