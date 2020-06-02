@@ -4,6 +4,7 @@ import numpy as np
 from ruamel_yaml import YAML
 from tqdm import tqdm
 from pathlib import Path
+from skimage import morphology
 
 from utils.utils import vector_to_raster, minmax_scale
 
@@ -61,11 +62,13 @@ def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vec
                                       target_ids=aux_vector_ids,
                                       merge_all=False)
         if aux_vector_dist_maps:
-            import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
+            # import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
             vec_tensor = vec_tensor.astype(np.float32)
             for vec_band_idx in range(vec_tensor.shape[2]):
                 mask = vec_tensor[:, :, vec_band_idx]
-                mask = cv.dilate(mask, (3, 3))  # make points and linestring easier to work with
+                kernel = np.ones(3, 3)
+                # mask = cv.dilate(mask, kernel)  # make points and linestring easier to work with
+                mask = morphology.binary_dilation(mask, kernel)  # make points and linestring easier to work with
                 #display_resize = cv.resize(np.where(mask, np.uint8(0), np.uint8(255)), (1000, 1000))
                 #cv.imshow("mask", display_resize)
                 dmap = cv.distanceTransform(np.where(mask, np.uint8(0), np.uint8(255)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
