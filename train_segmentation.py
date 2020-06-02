@@ -467,7 +467,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     train_metrics = create_metrics_dict(num_classes)
     vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-    min_vis_batch, max_vis_batch, increment = vis_batch_range
+    # min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
@@ -484,7 +484,10 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             if isinstance(outputs, OrderedDict):
                 outputs = outputs['out']
 
-            if vis_batch_range is not None and vis_at_train and batch_index in range(min_vis_batch, max_vis_batch, increment):
+            # if vis_batch_range is not None and vis_at_train and batch_index in range(min_vis_batch, max_vis_batch, increment):
+            if vis_batch_range and vis_at_train:
+                min_vis_batch, max_vis_batch, increment = vis_batch_range
+                if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0:
                         tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
@@ -505,7 +508,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                                               gpu_perc=f'{res.gpu} %',
                                               gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
                                               lr=optimizer.param_groups[0]['lr'],
-                                              img=data['sat_img'].numpy().shape[1:],
+                                              img=data['sat_img'].numpy().shape,
                                               smpl=data['map_img'].numpy().shape,
                                               bs=batch_size,
                                               out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
@@ -541,7 +544,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
             m.track_running_stats = False
     vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-    min_vis_batch, max_vis_batch, increment = vis_batch_range
+    # min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
@@ -556,7 +559,9 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
-                if vis_batch_range is not None and vis_at_eval and batch_index in range(min_vis_batch, max_vis_batch, increment):
+                if vis_batch_range and vis_at_eval:
+                    min_vis_batch, max_vis_batch, increment = vis_batch_range
+                    if batch_index in range(min_vis_batch, max_vis_batch, increment):
                         vis_path = progress_log.parent.joinpath('visualization')
                         if ep_idx == 0 and batch_index == min_vis_batch:
                             tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
