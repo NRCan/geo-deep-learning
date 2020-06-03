@@ -65,7 +65,7 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
 
     if type == 'totensor':
         if scale:
-            lst_trans.append(Scale(scale))  # FIXME: assert coherence with below normalization
+            lst_trans.append(Scale(scale))  # TODO: assert coherence with below normalization
 
         if norm_mean and norm_std:
             lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
@@ -287,8 +287,7 @@ class ToTensorTarget(object):
         sat_img = torch.from_numpy(sat_img)
 
         map_img = None
-        if sample['map_img'] is not None:  # This can also be used in inference.
+        if 'map_img' in sample.keys():  # This can also be used in inference.
             map_img = np.int64(sample['map_img'])
-            # map_img[map_img > self.num_classes] = 0  # FIXME: quick fix for crossentropy bug, but what if lovasz and ignore_index=255?
             map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}

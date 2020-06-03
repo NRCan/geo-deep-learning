@@ -1,4 +1,6 @@
 torch
+torchvision
+pillow=6.2.1
 numpy
 ruamel_yaml
 fiona
@@ -6,3 +8,11 @@ nvidia-ml-py3
 boto3
 rasterio
 tqdm
+h5py>=2.10
+scikit-image
+scikit-learn
+rasterio
+tqdm
+matplotlib
+geopandas
+fiona

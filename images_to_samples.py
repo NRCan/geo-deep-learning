@@ -12,9 +12,9 @@ from tqdm import tqdm
 from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets, MetaSegmentationDataset
-from utils.utils import get_key_def, pad, pad_diff, BGR_to_RGB
+from utils.utils import get_key_def, pad, pad_diff, BGR_to_RGB, read_csv
 from utils.geoutils import vector_to_raster
-from utils.readers import read_parameters, image_reader_as_array, read_csv
+from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import is_valid_geom, validate_num_classes, assert_num_bands, assert_crs_match, \
     validate_features_from_gpkg
 
@@ -283,6 +283,7 @@ def main(params):
     val_percent = params['sample']['val_percent']
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
     num_bands = params['global']['number_of_bands']
     debug = get_key_def('debug_mode', params['global'], False)
     if debug:
@@ -290,7 +291,7 @@ def main(params):
 
     final_samples_folder = None
 
-    sample_path_name = f'samples{samples_size}_overlap{overlap}_{num_bands}bands'
+    sample_path_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
 
     # AWS
     if bucket_name:
@@ -302,7 +303,7 @@ def main(params):
             final_samples_folder = os.path.join(data_path, "samples")
         else:
             final_samples_folder = "samples"
-        samples_folder = sample_path_name  # TODO: check if this is preferred name structure
+        samples_folder = sample_path_name
 
     else:
         list_data_prep = read_csv(csv_file)
@@ -341,7 +342,6 @@ def main(params):
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
     class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
 
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
@@ -439,6 +439,7 @@ def main(params):
                     raise ValueError(f"Dataset value must be trn or tst. Provided value is {info['dataset']}")
                 val_file = val_hdf5
 
+                # TODO: save histogram to metadata, then use it at radiometric trimming, if chosen.
                 metadata = raster.meta
                 metadata['name'] = raster.name
                 metadata['csv_info'] = info

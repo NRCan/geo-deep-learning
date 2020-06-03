@@ -1,11 +1,10 @@
-import csv
-
 import numpy as np
 from ruamel_yaml import YAML
 from tqdm import tqdm
 from pathlib import Path
 
 from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
+from utils.utils import BGR_to_RGB
 
 
 def read_parameters(param_file):
@@ -47,12 +46,11 @@ def image_reader_as_array(input_image,
     Return:
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
-    from utils.utils import BGR_to_RGB  # FIXME: circular dependency create by... utils.read_csv()?
     if clip_gpkg:
         np_array, input_image = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
         np_array = np.transpose(np_array, (1, 2, 0))  # send channels last
 
-    else:  # TODO: should this remain or should we systematically clip raster to gpkg? creates overhead.
+    else:
         np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.uint16)
         for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
             np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
@@ -108,35 +106,3 @@ def image_reader_as_array(input_image,
     return np_array, input_image, dataset_nodata
 
 
-def read_csv(csv_file_name):
-    """Open csv file and parse it, returning a list of dict.
-
-    If inference == True, the dict contains this info:
-        - tif full path
-        - metadata yml full path (may be empty string if unavailable)
-    Else, the returned list contains a dict with this info:
-        - tif full path
-        - metadata yml full path (may be empty string if unavailable)
-        - gpkg full path
-        - attribute_name
-        - dataset (trn or val)
-    """
-
-    list_values = []
-    with open(csv_file_name, 'r') as f:
-        reader = csv.reader(f)
-        for index, row in enumerate(reader):
-            row_length = len(row) if index == 0 else row_length
-            assert len(row) == row_length, "Rows in csv should be of same length"
-            row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
-            list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
-            assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
-            if row[2] is not None:
-                assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'
-                assert isinstance(row[3], str)
-    try:
-        # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
-        list_values = sorted(list_values, key=lambda k: k['dataset'])
-    except TypeError:
-        list_values
-    return list_values

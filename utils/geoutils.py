@@ -8,9 +8,10 @@ import rasterio
 from rasterio.features import is_valid_geom
 from rasterio.mask import mask
 
+from utils.utils import get_key_recursive
 
-# from shapely.geometry import box
-# import geopandas as gpd
+from shapely.geometry import box
+import geopandas as gpd
 # import pycrs
 
 
@@ -24,7 +25,6 @@ def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
             single layer or in individual layers (in the order provided by 'target_ids')
     :return: list of tuples in format (vector, class_id).
     '''
-    from utils.utils import get_key_recursive  # Solves ImportError (because of circular dependency?)
     lst_vector_tuple = {}
     for vector in list_vector:
         id = get_key_recursive(attr_name, vector) if attr_name is not None else None
@@ -70,7 +70,7 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
         assert gpkg_crs == raster.crs
         minx, miny, maxx, maxy = src.bounds  # ouest, nord, est, sud
 
-    # Create a bounding box with Shapely # TODO: can we use only fiona and rasterio for this? No geopandas and shapely ideally.
+    # Create a bounding box with Shapely
     bbox = box(minx, miny, maxx, maxy)
 
     # Insert the bbox into a GeoDataFrame
@@ -117,7 +117,6 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
     Return:
         numpy array of the burned image
     """
-    from utils.utils import get_key_recursive  # Solves ImportError (because of circular dependency?)
     # Extract vector features to burn in the raster image
     with fiona.open(vector_file, 'r') as src:
         lst_vector = [vector for vector in src]

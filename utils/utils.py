@@ -1,3 +1,4 @@
+import csv
 import numbers
 from pathlib import Path
 from typing import Sequence, List
@@ -9,8 +10,6 @@ import numpy as np
 import warnings
 import collections
 import matplotlib
-
-from utils.readers import read_csv
 
 matplotlib.use('Agg')
 
@@ -298,3 +297,37 @@ def list_input_images(img_dir_or_csv: str,
                 list_img.append(img)
             assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
     return list_img
+
+
+def read_csv(csv_file_name):
+    """Open csv file and parse it, returning a list of dict.
+
+    If inference == True, the dict contains this info:
+        - tif full path
+        - metadata yml full path (may be empty string if unavailable)
+    Else, the returned list contains a dict with this info:
+        - tif full path
+        - metadata yml full path (may be empty string if unavailable)
+        - gpkg full path
+        - attribute_name
+        - dataset (trn or val)
+    """
+
+    list_values = []
+    with open(csv_file_name, 'r') as f:
+        reader = csv.reader(f)
+        for index, row in enumerate(reader):
+            row_length = len(row) if index == 0 else row_length
+            assert len(row) == row_length, "Rows in csv should be of same length"
+            row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
+            list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
+            assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
+            if row[2] is not None:
+                assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'
+                assert isinstance(row[3], str)
+    try:
+        # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
+        list_values = sorted(list_values, key=lambda k: k['dataset'])
+    except TypeError:
+        list_values
+    return list_values

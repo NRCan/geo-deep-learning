@@ -85,8 +85,8 @@ class SegmentationDataset(Dataset):
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
             sat_img = np.float32(hdf5_file["sat_img"][index, ...])
             assert self.num_bands <= sat_img.shape[-1]
-            if self.num_bands < sat_img.shape[-1]:  # FIXME: remove after NIR integration tests
-                sat_img = sat_img[:, :, :self.num_bands]
+            #if self.num_bands < sat_img.shape[-1]:  # FIXME: remove after NIR integration tests
+            #    sat_img = sat_img[:, :, :self.num_bands]
             map_img = self._remap_labels(hdf5_file["map_img"][index, ...])
             metadata = hdf5_file["metadata"][index, ...]
             if isinstance(metadata, np.ndarray) and len(metadata) == 1:
@@ -179,8 +179,6 @@ class MetaSegmentationDataset(SegmentationDataset):
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
             sat_img = hdf5_file["sat_img"][index, ...]
             assert self.num_bands <= sat_img.shape[-1]
-            if self.num_bands < sat_img.shape[-1]:
-                sat_img = sat_img[:, :, :self.num_bands]
             map_img = self._remap_labels(hdf5_file["map_img"][index, ...])
             metadata = hdf5_file["metadata"][index, ...]
             if isinstance(metadata, np.ndarray) and len(metadata) == 1:

@@ -1,9 +1,9 @@
 import argparse
 import os
 from pathlib import Path
-from utils.utils import get_key_def
+from utils.utils import get_key_def, read_csv
 from utils.geoutils import vector_to_raster
-from utils.readers import read_parameters, read_csv, image_reader_as_array
+from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import validate_num_classes
 import time
 import rasterio
