@@ -99,10 +99,7 @@ class MyEnsemble(nn.Module):
         print('shape after conv 1x1', x.shape)
 
         # TODO: give the result to the reste of the network
-        #x = self.leftover(x)
-
-        x.backbone
-
+        x = self.leftover(x)
         print('shape after the rest of the network', x.shape)
         return x
 
