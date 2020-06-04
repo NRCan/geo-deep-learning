@@ -71,17 +71,16 @@ class MyEnsemble(nn.Module):
         self.modelNIR = model_nir.backbone.conv1
 
         #self.leftover = LayerExtractor(model_rgb, 'conv1', leftover=True)
-
-        self.leftover = model_rgb
-        self.leftover.backbone = nn.Sequential(
-                *list(self.leftover.backbone.children())[:1]
-            )
-
         self.conv1x1 = nn.Conv2d(
                 in_channels = model_rgb.backbone.conv1.out_channels*2,
                 out_channels = model_rgb.backbone.conv1.out_channels,
                 kernel_size=1
         )
+        
+        self.leftover = model_rgb
+        self.leftover.backbone = nn.Sequential(
+                *list(self.leftover.backbone.children())[1:]
+            )
         
         del model_nir, model_rgb
 
