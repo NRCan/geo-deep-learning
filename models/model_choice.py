@@ -66,6 +66,7 @@ def net(net_params, num_channels, inference=False):
         elif num_bands == 4:
             print('Finetuning pretrained deeplabv3 with 4 bands')
             #model_rgb = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, aux_loss=None)
+            #model_rgb.classifier = common.DeepLabHead(2048, num_channels)
             
             ###################
             # TODO: See what to do with it
