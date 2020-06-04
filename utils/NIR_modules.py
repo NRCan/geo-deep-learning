@@ -78,9 +78,9 @@ class MyEnsemble(nn.Module):
         )
         
         self.leftover = model_rgb
-        #self.leftover.backbone = nn.Sequential(
-        #        *list(self.leftover.backbone.children())[1:]
-        #    )
+        self.leftover.backbone = nn.Sequential(
+                *list(self.leftover.backbone.children())[1:]
+            )
         
         del model_nir, model_rgb
 
@@ -101,7 +101,7 @@ class MyEnsemble(nn.Module):
         # TODO: give the result to the reste of the network
         #x = self.leftover(x)
 
-        self.leftover.backbone = nn.Sequential(*list(self.leftover.backbone.children())[1:])
+        #self.leftover.backbone = nn.Sequential(*list(self.leftover.backbone.children())[1:])
         #self.leftover = nn.Sequential(*)
         x = self.leftover(x)
         print('shape after the rest of the network', x.shape)

@@ -737,7 +737,7 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
 
     ###################
     # TODO: remove after test
-    summary(model, [(3,256,256),(1,256,256)], file_n='summary.txt')
+    #summary(model, [(3,256,256),(1,256,256)], file_n='summary.txt')
     ###################
 
     with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
