@@ -25,9 +25,13 @@ class LayerExtractor(nn.Module):
             modules = list(self.submodule.backbone.children())[:1]
             modules = nn.Sequential(*modules)
             # Extract all the other layers following the layer of extraction
-            leftover = list(self.submodule.backbone.children())[1:]
-            classifier = list(self.submodule.classifier.children())
-            leftover.extend(classifier)
+
+            self.submodule.backbone = nn.Sequential(*list(self.submodule.backbon.children())[1:])
+            #leftover = self.submodule
+
+            #leftover = list(self.submodule.backbone.children())[1:]
+            #classifier = list(self.submodule.classifier.children())
+            #leftover.extend(classifier)
 
         # TODO: change the rest to fit the others entries
         elif self.extracted_layer == 'inner-layer-3':                     
@@ -41,11 +45,12 @@ class LayerExtractor(nn.Module):
 
         # Return the rest of the Network or only the first part
         if self.leftover_out:
-            modules_layers = leftover
+            modules_layers = 0#leftover
         else:
             modules_layers = modules
+            self.submodule = nn.Sequential(*modules_layers)
 
-        self.submodule = nn.Sequential(*modules_layers)
+        #self.submodule = nn.Sequential(*modules_layers)
         x = self.submodule(x)
         return x
 
@@ -75,7 +80,7 @@ class MyEnsemble(nn.Module):
     def forward(self, x1, x2):
         rgb = self.modelRGB(x1)
         nir = self.modelNIR(x2)
-        x =rgb
+        #x =rgb
    
         print('shape de rgb apres', rgb.shape)
         print('shape de nir apres', nir.shape)
