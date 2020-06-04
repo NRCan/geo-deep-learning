@@ -26,8 +26,8 @@ class LayerExtractor(nn.Module):
             modules = nn.Sequential(*modules)
             # Extract all the other layers following the layer of extraction
 
-            self.submodule.backbone = nn.Sequential(*list(self.submodule.backbon.children())[1:])
-            #leftover = self.submodule
+            self.submodule.backbone = nn.Sequential(*list(self.submodule.backbone.children())[1:])
+            leftover = self.submodule
 
             #leftover = list(self.submodule.backbone.children())[1:]
             #classifier = list(self.submodule.classifier.children())
@@ -45,12 +45,12 @@ class LayerExtractor(nn.Module):
 
         # Return the rest of the Network or only the first part
         if self.leftover_out:
-            modules_layers = 0#leftover
+            modules_layers = leftover
         else:
             modules_layers = modules
-            self.submodule = nn.Sequential(*modules_layers)
+            #self.submodule = nn.Sequential(*modules_layers)
 
-        #self.submodule = nn.Sequential(*modules_layers)
+        self.submodule = nn.Sequential(*modules_layers)
         x = self.submodule(x)
         return x
 
