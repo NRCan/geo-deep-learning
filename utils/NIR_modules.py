@@ -70,7 +70,12 @@ class MyEnsemble(nn.Module):
         #self.modelNIR = LayerExtractor(model_nir, 'conv1')
         self.modelNIR = model_nir.backbone.conv1
 
-        self.leftover = LayerExtractor(model_rgb, 'conv1', leftover=True)
+        #self.leftover = LayerExtractor(model_rgb, 'conv1', leftover=True)
+
+        self.leftover = model_rgb
+        self.leftover.backbone = nn.Sequential(
+                *list(self.leftover.backbone.children())[:1]
+            )
 
         self.conv1x1 = nn.Conv2d(
                 in_channels = model_rgb.backbone.conv1.out_channels*2,
@@ -83,8 +88,6 @@ class MyEnsemble(nn.Module):
     def forward(self, x1, x2):
         rgb = self.modelRGB(x1)
         nir = self.modelNIR(x2)
-        #x =rgb
-   
         print('shape de rgb apres', rgb.shape)
         print('shape de nir apres', nir.shape)
         
@@ -97,7 +100,10 @@ class MyEnsemble(nn.Module):
         print('shape after conv 1x1', x.shape)
 
         # TODO: give the result to the reste of the network
-        x = self.leftover(x)
+        #x = self.leftover(x)
+
+        x.backbone
+
         print('shape after the rest of the network', x.shape)
         return x
 
