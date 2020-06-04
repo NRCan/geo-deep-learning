@@ -62,17 +62,19 @@ class MyEnsemble(nn.Module):
         # TODO: documentation
         model_rgb = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, aux_loss=None)
         model_rgb.classifier = common.DeepLabHead(2048, num_channels)
-        self.modelRGB = LayerExtractor(model_rgb, 'conv1')
+        #self.modelRGB = LayerExtractor(model_rgb, 'conv1')
+        self.modelRGB = model_rgb.backbone.conv1
 
         model_nir = copy.deepcopy(model_rgb)
         model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
-        self.modelNIR = LayerExtractor(model_nir, 'conv1')
+        #self.modelNIR = LayerExtractor(model_nir, 'conv1')
+        self.modelNIR = model_nir.backbone.conv1
 
         self.leftover = LayerExtractor(model_rgb, 'conv1', leftover=True)
 
         self.conv1x1 = nn.Conv2d(
-                in_channels=self.modelRGB.out_channels*2,
-                out_channels=self.modelRGB.out_channels,
+                in_channels = model_rgb.backbone.conv1.out_channels*2,
+                out_channels = model_rgb.backbone.conv1.out_channels,
                 kernel_size=1
         )
         
