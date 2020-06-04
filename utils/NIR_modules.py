@@ -26,12 +26,13 @@ class LayerExtractor(nn.Module):
             modules = nn.Sequential(*modules)
             # Extract all the other layers following the layer of extraction
 
-            self.submodule.backbone = nn.Sequential(*list(self.submodule.backbone.children())[1:])
-            leftover = self.submodule
+            #self.submodule.backbone = nn.Sequential(*list(self.submodule.backbone.children())[1:])
+            #leftover = self.submodule
 
-            #leftover = list(self.submodule.backbone.children())[1:]
-            #classifier = list(self.submodule.classifier.children())
-            #leftover.extend(classifier)
+            leftover = list(self.submodule.backbone.children())[1:]
+            classifier = list(self.submodule.classifier.children())
+            leftover.extend(classifier)
+            leftover = nn.Sequential(*leftover)
 
         # TODO: change the rest to fit the others entries
         elif self.extracted_layer == 'inner-layer-3':                     
