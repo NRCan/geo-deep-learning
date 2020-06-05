@@ -66,6 +66,7 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
             metrics_dict['recall_' + key].update(class_score[key]['recall'], batch_size)
             metrics_dict['fscore_' + key].update(class_score[key]['f1-score'], batch_size)
 
+
     metrics_dict['precision'].update(class_report['weighted avg']['precision'], batch_size)
     metrics_dict['recall'].update(class_report['weighted avg']['recall'], batch_size)
     metrics_dict['fscore'].update(class_report['weighted avg']['f1-score'], batch_size)
