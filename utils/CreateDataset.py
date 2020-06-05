@@ -9,7 +9,7 @@ import numpy as np
 import models.coordconv
 from utils.utils import get_key_def, get_key_recursive
 
-from rasterio.crs import CRS
+from rasterio.crs import CRS  # don't delete these two imports!
 from affine import Affine
 
 
@@ -32,8 +32,10 @@ def create_files_and_datasets(params, samples_folder):
                                  maxshape=(None, samples_size, samples_size, real_num_bands))
         hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
                                  maxshape=(None, samples_size, samples_size))
+        hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
         try:
             hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+            hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
         except AttributeError as e:
             warnings.warn(f'{e}. Update h5py to version 2.10 or higher')
             raise
@@ -58,6 +60,7 @@ class SegmentationDataset(Dataset):
         self.max_sample_count = max_sample_count
         self.dataset_type = dataset_type
         self.num_bands = num_bands
+        self.metadata = []
         self.radiom_transform = radiom_transform
         self.geom_transform = geom_transform
         self.totensor_transform = totensor_transform
@@ -65,6 +68,16 @@ class SegmentationDataset(Dataset):
         self.dontcare = dontcare
         self.hdf5_path = os.path.join(self.work_folder, self.dataset_type + "_samples.hdf5")
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
+            for i in range(hdf5_file["metadata"].shape[0]):
+                metadata = hdf5_file["metadata"][i, ...]
+                if isinstance(metadata, np.ndarray) and len(metadata) == 1:
+                    metadata = metadata[0]
+                if isinstance(metadata, str):
+                    if "ordereddict" in metadata:
+                        metadata = metadata.replace("ordereddict", "collections.OrderedDict")
+                    if metadata.startswith("collections.OrderedDict"):
+                        metadata = eval(metadata)
+                self.metadata.append(metadata)
             if self.max_sample_count is None:
                 self.max_sample_count = hdf5_file["sat_img"].shape[0]
 
@@ -88,11 +101,14 @@ class SegmentationDataset(Dataset):
             #if self.num_bands < sat_img.shape[-1]:  # FIXME: remove after NIR integration tests
             #    sat_img = sat_img[:, :, :self.num_bands]
             map_img = self._remap_labels(hdf5_file["map_img"][index, ...])
-            metadata = hdf5_file["metadata"][index, ...]
+            meta_idx = int(hdf5_file["meta_idx"][index])
+            metadata = self.metadata[meta_idx]
+            sample_metadata = eval(hdf5_file["sample_metadata"][index, ...][0])
             if isinstance(metadata, np.ndarray) and len(metadata) == 1:
                 metadata = metadata[0]
             if isinstance(metadata, str):
                 metadata = eval(metadata)
+            metadata.update(sample_metadata)
             # where bandwise array has no data values, set as np.nan
             # sat_img[sat_img == metadata['nodata']] = np.nan # TODO: problem with lack of dynamic range. See: https://rasterio.readthedocs.io/en/latest/topics/masks.html
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
@@ -180,11 +196,18 @@ class MetaSegmentationDataset(SegmentationDataset):
             sat_img = hdf5_file["sat_img"][index, ...]
             assert self.num_bands <= sat_img.shape[-1]
             map_img = self._remap_labels(hdf5_file["map_img"][index, ...])
-            metadata = hdf5_file["metadata"][index, ...]
+            meta_idx = int(hdf5_file["meta_idx"][index])
+            metadata = self.metadata[meta_idx]
+            sample_metadata = hdf5_file["sample_metadata"][index, ...]
             if isinstance(metadata, np.ndarray) and len(metadata) == 1:
                 metadata = metadata[0]
+                sample_metadata = sample_metadata[0]
             if isinstance(metadata, str):
                 metadata = eval(metadata)
+                sample_metadata = eval(sample_metadata)
+            metadata.update(sample_metadata)
+            assert meta_idx != -1, f"metadata unvailable in sample #{index}"
+            sat_img = self.append_meta_layers(sat_img, self.meta_map, self.metadata[meta_idx])
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata}
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
             sample = self.radiom_transform(sample)  # TODO: test this for MetaSegmentationDataset

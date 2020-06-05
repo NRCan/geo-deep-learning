@@ -190,10 +190,16 @@ sample:
 ```
 
 ### Process
-1. Read csv file and validate existence of all input files and GeoPackages. 
-2. Read csv file and for each line in the file, do the following:
-    1. Convert GeoPackage vector information into the "label" raster with `utils.utils.vector_to_raster()`. The pixel value is determined by the attribute in the csv file.
-    2. Read input image as array with `utils.readers.image_reader_as_array()`
+1. Read csv file and validate existence of all input files and GeoPackages.
+2. Do the following verifications:
+    1. Assert number of bands found in raster is equal to desired number of bands 
+    2. Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage. Warning: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
+    3. Assert Coordinate reference system between raster and gpkg match. 
+3. Read csv file and for each line in the file, do the following:
+    1. Read input image as array with `utils.readers.image_reader_as_array()`.
+        - If gpkg's extent is smaller than raster's extent, raster is clipped to gpkg's extent.
+        - If gpkg's extent is bigger than raster's extent, gpkg is clipped to raster's extent. 
+    2. Convert GeoPackage vector information into the "label" raster with `utils.utils.vector_to_raster()`. The pixel value is determined by the attribute in the csv file.
     3. Create a new raster called "label" with the same properties as the input image
     4. Read metadata and add to input as new bands (*more details to come*)
     5. Crop arrays in smaller samples of size `samples_size` and distance `num_classes` specified in the configuration file. Visual representation of this is provided [here](https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f)
@@ -215,9 +221,7 @@ sample:
 >If folder already exists, a suffix with `_YYYY-MM-DD_HH-MM` is added
 
 ### Debug mode
-- Images_to_samples.py will assert that:
-    - `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage. Warning: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
-    - All geometries for features in GeoPackages are valid according to [Rasterio's algorithm](https://github.com/mapbox/rasterio/blob/d4e13f4ba43d0f686b6f4eaa796562a8a4c7e1ee/rasterio/features.py#L461).   
+- Images_to_samples.py will assert that all geometries for features in GeoPackages are valid according to [Rasterio's algorithm](https://github.com/mapbox/rasterio/blob/d4e13f4ba43d0f686b6f4eaa796562a8a4c7e1ee/rasterio/features.py#L461).   
 
 ## train_segmentation.py
 
@@ -266,15 +270,31 @@ training:
   class_weights: [1.0, 2.0]  # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class. Applies to certain loss functions only.
   batch_metrics: 2           # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
   ignore_index: 0            # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
-  augmentation:
-    rotate_limit: 45         # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
-    rotate_prob: 0.5         # Specifies the probability for data rotation. If not specified, no rotation will be performed.
-    hflip_prob: 0.5          # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.    
 ```
 
 ### Inputs
 - samples folder as created by `images_to_samples.py` (See: [Images_to_samples.py / Outputs](#samples_outputs)) containing:
     - `trn_samples.hdf5`, `val_samples.hdf5`, `tst_samples.hdf5`. Each hdf5 file contains input images and reference data as arrays used for training, validation and test, respectively.
+    
+#### Augmentations
+
+Details on parameters used by this module:
+```yaml  
+training:
+   augmentation:
+        rotate_limit: 45         # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
+        rotate_prob: 0.5         # Specifies the probability for data rotation. If not specified, no rotation will be performed.
+        hflip_prob: 0.5          # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.    
+        random_radiom_trim_range: [0.1, 2.0] # Specifies the range in which a random percentile value will be chosen to trim values. This value applies to both left and right sides of the raster's histogram. If not specified, no enhancement will be performed. 
+        geom_scale_range:        # Not yet implemented
+        noise:                   # Not yet implemented
+```
+These augmentations are a [common procedure in machine learning](https://www.coursera.org/lecture/convolutional-neural-networks/data-augmentation-AYzbX). More augmentations could be implemented in a near. See issue [#106](https://github.com/NRCan/geo-deep-learning/issues/106). 
+
+Note: For specific details about implementation of these augmentations, check docstrings in utils.augmentation.py. 
+ 
+Warning: 
+- RandomCrop is used only if parameter `target_size` (in training section of config file) is not empty. Also, if this parameter is omitted, the hdf5 samples will be fed as is to the model in training (after other augmentations, if applicable). This can have an major impact on GPU RAM used and could cause `CUDA: Out of memory errors`.  
 
 ### Process
 1. Model is instantiated and checkpoint is loaded from path, if provided in `config.yaml`.

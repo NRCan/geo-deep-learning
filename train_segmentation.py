@@ -3,7 +3,6 @@ import torch
 import os
 import argparse
 from pathlib import Path
-import csv
 import time
 import h5py
 import datetime
@@ -21,11 +20,9 @@ try:
 except ModuleNotFoundError:
     warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
-import torchvision
 import torch.optim as optim
 from torch import nn
 from torch.utils.data import DataLoader
-from torchvision import transforms
 from PIL import Image
 
 from utils import augmentation as aug, CreateDataset
@@ -34,9 +31,8 @@ from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
-from utils.utils import load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, \
-    get_key_def
-from utils.visualization import vis, vis_from_batch
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
+from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
 
 try:

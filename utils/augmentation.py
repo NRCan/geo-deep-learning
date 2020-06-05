@@ -12,7 +12,7 @@ import numpy as np
 from skimage import transform, exposure
 from torchvision import transforms
 
-from utils.utils import get_key_def, pad, minmax_scale
+from utils.utils import get_key_def, pad, minmax_scale, BGR_to_RGB
 
 
 def compose_transforms(params, dataset, type='', ignore_index=None):
@@ -31,15 +31,11 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
     if dataset == 'trn':
 
         if type == 'radiometric':
-            radiom_trim_range = get_key_def('radiom_trim_range', params['training']['augmentation'], None)
-            brightness_contrast_range = get_key_def('brightness_contrast_range', params['training']['augmentation'], None)
+            random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['training']['augmentation'], None)
             noise = get_key_def('noise', params['training']['augmentation'], None)
 
-            if radiom_trim_range:  # Contrast stretching
-                lst_trans.append(RadiometricTrim(range=radiom_trim_range))  # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
-
-            if brightness_contrast_range:
-                raise NotImplementedError
+            if random_radiom_trim_range:  # Contrast stretching
+                lst_trans.append(RadiometricTrim(range=random_radiom_trim_range))  # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
 
             if noise:
                 raise NotImplementedError
@@ -71,13 +67,15 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
                                        std=params['training']['normalization']['std']))
 
-        lst_trans.append(ToTensorTarget(params['global']['num_classes'])) # Send channels first, convert numpy array to torch tensor
+        lst_trans.append(ToTensorTarget(get_key_def('BGR_to_RGB', params['global'], False))) # Send channels first, convert numpy array to torch tensor
 
     return transforms.Compose(lst_trans)
 
 
 class RadiometricTrim(object):
-    """Randomly trim values left and right in a certain range (%)."""
+    """Trims values left and right of the raster's histogram. Also called linear scaling or enhancement.
+    Percentile, chosen randomly based on inputted range, applies to both left and right sides of the histogram.
+    Ex.: Values below the 1.7th and above the 98.3th percentile will be trimmed if random value is 1.7"""
     def __init__(self, range):
         self.range = range
 
@@ -87,7 +85,18 @@ class RadiometricTrim(object):
         rescaled_sat_img = np.empty(sample['sat_img'].shape, dtype=sample['sat_img'].dtype)
         for band_idx in range(sample['sat_img'].shape[2]):
             band = sample['sat_img'][:, :, band_idx]
-            perc_left, perc_right = np.nanpercentile(band, (trim, 100-trim))
+            left_pixel_val = round(sum(sample['metadata']['source_raster_bincount'][f'band{band_idx}']) / 100 * trim)
+            right_pixel_val = round(sum(sample['metadata']['source_raster_bincount'][f'band{band_idx}']) / 100 * (100-trim))
+            pixel_count = 0
+            # TODO: can this for loop be optimized? Also, this hasn't been tested with non 8-bit data. Should be fine though.
+            for pixel_val, bin_count_per_bin in enumerate(sample['metadata']['source_raster_bincount'][f'band{band_idx}']):
+                lower_limit = pixel_count
+                upper_limit = pixel_count + bin_count_per_bin
+                if lower_limit <= left_pixel_val < upper_limit:
+                    perc_left = pixel_val
+                if lower_limit <= right_pixel_val < upper_limit:
+                    perc_right = pixel_val
+                pixel_count += bin_count_per_bin
             rescaled_band = exposure.rescale_intensity(band, in_range=(perc_left, perc_right), out_range=out_dtype)
             rescaled_sat_img[:, :, band_idx] = rescaled_band
         sample['sat_img'] = rescaled_sat_img
@@ -278,11 +287,12 @@ class Normalize(object):
 
 class ToTensorTarget(object):
     """Convert ndarrays in sample to Tensors."""
-    def __init__(self, num_classes):
-        self.num_classes = num_classes
+    def __init__(self, bgr_to_rgb):
+        self.bgr_to_rgb = bgr_to_rgb
 
     def __call__(self, sample):
         sat_img = np.nan_to_num(sample['sat_img'], copy=False)
+        sat_img = BGR_to_RGB(sat_img) if self.bgr_to_rgb else sat_img
         sat_img = np.float32(np.transpose(sat_img, (2, 0, 1)))
         sat_img = torch.from_numpy(sat_img)
 

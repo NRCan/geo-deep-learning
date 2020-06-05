@@ -103,10 +103,11 @@ def is_valid_geom(geom):
 
 
 def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attribute_name: str, ignore_index: int):
-    """Validate that the number of classes in the vector file corresponds to the expected number
+    """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
+    FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
     Args:
         vector_file: full file path of the vector image
-        num_classes: number of classes set in config.yaml
+        num_classes: number of classes set in config_template.yaml
         attribute_name: name of the value field representing the required classes in the vector image file
         ignore_index: (int) target value that is ignored during training and does not contribute to the input gradient
     Return:

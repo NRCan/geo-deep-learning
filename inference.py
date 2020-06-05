@@ -18,18 +18,12 @@ from tqdm import tqdm
 from pathlib import Path
 
 from models.model_choice import net
-from train_segmentation import flatten_outputs, flatten_labels
 from utils import augmentation
-from utils.augmentation import Scale, RadiometricTrim
-from utils.geoutils import vector_to_raster, create_new_raster_from_base
-from utils.logger import InformationLogger
-from utils.metrics import create_metrics_dict, report_classification, iou
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, minmax_scale, list_input_images, \
-    read_csv
+from utils.augmentation import RadiometricTrim
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, list_input_images
 from utils.readers import read_parameters, image_reader_as_array
 from utils.CreateDataset import MetaSegmentationDataset
-from utils.verifications import add_background_to_num_class, assert_num_bands, validate_num_classes, assert_crs_match, \
-    validate_features_from_gpkg
+from utils.verifications import add_background_to_num_class
 from utils.visualization import vis, vis_from_batch
 
 try:
@@ -312,35 +306,39 @@ def main(params):
                 # Empty sample as dictionary
                 inf_sample = {'sat_img': None, 'metadata': None}
 
-                with rasterio.open(local_img, 'r') as raster:
-                    inf_sample['sat_img'], raster, dataset_nodata = image_reader_as_array(
-                                    input_image=raster,
-                                    bgr_to_rgb=get_key_def('BGR_to_RGB', params['global'], False),
+                with rasterio.open(local_img, 'r') as raster_handle:
+                    inf_sample['sat_img'], raster_handle, dataset_nodata = image_reader_as_array(
+                                    input_image=raster_handle,
                                     aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
                                     aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
                                     aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
                                     aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
                                     aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
-                metadata = raster.meta
-                metadata['name'] = raster.name
+                metadata = raster_handle.meta
+                metadata['name'] = raster_handle.name
                 metadata['csv_info'] = info
                 inf_sample['metadata'] = metadata
+                inf_sample['metadata']['source_raster_bincount'] = {}
+                # Save bincount (i.e. histogram) to metadata
+                for band_index in range(inf_sample['sat_img'].shape[2]):
+                    band = inf_sample['sat_img'][..., band_index]
+                    inf_sample['metadata']['source_raster_bincount'][f'band{band_index}'] = {count for count in
+                                                                                np.bincount(band.flatten())}
 
-                radiom_trim_range = get_key_def('radiom_trim_range', params['training']['augmentation'], None)
-                if radiom_trim_range is not None:  # TODO: test this
-                    trim_at_inference = round((radiom_trim_range[-1]-radiom_trim_range[0])/2, 1)
+                random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['training']['augmentation'], None)
+                if random_radiom_trim_range is not None:  # TODO: test this
+                    trim_at_inference = round((random_radiom_trim_range[-1]-random_radiom_trim_range[0])/2, 1)
                     radiom_scaling = RadiometricTrim(range=[trim_at_inference, trim_at_inference])
                     inf_sample = radiom_scaling(inf_sample)
 
                     if debug:
                         output_name = working_folder / f'{local_img.stem}_radiomtrim.TIF'
-                        out_meta = raster.meta.copy()
-                        np_image_debug = inf_sample['sat_img'].transpose(2, 0, 1).astype('uint8')
+                        out_meta = raster_handle.meta.copy()
+                        np_image_debug = inf_sample['sat_img'].transpose(2, 0, 1).astype(out_meta['dtype'])
                         out_meta.update({"driver": "GTiff"})
                         with rasterio.open(output_name, "w", **out_meta) as dest:
                             dest.write(np_image_debug)
-                        # create_new_raster_from_base(local_img, output_name, sample['sat_img'].astype('uint8'))
                         print(f'DEBUG: Saved raster after radiometric trim to {output_name}')
 
                 if meta_map:
@@ -374,7 +372,7 @@ def main(params):
                                                               chunk_size,
                                                               num_classes_corrected,
                                                               device,
-                                                              raster.meta["dtype"],
+                                                              raster_handle.meta["dtype"],
                                                               meta_map,
                                                               metadata,
                                                               output_path=working_folder,

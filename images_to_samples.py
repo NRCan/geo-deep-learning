@@ -1,8 +1,8 @@
 import argparse
 import datetime
 import os
-import fiona
 import numpy as np
+np.random.seed(1234)  # Set random seed for reproducibility
 import warnings
 import rasterio
 import time
@@ -11,11 +11,11 @@ from pathlib import Path
 from tqdm import tqdm
 from collections import OrderedDict
 
-from utils.CreateDataset import create_files_and_datasets, MetaSegmentationDataset
-from utils.utils import get_key_def, pad, pad_diff, BGR_to_RGB, read_csv
+from utils.CreateDataset import create_files_and_datasets
+from utils.utils import get_key_def, pad, pad_diff, read_csv
 from utils.geoutils import vector_to_raster
 from utils.readers import read_parameters, image_reader_as_array
-from utils.verifications import is_valid_geom, validate_num_classes, assert_num_bands, assert_crs_match, \
+from utils.verifications import validate_num_classes, assert_num_bands, assert_crs_match, \
     validate_features_from_gpkg
 
 # from rasterio.features import is_valid_geom #FIXME: https://github.com/mapbox/rasterio/issues/1815 is solved. Update rasterio package.
@@ -127,7 +127,8 @@ def compute_classes(dataset,
                     val_sample_file,
                     data,
                     target,
-                    metadata,
+                    sample_metadata,
+                    metadata_idx,
                     dict_classes):
     # TODO: rename this function?
     """ Creates Dataset (trn, val, tst) appended to Hdf5 and computes pixel classes(%) """
@@ -141,11 +142,12 @@ def compute_classes(dataset,
             samples_file = val_sample_file
     append_to_dataset(samples_file["sat_img"], data)
     append_to_dataset(samples_file["map_img"], target)
-    append_to_dataset(samples_file["metadata"], repr(metadata))
+    append_to_dataset(samples_file["sample_metadata"], repr(sample_metadata))
+    append_to_dataset(samples_file["meta_idx"], metadata_idx)
 
     # adds pixel count to pixel_classes dict for each class in the image
-    for i in (np.unique(target)):
-        dict_classes[i] += (np.bincount(target.clip(min=0).flatten()))[i]
+    for key, value in enumerate(np.bincount(target.clip(min=0).flatten())):
+        dict_classes[key] += value
 
     return val
 
@@ -161,7 +163,7 @@ def samples_preparation(in_img_array,
                         val_sample_file,
                         dataset,
                         pixel_classes,
-                        image_metadata,
+                        image_metadata=None,
                         dontcare=0,
                         min_annot_perc=None,
                         class_prop=None):
@@ -178,7 +180,6 @@ def samples_preparation(in_img_array,
     :param val_sample_file: (hdf5 dataset) hdfs file where samples will be written (val)
     :param dataset: (str) Type of dataset where the samples will be written. Can be 'trn' or 'val' or 'tst'
     :param pixel_classes: (dict) samples pixel statistics
-    :param image_metadata: (Ruamel) list of optionnal metadata specified in the associated metadata file
     :param dontcare: Value in gpkg features that will ignored during training
     :param min_annot_perc: optional, minimum annotated percent required for sample to be created
     :param class_prop: optional, minimal proportion of pixels for each class required for sample to be created
@@ -190,12 +191,17 @@ def samples_preparation(in_img_array,
     h, w, num_bands = in_img_array.shape
     if dataset == 'trn':
         idx_samples = samples_count['trn']
+        append_to_dataset(val_sample_file["metadata"], repr(image_metadata))
     elif dataset == 'tst':
         idx_samples = samples_count['tst']
     else:
         raise ValueError(f"Dataset value must be trn or val. Provided value is {dataset}")
 
     idx_samples_v = samples_count['val']
+
+    # there should be one set of metadata per raster
+    # ...all samples created by tiling below will point to that metadata by index
+    metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
 
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
@@ -207,7 +213,6 @@ def samples_preparation(in_img_array,
 
         for row in _tqdm:
             for column in range(0, w, dist_samples):
-                image_metadata['sample_indices'] = (row, column)
                 data = (in_img_array[row:row + sample_size, column:column + sample_size, :])
                 target = np.squeeze(label_array[row:row + sample_size, column:column + sample_size, :], axis=2)
                 data_row = data.shape[0]
@@ -227,6 +232,10 @@ def samples_preparation(in_img_array,
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
 
+                sample_metadata = {}
+                sample_metadata['sample_indices'] = (row, column)
+
+                val = None
                 if minimum_annotated_percent(target_background_percent, min_annot_perc) and \
                         class_proportion(target, sample_size, class_prop):
                     val = compute_classes(dataset=dataset,
@@ -235,7 +244,8 @@ def samples_preparation(in_img_array,
                                           val_sample_file=val_sample_file,
                                           data=data,
                                           target=target,
-                                          metadata=image_metadata,
+                                          sample_metadata=sample_metadata,
+                                          metadata_idx=metadata_idx,
                                           dict_classes=pixel_classes)
                     if val:
                         idx_samples_v += 1
@@ -255,6 +265,7 @@ def samples_preparation(in_img_array,
                                   Added_samples=f'{added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}',
                                   Target_annot_perc=100 - target_background_percent)
 
+    assert added_samples > 0, "No sample added for current raster. Problems may occur with use of metadata"
     if dataset == 'tst':
         samples_count['tst'] = idx_samples
     else:
@@ -385,7 +396,6 @@ def main(params):
                     np_input_image, raster, dataset_nodata = image_reader_as_array(
                         input_image=raster,
                         clip_gpkg=info['gpkg'],
-                        bgr_to_rgb=get_key_def('BGR_to_RGB', params['global'], False),
                         aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
                         aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
                         aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
@@ -443,6 +453,15 @@ def main(params):
                 metadata = raster.meta
                 metadata['name'] = raster.name
                 metadata['csv_info'] = info
+                # Save label's per class pixel count to image metadata
+                metadata['source_label_bincount'] = {class_num: count for class_num, count in
+                                                          enumerate(np.bincount(np_label_debug.clip(min=0).flatten()))}
+                metadata['source_raster_bincount'] = {}
+                # Save bincount (i.e. histogram) to metadata
+                for band_index in range(np_input_image.shape[2]):
+                    band = np_input_image[..., band_index]
+                    metadata['source_raster_bincount'][f'band{band_index}'] = {count for count in
+                                                                                np.bincount(band.flatten())}
                 if info['meta'] is not None and isinstance(info['meta'], str) and Path(info['meta']).is_file():
                     yaml_metadata = read_parameters(info['meta'])
                     metadata.update(yaml_metadata)
@@ -460,10 +479,10 @@ def main(params):
                                                                      val_sample_file=val_file,
                                                                      dataset=info['dataset'],
                                                                      pixel_classes=pixel_classes,
+                                                                     image_metadata=metadata,
                                                                      dontcare=dontcare,
                                                                      min_annot_perc=min_annot_perc,
-                                                                     class_prop=class_prop,
-                                                                     image_metadata=metadata)
+                                                                     class_prop=class_prop)
 
                 _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
                 out_file.flush()

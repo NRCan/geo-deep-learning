@@ -4,7 +4,6 @@ from tqdm import tqdm
 from pathlib import Path
 
 from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
-from utils.utils import BGR_to_RGB
 
 
 def read_parameters(param_file):
@@ -100,8 +99,6 @@ def image_reader_as_array(input_image,
             for vec_band_idx in vec_tensor.shape[2]:
                 vec_tensor[:, :, vec_band_idx] *= aux_vector_scale
         np_array = np.concatenate([np_array, vec_tensor], axis=2)
-
-        np_array = BGR_to_RGB(np_array) if bgr_to_rgb else np_array
 
     return np_array, input_image, dataset_nodata
 
