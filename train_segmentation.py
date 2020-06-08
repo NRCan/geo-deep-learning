@@ -3,7 +3,6 @@ import torch
 import os
 import argparse
 from pathlib import Path
-import csv
 import time
 import h5py
 import datetime
@@ -21,11 +20,9 @@ try:
 except ModuleNotFoundError:
     warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
-import torchvision
 import torch.optim as optim
 from torch import nn
 from torch.utils.data import DataLoader
-from torchvision import transforms
 from PIL import Image
 
 from utils import augmentation as aug, CreateDataset
@@ -34,9 +31,8 @@ from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
-from utils.utils import load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, \
-    get_key_def
-from utils.visualization import vis, vis_from_batch
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
+from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
 
 try:
@@ -107,14 +103,12 @@ def download_s3_files(bucket_name, data_path, output_path):
     return bucket, bucket_output_path, local_output_path, data_path
 
 
-def create_dataloader(data_path, batch_size, task, num_devices, params, samples_folder=None):
+def create_dataloader(samples_folder, batch_size, num_devices, params, dontcare_val, debug=False):
     """
     Function to create dataloader objects for training, validation and test datasets.
-    :param data_path: (str) path to the samples folder
-    :param batch_size: (int) batch size
-    :param task: (str) classification or segmentation
-    :param num_devices: (int) number of GPUs used
     :param samples_folder: path to folder containting .hdf5 files if task is segmentation
+    :param batch_size: (int) batch size
+    :param num_devices: (int) number of GPUs used
     :param params: (dict) Parameters found in the yaml config file.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
@@ -128,19 +122,17 @@ def create_dataloader(data_path, batch_size, task, num_devices, params, samples_
          dataset_constr = CreateDataset.SegmentationDataset
     else:
         dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
-    dontcare = get_key_def("ignore_index", params["training"], None)
-    if dontcare == 0:
-        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
-                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
-        params["training"]["ignore_index"] = -1
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
         datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
-                                       dontcare=dontcare,
-                                       transform=aug.compose_transforms(params, subset)))
+                                       dontcare=dontcare_val,
+                                       radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
+                                       geom_transform=aug.compose_transforms(params, subset, type='geometric',
+                                                                             ignore_index=dontcare_val),
+                                       totensor_transform=aug.compose_transforms(params, subset, type='totensor'),
+                                       debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
@@ -167,7 +159,7 @@ def get_num_samples(samples_path, params):
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
 
     for i in ['trn', 'val', 'tst']:
-        if params['training'][f"num_{i}_samples"]:
+        if get_key_def(f"num_{i}_samples", params['training'], None) is not None:
             num_samples[i] = params['training'][f"num_{i}_samples"]
 
             with h5py.File(os.path.join(samples_path, f"{i}_samples.hdf5"), 'r') as hdf5_file:
@@ -182,7 +174,7 @@ def get_num_samples(samples_path, params):
     return num_samples
 
 
-def set_hyperparameters(params, num_classes, model, checkpoint):
+def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
     """
     Function to set hyperparameters based on values provided in yaml config file.
     Will also set model to GPU, if available.
@@ -203,10 +195,11 @@ def set_hyperparameters(params, num_classes, model, checkpoint):
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
     if params['training']['class_weights']:
         verify_weights(num_classes, class_weights)
-    ignore_index = get_key_def('ignore_index', params['training'], -1)
 
     # Loss function
-    criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
+    criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'],
+                                    ignore_index=dontcare_val,
+                                    weight=class_weights)
 
     # Optimizer
     opt_fn = params['training']['optimizer']
@@ -235,20 +228,20 @@ def main(params, config_path):
     num_classes = params['global']['num_classes']
     task = params['global']['task']
     assert task == 'segmentation', f"The task should be segmentation. The provided value is {task}"
-    num_classes_corrected = num_classes + 1 # + 1 for background # FIXME temporary patch for num_classes problem.
+    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model, checkpoint, model_name = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
     tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
-    bucket_name = params['global']['bucket_name']
+    bucket_name = get_key_def('bucket_name', params['global'])
     data_path = params['global']['data_path']
     assert Path(data_path).is_dir(), f'Could not locate data path {data_path}'
 
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
-    min_annot_perc = params['sample']['sampling']['map']
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
     num_bands = params['global']['number_of_bands']
-    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: preferred name structure? document!
+    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: won't check if folder has datetime suffix (if multiple folders)
     samples_folder = Path(data_path).joinpath(samples_folder_name) if task == 'segmentation' else Path(data_path)
 
     modelname = config_path.stem
@@ -289,7 +282,7 @@ def main(params, config_path):
         print(f"Using Cuda device {lst_device_ids[0]}\n")
     elif num_devices > 1:
         print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
-        try: # FIXME: For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
+        try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
             warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
@@ -301,13 +294,20 @@ def main(params, config_path):
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU\n")
 
+    dontcare = get_key_def("ignore_index", params["training"], -1)
+    if dontcare == 0:
+        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
+                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
+                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
+        params["training"]["ignore_index"] = -1
+
     tqdm.write(f'Creating dataloaders from data in {samples_folder}...\n')
-    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(data_path=data_path,
+    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
-                                                                       task=task,
                                                                        num_devices=num_devices,
                                                                        params=params,
-                                                                       samples_folder=samples_folder)
+                                                                       dontcare_val=dontcare,
+                                                                       debug=debug)
 
     tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
     try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
@@ -316,7 +316,11 @@ def main(params, config_path):
         warnings.warn(f"Unable to use device. Trying device 0...\n")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
-    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
+    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params,
+                                                                    num_classes_corrected,
+                                                                    model,
+                                                                    checkpoint,
+                                                                    dontcare)
 
     criterion = criterion.to(device)
 
@@ -350,7 +354,6 @@ def main(params, config_path):
                            scheduler=lr_scheduler,
                            num_classes=num_classes_corrected,
                            batch_size=batch_size,
-                           task=task,
                            ep_idx=epoch,
                            progress_log=progress_log,
                            vis_params=params,
@@ -364,7 +367,6 @@ def main(params, config_path):
                                 criterion=criterion,
                                 num_classes=num_classes_corrected,
                                 batch_size=batch_size,
-                                task=task,
                                 ep_idx=epoch,
                                 progress_log=progress_log,
                                 vis_params=params,
@@ -399,7 +401,8 @@ def main(params, config_path):
             vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if last_vis_epoch == 0:
-                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for batches {vis_batch_range}')
+                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for '
+                               f'batches in range {vis_batch_range}')
                 vis_from_dataloader(params=params,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
                                     model=model,
@@ -427,7 +430,6 @@ def main(params, config_path):
                                 criterion=criterion,
                                 num_classes=num_classes_corrected,
                                 batch_size=batch_size,
-                                task=task,
                                 ep_idx=params['training']['num_epochs'],
                                 progress_log=progress_log,
                                 vis_params=params,
@@ -445,7 +447,19 @@ def main(params, config_path):
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
-def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, task, ep_idx, progress_log, vis_params, device, debug=False):
+def train(train_loader,
+          model,
+          criterion,
+          optimizer,
+          scheduler,
+          num_classes,
+          batch_size,
+          ep_idx,
+          progress_log,
+          vis_params,
+          device,
+          debug=False
+          ):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -455,7 +469,6 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     :param scheduler: learning rate scheduler
     :param num_classes: number of classes
     :param batch_size: number of samples to process simultaneously
-    :param task: segmentation or classification
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
     :param vis_params: (dict) Parameters found in the yaml config file. Named vis_params because they are only used for
@@ -467,7 +480,6 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     train_metrics = create_metrics_dict(num_classes)
     vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-    # min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
@@ -484,7 +496,6 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             if isinstance(outputs, OrderedDict):
                 outputs = outputs['out']
 
-            # if vis_batch_range is not None and vis_at_train and batch_index in range(min_vis_batch, max_vis_batch, increment):
             if vis_batch_range and vis_at_train:
                 min_vis_batch, max_vis_batch, increment = vis_batch_range
                 if batch_index in range(min_vis_batch, max_vis_batch, increment):
@@ -517,11 +528,12 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             optimizer.step()
 
     scheduler.step()
-    print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
+    if train_metrics["loss"].avg is not None:
+        print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
     return train_metrics
 
 
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -529,7 +541,6 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     :param criterion: loss criterion
     :param num_classes: number of classes
     :param batch_size: number of samples to process simultaneously
-    :param task: segmentation or classification
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
     :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
@@ -544,7 +555,6 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
             m.track_running_stats = False
     vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-    # min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
@@ -587,12 +597,12 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                         a, segmentation = torch.max(outputs_flatten, dim=1)
                         eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                         eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                             ignore_index=get_key_def("ignore_index", params["training"], None))
+                                                             ignore_index=eval_loader.dataset.dontcare)
                 elif dataset == 'tst':
                     a, segmentation = torch.max(outputs_flatten, dim=1)
                     eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                         ignore_index=get_key_def("ignore_index", params["training"], None))
+                                                         ignore_index=eval_loader.dataset.dontcare)
 
                 _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 

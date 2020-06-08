@@ -1,8 +1,9 @@
 import argparse
 import os
 from pathlib import Path
-from utils.utils import vector_to_raster, get_key_def
-from utils.readers import read_parameters, read_csv, image_reader_as_array
+from utils.utils import get_key_def, read_csv
+from utils.geoutils import vector_to_raster
+from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import validate_num_classes
 import time
 import rasterio
@@ -21,8 +22,8 @@ def create_csv():
 
     """
     prep_csv_path = params['sample']['prep_csv_file']
+    dist_samples = params['sample']['samples_dist']
     sample_size = params['global']['samples_size']
-    dist_samples = round(sample_size * (1 - (params['sample']['overlap'] / 100)))
     data_path = params['global']['data_path']
     Path.mkdir(Path(data_path), exist_ok=True)
     data_prep_csv = read_csv(prep_csv_path)
@@ -37,8 +38,7 @@ def create_csv():
             _tqdm.set_postfix(OrderedDict(file=f'{info["tif"]}', sample_size=params['global']['samples_size']))
 
             # Validate the number of class in the vector file
-            ignore_index = get_key_def('ignore_index', params['training'], -1)
-            validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'], ignore_index)
+            validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'])
 
             assert os.path.isfile(info['tif']), f"could not open raster file at {info['tif']}"
             with rasterio.open(info['tif'], 'r') as raster:
@@ -52,7 +52,6 @@ def create_csv():
 
                 # Read the input raster image
                 np_input_image = image_reader_as_array(input_image=raster,
-                                                       scale=get_key_def('scale_data', params['global'], None),
                                                        aux_vector_file=get_key_def('aux_vector_file', params['global'],
                                                                                    None),
                                                        aux_vector_attrib=get_key_def('aux_vector_attrib',
@@ -303,49 +302,48 @@ def parameters_search(sampling, sample_data, classes):
             results(classes, res)
 
 
-def main(params):
+def main(params):  # TODO: test this.
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     prop_csv = params['global']['data_path'] + '/prop_data.csv'
-    sampling = params['data_analysis']['sampling']
+    sampling = params['data_analysis']['sampling_method']
 
     if params['data_analysis']['create_csv']:
         create_csv()
 
     sample_data = genfromtxt(prop_csv, delimiter=',', dtype='|U8')
 
-    pixel_classes = {}
+    # creates pixel_classes dict and keys
     classes = []
-    for i, (key, value) in enumerate(sampling.items()):
-        if i >= 2:
-            classes.append(int(key))
-            pixel_classes.update({key: 0})
+    if "class_proportion" in sampling.keys():
+        pixel_classes = {key: 0 for key in sampling["class_proportion"].keys()}
+        classes = [int(key) for key in sampling["class_proportion"].keys()]
 
     if params['data_analysis']['optimal_parameters_search']:
         parameters_search(sampling, sample_data, classes)
 
     else:
         for row in sample_data:
-            if len(sampling['method']) == 1:
-                if sampling['method'][0] == 'min_annotated_percent':
+            if len(list(sampling.keys())) == 1:
+                if list(sampling.keys())[0] == 'min_annotated_percent':
                     if minimum_annotated_percent(row[0], sampling['map']):
                         # adds pixel count to pixel_classes dict for each class in the image
                         compute_classes(classes, pixel_classes, row, number_samples)
 
-                elif sampling['method'][0] == 'class_proportion':
+                elif list(sampling.keys())[0] == 'class_proportion':
                     if class_proportion(row, classes, sampling):
                         # adds pixel count to pixel_classes dict for each class in the image
                         compute_classes(classes, pixel_classes, row, number_samples)
 
-            elif len(sampling['method']) == 2:
-                if sampling['method'][0] == 'min_annotated_percent':
+            elif len(list(sampling.keys())) == 2:
+                if list(sampling.keys())[0] == 'min_annotated_percent':
                     if minimum_annotated_percent(row[0], sampling['map']):
-                        if sampling['method'][1] == 'class_proportion':
+                        if list(sampling.keys())[1] == 'class_proportion':
                             if class_proportion(row, classes, sampling):
                                 compute_classes(classes, pixel_classes, row, number_samples)
 
-                elif sampling['method'][0] == 'class_proportion':
+                elif list(sampling.keys())[0] == 'class_proportion':
                     if class_proportion(row, classes, sampling):
-                        if sampling['method'][1] == 'min_annotated_percent':
+                        if list(sampling.keys())[1] == 'min_annotated_percent':
                             if minimum_annotated_percent(row[0], sampling['map']):
                                 compute_classes(classes, pixel_classes, row, number_samples)
 
