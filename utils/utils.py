@@ -42,7 +42,7 @@ class Interpolate(torch.nn.Module):
         return x
 
 
-def load_from_checkpoint(checkpoint, model, optimizer=None, inference=False):
+def load_from_checkpoint(checkpoint, model, optimizer=None):
     """Load weights from a previous checkpoint
     Args:
         checkpoint: (dict) checkpoint as loaded in model_choice.py
@@ -229,11 +229,12 @@ def pad(img, padding, fill=0):
 
 
 def pad_diff(actual_height, actual_width, desired_shape):
-    """ Pads img_arr width or height < samples_size with zeros """
+    """ Pads img_arr width or height < samples_size with zeros
+    """
     h_diff = desired_shape - actual_height
     w_diff = desired_shape - actual_width
-
-    return h_diff, w_diff
+    padding = (0, 0, w_diff, h_diff)  # left, top, right, bottom
+    return padding
 
 
 def unnormalize(input_img, mean, std):

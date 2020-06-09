@@ -18,8 +18,6 @@ from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import validate_num_classes, assert_num_bands, assert_crs_match, \
     validate_features_from_gpkg
 
-# from rasterio.features import is_valid_geom #FIXME: https://github.com/mapbox/rasterio/issues/1815 is solved. Update rasterio package.
-
 try:
     import boto3
 except ModuleNotFoundError:
@@ -56,10 +54,16 @@ def mask_image(arrayA, arrayB):
 
 
 def append_to_dataset(dataset, sample):
+    """
+    Append a new sample to a provided dataset. The dataset has to be expanded before we can add value to it.
+    :param dataset:
+    :param sample: data to append
+    :return: Index of the newly added sample.
+    """
     old_size = dataset.shape[0]  # this function always appends samples on the first axis
     dataset.resize(old_size + 1, axis=0)
     dataset[old_size, ...] = sample
-    return old_size  # the index to the newly added sample, or the previous size of the dataset
+    return old_size
 
 
 def validate_class_prop_dict(actual_classes_dict, config_dict):
@@ -180,6 +184,7 @@ def samples_preparation(in_img_array,
     :param val_sample_file: (hdf5 dataset) hdfs file where samples will be written (val)
     :param dataset: (str) Type of dataset where the samples will be written. Can be 'trn' or 'val' or 'tst'
     :param pixel_classes: (dict) samples pixel statistics
+    :param image_metadata () ?
     :param dontcare: Value in gpkg features that will ignored during training
     :param min_annot_perc: optional, minimum annotated percent required for sample to be created
     :param class_prop: optional, minimal proportion of pixels for each class required for sample to be created
@@ -187,7 +192,6 @@ def samples_preparation(in_img_array,
     """
 
     # read input and reference images as array
-
     h, w, num_bands = in_img_array.shape
     if dataset == 'trn':
         idx_samples = samples_count['trn']
@@ -195,12 +199,11 @@ def samples_preparation(in_img_array,
     elif dataset == 'tst':
         idx_samples = samples_count['tst']
     else:
-        raise ValueError(f"Dataset value must be trn or val. Provided value is {dataset}")
+        raise ValueError(f"Dataset value must be trn or tst. Provided value is {dataset}")
 
     idx_samples_v = samples_count['val']
 
-    # there should be one set of metadata per raster
-    # ...all samples created by tiling below will point to that metadata by index
+    # Adds raster metadata to the dataset. All samples created by tiling below will point to that metadata by index
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
 
     dist_samples = round(sample_size * (1 - (overlap / 100)))
@@ -218,22 +221,18 @@ def samples_preparation(in_img_array,
                 data_row = data.shape[0]
                 data_col = data.shape[1]
                 if data_row < sample_size or data_col < sample_size:
-                    h_diff, w_diff = pad_diff(data_row, data_col, sample_size) # array, actual height, actual width, desired size
-                    padding = (0, 0, w_diff, h_diff) # left, top, right, bottom
+                    padding = pad_diff(data_row, data_col, sample_size)  # array, actual height, actual width, desired size
                     data = pad(data, padding, fill=np.nan)  # don't fill with 0 if possible. Creates false min value when scaling.
 
                 target_row = target.shape[0]
                 target_col = target.shape[1]
                 if target_row < sample_size or target_col < sample_size:
-                    h_diff, w_diff = pad_diff(target_row, target_col,
-                                              sample_size)  # array, actual height, actual width, desired size
-                    padding = (0, 0, w_diff, h_diff) # left, top, right, bottom
+                    padding = pad_diff(target_row, target_col, sample_size)  # array, actual height, actual width, desired size
                     target = pad(target, padding, fill=dontcare)
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
 
-                sample_metadata = {}
-                sample_metadata['sample_indices'] = (row, column)
+                sample_metadata = {'sample_indices': (row, column)}
 
                 val = None
                 if minimum_annotated_percent(target_background_percent, min_annot_perc) and \
