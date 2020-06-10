@@ -125,7 +125,7 @@ def class_proportion(target, sample_size: int, class_min_prop: dict):
     return True
 
 
-def compute_classes(dataset,
+def add_to_datasets(dataset,
                     samples_file,
                     val_percent,
                     val_sample_file,
@@ -134,8 +134,7 @@ def compute_classes(dataset,
                     sample_metadata,
                     metadata_idx,
                     dict_classes):
-    # TODO: rename this function?
-    """ Creates Dataset (trn, val, tst) appended to Hdf5 and computes pixel classes(%) """
+    """ Add sample to Hdf5 (trn, val or tst) and computes pixel classes(%). """
     val = False
     if dataset == 'trn':
         random_val = np.random.randint(1, 100)
@@ -151,7 +150,10 @@ def compute_classes(dataset,
 
     # adds pixel count to pixel_classes dict for each class in the image
     for key, value in enumerate(np.bincount(target.clip(min=0).flatten())):
-        dict_classes[key] += value
+        if key in dict_classes.keys():
+            dict_classes[key] += value
+        elif key not in dict_classes.keys() and value > 0:
+            raise ValueError(f"A class value was written ({key}) that was not defined in the classes ({dict_classes.keys()}).")
 
     return val
 
@@ -234,10 +236,10 @@ def samples_preparation(in_img_array,
 
                 sample_metadata = {'sample_indices': (row, column)}
 
-                val = None
+                val = False
                 if minimum_annotated_percent(target_background_percent, min_annot_perc) and \
                         class_proportion(target, sample_size, class_prop):
-                    val = compute_classes(dataset=dataset,
+                    val = add_to_datasets(dataset=dataset,
                                           samples_file=samples_file,
                                           val_percent=val_percent,
                                           val_sample_file=val_sample_file,
@@ -258,7 +260,7 @@ def samples_preparation(in_img_array,
                 if num_classes < target_class_num:
                     num_classes = target_class_num
 
-                final_dataset = 'val' if dataset == 'trn' and val else dataset
+                final_dataset = 'val' if val else dataset
                 _tqdm.set_postfix(Dataset=final_dataset,
                                   Excld_samples=excl_samples,
                                   Added_samples=f'{added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}',
@@ -339,7 +341,7 @@ def main(params):
         assert_num_bands(info['tif'], num_bands, meta_map)
         if info['gpkg'] not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'],
-                                 ignore_index)
+                                                ignore_index)
             assert_crs_match(info['tif'], info['gpkg'])
             valid_gpkg_set.add(info['gpkg'])
 

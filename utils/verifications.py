@@ -32,7 +32,7 @@ def is_valid_geom(geom):
     geom_types = {'Point', 'MultiPoint', 'LineString', 'LinearRing',
                   'MultiLineString', 'Polygon', 'MultiPolygon'}
 
-    if not geom: #Custom if statement.
+    if not geom:  # Custom if statement.
         return False
 
     if 'type' not in geom:
@@ -128,7 +128,7 @@ def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attrib
     return distinct_att
 
 
-def add_background_to_num_class(task: str, num_classes: int): # FIXME temporary patch for num_classes problem.
+def add_background_to_num_class(task: str, num_classes: int):  # FIXME temporary patch for num_classes problem.
     """
     Adds one to number of classes for all segmentation tasks.
 
@@ -178,14 +178,14 @@ def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path])
         raster_crs = raster.crs
 
     assert gpkg_crs == raster_crs, f"CRS mismatch: \n" \
-                                      f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n" \
-                                      f"GPKG file \"{gpkg_path}\" has {src.crs} CRS."
+                                   f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n" \
+                                   f"GPKG file \"{gpkg_path}\" has {src.crs} CRS."
 
 
 def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
     """
     Validate features in gpkg file
-    :param gpkg_path: (str or Path) path to gpkg file
+    :param gpkg: (str or Path) path to gpkg file
     :param attribute_name: name of the value field representing the required classes in the vector image file
     """
     # TODO: test this with invalid features.
