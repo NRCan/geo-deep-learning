@@ -78,6 +78,9 @@ training:
   class_weights: [1.0, 2.0]
   batch_metrics:    # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
   ignore_index: 255 # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
+  normalization:  # Normalization parameters for finetuning (Ex. mean: [0.485, 0.456, 0.406], std: std: [0.229, 0.224, 0.225])
+    mean:
+    std:
 
   augmentation:
       rotate_limit: 45         # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.

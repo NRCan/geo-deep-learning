@@ -438,7 +438,6 @@ def main(params):
                     with rasterio.open(out_tif, "w", **out_meta) as dest:
                         dest.write(np_label_debug)
 
-
                 # Mask the zeros from input image into label raster.
                 if params['sample']['mask_reference']:
                     np_label_raster = mask_image(np_input_image, np_label_raster)
@@ -457,13 +456,13 @@ def main(params):
                 metadata['csv_info'] = info
                 # Save label's per class pixel count to image metadata
                 metadata['source_label_bincount'] = {class_num: count for class_num, count in
-                                                          enumerate(np.bincount(np_label_debug.clip(min=0).flatten()))}
+                                                     enumerate(np.bincount(np_label_debug.clip(min=0).flatten()))}
                 metadata['source_raster_bincount'] = {}
                 # Save bincount (i.e. histogram) to metadata
                 for band_index in range(np_input_image.shape[2]):
                     band = np_input_image[..., band_index]
                     metadata['source_raster_bincount'][f'band{band_index}'] = {count for count in
-                                                                                np.bincount(band.flatten())}
+                                                                               np.bincount(band.flatten())}
                 if info['meta'] is not None and isinstance(info['meta'], str) and Path(info['meta']).is_file():
                     yaml_metadata = read_parameters(info['meta'])
                     metadata.update(yaml_metadata)
