@@ -150,10 +150,11 @@ def add_to_datasets(dataset,
 
     # adds pixel count to pixel_classes dict for each class in the image
     for key, value in enumerate(np.bincount(target.clip(min=0).flatten())):
-        if key in dict_classes.keys():
+        cls_keys = dict_classes.keys()
+        if key in cls_keys:
             dict_classes[key] += value
-        elif key not in dict_classes.keys() and value > 0:
-            raise ValueError(f"A class value was written ({key}) that was not defined in the classes ({dict_classes.keys()}).")
+        elif key not in cls_keys and value > 0:
+            raise ValueError(f"A class value was written ({key}) that was not defined in the classes ({cls_keys}).")
 
     return val
 
