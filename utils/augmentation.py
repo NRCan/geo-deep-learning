@@ -27,11 +27,11 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
     scale = get_key_def('scale_data', params['global'], None)
     norm_mean = get_key_def('mean', params['training']['normalization'])
     norm_std = get_key_def('std', params['training']['normalization'])
+    random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['training']['augmentation'], None)
 
     if dataset == 'trn':
 
         if type == 'radiometric':
-            random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['training']['augmentation'], None)
             noise = get_key_def('noise', params['training']['augmentation'], None)
 
             if random_radiom_trim_range:  # Contrast stretching
@@ -60,6 +60,9 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
                 lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=ignore_index))
 
     if type == 'totensor':
+        if not dataset == 'trn' and random_radiom_trim_range:  # Contrast stretching at eval. Use mean of provided range
+            trim_at_eval = round((random_radiom_trim_range[-1] - random_radiom_trim_range[0]) / 2, 1)
+            lst_trans.append(RadiometricTrim(range=[trim_at_eval, trim_at_eval]))
         if scale:
             lst_trans.append(Scale(scale))  # TODO: assert coherence with below normalization
 

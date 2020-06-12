@@ -326,21 +326,6 @@ def main(params):
                     inf_sample['metadata']['source_raster_bincount'][f'band{band_index}'] = {count for count in
                                                                                 np.bincount(band.flatten())}
 
-                random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['training']['augmentation'], None)
-                if random_radiom_trim_range is not None:  # TODO: test this
-                    trim_at_inference = round((random_radiom_trim_range[-1]-random_radiom_trim_range[0])/2, 1)
-                    radiom_scaling = RadiometricTrim(range=[trim_at_inference, trim_at_inference])
-                    inf_sample = radiom_scaling(inf_sample)
-
-                    if debug:
-                        output_name = working_folder / f'{local_img.stem}_radiomtrim.TIF'
-                        out_meta = raster_handle.meta.copy()
-                        np_image_debug = inf_sample['sat_img'].transpose(2, 0, 1).astype(out_meta['dtype'])
-                        out_meta.update({"driver": "GTiff"})
-                        with rasterio.open(output_name, "w", **out_meta) as dest:
-                            dest.write(np_image_debug)
-                        print(f'DEBUG: Saved raster after radiometric trim to {output_name}')
-
                 if meta_map:
                     assert info['meta'] is not None and isinstance(info['meta'], str) and os.path.isfile(info['meta']), \
                         "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"

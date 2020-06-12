@@ -146,8 +146,9 @@ def compute_classes(dataset,
     append_to_dataset(samples_file["meta_idx"], metadata_idx)
 
     # adds pixel count to pixel_classes dict for each class in the image
-    for key, value in enumerate(np.bincount(target.clip(min=0).flatten())):
-        dict_classes[key] += value
+    bincount = np.bincount(target.clip(min=0).flatten())
+    for key in np.unique(target.clip(min=0)):
+        dict_classes[key] += bincount[key]
 
     return val
 
@@ -294,7 +295,7 @@ def main(params):
     val_percent = params['sample']['val_percent']
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], 0, expected_type=int)
     num_bands = params['global']['number_of_bands']
     debug = get_key_def('debug_mode', params['global'], False)
     if debug:
@@ -455,7 +456,8 @@ def main(params):
                 metadata['csv_info'] = info
                 # Save label's per class pixel count to image metadata
                 metadata['source_label_bincount'] = {class_num: count for class_num, count in
-                                                          enumerate(np.bincount(np_label_debug.clip(min=0).flatten()))}
+                                                          enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
+                                                     if count > 0}
                 metadata['source_raster_bincount'] = {}
                 # Save bincount (i.e. histogram) to metadata
                 for band_index in range(np_input_image.shape[2]):

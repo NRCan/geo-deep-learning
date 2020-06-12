@@ -239,7 +239,7 @@ def main(params, config_path):
 
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], 0, expected_type=int)
     num_bands = params['global']['number_of_bands']
     samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: won't check if folder has datetime suffix (if multiple folders)
     samples_folder = Path(data_path).joinpath(samples_folder_name) if task == 'segmentation' else Path(data_path)

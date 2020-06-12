@@ -62,7 +62,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference=False):
     model.load_state_dict(checkpoint['model'], strict=False)
     print(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-        optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
+        optimizer.load_state_dict(checkpoint['optimizer'])
     return model, optimizer
 
 
