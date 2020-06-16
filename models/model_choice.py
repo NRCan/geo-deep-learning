@@ -8,9 +8,8 @@ import torchvision.models as models
 from models import TernausNet, unet, checkpointed_unet, inception, coordconv, common
 from utils.utils import get_key_def
 ###############################
-from utils.NIR_modules import MyEnsemble
+from utils.layersmodules import LayersEnsemble
 ###############################
-import copy
 
 
 def load_checkpoint(filename):
@@ -61,12 +60,18 @@ def net(net_params, num_channels, inference=False):
         assert (num_bands == 3 or num_bands == 4), msg
         if num_bands == 3:
             print('Finetuning pretrained deeplabv3 with 3 bands')
-            model = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, aux_loss=None)
-            model.classifier = common.DeepLabHead(2048, num_channels)
+            model = models.segmentation.deeplabv3_resnet101(
+                    pretrained=False, progress=True, num_classes=num_channels
+                    )
         elif num_bands == 4:
             print('Finetuning pretrained deeplabv3 with 4 bands')
-            #model_rgb = models.segmentation.deeplabv3_resnet101(pretrained=False, progress=True, aux_loss=None)
-            #model_rgb.classifier = common.DeepLabHead(2048, num_channels)
+            
+            # TODO: change to print the place where we concatenate
+            print('Testing with 4 bands, concatenating at {}.'.format('conv1'))
+            
+            model = models.segmentation.deeplabv3_resnet101(
+                    pretrained=False, progress=True, num_classes=num_channels
+                    )
             
             ###################
             # TODO: See what to do with it
@@ -77,16 +82,8 @@ def net(net_params, num_channels, inference=False):
             #model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
             ###################
 
-            #model_rgb.classifier = common.DeepLabHead(2048, num_channels)
+            model = LayersEnsemble(model, conc_point='conv1')
 
-            ###################
-            # TODO: find a more elegant way
-            #model_nir = copy.deepcopy(model_rgb) # TODO: change to load only the part that we want
-            #model_nir.backbone.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-
-            #model = [model_rgb, model_nir]
-            model = MyEnsemble(num_channels)
-            ###################
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
 
