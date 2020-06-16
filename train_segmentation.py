@@ -35,10 +35,6 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
 
-#######
-from utils.NIR_modules import MyEnsemble
-#######
-
 from utils import augmentation as aug, CreateDataset
 from utils.optimizer import create_optimizer
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
@@ -347,23 +343,11 @@ def main(params, config_path):
 
     tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
     try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
-        ##################
-        # TODO: 
-        #model[0].to(device)
-        #model[1].to(device)
-        
         model.to(device)
-        ##################
     except RuntimeError:
         warnings.warn(f"Unable to use device. Trying device 0...\n")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-        ##################
-        # TODO: 
-        #model[0].to(device)
-        #model[1].to(device)
-        
         model.to(device)
-        ##################
     model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes_corrected, model, checkpoint)
 
     criterion = criterion.to(device)
@@ -513,21 +497,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     :return: Updated training loss
     """
 
-    #################
-    # TODO: Remove after testing phase
-    #print(model)
-    #with open('out.txt', 'w') as f:
-    #    print(model, file=f)  # Python 3.x
-    #nir_model = copy.deepcopy(model) # TODO: change to load only the part that we want
-    #nir_model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-
-    #model[0].train()
-    #model[1].train()
-
-
     model.train()
-    #################
-
     train_metrics = create_metrics_dict(num_classes)
     vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
@@ -555,36 +525,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             inputs = inputs[:,:-1, ...] # Need to be change 
             #inputs_NIR = data['NIR'].to(device)
 
-            # Creat the second model with only the NIR
-            #nir_model = copy.deepcopy(model) # TODO: change to load only the part that we want
-            #nir_model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-            #output_NIR = model[1](inputs_NIR)
-            
-            #outputs = model[0](inputs) # TODO: need to put back up
-
-            # TODO: change to print the place where we concatenate
-            print('Testing with 4 bands at the deep {}'.format('conv1'))
-
-            #TODO: create a way to choose the good connection depending of the `qqch`
-
-            # Collect the weight for each model
-            #depth = model[0].backbone._modules['conv1'].weight.detach().numpy()
-            #depth_NIR = model[1].backbone._modules['conv1'].weight.detach().numpy()
-
-            # Adding Noise
-            #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7)) # TODO: Talk with the team if we add noise or not 
-            #conv1 = np.append(conv1, depth, axis=1)
-            #conv1 = torch.from_numpy(conv1)
-
-            # Connection
-            #new_weight = torch.cat([depth, depth_NIR], 1)
-            #model[0].backbone._modules['conv1'].weight = nn.Parameter(new_weight, requires_grad=True)
-
-            #model = MyEnsemble(model[0],model[1])
             outputs = model(inputs, inputs_NIR)
-            print('output', outputs.shape)
-            print('labels', labels.shape)
-
             ############################
             # End of the test implementation module
             ############################
@@ -662,7 +603,23 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                 labels = data['map_img'].to(device)
                 labels_flatten = flatten_labels(labels)
 
-                outputs = model(inputs)
+                ############################
+                # Test Implementation of the NIR
+                ############################
+
+                # Init NIR   TODO: make a proper way to read the NIR channel 
+                #                  and put an option to be able to give the idex of the NIR channel
+                inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
+                inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
+                inputs = inputs[:,:-1, ...] # Need to be change 
+                #inputs_NIR = data['NIR'].to(device)
+
+                outputs = model(inputs, inputs_NIR)
+                ############################
+                # End of the test implementation module
+                ############################
+
+                #outputs = model(inputs)
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
@@ -757,7 +714,6 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                     inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
                     inputs = inputs[:,:-1, ...] # Need to be change 
                     
-                    #outputs = model[0](inputs)
                     outputs = model(inputs, inputs_NIR)
                     ############################
                     # Test Implementation of the NIR
