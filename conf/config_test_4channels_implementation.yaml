@@ -110,7 +110,7 @@ inference:
 # Visualization parameters
 
 visualization:
-  vis_batch_range: [0,200,10] #start, finish, increment
+  vis_batch_range: [0,2,1] #start, finish, increment
   vis_at_checkpoint: True
   vis_at_ckpt_min_ep_diff: 0
   vis_at_ckpt_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.
