@@ -313,7 +313,7 @@ def main(params):
         bucket.download_file(csv_file, 'samples_prep.csv')
         list_data_prep = read_csv('samples_prep.csv')
         if data_path:
-            final_samples_folder = os.path.join(data_path, "samples")
+            final_samples_folder = data_path.joinpath("samples")
         else:
             final_samples_folder = "samples"
         samples_folder = sample_path_name
