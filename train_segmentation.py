@@ -33,6 +33,7 @@ from losses import MultiClassCriterion
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
+from mlflow import log_params
 
 
 def verify_weights(num_classes, weights):
@@ -236,9 +237,9 @@ def main(params, config_path):
     if not progress_log.exists():
         progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))  # Add header
 
-    trn_log = InformationLogger(output_path, 'trn')
-    val_log = InformationLogger(output_path, 'val')
-    tst_log = InformationLogger(output_path, 'tst')
+    trn_log = InformationLogger('trn')
+    val_log = InformationLogger('val')
+    tst_log = InformationLogger('tst')
 
     num_devices = params['global']['num_gpus']
     assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
@@ -635,5 +636,9 @@ if __name__ == '__main__':
     config_path = Path(args.param_file)
     params = read_parameters(args.param_file)
 
+    compteur = 0
+    log_params(params['training'])
+    log_params(params['global'])
+    log_params(params['samples'])
     main(params, config_path)
     print('End of training')
