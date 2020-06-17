@@ -5,14 +5,14 @@
 #   4) Sampling parameters
 #   5) Training parameters
 #   6) Inference parameters
-#   7) Model parameters
+#   7) Visualization parameters
 
 # Global parameters
 
 global:
   samples_size: 512
   num_classes: 5
-  data_path: paht/to/data
+  data_path: path/to/data
   number_of_bands: 4
   model_name: unet     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
@@ -20,13 +20,15 @@ global:
   num_gpus: 2
   BGR_to_RGB: True
   scale_data: [0,1]
-  aux_vector_file: /export/sata01/wspace/dataset_kingston_rgb/tst_CRIM/RRN_clipped_UTM18N_rotation.gpkg
+  aux_vector_file:
   aux_vector_attrib:
   aux_vector_ids:
   aux_vector_dist_maps:
   aux_vector_dist_log:
   aux_vector_scale:
   debug_mode: True
+  coordconv_convert: False
+  coordvonc_scale:
 
 
 # Data analysis parameters; used in data_analysis.py ------------------
@@ -76,6 +78,9 @@ training:
   class_weights: [1.0, 2.0]
   batch_metrics:    # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
   ignore_index: 255 # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
+  normalization:  # Normalization parameters for finetuning (Ex. mean: [0.485, 0.456, 0.406], std: std: [0.229, 0.224, 0.225])
+    mean:
+    std:
 
   augmentation:
       rotate_limit: 45         # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.

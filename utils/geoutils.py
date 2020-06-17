@@ -10,10 +10,6 @@ from rasterio.mask import mask
 
 from utils.utils import get_key_recursive
 
-from shapely.geometry import box
-import geopandas as gpd
-# import pycrs
-
 
 def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
     '''

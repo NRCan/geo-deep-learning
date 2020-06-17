@@ -18,8 +18,6 @@ from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import validate_num_classes, assert_num_bands, assert_crs_match, \
     validate_features_from_gpkg
 
-# from rasterio.features import is_valid_geom #FIXME: https://github.com/mapbox/rasterio/issues/1815 is solved. Update rasterio package.
-
 try:
     import boto3
 except ModuleNotFoundError:
@@ -56,10 +54,16 @@ def mask_image(arrayA, arrayB):
 
 
 def append_to_dataset(dataset, sample):
+    """
+    Append a new sample to a provided dataset. The dataset has to be expanded before we can add value to it.
+    :param dataset:
+    :param sample: data to append
+    :return: Index of the newly added sample.
+    """
     old_size = dataset.shape[0]  # this function always appends samples on the first axis
     dataset.resize(old_size + 1, axis=0)
     dataset[old_size, ...] = sample
-    return old_size  # the index to the newly added sample, or the previous size of the dataset
+    return old_size
 
 
 def validate_class_prop_dict(actual_classes_dict, config_dict):
@@ -121,7 +125,7 @@ def class_proportion(target, sample_size: int, class_min_prop: dict):
     return True
 
 
-def compute_classes(dataset,
+def add_to_datasets(dataset,
                     samples_file,
                     val_percent,
                     val_sample_file,
@@ -130,8 +134,7 @@ def compute_classes(dataset,
                     sample_metadata,
                     metadata_idx,
                     dict_classes):
-    # TODO: rename this function?
-    """ Creates Dataset (trn, val, tst) appended to Hdf5 and computes pixel classes(%) """
+    """ Add sample to Hdf5 (trn, val or tst) and computes pixel classes(%). """
     val = False
     if dataset == 'trn':
         random_val = np.random.randint(1, 100)
@@ -147,7 +150,11 @@ def compute_classes(dataset,
 
     # adds pixel count to pixel_classes dict for each class in the image
     for key, value in enumerate(np.bincount(target.clip(min=0).flatten())):
-        dict_classes[key] += value
+        cls_keys = dict_classes.keys()
+        if key in cls_keys:
+            dict_classes[key] += value
+        elif key not in cls_keys and value > 0:
+            raise ValueError(f"A class value was written ({key}) that was not defined in the classes ({cls_keys}).")
 
     return val
 
@@ -180,6 +187,7 @@ def samples_preparation(in_img_array,
     :param val_sample_file: (hdf5 dataset) hdfs file where samples will be written (val)
     :param dataset: (str) Type of dataset where the samples will be written. Can be 'trn' or 'val' or 'tst'
     :param pixel_classes: (dict) samples pixel statistics
+    :param image_metadata () ?
     :param dontcare: Value in gpkg features that will ignored during training
     :param min_annot_perc: optional, minimum annotated percent required for sample to be created
     :param class_prop: optional, minimal proportion of pixels for each class required for sample to be created
@@ -187,7 +195,6 @@ def samples_preparation(in_img_array,
     """
 
     # read input and reference images as array
-
     h, w, num_bands = in_img_array.shape
     if dataset == 'trn':
         idx_samples = samples_count['trn']
@@ -195,12 +202,11 @@ def samples_preparation(in_img_array,
     elif dataset == 'tst':
         idx_samples = samples_count['tst']
     else:
-        raise ValueError(f"Dataset value must be trn or val. Provided value is {dataset}")
+        raise ValueError(f"Dataset value must be trn or tst. Provided value is {dataset}")
 
     idx_samples_v = samples_count['val']
 
-    # there should be one set of metadata per raster
-    # ...all samples created by tiling below will point to that metadata by index
+    # Adds raster metadata to the dataset. All samples created by tiling below will point to that metadata by index
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
 
     dist_samples = round(sample_size * (1 - (overlap / 100)))
@@ -218,27 +224,23 @@ def samples_preparation(in_img_array,
                 data_row = data.shape[0]
                 data_col = data.shape[1]
                 if data_row < sample_size or data_col < sample_size:
-                    h_diff, w_diff = pad_diff(data_row, data_col, sample_size) # array, actual height, actual width, desired size
-                    padding = (0, 0, w_diff, h_diff) # left, top, right, bottom
+                    padding = pad_diff(data_row, data_col, sample_size)  # array, actual height, actual width, desired size
                     data = pad(data, padding, fill=np.nan)  # don't fill with 0 if possible. Creates false min value when scaling.
 
                 target_row = target.shape[0]
                 target_col = target.shape[1]
                 if target_row < sample_size or target_col < sample_size:
-                    h_diff, w_diff = pad_diff(target_row, target_col,
-                                              sample_size)  # array, actual height, actual width, desired size
-                    padding = (0, 0, w_diff, h_diff) # left, top, right, bottom
+                    padding = pad_diff(target_row, target_col, sample_size)  # array, actual height, actual width, desired size
                     target = pad(target, padding, fill=dontcare)
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
 
-                sample_metadata = {}
-                sample_metadata['sample_indices'] = (row, column)
+                sample_metadata = {'sample_indices': (row, column)}
 
-                val = None
+                val = False
                 if minimum_annotated_percent(target_background_percent, min_annot_perc) and \
                         class_proportion(target, sample_size, class_prop):
-                    val = compute_classes(dataset=dataset,
+                    val = add_to_datasets(dataset=dataset,
                                           samples_file=samples_file,
                                           val_percent=val_percent,
                                           val_sample_file=val_sample_file,
@@ -259,7 +261,7 @@ def samples_preparation(in_img_array,
                 if num_classes < target_class_num:
                     num_classes = target_class_num
 
-                final_dataset = 'val' if dataset == 'trn' and val else dataset
+                final_dataset = 'val' if val else dataset
                 _tqdm.set_postfix(Dataset=final_dataset,
                                   Excld_samples=excl_samples,
                                   Added_samples=f'{added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}',
@@ -311,7 +313,7 @@ def main(params):
         bucket.download_file(csv_file, 'samples_prep.csv')
         list_data_prep = read_csv('samples_prep.csv')
         if data_path:
-            final_samples_folder = os.path.join(data_path, "samples")
+            final_samples_folder = data_path.joinpath("samples")
         else:
             final_samples_folder = "samples"
         samples_folder = sample_path_name
@@ -340,7 +342,7 @@ def main(params):
         assert_num_bands(info['tif'], num_bands, meta_map)
         if info['gpkg'] not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'],
-                                 ignore_index)
+                                                ignore_index)
             assert_crs_match(info['tif'], info['gpkg'])
             valid_gpkg_set.add(info['gpkg'])
 
@@ -436,7 +438,6 @@ def main(params):
                     with rasterio.open(out_tif, "w", **out_meta) as dest:
                         dest.write(np_label_debug)
 
-
                 # Mask the zeros from input image into label raster.
                 if params['sample']['mask_reference']:
                     np_label_raster = mask_image(np_input_image, np_label_raster)
@@ -455,13 +456,13 @@ def main(params):
                 metadata['csv_info'] = info
                 # Save label's per class pixel count to image metadata
                 metadata['source_label_bincount'] = {class_num: count for class_num, count in
-                                                          enumerate(np.bincount(np_label_debug.clip(min=0).flatten()))}
+                                                     enumerate(np.bincount(np_label_debug.clip(min=0).flatten()))}
                 metadata['source_raster_bincount'] = {}
                 # Save bincount (i.e. histogram) to metadata
                 for band_index in range(np_input_image.shape[2]):
                     band = np_input_image[..., band_index]
                     metadata['source_raster_bincount'][f'band{band_index}'] = {count for count in
-                                                                                np.bincount(band.flatten())}
+                                                                               np.bincount(band.flatten())}
                 if info['meta'] is not None and isinstance(info['meta'], str) and Path(info['meta']).is_file():
                     yaml_metadata = read_parameters(info['meta'])
                     metadata.update(yaml_metadata)

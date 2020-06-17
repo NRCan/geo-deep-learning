@@ -80,7 +80,7 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
 
 
 def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', ep_num=0, inference_input_path=False, debug=False):
-    '''saves input, output and label (if given) as .png in a grid or as individual pngs
+    """saves input, output and label (if given) as .png in a grid or as individual pngs
     :param params: parameters from .yaml config file
     :param input: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
     :param output: (tensor) output array as pytorch tensor before argmax, e.g. as returned by dataloader
@@ -91,7 +91,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
     :param ep_num: (int) number of epoch arrays are inputted from. For file-naming purposes only.
     :param inference_input_path: (Path) path to input image on which inference is being performed. If given, turns «inference» bool to True below.
     :return: saves color images from input arrays as grid or as full scale .png
-    '''
+    """
     inference = True if inference_input_path else False
     scale = get_key_def('scale_data', params['global'], None)
     colormap_file = get_key_def('colormap_file', params['visualization'], None)
@@ -154,7 +154,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
                           f'{scale} is identical with scale used for training model.')
         output_name = vis_path.joinpath(f"{inference_input_path.stem}_inference.tif")
         create_new_raster_from_base(inference_input_path, output_name, output_argmax)
-        
+
         if heatmaps_inf:
             for key in heatmaps_dict.keys():
                 heatmap = np.array(heatmaps_dict[key]['heatmap_PIL'])
@@ -176,7 +176,6 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
                 heatmap = heatmaps_dict[key]['heatmap_PIL']
                 class_name = heatmaps_dict[key]['class_name']
                 heatmap.save(vis_path.joinpath(f"{dataset}_{sample_num:03d}_output_ep{ep_num:03d}_heatmap_{class_name}.png"))  # save heatmap
-
 
 
 def heatmaps_to_dict(output, classes=[], inference=False, debug=False):
