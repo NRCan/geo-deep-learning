@@ -38,7 +38,6 @@ def sem_seg_inference(model,
                       chunk_size,
                       num_classes,
                       device,
-                      src_raster_dtype=None,
                       meta_map=None,
                       metadata=None,
                       output_path=Path(os.getcwd()),
@@ -52,7 +51,6 @@ def sem_seg_inference(model,
         chunk_size: size of individual chunks to be processed during inference
         num_classes: number of different classes that may be predicted by the model
         device: device used by pytorch (cpu ou cuda)
-        src_raster_dtype: datatype of source raster
         meta_map:
         metadata:
         output_path: path to save debug files
@@ -92,7 +90,7 @@ def sem_seg_inference(model,
                 with tqdm(range(overlay, w + chunk_size, chunk_size - overlay), position=2, leave=False, desc='Inferring columns') as _tqdm:
                     for col in _tqdm:
                         sample = {'sat_img': None, 'metadata': {'dtype': None}}
-                        sample['metadata']['dtype'] = src_raster_dtype
+                        sample['metadata'] = metadata
                         totensor_transform = augmentation.compose_transforms(params, dataset="tst", type='totensor')
 
                         col_start = col - overlay
@@ -315,7 +313,7 @@ def main(params):
                                     aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
                                     aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
-                metadata = raster_handle.meta
+                metadata = raster_handle.meta  # TODO: clean up to l333
                 metadata['name'] = raster_handle.name
                 metadata['csv_info'] = info
                 inf_sample['metadata'] = metadata
@@ -329,7 +327,8 @@ def main(params):
                 if meta_map:
                     assert info['meta'] is not None and isinstance(info['meta'], str) and os.path.isfile(info['meta']), \
                         "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"
-                    metadata = read_parameters(info['meta'])
+                    yaml_metadata = read_parameters(info['meta'])
+                    inf_sample['metadata'].update(yaml_metadata)
 
                 _tqdm.set_postfix(OrderedDict(img_name=img_name,
                                               img=inf_sample['sat_img'].shape,
@@ -357,9 +356,8 @@ def main(params):
                                                               chunk_size,
                                                               num_classes_corrected,
                                                               device,
-                                                              raster_handle.meta["dtype"],
                                                               meta_map,
-                                                              metadata,
+                                                              inf_sample['metadata'],
                                                               output_path=working_folder,
                                                               index=_tqdm.n,
                                                               debug=debug)

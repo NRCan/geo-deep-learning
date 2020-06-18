@@ -95,9 +95,9 @@ class RadiometricTrim(object):
             for pixel_val, bin_count_per_bin in enumerate(sample['metadata']['source_raster_bincount'][f'band{band_idx}']):
                 lower_limit = pixel_count
                 upper_limit = pixel_count + bin_count_per_bin
-                if lower_limit <= left_pixel_val < upper_limit:
+                if lower_limit <= left_pixel_val <= upper_limit:
                     perc_left = pixel_val
-                if lower_limit <= right_pixel_val < upper_limit:
+                if lower_limit <= right_pixel_val <= upper_limit:
                     perc_right = pixel_val
                 pixel_count += bin_count_per_bin
             rescaled_band = exposure.rescale_intensity(band, in_range=(perc_left, perc_right), out_range=out_dtype)
