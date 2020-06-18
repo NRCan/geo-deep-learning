@@ -1,6 +1,5 @@
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
-import os
 import argparse
 from pathlib import Path
 import time
@@ -35,12 +34,6 @@ from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
 
-try:
-    import boto3
-except ModuleNotFoundError:
-    warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
-    pass
-
 
 def verify_weights(num_classes, weights):
     """Verifies that the number of weights equals the number of classes if any are given
@@ -73,37 +66,7 @@ def loader(path):
     return img
 
 
-def download_s3_files(bucket_name, data_path, output_path):
-    """
-    Function to download the required training files from s3 bucket and sets ec2 paths.
-    :param bucket_name: (str) bucket in which data is stored if using AWS S3
-    :param data_path: (str) EC2 file path of the folder containing h5py files
-    :param output_path: (str) EC2 file path in which the model will be saved
-    :param num_classes: (int) number of classes
-    :param task: (str) classification or segmentation
-    :return: (S3 object) bucket, (str) bucket_output_path, (str) local_output_path, (str) data_path
-    """
-    bucket_output_path = output_path
-    local_output_path = 'output_path'
-    try:
-        os.mkdir(output_path)
-    except FileExistsError:
-        pass
-    s3 = boto3.resource('s3')
-    bucket = s3.Bucket(bucket_name)
-
-    if data_path:
-        bucket.download_file(os.path.join(data_path, 'samples/trn_samples.hdf5'),
-                             'samples/trn_samples.hdf5')
-        bucket.download_file(os.path.join(data_path, 'samples/val_samples.hdf5'),
-                             'samples/val_samples.hdf5')
-        bucket.download_file(os.path.join(data_path, 'samples/tst_samples.hdf5'),
-                             'samples/tst_samples.hdf5')
-
-    return bucket, bucket_output_path, local_output_path, data_path
-
-
-def create_dataloader(samples_folder, batch_size, num_devices, params, dontcare_val, debug=False):
+def create_dataloader(samples_folder, batch_size, num_devices, params):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param samples_folder: path to folder containting .hdf5 files if task is segmentation
@@ -112,14 +75,17 @@ def create_dataloader(samples_folder, batch_size, num_devices, params, dontcare_
     :param params: (dict) Parameters found in the yaml config file.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
-    assert Path(samples_folder).is_dir(), f'Could not locate: {samples_folder}'
-    assert len([f for f in Path(samples_folder).glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
+    debug = get_key_def('debug_mode', params['global'], False)
+    dontcare_val = get_key_def("ignore_index", params["training"], -1)
+
+    assert samples_folder.is_dir(), f'Could not locate: {samples_folder}'
+    assert len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
     num_samples = get_num_samples(samples_path=samples_folder, params=params)
     print(f"Number of samples : {num_samples}\n")
     meta_map = get_key_def("meta_map", params["global"], {})
     num_bands = get_key_def("number_of_bands", params["global"], {})
     if not meta_map:
-         dataset_constr = CreateDataset.SegmentationDataset
+        dataset_constr = CreateDataset.SegmentationDataset
     else:
         dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
     datasets = []
@@ -141,7 +107,9 @@ def create_dataloader(samples_folder, batch_size, num_devices, params, dontcare_
     # Shuffle must be set to True.
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
                                 drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
+    # Using batch_metrics with shuffle=False on val dataset will always mesure metrics on the same portion of the val samples.
+    # Shuffle should be set to True.
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
                                 drop_last=True)
     tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
                                 drop_last=True) if num_samples['tst'] > 0 else None
@@ -162,13 +130,13 @@ def get_num_samples(samples_path, params):
         if get_key_def(f"num_{i}_samples", params['training'], None) is not None:
             num_samples[i] = params['training'][f"num_{i}_samples"]
 
-            with h5py.File(os.path.join(samples_path, f"{i}_samples.hdf5"), 'r') as hdf5_file:
+            with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), 'r') as hdf5_file:
                 file_num_samples = len(hdf5_file['map_img'])
             if num_samples[i] > file_num_samples:
                 raise IndexError(f"The number of training samples in the configuration file ({num_samples[i]}) "
                                  f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
         else:
-            with h5py.File(os.path.join(samples_path, f"{i}_samples.hdf5"), "r") as hdf5_file:
+            with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), "r") as hdf5_file:
                 num_samples[i] = len(hdf5_file['map_img'])
 
     return num_samples
@@ -234,27 +202,28 @@ def main(params, config_path):
     model, checkpoint, model_name = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
     tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
     bucket_name = get_key_def('bucket_name', params['global'])
-    data_path = params['global']['data_path']
-    assert Path(data_path).is_dir(), f'Could not locate data path {data_path}'
+    data_path = Path(params['global']['data_path'])
+    assert data_path.is_dir(), f'Could not locate data path {data_path}'
 
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], 0, expected_type=int)
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
     num_bands = params['global']['number_of_bands']
     samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: won't check if folder has datetime suffix (if multiple folders)
-    samples_folder = Path(data_path).joinpath(samples_folder_name) if task == 'segmentation' else Path(data_path)
+    samples_folder = data_path.joinpath(samples_folder_name)
 
     modelname = config_path.stem
-    output_path = Path(samples_folder).joinpath('model') / modelname
+    output_path = samples_folder.joinpath('model') / modelname
     if output_path.is_dir():
-        output_path = Path(str(output_path)+'_'+now)
+        output_path = output_path.joinpath(f"_{now}")
     output_path.mkdir(parents=True, exist_ok=False)
     shutil.copy(str(config_path), str(output_path))
     tqdm.write(f'Model and log files will be saved to: {output_path}\n\n')
-    task = params['global']['task']
+    # task = params['global']['task']
     batch_size = params['training']['batch_size']
 
     if bucket_name:
+        from utils.aws import download_s3_files
         bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
                                                                                data_path=data_path,
                                                                                output_path=output_path)
@@ -263,7 +232,7 @@ def main(params, config_path):
     best_loss = 999
     last_vis_epoch = 0
 
-    progress_log = Path(output_path) / 'progress.log'
+    progress_log = output_path / 'progress.log'
     if not progress_log.exists():
         progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))  # Add header
 
@@ -305,9 +274,7 @@ def main(params, config_path):
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
                                                                        num_devices=num_devices,
-                                                                       params=params,
-                                                                       dontcare_val=dontcare,
-                                                                       debug=debug)
+                                                                       params=params)
 
     tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
     try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
@@ -324,7 +291,7 @@ def main(params, config_path):
 
     criterion = criterion.to(device)
 
-    filename = os.path.join(output_path, 'checkpoint.pth.tar')
+    filename = output_path.joinpath('checkpoint.pth.tar')
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
@@ -361,7 +328,6 @@ def main(params, config_path):
                            debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-
         val_report = evaluation(eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
@@ -392,7 +358,7 @@ def main(params, config_path):
                         'optimizer': optimizer.state_dict()}, filename)
 
             if bucket_name:
-                bucket_filename = os.path.join(bucket_output_path, 'checkpoint.pth.tar')
+                bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
 
             # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
@@ -420,7 +386,7 @@ def main(params, config_path):
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if int(params['training']['num_epochs']) > 0:    #if num_epochs is set to 0, model is loaded to evaluate on test set
+    if int(params['training']['num_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
 
@@ -439,8 +405,8 @@ def main(params, config_path):
         tst_log.add_values(tst_report, params['training']['num_epochs'])
 
         if bucket_name:
-            bucket_filename = os.path.join(bucket_output_path, 'last_epoch.pth.tar')
-            bucket.upload_file("output.txt", os.path.join(bucket_output_path, f"Logs/{now}_output.txt"))
+            bucket_filename = bucket_output_path.joinpath('last_epoch.pth.tar')
+            bucket.upload_file("output.txt", bucket_output_path.joinpath(f"Logs/{now}_output.txt"))
             bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
@@ -474,6 +440,7 @@ def train(train_loader,
     :param vis_params: (dict) Parameters found in the yaml config file. Named vis_params because they are only used for
                         visualization functions.
     :param device: device used by pytorch (cpu ou cuda)
+    :param debug: (bool) Debug mode
     :return: Updated training loss
     """
     model.train()
