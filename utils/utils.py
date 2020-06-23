@@ -232,8 +232,8 @@ def pad_diff(actual_height, actual_width, desired_shape):
     """ Pads img_arr width or height < samples_size with zeros """
     h_diff = desired_shape - actual_height
     w_diff = desired_shape - actual_width
-
-    return h_diff, w_diff
+    padding = (0, 0, w_diff, h_diff)  # left, top, right, bottom
+    return padding
 
 
 def unnormalize(input_img, mean, std):
