@@ -25,7 +25,7 @@ global:
   aux_vector_file: 
   aux_vector_dist_map: False
   scale_data: [0,1]
-  debug_mode: True
+  debug_mode: False #True
 
   #####
   # Module to include the NIR (temporary)
