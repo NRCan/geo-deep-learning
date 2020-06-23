@@ -123,6 +123,11 @@ class Scale(object):
         min_val, max_val = np.nanmin(raster), np.nanmax(raster)
         if 'int' in dtype:
             orig_range = (np.iinfo(dtype).min, np.iinfo(dtype).max)
+        elif min_val >= 0 and max_val <= 255:
+            orig_range = (0, 255)
+            warnings.warn(f"Values in input image of shape {raster.shape} "
+                          f"range from {min_val} to {max_val}."
+                          f"Image will be considered 8 bit for scaling.")
         elif min_val >= 0 and max_val <= 65535:
             orig_range = (0, 65535)
             warnings.warn(f"Values in input image of shape {raster.shape} "
