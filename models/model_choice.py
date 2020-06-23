@@ -40,6 +40,9 @@ def net(net_params, num_channels, inference=False):
     pretrained = get_key_def('pretrained', net_params['training'], True) if not inference else False
     dropout = get_key_def('dropout', net_params['training'], False)
     dropout_prob = get_key_def('dropout_prob', net_params['training'], 0.5)
+    
+    # Read the concatenation point
+    conc_point = net_params['global']['concatenate_depth']
 
     if model_name == 'unetsmall':
         model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
@@ -65,9 +68,7 @@ def net(net_params, num_channels, inference=False):
                     )
         elif num_bands == 4:
             print('Finetuning pretrained deeplabv3 with 4 bands')
-            
-            # TODO: change to print the place where we concatenate
-            print('Testing with 4 bands, concatenating at {}.'.format('conv1'))
+            print('Testing with 4 bands, concatenating at {}.'.format(conc_point))
             
             model = models.segmentation.deeplabv3_resnet101(
                     pretrained=False, progress=True, num_classes=num_channels
@@ -82,7 +83,7 @@ def net(net_params, num_channels, inference=False):
             #model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
             ###################
 
-            model = LayersEnsemble(model, conc_point='conv1')
+            model = LayersEnsemble(model, conc_point=conc_point)
 
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')

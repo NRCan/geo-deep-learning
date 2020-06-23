@@ -18,9 +18,9 @@ import copy
 
 ############
 # TODO: remove after test
-import sys
-sys.path.append('../pytorch-summary/torchsummary')
-from torchsummary import summary
+#import sys
+#sys.path.append('../pytorch-summary/torchsummary')
+#from torchsummary import summary
 ############
 
 try:
@@ -512,12 +512,10 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
 
             # forward
             optimizer.zero_grad()
-            #outputs = model(inputs)
 
             ############################
             # Test Implementation of the NIR
             ############################
-
             # Init NIR   TODO: make a proper way to read the NIR channel 
             #                  and put an option to be able to give the idex of the NIR channel
             inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way

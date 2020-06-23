@@ -29,13 +29,12 @@ global:
 
   #####
   # Module to include the NIR (temporary)
-  # 1:'conv1',
-  # 4:'after the maxpooling',
-  # 6:'after the layer 2',
-  # 7:'after the layer 3',
-  # 8:'after the layer 4 (after the backbone)',
-  # 9:'after the ASPP module'
-  concatenate_depth: 1
+  # 'conv1',
+  # 'maxpool',
+  # 'layer2',
+  # 'layer3',
+  # 'layer4',
+  concatenate_depth: 'conv1'
   #####
   
 # Data analysis parameters; used in data_analysis.py ------------------
