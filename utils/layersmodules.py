@@ -6,7 +6,7 @@ from collections import OrderedDict
 from torch.nn import functional as F
 
 
-nir_layers = {'conv1':1, 'maxpool':4, 'layers2':6, 'layer3':7, 'layer4':8}
+nir_layers = {'conv1':1, 'maxpool':4, 'layer2':6, 'layer3':7, 'layer4':8}
 
 class LayersEnsemble(nn.Module):
     def __init__(self, model, conc_point='conv1'):
