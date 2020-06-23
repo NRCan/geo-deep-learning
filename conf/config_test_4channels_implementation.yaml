@@ -100,10 +100,10 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_dir_or_csv_file: #/path/to/csv/containing/images/list.csv
+  img_dir_or_csv_file: /home/cauthier/data/test4channel.csv #/path/to/csv/containing/images/list.csv
   working_folder: #/path/to/folder/with/resulting/images
-  state_dict_path: #/path/to/model/weights/for/inference/checkpoint.pth.tar
-  chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
+  state_dict_path: ./data/samples256_overlap25_min-annot0_4bands/model/config_test_4channels_implementation_2020-06-23_14-39/checkpoint.pth.tar #/path/to/model/weights/for/inference/checkpoint.pth.tar
+  chunk_size: 256 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
 
 # Visualization parameters

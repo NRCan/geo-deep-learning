@@ -87,7 +87,22 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
 
                         inputs = inputs.to(device)
                         # forward
-                        outputs = model(inputs)
+                        #outputs = model(inputs)
+
+                        ############################
+                        # Test Implementation of the NIR
+                        ############################
+                        # Init NIR   TODO: make a proper way to read the NIR channel 
+                        #                  and put an option to be able to give the idex of the NIR channel
+                        inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
+                        inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
+                        inputs = inputs[:,:-1, ...] # Need to be change 
+                        #inputs_NIR = data['NIR'].to(device)
+
+                        outputs = model(inputs, inputs_NIR)
+                        ############################
+                        # End of the test implementation module
+                        ############################
 
                         # torchvision models give output in 'out' key. May cause problems in future versions of torchvision.
                         if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
