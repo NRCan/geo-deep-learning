@@ -34,7 +34,7 @@ global:
   # 'layer2',
   # 'layer3',
   # 'layer4',
-  concatenate_depth: 'conv1'
+  concatenate_depth: 'layer4'
   #####
   
 # Data analysis parameters; used in data_analysis.py ------------------
