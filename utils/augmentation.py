@@ -83,24 +83,35 @@ class RadiometricTrim(object):
         self.range = range
 
     def __call__(self, sample):
+        # Choose trimming percentile withing inputted range
         trim = round(random.uniform(self.range[0], self.range[-1]), 1)
+        # Determine output range from datatype
         out_dtype = sample['metadata']['dtype']
+        # Create empty array with shape of input image
         rescaled_sat_img = np.empty(sample['sat_img'].shape, dtype=sample['sat_img'].dtype)
+        # Loop through bands
         for band_idx in range(sample['sat_img'].shape[2]):
             band = sample['sat_img'][:, :, band_idx]
-            left_pixel_val = round(sum(sample['metadata']['source_raster_bincount'][f'band{band_idx}']) / 100 * trim)
-            right_pixel_val = round(sum(sample['metadata']['source_raster_bincount'][f'band{band_idx}']) / 100 * (100-trim))
-            pixel_count = 0
+            band_histogram = sample['metadata']['source_raster_bincount'][f'band{band_idx}']
+            # Determine what is the index of nonzero pixel corresponding to left and right trim percentile
+            sum_nonzero_pix_per_band = sum(band_histogram)
+            left_pixel_idx = round(sum_nonzero_pix_per_band / 100 * trim)
+            right_pixel_idx = round(sum_nonzero_pix_per_band / 100 * (100-trim))
+            cumulative_pixel_count = 0
             # TODO: can this for loop be optimized? Also, this hasn't been tested with non 8-bit data. Should be fine though.
-            for pixel_val, bin_count_per_bin in enumerate(sample['metadata']['source_raster_bincount'][f'band{band_idx}']):
-                lower_limit = pixel_count
-                upper_limit = pixel_count + bin_count_per_bin
-                if lower_limit <= left_pixel_val <= upper_limit:
-                    perc_left = pixel_val
-                if lower_limit <= right_pixel_val <= upper_limit:
-                    perc_right = pixel_val
-                pixel_count += bin_count_per_bin
-            rescaled_band = exposure.rescale_intensity(band, in_range=(perc_left, perc_right), out_range=out_dtype)
+            # Loop through pixel values of given histogram
+            for pixel_val, count_per_pix_val in enumerate(band_histogram):
+                lower_limit = cumulative_pixel_count
+                upper_limit = cumulative_pixel_count + count_per_pix_val
+                # Check if left and right pixel indices are contained in current lower and upper pixels count limits
+                if lower_limit <= left_pixel_idx <= upper_limit:
+                    left_pix_val = pixel_val
+                if lower_limit <= right_pixel_idx <= upper_limit:
+                    right_pix_val = pixel_val
+                cumulative_pixel_count += count_per_pix_val
+            # Enhance using above left and right pixel values as in_range
+            rescaled_band = exposure.rescale_intensity(band, in_range=(left_pix_val, right_pix_val), out_range=out_dtype)
+            # Write each enhanced band to empty array
             rescaled_sat_img[:, :, band_idx] = rescaled_band
         sample['sat_img'] = rescaled_sat_img
         return sample
