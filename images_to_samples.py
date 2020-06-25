@@ -12,7 +12,7 @@ from tqdm import tqdm
 from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets
-from utils.utils import get_key_def, pad, pad_diff, read_csv
+from utils.utils import get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample
 from utils.geoutils import vector_to_raster
 from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import validate_num_classes, assert_num_bands, assert_crs_match, \
@@ -452,23 +452,14 @@ def main(params):
                     raise ValueError(f"Dataset value must be trn or tst. Provided value is {info['dataset']}")
                 val_file = val_hdf5
 
-                # TODO: save histogram to metadata, then use it at radiometric trimming, if chosen.
-                metadata = raster.meta
-                metadata['name'] = raster.name
-                metadata['csv_info'] = info
+                metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
+                                                              raster_handle=raster,
+                                                              meta_map=meta_map,
+                                                              raster_info=info)
                 # Save label's per class pixel count to image metadata
                 metadata['source_label_bincount'] = {class_num: count for class_num, count in
                                                           enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
-                                                     if count > 0}
-                metadata['source_raster_bincount'] = {}
-                # Save bincount (i.e. histogram) to metadata
-                for band_index in range(np_input_image.shape[2]):
-                    band = np_input_image[..., band_index]
-                    metadata['source_raster_bincount'][f'band{band_index}'] = {count for count in
-                                                                                np.bincount(band.flatten())}
-                if info['meta'] is not None and isinstance(info['meta'], str) and Path(info['meta']).is_file():
-                    yaml_metadata = read_parameters(info['meta'])
-                    metadata.update(yaml_metadata)
+                                                     if count > 0}  # TODO: add this to add_metadata_from[...] function?
 
                 np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
                 # 3. Prepare samples!

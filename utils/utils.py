@@ -11,6 +11,8 @@ import warnings
 import collections
 import matplotlib
 
+from utils.readers import read_parameters
+
 matplotlib.use('Agg')
 
 try:
@@ -331,3 +333,30 @@ def read_csv(csv_file_name):
     except TypeError:
         list_values
     return list_values
+
+
+def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
+                                       raster_handle: dict,
+                                       meta_map: dict,
+                                       raster_info: dict) -> dict:
+    """
+    @param sat_img_arr: source image as array (opened with rasterio.read)
+    @param meta_map: meta map parameter from yaml (global section)
+    @param raster_info: info from raster as read with read_csv (except at inference)
+    @return: Returns a metadata dictionary populated with info from source raster, including original csv line and
+             histogram.
+    """
+    metadata_dict = {'name': raster_handle.name, 'csv_info': raster_info, 'source_raster_bincount': {}}
+    metadata_dict.update(raster_handle.meta)
+    # Save bin count (i.e. histogram) to metadata
+    assert isinstance(sat_img_arr, np.ndarray) and len(sat_img_arr.shape) == 3, f"Array should be 3-dimensional"
+    for band_index in range(sat_img_arr.shape[2]):
+        band = sat_img_arr[..., band_index]
+        metadata_dict['source_raster_bincount'][f'band{band_index}'] = {count for count in np.bincount(band.flatten())}
+    if meta_map:
+        assert raster_info['meta'] is not None and isinstance(raster_info['meta'], str) \
+               and Path(raster_info['meta']).is_file(), "global configuration requested metadata mapping onto loaded " \
+                                                        "samples, but raster did not have available metadata"
+        yaml_metadata = read_parameters(raster_info['meta'])
+        metadata_dict.update(yaml_metadata)
+    return metadata_dict
