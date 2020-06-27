@@ -7,8 +7,7 @@ from rasterio.features import is_valid_geom
 from tqdm import tqdm
 
 from utils.CreateDataset import MetaSegmentationDataset
-from utils.geoutils import lst_ids
-from utils.utils import get_key_recursive
+from utils.geoutils import lst_ids, get_key_recursive
 
 
 def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attribute_name: str, ignore_index: int):

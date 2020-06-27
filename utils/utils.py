@@ -8,7 +8,6 @@ import torch
 from torch import nn
 import numpy as np
 import warnings
-import collections
 import matplotlib
 
 from utils.readers import read_parameters
@@ -154,18 +153,6 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
                 assert isinstance(val, expected_type), f"{val} is of type {type(val)}, expected {expected_type}"
             if delete:
                 del config[key]
-    return val
-
-
-def get_key_recursive(key, config):
-    """Returns a value recursively given a dictionary key that may contain multiple subkeys."""
-    if not isinstance(key, list):
-        key = key.split("/")  # subdict indexing split using slash
-    assert key[0] in config, f"missing key '{key[0]}' in metadata dictionary: {config}"
-    val = config[key[0]]
-    if isinstance(val, (dict, collections.OrderedDict)):
-        assert len(key) > 1, "missing keys to index metadata subdictionaries"
-        return get_key_recursive(key[1:], val)
     return val
 
 

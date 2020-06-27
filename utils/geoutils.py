@@ -1,3 +1,4 @@
+import collections
 from pathlib import Path
 
 import numpy as np
@@ -7,8 +8,6 @@ import fiona
 import rasterio
 from rasterio.features import is_valid_geom
 from rasterio.mask import mask
-
-from utils.utils import get_key_recursive
 
 
 def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
@@ -169,3 +168,15 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
                 dst.write(write_array[:, :], 1)
             elif count == 3:
                 dst.write(write_array[:, :, :3])  # Take only first three bands assuming they are RGB.
+
+
+def get_key_recursive(key, config):
+    """Returns a value recursively given a dictionary key that may contain multiple subkeys."""
+    if not isinstance(key, list):
+        key = key.split("/")  # subdict indexing split using slash
+    assert key[0] in config, f"missing key '{key[0]}' in metadata dictionary: {config}"
+    val = config[key[0]]
+    if isinstance(val, (dict, collections.OrderedDict)):
+        assert len(key) > 1, "missing keys to index metadata subdictionaries"
+        return get_key_recursive(key[1:], val)
+    return val
