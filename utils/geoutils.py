@@ -150,7 +150,7 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     """
     if len(write_array.shape) == 2:  # 2D array
         count = 1
-    elif len(write_array.shape) == 3:  # 3D array
+    elif len(write_array.shape) == 3:  # 3D array  # FIXME: why not keep all bands?
         count = 3
     else:
         raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')

@@ -5,7 +5,7 @@ import warnings
 import torch
 import torch.nn as nn
 import torchvision.models as models
-from models import TernausNet, unet, checkpointed_unet, inception, coordconv, common
+from models import TernausNet, unet, checkpointed_unet, inception, coordconv
 from utils.utils import get_key_def
 
 
