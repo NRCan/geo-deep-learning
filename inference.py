@@ -244,7 +244,7 @@ def main(params: dict):
                       f"automatically in a logical path, "
                       f"i.e. [state_dict_path from inference section in yaml]/inference_[num_bands]bands")
     else:
-        default_working_folder
+        working_folder = default_working_folder
     Path.mkdir(working_folder, exist_ok=True)
     print(f'Inferences will be saved to: {working_folder}\n\n')
 
