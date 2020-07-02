@@ -82,7 +82,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
     debug = get_key_def('debug_mode', params['global'], False)
-    dontcare_val = get_key_def('ignore_index', params['trainong'], -1)
+    dontcare_val = get_key_def('ignore_index', params['training'], -1)
 
     assert samples_folder.is_dir(), f'Could not locate: {samples_folder}'
     assert len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
