@@ -86,5 +86,5 @@ inference:
   img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
   working_folder: /path/to/folder/with/resulting/images
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
-  chunk_size: 512 # (int) Size (height and width) of each prediction patc. Default: 512
+  chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
