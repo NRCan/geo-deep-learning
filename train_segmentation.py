@@ -311,24 +311,12 @@ def main(params, config_path):
     elif num_devices > 1:
         print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
         try: # FIXME: For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
-            ##################
-            # TODO: 
-            #model[0] = nn.DataParallel(model[0], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-            #model[1] = nn.DataParallel(model[1], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-            
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-            ##################
         except AssertionError:
             warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
             device = torch.device('cuda:0')
             lst_device_ids = range(len(lst_device_ids))
-            ##################
-            # TODO: 
-            #model[0] = nn.DataParallel(model[0], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-            #model[1] = nn.DataParallel(model[1], device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-            
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-            ##################
 
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU\n")
