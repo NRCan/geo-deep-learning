@@ -1,0 +1,72 @@
+# Deep learning configuration file ------------------------------------------------
+# Five sections :
+#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and classification)
+#   2) Sampling parameters
+#   3) Training parameters
+#   4) Inference parameters
+#   5) Model parameters
+
+# Global parameters
+
+global:
+  samples_size: 299
+  num_classes: 6
+  data_path: ./data
+  number_of_bands: 4
+  model_name: inception     # One of unet, unetsmall or ternausnet
+  bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
+  task: classification  # Task to perform. Either segmentation or classification
+  num_gpus: 0
+  scale_data: [0,1]
+  debug_mode: True
+
+# Sample parameters; used in images_to_samples.py -------------------
+
+sample:
+  prep_csv_file:
+  overlap:
+  min_annotated_percent: # Min % of non background pixels in stored samples. Default: 0
+  mask_reference:
+
+# Training parameters; used in train_classification.py ----------------------
+
+training:
+  state_dict_path:    # optional
+  num_trn_samples: 24
+  num_val_samples: 24
+  num_tst_samples:
+  batch_size: 4
+  num_epochs: 2
+  loss_fn: CrossEntropy # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
+  optimizer: adam # One of adam, sgd or adabound
+  learning_rate: 0.0001
+  weight_decay: 0
+  step_size: 4
+  gamma: 0.9
+  dropout: False    # (bool) Use dropout or not
+  dropout_prob: False    # (float) Set dropout probability, e.g. 0.5
+  class_weights:
+  batch_metrics: 1
+  ignore_index: # Specifies a target value that is ignored and does not contribute to the input gradient
+
+# Inference parameters; used in inference.py --------
+
+inference:
+  img_dir_or_csv_file: ./data/inference_classif_ci_csv.csv
+  working_folder: ./data/classification
+  state_dict_path: ./data/model/config_ci_classification_local/checkpoint.pth.tar
+  chunk_size:
+  overlap:
+
+# Visualization parameters
+
+visualization:
+  vis_at_checkpoint:
+  vis_at_ckpt_min_ep_diff:
+  vis_at_evaluation:
+  vis_at_train:
+  vis_at_init:
+  max_num_vis_samples:
+  grid:
+  heatmaps:
+  colormap_file:

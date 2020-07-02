@@ -1,0 +1,80 @@
+# Deep learning configuration file ------------------------------------------------
+# Five sections :
+#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
+#   2) Sampling parameters
+#   3) Training parameters
+#   4) Inference parameters
+#   5) Model parameters
+
+# Global parameters
+
+global:
+  samples_size: 256
+  num_classes: 5
+  data_path: ./data/kingston_wv2_40cm/images
+  number_of_bands: 5
+  model_name: unet     # One of unet, unetsmall, checkpointed_unet or ternausnet
+  bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
+  task: segmentation  # Task to perform. Either segmentation or classification
+  num_gpus: 1
+  aux_vector_file:
+  aux_vector_dist_maps:
+  meta_map:
+    "properties/eo:gsd": "scaled_channel"
+  scale_data: [0,1]
+  debug_mode: True
+  coordconv_convert:
+  coordconv_scale:
+
+# Sample parameters; used in images_to_samples.py -------------------
+
+sample:
+  prep_csv_file: ./data/trn_val_tst_kingston.csv  # https://drive.google.com/file/d/1uNizOAToa-R_sik0DvBqDUVwjqYdOALJ
+  overlap: 78
+  min_annotated_percent: 10 # Min % of non background pixels in stored samples. Default: 0
+  mask_reference: False
+
+# Training parameters; used in train_segmentation.py ----------------------
+
+training:
+  state_dict_path:
+  num_trn_samples:
+  num_val_samples:
+  num_tst_samples:
+  batch_size: 8
+  num_epochs: 100
+  loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
+  optimizer: adam # One of adam, sgd or adabound
+  learning_rate: 0.0001
+  weight_decay: 0
+  step_size: 4
+  gamma: 0.9
+  class_weights:
+  batch_metrics:    # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
+  ignore_index: 0    # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
+  augmentation:
+    rotate_limit: 45
+    rotate_prob: 0.5
+    hflip_prob: 0.5
+  dropout:
+  dropout_prob:
+
+# Inference parameters; used in inference.py --------
+
+inference:
+  img_dir_or_csv_file: ./data/trn_val_tst_kingston.csv  # https://drive.google.com/file/d/1uNizOAToa-R_sik0DvBqDUVwjqYdOALJ
+  working_folder:
+  state_dict_path: ./data/kingston_wv2_40cm/images/samples256_overlap78_min-annot10/model/config_metasegm/checkpoint.pth.tar
+  chunk_size: 256 # (int) Size (height and width) of each prediction patch. Default: 512
+  overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
+
+# Visualization parameters
+
+visualization:
+  max_num_vis_samples: 24
+  vis_at_checkpoint: True
+  vis_at_ckpt_min_ep_diff: 0
+  vis_at_ckpt_dataset: val
+  grid: True
+  heatmaps: True
+  colormap_file: ./data/colormap.csv
