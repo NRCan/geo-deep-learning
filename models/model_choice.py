@@ -42,7 +42,7 @@ def net(net_params, num_channels, inference=False):
     dropout_prob = get_key_def('dropout_prob', net_params['training'], 0.5)
     
     # TODO: find a way to maybe implement it in classification one day
-    if net_params['global']['task'] == 'segmentation':
+    if net_params['global']['concatenate_depth']
         # Read the concatenation point
         conc_point = net_params['global']['concatenate_depth']
 
