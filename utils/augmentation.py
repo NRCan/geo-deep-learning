@@ -35,7 +35,7 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             noise = get_key_def('noise', params['training']['augmentation'], None)
 
             if random_radiom_trim_range:  # Contrast stretching
-                lst_trans.append(RadiometricTrim(range=random_radiom_trim_range))  # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
+                lst_trans.append(RadiometricTrim(random_range=random_radiom_trim_range))  # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
 
             if noise:
                 raise NotImplementedError
@@ -61,8 +61,12 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
 
     if type == 'totensor':
         if not dataset == 'trn' and random_radiom_trim_range:  # Contrast stretching at eval. Use mean of provided range
-            trim_at_eval = round((random_radiom_trim_range[-1] - random_radiom_trim_range[0]) / 2, 1)
-            lst_trans.append(RadiometricTrim(range=[trim_at_eval, trim_at_eval]))
+            RadiometricTrim.input_checker(random_radiom_trim_range)  # Assert range is number or 2 element sequence
+            if isinstance(random_radiom_trim_range, numbers.Number):
+                trim_at_eval = random_radiom_trim_range
+            else:
+                trim_at_eval = round((random_radiom_trim_range[-1] - random_radiom_trim_range[0]) / 2, 1)
+            lst_trans.append(RadiometricTrim(random_range=[trim_at_eval, trim_at_eval]))
         if scale:
             lst_trans.append(Scale(scale))  # TODO: assert coherence with below normalization
 
@@ -79,8 +83,25 @@ class RadiometricTrim(object):
     """Trims values left and right of the raster's histogram. Also called linear scaling or enhancement.
     Percentile, chosen randomly based on inputted range, applies to both left and right sides of the histogram.
     Ex.: Values below the 1.7th and above the 98.3th percentile will be trimmed if random value is 1.7"""
-    def __init__(self, range):
-        self.range = range
+    def __init__(self, random_range):
+        """
+        @param random_range: numbers.Number (float or int) or Sequence (list or tuple) with length of 2
+        """
+        random_range = self.input_checker(random_range)
+        self.range = random_range
+        
+    @staticmethod
+    def input_checker(input_param):
+        if not isinstance(input_param, (numbers.Number, Sequence)):
+            raise TypeError('Got inappropriate range arg')
+
+        if isinstance(input_param, Sequence) and len(input_param) != 2:
+            raise ValueError(f"Range must be an int or a 2 element tuple or list, "
+                             f"not a {len(input_param)} element {type(input_param)}.")
+
+        if isinstance(input_param, numbers.Number):
+            input_param = [input_param, input_param]
+        return input_param
 
     def __call__(self, sample):
         # Choose trimming percentile withing inputted range

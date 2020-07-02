@@ -238,8 +238,9 @@ def main(params: dict):
     img_dir_or_csv = params['inference']['img_dir_or_csv_file']
 
     default_working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
-    working_folder = Path(get_key_def('working_folder', params['inference'], None))
-    if working_folder:  # TODO: give it a few months, then remove custom working_folder parameter
+    working_folder = get_key_def('working_folder', params['inference'], None)
+    if working_folder:  # TODO: July 2020: deprecation started. Remove custom working_folder parameter as of Sept 2020?
+        working_folder = Path(working_folder)
         warnings.warn(f"Deprecated parameter. Remove it in your future yamls as this folder is now created "
                       f"automatically in a logical path, "
                       f"i.e. [state_dict_path from inference section in yaml]/inference_[num_bands]bands")
@@ -320,7 +321,7 @@ def main(params: dict):
                                     aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
                 inf_sample['metadata'] = add_metadata_from_raster_to_sample(sat_img_arr=inf_sample['sat_img'],
-                                                                            raster_handle=raster_handle_updated.name,
+                                                                            raster_handle=raster_handle_updated,
                                                                             meta_map=meta_map,
                                                                             raster_info=info)
 
