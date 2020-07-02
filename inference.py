@@ -101,10 +101,9 @@ def sem_seg_inference(
                         sample['sat_img'] = padded_array[row_start:row_end, col_start:col_end, :]
                         if meta_map:
                             sample['sat_img'] = MetaSegmentationDataset.append_meta_layers(sample['sat_img'], meta_map, metadata)
-                        inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
                         sample = totensor_transform(sample)
-                        inputs = sample['sat_img'],unsqueeze_(0) # Add dummy batch dimension
+                        inputs = sample['sat_img'],unsqueeze_(0)  # Add dummy batch dimension
 
                         inputs = inputs.to(device)
 
@@ -288,108 +287,120 @@ def main(params):
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
 
-    if bucket_name:
-        s3 = boto3.resource('s3')
-        bucket = s3.Bucket(bucket_name)
-        if img_dir_or_csv.endswith('.csv'):
-            bucket.download_file(img_dir_or_csv, 'img_csv_file.csv')
-            list_img = read_csv('img_csv_file.csv', inference=True)
-        else:
-            raise NotImplementedError(
-                'Specify a csv file containing images for inference. Directory input not implemented yet')
-    else:
-        if img_dir_or_csv.endswith('.csv'):
-            list_img = read_csv(img_dir_or_csv, inference=True)
-        else:
-            img_dir = Path(img_dir_or_csv)
-            assert img_dir.is_dir(), f'Could not find directory "{img_dir_or_csv}"'
-            list_img_paths = sorted(img_dir.glob('*.tif'))  # FIXME: what if .tif is in caps (.TIF) ?
-            list_img = []
-            for img_path in list_img_paths:
-                img = {}
-                img['tif'] = img_path
-                list_img.append(img)
-            assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
-
-    if params['global']['task'] == 'classification':
-        classifier(params, list_img, model, device, working_folder)  # FIXME: why don't we load from checkpoint in classification?
-
-    elif params['global']['task'] == 'segmentation':
+     # CREATE LIST OF INPUT IMAGES FOR INFERENCE
+     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
+     
+     if task == 'classification':
+         classifier(params, list_img, model, device, working_folder)  # TODO: why don't we load from checkpoint in classification?
+         
+     elif task == 'segmentation':
         if bucket:
-            bucket.download_file(state_dict_path, "saved_model.pth.tar")
+            bucket.download_file(state_dict_path, "saved_model.pth.tar")  # TODO: is this still valid?
             model, _ = load_from_checkpoint("saved_model.pth.tar", model, inference=True)
         else:
             model, _ = load_from_checkpoint(state_dict_path, model, inference=True)
 
+        ignore_index = get_key_def('ignore_index', params['training'], -1)
+        meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
+        
+        # LOOP THROUGH LIST OF INPUT IMAGES
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
-            for img in _tqdm:
-                img_name = Path(img['tif']).name
+            for info in _tqdm:
+                img_name = Path(info['tif']).name
                 if bucket:
                     local_img = f"Images/{img_name}"
-                    bucket.download_file(img['tif'], local_img)
+                    bucket.download_file(info['tif'], local_img)
                     inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
                     if img['meta']:
-                        if img['meta'] not in bucket_file_cache:
-                            bucket_file_cache.append(img['meta'])
-                            bucket.download_file(img['meta'], img['meta'].split('/')[-1])
-                        img['meta'] = img['meta'].split('/')[-1]
-                else:
-                    local_img = Path(img['tif'])
+                        if info['meta'] not in bucket_file_cache:
+                            bucket_file_cache.append(info['meta'])
+                            bucket.download_file(info['meta'], info['meta'].split('/')[-1])
+                        info['meta'] = info['meta'].split('/')[-1]
+                else:  # FIXME: else statement should support img['meta'] integration as well.
+                    local_img = Path(info['tif'])
                     inference_image = working_folder.joinpath(f"{img_name.split('.')[0]}_inference.tif")
 
                 assert local_img.is_file(), f"Could not open raster file at {local_img}"
 
-                scale = get_key_def('scale_data', params['global'], None)
-                with rasterio.open(local_img, 'r') as raster:
-
-                    np_input_image = image_reader_as_array(input_image=raster,
-                                                           scale=scale,
-                                                           aux_vector_file=get_key_def('aux_vector_file',
-                                                                                       params['global'], None),
-                                                           aux_vector_attrib=get_key_def('aux_vector_attrib',
-                                                                                         params['global'], None),
-                                                           aux_vector_ids=get_key_def('aux_vector_ids',
-                                                                                      params['global'], None),
-                                                           aux_vector_dist_maps=get_key_def('aux_vector_dist_maps',
-                                                                                            params['global'], True),
-                                                           aux_vector_scale=get_key_def('aux_vector_scale',
-                                                                                        params['global'], None))
-
-                meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
+                # Empty sample as dictionary
+                inf_sample = {'sat_img': None, 'metadata': None}
+                
+                with rasterio.open(local_img, 'r') as raster_handle:
+                    inf_sample['sat_img'], raster_handle, dataset_nodata = image_reader_as_array(
+                            input_image=raster_handle,
+                            aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
+                            aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                            aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                            aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                            aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None)
+                    )
+                    
+                metadata = raster_handle.meta
+                metadata['name'] = raster_handle.name
+                metadata['csv_info'] = info
+                inf_sample['metadata'] = metadata
+                inf_sample['metadata']['source_raster_bincount'] = {}
+                # Save bincount (i.e. histogram) to metadata
+                for band_index in range(inf_sample['sat_img'].shape[2]):
+                    band = inf_sample['sat_img'][..., band_index]
+                    inf_sample['metadata']['source_raster_bincount'][f'band{band_index}'] = {
+                            count for count in np.bincount(band.flatten())
+                    }
+                    
+                random_radiom_trim_range = get_key_def(
+                        'random_radiom_trim_range', params['training']['augmentation'], None
+                )
+                if random_radiom_trim_range is not None:  # TODO: test this
+                    trim_at_inference = round((random_radiom_trim_range[-1]-random_radiom_trim_range[0])/2, 1)
+                    radiom_scaling = RadiometricTrim(range=[trim_at_inference, trim_at_inference])
+                    inf_sample = radiom_scaling(inf_sample)
+                    
+                    if debug:
+                        output_name = working_folder / f'{local_img.stem}_radiomtrim.TIF'
+                        out_meta = raster_handle.meta.copy()
+                        np_image_debug = inf_sample['sat_img'].transpose(2, 0, 1).astype(out_meta['dtype'])
+                        out_meta.update({"driver": "GTiff"})
+                        with rasterio.open(output_name, "w", **out_meta) as dest:
+                            dest.write(np_image_debug)
+                        print(f'DEBUG: Saved raster after radiometric trim to {output_name}')
+                                    
                 if meta_map:
-                    assert img['meta'] is not None and isinstance(img['meta'], str) and os.path.isfile(img['meta']), \
+                    assert info['meta'] is not None and isinstance(info['meta'], str) and os.path.isfile(info['meta']), \
                         "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"
-                    metadata = read_parameters(img['meta'])
+                    metadata = read_parameters(info['meta'])
 
-                if debug:
-                    _tqdm.set_postfix(OrderedDict(img_name=img_name,
-                                                  img=np_input_image.shape,
-                                                  img_min_val=np.min(np_input_image),
-                                                  img_max_val=np.max(np_input_image)))
+                _tqdm.set_postfix(OrderedDict(img_name=img_name,
+                                              img=inf_sample['sat_img'].shape,
+                                              img_min_val=np.min(inf_sample['sat_img']),
+                                              img_max_val=np.max(inf_sample['sat_img'])))
 
-                input_band_count = np_input_image.shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
-                if input_band_count > params['global']['number_of_bands']:
+                input_band_count = inf_sample['sat_img'].shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
+                if input_band_count > num_bands:  # TODO: move as new function in utils.verifications
                     # FIXME: Following statements should be reconsidered to better manage inconsistencies between
                     #  provided number of band and image number of band.
-                    warnings.warn(f"Input image has more band than the number provided in the yaml file ({params['global']['number_of_bands']}). "
-                                  f"Will use the first {params['global']['number_of_bands']} bands of the input image.")
-                    np_input_image = np_input_image[:, :, 0:params['global']['number_of_bands']]
-                    print(f"Input image's new shape: {np_input_image.shape}")
+                    warnings.warn(f"Input image has more band than the number provided in the yaml file ({num_bands}). "
+                                  f"Will use the first {num_bands} bands of the input image.")
+                    inf_sample['sat_img'] = inf_sample['sat_img'][:, :, 0:num_bands]
+                    print(f"Input image's new shape: {inf_sample['sat_img'].shape}")
 
-                elif input_band_count < params['global']['number_of_bands']:
-                    warnings.warn(f"Skipping image: The number of bands requested in the yaml file ({params['global']['number_of_bands']})"
+                elif input_band_count < num_bands:
+                    warnings.warn(f"Skipping image: The number of bands requested in the yaml file ({num_bands})"
                                   f"can not be larger than the number of band in the input image ({input_band_count}).")
                     continue
 
                 # START INFERENCES ON SUB-IMAGES
-                sem_seg_results_per_class = sem_seg_inference(model, np_input_image, nbr_pix_overlap, chunk_size, num_classes_corrected,
-                                                    device, meta_map, metadata, output_path=working_folder, index=_tqdm.n, debug=debug)
+                sem_seg_results_per_class = sem_seg_inference(
+                        model, inf_sample['sat_img'], nbr_pix_overlap, chunk_size,
+                        num_classes_corrected, device, raster_handle.meta['dtype'],
+                        meta_map, metadata, output_path=working_folder, index=_tqdm.n,
+                        debug=debug
+                )
 
                 # CREATE GEOTIF FROM METADATA OF ORIGINAL IMAGE
                 tqdm.write(f'Saving inference...\n')
                 if get_key_def('heatmaps', params['inference'], False):
                     tqdm.write(f'Heatmaps will be saved.\n')
-                vis(params, np_input_image, sem_seg_results_per_class, working_folder, inference_input_path=local_img, debug=debug)
+                vis(params, inf_sample['sat_img'], sem_seg_results_per_class, working_folder, inference_input_path=local_img, debug=debug)
 
                 tqdm.write(f"\n\nSemantic segmentation of image {img_name} completed\n\n")
                 if bucket:
