@@ -18,9 +18,12 @@ from tqdm import tqdm
 from pathlib import Path
 
 from models.model_choice import net
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
-from utils.readers import read_parameters, image_reader_as_array, read_csv
+from utils import augmentation
+from utils.augmentation import RadiometricTrim
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, list_input_images
+from utils.readers import read_parameters, image_reader_as_array
 from utils.CreateDataset import MetaSegmentationDataset
+from utils.verifications import add_background_to_num_class
 from utils.visualization import vis, vis_from_batch
 
 try:
@@ -29,20 +32,32 @@ except ModuleNotFoundError:
     pass
 
 
-def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device, meta_map=None, metadata=None, output_path=Path(os.getcwd()), index=0, debug=False):
+def sem_seg_inference(
+        model, nd_array, overlay, chunk_size, num_classes, device,
+        src_raster_dtype=None, meta_map=None, metadata=None,
+        output_path=Path(os.getcwd()), index=0, debug=False
+    ):
     """Inference on images using semantic segmentation
     Args:
         model: model to use for inference
-        nd_array: nd_array
+        nd_array: input raster as array
         overlay: amount of overlay to apply
+        chunk_size: size of individual chunks to be processed during inference
         num_classes: number of different classes that may be predicted by the model
         device: device used by pytorch (cpu ou cuda)
+        src_raster_dtype: datatype of source raster
         meta_map:
         metadata:
         output_path: path to save debug files
         index: (int) index of array from list of images on which inference is performed
 
-        returns a numpy array of the same size (h,w) as the input image, where each value is the predicted output.
+    Returns:
+        output_mask_raw_cropped: numpy array of the same size (h,w) as the input image,
+                                 where each value is the predicted output.
+
+    Raises:
+        IOError: If the image shape of {len(nd_array.shape)} is not recognized.
+
     """
 
     # switch to evaluate mode
@@ -66,6 +81,8 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
     output_probs = np.empty([num_classes, h_padded, w_padded], dtype=np.float32)
     # Create identical 0-filled array without channels dimension to receive counts for number of outputs generated in specific area.
     output_counts = np.zeros([output_probs.shape[1], output_probs.shape[2]], dtype=np.int32)
+                        
+    totensor_transform = augmentation.compose_transforms(params, dataset="tst", type='totensor')
 
     if padded_array.any():
         with torch.no_grad():
@@ -75,15 +92,19 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                 row_end = row_start + chunk_size
                 with tqdm(range(overlay, w + chunk_size, chunk_size - overlay), position=2, leave=False, desc='Inferring columns') as _tqdm:
                     for col in _tqdm:
+                        sample = {'sat_img': None, 'metadata': {'dtype':None}}
+                        sample['metadata']['dtype'] = src_raster_dtype
+
                         col_start = col - overlay
                         col_end = col_start + chunk_size
 
-                        chunk_input = padded_array[row_start:row_end, col_start:col_end, :]
+                        sample['sat_img'] = padded_array[row_start:row_end, col_start:col_end, :]
                         if meta_map:
-                            chunk_input = MetaSegmentationDataset.append_meta_layers(chunk_input, meta_map, metadata)
+                            sample['sat_img'] = MetaSegmentationDataset.append_meta_layers(sample['sat_img'], meta_map, metadata)
                         inputs = torch.from_numpy(np.float32(np.transpose(chunk_input, (2, 0, 1))))
 
-                        inputs.unsqueeze_(0) #Add dummy batch dimension
+                        sample = totensor_transform(sample)
+                        inputs = sample['sat_img'],unsqueeze_(0) # Add dummy batch dimension
 
                         inputs = inputs.to(device)
 
@@ -114,14 +135,14 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                             if index == 0:
                                 tqdm.write(f'(debug mode) Visualizing inferred tiles...')
                             vis_from_batch(params, inputs, outputs, batch_index=0, vis_path=output_path,
-                                        dataset=f'{row_start}_{col_start}_inf', ep_num=index, debug=True)
+                                           dataset=f'{row_start}_{col_start}_inf', ep_num=index, debug=True)
 
                         outputs = F.softmax(outputs, dim=1)
 
                         output_counts[row_start:row_end, col_start:col_end] += 1
 
                         # Add inference on sub-image to all completed inferences on previous sub-images.
-                        # FIXME: This operation need to be optimized. Using a lot of RAM on large images.
+                        # TODO: This operation need to be optimized. Using a lot of RAM on large images.
                         output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(),
                                                                                             axis=0)
 
@@ -132,10 +153,6 @@ def sem_seg_inference(model, nd_array, overlay, chunk_size, num_classes, device,
                                                           inp_size=inputs.cpu().numpy().shape,
                                                           out_size=outputs.cpu().numpy().shape,
                                                           overlay=overlay))
-            if debug:
-                output_counts_PIL = Image.fromarray(output_counts.astype(np.uint8), mode='L')
-                output_counts_PIL.save(output_path.joinpath(f'output_counts.png'))
-                tqdm.write(f'Dividing array according to output counts...\n')
 
             # Divide array according to output counts. Manages overlap and returns a softmax array as if only one forward pass had been done.
             output_mask_raw = np.divide(output_probs, np.maximum(output_counts, 1))  # , 1 is added to overwrite 0 values.
@@ -232,12 +249,8 @@ def main(params):
         warnings.warn(f'Debug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.')
 
     num_classes = params['global']['num_classes']
-    if params['global']['task'] == 'segmentation':
-        # assume background is implicitly needed (makes no sense to predict with one class, for example.)
-        # this will trigger some warnings elsewhere, but should succeed nonetheless
-        num_classes_corrected = num_classes + 1 # + 1 for background # FIXME temporary patch for num_classes problem.
-    elif params['global']['task'] == 'classification':
-        num_classes_corrected = num_classes
+    task = params['global']['task']
+    num_classes_corrected = add_background_to_num_class(task, num_classes)
 
     chunk_size = get_key_def('chunk_size', params['inference'], 512)
     overlap = get_key_def('overlap', params['inference'], 10)
@@ -253,7 +266,7 @@ def main(params):
 
     bucket = None
     bucket_file_cache = []
-    bucket_name = params['global']['bucket_name']
+    bucket_name = get_key_def('bucket_name', params['global'])
 
     # CONFIGURE MODEL
     model, state_dict_path, model_name = net(params, num_channels=num_classes_corrected, inference=True)
