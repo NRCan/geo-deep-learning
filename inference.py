@@ -287,13 +287,13 @@ def main(params):
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
 
-     # CREATE LIST OF INPUT IMAGES FOR INFERENCE
-     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
-     
-     if task == 'classification':
-         classifier(params, list_img, model, device, working_folder)  # TODO: why don't we load from checkpoint in classification?
-         
-     elif task == 'segmentation':
+    # CREATE LIST OF INPUT IMAGES FOR INFERENCE
+    list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
+    
+    if task == 'classification':
+        classifier(params, list_img, model, device, working_folder)  # TODO: why don't we load from checkpoint in classification?
+        
+    elif task == 'segmentation':
         if bucket:
             bucket.download_file(state_dict_path, "saved_model.pth.tar")  # TODO: is this still valid?
             model, _ = load_from_checkpoint("saved_model.pth.tar", model, inference=True)
@@ -311,7 +311,7 @@ def main(params):
                     local_img = f"Images/{img_name}"
                     bucket.download_file(info['tif'], local_img)
                     inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-                    if img['meta']:
+                    if info['meta']:
                         if info['meta'] not in bucket_file_cache:
                             bucket_file_cache.append(info['meta'])
                             bucket.download_file(info['meta'], info['meta'].split('/')[-1])
