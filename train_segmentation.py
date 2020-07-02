@@ -1,9 +1,7 @@
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
-import os
 import argparse
 from pathlib import Path
-import csv
 import time
 import h5py
 import datetime
@@ -14,7 +12,6 @@ from tqdm import tqdm
 from collections import OrderedDict
 import shutil
 import numpy as np
-import copy
 
 ############
 # TODO: remove after test
@@ -28,11 +25,9 @@ try:
 except ModuleNotFoundError:
     warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
-import torchvision
 import torch.optim as optim
 from torch import nn
 from torch.utils.data import DataLoader
-from torchvision import transforms
 from PIL import Image
 
 from utils import augmentation as aug, CreateDataset
@@ -41,16 +36,9 @@ from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
-from utils.utils import load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, \
-    get_key_def
-from utils.visualization import vis, vis_from_batch
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
+from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
-
-try:
-    import boto3
-except ModuleNotFoundError:
-    warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
-    pass
 
 
 def verify_weights(num_classes, weights):
@@ -84,70 +72,39 @@ def loader(path):
     return img
 
 
-def download_s3_files(bucket_name, data_path, output_path):
-    """
-    Function to download the required training files from s3 bucket and sets ec2 paths.
-    :param bucket_name: (str) bucket in which data is stored if using AWS S3
-    :param data_path: (str) EC2 file path of the folder containing h5py files
-    :param output_path: (str) EC2 file path in which the model will be saved
-    :param num_classes: (int) number of classes
-    :param task: (str) classification or segmentation
-    :return: (S3 object) bucket, (str) bucket_output_path, (str) local_output_path, (str) data_path
-    """
-    bucket_output_path = output_path
-    local_output_path = 'output_path'
-    try:
-        os.mkdir(output_path)
-    except FileExistsError:
-        pass
-    s3 = boto3.resource('s3')
-    bucket = s3.Bucket(bucket_name)
-
-    if data_path:
-        bucket.download_file(os.path.join(data_path, 'samples/trn_samples.hdf5'),
-                             'samples/trn_samples.hdf5')
-        bucket.download_file(os.path.join(data_path, 'samples/val_samples.hdf5'),
-                             'samples/val_samples.hdf5')
-        bucket.download_file(os.path.join(data_path, 'samples/tst_samples.hdf5'),
-                             'samples/tst_samples.hdf5')
-
-    return bucket, bucket_output_path, local_output_path, data_path
-
-
-def create_dataloader(data_path, batch_size, task, num_devices, params, samples_folder=None):
+def create_dataloader(samples_folder, batch_size, num_devices, params):
     """
     Function to create dataloader objects for training, validation and test datasets.
-    :param data_path: (str) path to the samples folder
+    :param samples_folder: (str) path to the folder containting .hdf5 files if task is segmentation
     :param batch_size: (int) batch size
-    :param task: (str) classification or segmentation
     :param num_devices: (int) number of GPUs used
-    :param samples_folder: path to folder containting .hdf5 files if task is segmentation
     :param params: (dict) Parameters found in the yaml config file.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
-    assert Path(samples_folder).is_dir(), f'Could not locate: {samples_folder}'
-    assert len([f for f in Path(samples_folder).glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
+    debug = get_key_def('debug_mode', params['global'], False)
+    dontcare_val = get_key_def('ignore_index', params['trainong'], -1)
+
+    assert samples_folder.is_dir(), f'Could not locate: {samples_folder}'
+    assert len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
     num_samples = get_num_samples(samples_path=samples_folder, params=params)
     print(f"Number of samples : {num_samples}\n")
     meta_map = get_key_def("meta_map", params["global"], {})
     num_bands = get_key_def("number_of_bands", params["global"], {})
     if not meta_map:
-         dataset_constr = CreateDataset.SegmentationDataset
+        dataset_constr = CreateDataset.SegmentationDataset
     else:
         dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
-    dontcare = get_key_def("ignore_index", params["training"], None)
-    if dontcare == 0:
-        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
-                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
-        params["training"]["ignore_index"] = -1
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
+        # TODO: transform the aug.compose_transforms in a class with radiom, geom, totensor in def
         datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
-                                       dontcare=dontcare,
-                                       transform=aug.compose_transforms(params, subset)))
+                                       dontcare=dontcare_val,
+                                       radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
+                                       geom_transform=aug.compose_transforms(params, subset, type='geometric', ignore_index=dontcare_val)
+                                       totensor_transform=aug.compose_transforms(params, subset, type='totensor')
+                                       debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
@@ -589,27 +546,31 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                 labels = data['map_img'].to(device)
                 labels_flatten = flatten_labels(labels)
 
-                ############################
-                # Test Implementation of the NIR
-                ############################
+                if inputs.size[1] == 4:
+                    ############################
+                    # Test Implementation of the NIR
+                    ############################
 
-                # Init NIR   TODO: make a proper way to read the NIR channel 
-                #                  and put an option to be able to give the idex of the NIR channel
-                inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
-                inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
-                inputs = inputs[:,:-1, ...] # Need to be change 
-                #inputs_NIR = data['NIR'].to(device)
+                    # Init NIR   TODO: make a proper way to read the NIR channel 
+                    #                  and put an option to be able to give the idex of the NIR channel
+                    inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
+                    inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
+                    inputs = inputs[:,:-1, ...] # Need to be change 
+                    #inputs_NIR = data['NIR'].to(device)
 
-                outputs = model(inputs, inputs_NIR)
-                ############################
-                # End of the test implementation module
-                ############################
+                    outputs = model(inputs, inputs_NIR)
+                    ############################
+                    # End of the test implementation module
+                    ############################
+                else:
+                    outputs = model(inputs)
 
-                #outputs = model(inputs)
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
 
-                if vis_batch_range is not None and vis_at_eval and batch_index in range(min_vis_batch, max_vis_batch, increment):
+                if vis_batch_range and vis_at_eval:
+                    min_vis_batch, max_vis_batch, increment = vis_batch_range
+                    if batch_index in range(min_vis_batch, max_vis_batch, increment):
                         vis_path = progress_log.parent.joinpath('visualization')
                         if ep_idx == 0 and batch_index == min_vis_batch:
                             tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
@@ -635,12 +596,12 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
                         a, segmentation = torch.max(outputs_flatten, dim=1)
                         eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                         eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                             ignore_index=get_key_def("ignore_index", params["training"], None))
+                                                             ignore_index=eval_loader.dataset.dontcare)
                 elif dataset == 'tst':
                     a, segmentation = torch.max(outputs_flatten, dim=1)
                     eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                         ignore_index=get_key_def("ignore_index", params["training"], None))
+                                                         ignore_index=eval_loader.dataset.dontcare)
 
                 _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
@@ -689,21 +650,24 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                 with torch.no_grad():
                     inputs = data['sat_img'].to(device)
                     labels = data['map_img'].to(device)
-
-                    ############################
-                    # Test Implementation of the NIR
-                    ############################
-                    # TODO: remove after the merge of Remy branch with no visualization option
-                    # TODO: or change it to match the reste of the implementation
-                    #inputs = inputs[:,:-1, ...] # Need to be change 
-                    inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
-                    inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
-                    inputs = inputs[:,:-1, ...] # Need to be change 
                     
-                    outputs = model(inputs, inputs_NIR)
-                    ############################
-                    # Test Implementation of the NIR
-                    ############################
+                    if inputs.size[1] == 4:
+                        ############################
+                        # Test Implementation of the NIR
+                        ############################
+                        # TODO: remove after the merge of Remy branch with no visualization option
+                        # TODO: or change it to match the reste of the implementation
+                        #inputs = inputs[:,:-1, ...] # Need to be change 
+                        inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
+                        inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
+                        inputs = inputs[:,:-1, ...] # Need to be change 
+                        
+                        outputs = model(inputs, inputs_NIR)
+                        ############################
+                        # Test Implementation of the NIR
+                        ############################
+                    else:
+                        outputs = model(inputs)
 
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
