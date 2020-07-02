@@ -17,6 +17,7 @@ global:
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 0
+  BGR_to_RGB: True
   scale_data: [0,1]
   debug_mode: True
 
@@ -36,9 +37,9 @@ sample:
 data_analysis:
   create_csv: False
   optimal_parameters_search : False
-   sampling_method: # class_proportion or min_annotated_percent
-     'min_annotated_percent': 3  # Min % of non background pixels in samples. Default: 0
-     'class_proportion': {'1':5}
+  sampling_method: # class_proportion or min_annotated_percent
+    'min_annotated_percent': 3  # Min % of non background pixels in samples. Default: 0
+    'class_proportion': {'1':5}
 
 # Training parameters; used in train_segmentation.py ----------------------
 
@@ -49,6 +50,7 @@ training:
   num_tst_samples:
   batch_size: 4
   num_epochs: 2
+  target_size: 256
   loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
   optimizer: adam # One of adam, sgd or adabound
   learning_rate: 0.0001
@@ -61,9 +63,10 @@ training:
   batch_metrics: 1
   ignore_index:  # Specifies a target value that is ignored and does not contribute to the input gradient
   augmentation:
-    rotate_limit: 45
-    rotate_prob: 0.5
-    hflip_prob: 0.5
+      rotate_limit: 45         # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
+      rotate_prob: 0.5         # Specifies the probability for data rotation. If not specified, no rotation will be performed.
+      hflip_prob: 0.5          # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.
+      random_radiom_trim_range: [0.1, 2.0] # Specifies the range in which a random percentile value will be chosen to trim values. This value applies to both left and right sides of the raster's histogram. If not specified, no enhancement will be performed.
   normalization:  # Normalization parameters for finetuning (Ex. mean: [0.485, 0.456, 0.406], std: std: [0.229, 0.224, 0.225])
     mean:
     std:
@@ -72,7 +75,7 @@ training:
 
 inference:
   img_dir_or_csv_file: ./data/inference_sem_seg_ci_csv.csv
-  state_dict_path: ./data/samples256_overlap33_min-annot1_3bands/model/config_ci_segmentation_local/checkpoint.pth.tar
+  state_dict_path: ./data/samples256_overlap33_min-annot3_3bands/model/config_ci_segmentation_local/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
   heatmaps: True

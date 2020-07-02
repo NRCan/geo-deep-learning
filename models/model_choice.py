@@ -41,8 +41,10 @@ def net(net_params, num_channels, inference=False):
     dropout = get_key_def('dropout', net_params['training'], False)
     dropout_prob = get_key_def('dropout_prob', net_params['training'], 0.5)
     
-    # Read the concatenation point
-    conc_point = net_params['global']['concatenate_depth']
+    # TODO: find a way to maybe implement it in classification one day
+    if net_params['global']['task'] == 'segmentation':
+        # Read the concatenation point
+        conc_point = net_params['global']['concatenate_depth']
 
     if model_name == 'unetsmall':
         model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
