@@ -396,7 +396,7 @@ def main(params, config_path):
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if int(params['training']['num_epochs']) > 0:   #if num_epochs is set to 0, model is loaded to evaluate on test set
+    if int(params['training']['num_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
 
@@ -493,7 +493,7 @@ def train(train_loader,
                 outputs = outputs['out']
 
             if vis_batch_range and vis_at_train:
-                min_vas_batch, max_vis_batch, increment = vis_batch_range
+                min_vis_batch, max_vis_batch, increment = vis_batch_range
                 if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0:
