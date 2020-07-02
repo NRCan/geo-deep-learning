@@ -1,11 +1,10 @@
-import csv
-
 import numpy as np
 from ruamel_yaml import YAML
 from tqdm import tqdm
 from pathlib import Path
+from skimage import morphology
 
-from utils.utils import vector_to_raster, minmax_scale
+from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
 
 
 def read_parameters(param_file):
@@ -21,8 +20,16 @@ def read_parameters(param_file):
     return params
 
 
-def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vector_attrib=None, aux_vector_ids=None,
-                          aux_vector_dist_maps=False, aux_vector_dist_log=True, aux_vector_scale=None):
+def image_reader_as_array(input_image,
+                          aux_vector_file=None,
+                          aux_vector_attrib=None,
+                          aux_vector_ids=None,
+                          aux_vector_dist_maps=False,
+                          aux_vector_dist_log=True,
+                          aux_vector_scale=None,
+                          clip_gpkg=None,
+                          bgr_to_rgb=False,
+                          debug=False):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
         input_image: Rasterio file handle holding the (already opened) input raster
@@ -33,24 +40,30 @@ def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vec
         aux_vector_dist_maps: flag indicating whether aux vector bands should be distance maps or binary maps
         aux_vector_dist_log: flag indicating whether log distances should be used in distance maps or not
         aux_vector_scale: optional floating point scale factor to multiply to rasterized vector maps
+        clip_gpkg: optional path to gpkg used to clip input_image
+        nodata_to_nan: if True, nodata values as given by rasterio dataset object will be set to np.nan
 
     Return:
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
-    np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
-    for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
-        np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0  # TODO: reading a large image >10Gb is VERY slow. Is this line the culprit?
+    if clip_gpkg:
+        np_array, input_image = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
+        np_array = np.transpose(np_array, (1, 2, 0))  # send channels last
 
-    # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
-    # Scale array values from range [0,255] to values in config (e.g. [0,1])
-    if scale:
-        sc_min, sc_max = scale
-        assert np.min(np_array) >= 0 and np.max(np_array) <= 255, f'Values in input image of shape {np_array.shape} ' \
-                                                                  f'range from {np.min(np_array)} to {np.max(np_array)}.' \
-                                                                  f'They should range from 0 to 255 (8bit).'
-        np_array = minmax_scale(img=np_array,
-                                orig_range=(0, 255),
-                                scale_range=(sc_min, sc_max))
+    else:
+        np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.uint16)
+        for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
+            np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
+
+    assert np_array.dtype in ['uint8', 'uint16'], f"Invalid datatype {np_array.dtype}. " \
+                                                  f"Only uint8 and uint16 are supported in current version"
+
+    dataset_nodata = None
+    if input_image.nodata is not None:
+        # See: https://rasterio.readthedocs.io/en/latest/topics/masks.html#dataset-masks
+        dataset_nodata = np_array == input_image.nodata
+        # Keep only nodata when present across all bands
+        dataset_nodata = np.all(dataset_nodata, axis=2)
 
     # if requested, load vectors from external file, rasterize, and append distance maps to array
     if aux_vector_file is not None:
@@ -61,11 +74,13 @@ def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vec
                                       target_ids=aux_vector_ids,
                                       merge_all=False)
         if aux_vector_dist_maps:
-            import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
+            # import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
             vec_tensor = vec_tensor.astype(np.float32)
             for vec_band_idx in range(vec_tensor.shape[2]):
                 mask = vec_tensor[:, :, vec_band_idx]
-                mask = cv.dilate(mask, (3, 3))  # make points and linestring easier to work with
+                kernel = np.ones(3, 3)
+                # mask = cv.dilate(mask, kernel)  # make points and linestring easier to work with
+                mask = morphology.binary_dilation(mask, kernel)  # make points and linestring easier to work with
                 #display_resize = cv.resize(np.where(mask, np.uint8(0), np.uint8(255)), (1000, 1000))
                 #cv.imshow("mask", display_resize)
                 dmap = cv.distanceTransform(np.where(mask, np.uint8(0), np.uint8(255)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
@@ -87,36 +102,7 @@ def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vec
             for vec_band_idx in vec_tensor.shape[2]:
                 vec_tensor[:, :, vec_band_idx] *= aux_vector_scale
         np_array = np.concatenate([np_array, vec_tensor], axis=2)
-    return np_array
+
+    return np_array, input_image, dataset_nodata
 
 
-def read_csv(csv_file_name, inference=False):
-    """Open csv file and parse it, returning a list of dict.
-
-    If inference == True, the dict contains this info:
-        - tif full path
-        - metadata yml full path (may be empty string if unavailable)
-    Else, the returned list contains a dict with this info:
-        - tif full path
-        - metadata yml full path (may be empty string if unavailable)
-        - gpkg full path
-        - attribute_name
-        - dataset (trn or val)
-    """
-
-    list_values = []
-    with open(csv_file_name, 'r') as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if inference:
-                assert len(row) >= 2, 'unexpected number of columns in dataset CSV description file' \
-                    ' (for inference, should have two columns, i.e. raster file path and metadata file path)'
-                list_values.append({'tif': row[0], 'meta': row[1]})
-            else:
-                assert len(row) >= 5, 'unexpected number of columns in dataset CSV description file' \
-                    ' (should have five columns; see \'read_csv\' function for more details)'
-                list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
-    if inference:
-        return list_values
-    else:
-        return sorted(list_values, key=lambda k: k['dataset'])

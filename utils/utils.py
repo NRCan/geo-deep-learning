@@ -1,12 +1,14 @@
+import csv
+import numbers
+from pathlib import Path
+from typing import Sequence, List
+
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
 import numpy as np
-import rasterio
-import rasterio.features
 import warnings
 import collections
-import fiona
 import matplotlib
 
 matplotlib.use('Agg')
@@ -40,143 +42,28 @@ class Interpolate(torch.nn.Module):
         return x
 
 
-def chop_layer(pretrained_dict,
-               layer_names=["logits"]):  # https://discuss.pytorch.org/t/how-to-load-part-of-pre-trained-model/1113/2
-    """
-    Removes keys from a layer in state dictionary of model architecture.
-    :param model: (nn.Module) model with original architecture
-    :param layer_names: (list) names of layers to be chopped.
-    :return: (nn.Module) model
-    """
-    # filter out weights from undesired keys. ex.: size mismatch.
-    for layer in layer_names:
-        chopped_dict = {k: v for k, v in pretrained_dict.items() if k.find(layer) == -1}
-        pretrained_dict = chopped_dict  # overwrite values in pretrained dict with chopped dict
-    return chopped_dict
-
-
-def load_from_checkpoint(checkpoint, model, optimizer=None, inference=False):
+def load_from_checkpoint(checkpoint, model, optimizer=None):
     """Load weights from a previous checkpoint
     Args:
         checkpoint: (dict) checkpoint as loaded in model_choice.py
         model: model to replace
         optimizer: optimiser to be used
     """
-    model.load_state_dict(checkpoint['model'])
+    # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model	    model.load_state_dict(checkpoint['model'])
+    # https://github.com/bearpaw/pytorch-classification/issues/27
+    # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
+    if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
+        new_state_dict = model.state_dict().copy()
+        new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
+        del checkpoint
+        checkpoint = {}
+        checkpoint['model'] = new_state_dict['model']
+
+    model.load_state_dict(checkpoint['model'], strict=False)
     print(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-        optimizer.load_state_dict(checkpoint['optimizer'])
+        optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
     return model, optimizer
-
-
-def image_reader_as_array(input_image, scale=None, aux_vector_file=None, aux_vector_attrib=None, aux_vector_ids=None,
-                          aux_vector_dist_maps=False, aux_vector_dist_log=True, aux_vector_scale=None):
-    """Read an image from a file and return a 3d array (h,w,c)
-    Args:
-        input_image: Rasterio file handle holding the (already opened) input raster
-        scale: optional scaling factor for the raw data
-        aux_vector_file: optional vector file from which to extract auxiliary shapes
-        aux_vector_attrib: optional vector file attribute name to parse in order to fetch ids
-        aux_vector_ids: optional vector ids to target in the vector file above
-        aux_vector_dist_maps: flag indicating whether aux vector bands should be distance maps or binary maps
-        aux_vector_dist_log: flag indicating whether log distances should be used in distance maps or not
-        aux_vector_scale: optional floating point scale factor to multiply to rasterized vector maps
-
-    Return:
-        numpy array of the image (possibly concatenated with auxiliary vector channels)
-    """
-    np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.float32)
-    for i in range(input_image.count):
-        np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
-
-    # Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
-    # Scale arrays to values [0,1]. Default: will scale. Useful if dealing with 8 bit *and* 16 bit images.
-    if scale:
-        sc_min, sc_max = scale
-        np_array = minmax_scale(img=np_array,
-                                orig_range=(np.min(np_array), np.max(np_array)),
-                                scale_range=(sc_min, sc_max))
-
-    # if requested, load vectors from external file, rasterize, and append distance maps to array
-    if aux_vector_file is not None:
-        vec_tensor = vector_to_raster(vector_file=aux_vector_file,
-                                      input_image=input_image,
-                                      attribute_name=aux_vector_attrib,
-                                      fill=0,
-                                      target_ids=aux_vector_ids,
-                                      merge_all=False)
-        if aux_vector_dist_maps:
-            import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
-            vec_tensor = vec_tensor.astype(np.float32)
-            for vec_band_idx in range(vec_tensor.shape[2]):
-                mask = vec_tensor[:, :, vec_band_idx]
-                mask = cv.dilate(mask, (3, 3))  # make points and linestring easier to work with
-                #display_resize = cv.resize(np.where(mask, np.uint8(0), np.uint8(255)), (1000, 1000))
-                #cv.imshow("mask", display_resize)
-                dmap = cv.distanceTransform(np.where(mask, np.uint8(0), np.uint8(255)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
-                if aux_vector_dist_log:
-                    dmap = np.log(dmap + 1)
-                #display_resize = cv.resize(cv.normalize(dmap, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
-                #cv.imshow("dmap1", display_resize)
-                dmap_inv = cv.distanceTransform(np.where(mask, np.uint8(255), np.uint8(0)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
-                if aux_vector_dist_log:
-                    dmap_inv = np.log(dmap_inv + 1)
-                #display_resize = cv.resize(cv.normalize(dmap_inv, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
-                #cv.imshow("dmap2", display_resize)
-                vec_tensor[:, :, vec_band_idx] = np.where(mask, -dmap_inv, dmap)
-                #display = cv.normalize(vec_tensor[:, :, vec_band_idx], None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F)
-                #display_resize = cv.resize(display, (1000, 1000))
-                #cv.imshow("distmap", display_resize)
-                #cv.waitKey(0)
-        if aux_vector_scale:
-            for vec_band_idx in vec_tensor.shape[2]:
-                vec_tensor[:, :, vec_band_idx] *= aux_vector_scale
-        num_file = 0
-        filename = '/export/sata01/wspace/dataset_kingston_rgb/tst_CRIM/Images/' + str(num_file) + '.png'
-        cv.imwrite(filename, vec_tensor)
-        num_file += 1
-        np_array = np.concatenate([np_array, vec_tensor], axis=2)
-    return np_array
-
-
-def vector_to_raster(vector_file, input_image, attribute_name, fill=0, target_ids=None, merge_all=True):
-    """Function to rasterize vector data.
-    Args:
-        vector_file: Path and name of reference GeoPackage
-        input_image: Rasterio file handle holding the (already opened) input raster
-        attribute_name: Attribute containing the identifier for a vector (may contain slashes if recursive)
-        fill: default background value to use when filling non-contiguous regions
-        target_ids: list of identifiers to burn from the vector file (None = use all)
-        merge_all: defines whether all vectors should be burned with their identifiers in a
-            single layer or in individual layers (in the order provided by 'target_ids')
-
-    Return:
-        numpy array of the burned image
-    """
-
-    # Extract vector features to burn in the raster image
-    with fiona.open(vector_file, 'r') as src:
-        lst_vector = [vector for vector in src]
-
-    # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
-    if attribute_name is not None:
-        lst_vector.sort(key=lambda vector: get_key_recursive(attribute_name, vector))
-
-    lst_vector_tuple = lst_ids(list_vector=lst_vector, attr_name=attribute_name, target_ids=target_ids, merge_all=merge_all)
-
-    if merge_all:
-        return rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
-                                           fill=fill,
-                                           out_shape=input_image.shape,
-                                           transform=input_image.transform,
-                                           dtype=np.int16)
-    else:
-        burned_rasters = [rasterio.features.rasterize(lst_vector_tuple[id],
-                                                      fill=fill,
-                                                      out_shape=input_image.shape,
-                                                      transform=input_image.transform,
-                                                      dtype=np.int16) for id in lst_vector_tuple]
-        return np.stack(burned_rasters, axis=-1)
 
 
 def list_s3_subfolders(bucket, data_path):
@@ -233,36 +120,39 @@ def gpu_stats(device=0):
     return res, mem
 
 
-def get_key_def(key, config, default=None, msg=None, delete=False):
+def get_key_def(key, config, default=None, msg=None, delete=False, expected_type=None):
     """Returns a value given a dictionary key, or the default value if it cannot be found.
     :param key: key in dictionary (e.g. generated from .yaml)
     :param config: (dict) dictionary containing keys corresponding to parameters used in script
     :param default: default value assigned if no value found with provided key
     :param msg: message returned with AssertionError si length of key is smaller or equal to 1
-    :param delete: (bool) if True, deletes parameter FIXME: check if this is true. Not sure I understand why we would want to delete a parameter.
+    :param delete: (bool) if True, deletes parameter, e.g. for one-time use.
     :return:
     """
-    if isinstance(key, list): # is key a list?
-        if len(key) <= 1: # is list of length 1 or shorter? else --> default
+    if not config:
+        return default
+    elif isinstance(key, list):  # is key a list?
+        if len(key) <= 1:  # is list of length 1 or shorter? else --> default
             if msg is not None:
                 raise AssertionError(msg)
             else:
                 raise AssertionError("Must provide at least two valid keys to test")
-        for k in key: # iterate through items in list
-            if k in config: # if item is a key in config, set value.
+        for k in key:  # iterate through items in list
+            if k in config:  # if item is a key in config, set value.
                 val = config[k]
-                if delete: # optionally delete parameter after defining a variable with it
+                if delete:  # optionally delete parameter after defining a variable with it
                     del config[k]
-                return val
-        return default
-    else: # if key is not a list
-        if key not in config or config[key] is None: # if key not in config dict
-            return default
+        val = default
+    else:  # if key is not a list
+        if key not in config or config[key] is None:  # if key not in config dict
+            val = default
         else:
-            val = config[key]
+            val = config[key] if config[key] != 'None' else None
+            if expected_type:
+                assert isinstance(val, expected_type), f"{val} is of type {type(val)}, expected {expected_type}"
             if delete:
                 del config[key]
-            return val
+    return val
 
 
 def get_key_recursive(key, config):
@@ -275,31 +165,6 @@ def get_key_recursive(key, config):
         assert len(key) > 1, "missing keys to index metadata subdictionaries"
         return get_key_recursive(key[1:], val)
     return val
-
-
-def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
-    '''
-    Generates a dictionary from a list of vectors where keys are class numbers and values are corresponding features in a list.
-    :param list_vector: list of vectors as returned by fiona.open
-    :param attr_name: Attribute containing the identifier for a vector (may contain slashes if recursive)
-    :param target_ids: list of identifiers to burn from the vector file (None = use all)
-    :param merge_all: defines whether all vectors should be burned with their identifiers in a
-            single layer or in individual layers (in the order provided by 'target_ids')
-    :return: list of tuples in format (vector, class_id).
-    '''
-    lst_vector_tuple = {}
-    for vector in list_vector:
-        id = get_key_recursive(attr_name, vector) if attr_name is not None else None
-        if target_ids is None or id in target_ids:
-            if id not in lst_vector_tuple:
-                lst_vector_tuple[id] = []
-            if merge_all:
-                # here, we assume that the id can be cast to int!
-                lst_vector_tuple[id].append((vector['geometry'], int(id) if id is not None else 0))
-            else:
-                # if not merging layers, just use '1' as the value for each target
-                lst_vector_tuple[id].append((vector['geometry'], 1))
-    return lst_vector_tuple
 
 
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
@@ -317,36 +182,59 @@ def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     return scale_img
 
 
-def create_new_raster_from_base(input_raster, output_raster, write_array):
-    """Function to use info from input raster to create new one.
+def pad(img, padding, fill=0):
+    r"""Pad the given ndarray on all sides with specified padding mode and fill value.
+    Adapted from https://github.com/pytorch/vision/blob/master/torchvision/transforms/functional.py#L255
     Args:
-        input_raster: input raster path and name
-        output_raster: raster name and path to be created with info from input
-        write_array (optional): array to write into the new raster
-
-    Return:
-        none
+        img (ndarray): Image to be padded.
+        padding (int or tuple): Padding on each border. If a single int is provided this
+            is used to pad all borders. If tuple of length 2 is provided this is the padding
+            on left/right and top/bottom respectively. If a tuple of length 4 is provided
+            this is the padding for the left, top, right and bottom borders
+            respectively.
+        fill: Pixel fill value for constant fill. Default is 0. If a tuple of
+            length 3, it is used to fill R, G, B channels respectively.
+            This value is only used when the padding_mode is constant
+    Returns:
+        ndarray: Padded image.
     """
-    if len(write_array.shape) == 2:  # 2D array
-        count = 1
-    elif len(write_array.shape) == 3:  # 3D array
-        count = 3
-    else:
-        raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
+    if not isinstance(padding, (numbers.Number, tuple)):
+        raise TypeError('Got inappropriate padding arg')
+    if not isinstance(fill, (numbers.Number, str, tuple)):
+        raise TypeError('Got inappropriate fill arg')
 
-    with rasterio.open(input_raster, 'r') as src:
-        with rasterio.open(output_raster, 'w',
-                           driver=src.driver,
-                           width=src.width,
-                           height=src.height,
-                           count=count,
-                           crs=src.crs,
-                           dtype=np.uint8,
-                           transform=src.transform) as dst:
-            if count == 1:
-                dst.write(write_array[:, :], 1)
-            elif count == 3:
-                dst.write(write_array[:, :, :3])  # Take only first three bands assuming they are RGB.
+    if isinstance(padding, Sequence) and len(padding) not in [2, 4]:
+        raise ValueError("Padding must be an int or a 2, or 4 element tuple, not a " +
+                         "{} element tuple".format(len(padding)))
+
+    if isinstance(padding, int):
+        pad_left = pad_right = pad_top = pad_bottom = padding
+    if isinstance(padding, Sequence) and len(padding) == 2:
+        pad_left = pad_right = padding[0]
+        pad_top = pad_bottom = padding[1]
+    if isinstance(padding, Sequence) and len(padding) == 4:
+        pad_left = padding[0]
+        pad_top = padding[1]
+        pad_right = padding[2]
+        pad_bottom = padding[3]
+
+    # RGB image
+    if len(img.shape) == 3:
+        img = np.pad(img, ((pad_top, pad_bottom), (pad_left, pad_right), (0, 0)), mode='constant', constant_values=fill)
+    # Grayscale image
+    elif len(img.shape) == 2:
+        img = np.pad(img, ((pad_top, pad_bottom), (pad_left, pad_right)), mode='constant', constant_values=fill)
+
+    return img
+
+
+def pad_diff(actual_height, actual_width, desired_shape):
+    """ Pads img_arr width or height < samples_size with zeros
+    """
+    h_diff = desired_shape - actual_height
+    w_diff = desired_shape - actual_width
+    padding = (0, 0, w_diff, h_diff)  # left, top, right, bottom
+    return padding
 
 
 def unnormalize(input_img, mean, std):
@@ -358,3 +246,89 @@ def unnormalize(input_img, mean, std):
     :return: (numpy_array) "Unnormalized" image
     """
     return (input_img * std) + mean
+
+
+def BGR_to_RGB(array):
+    assert array.shape[2] >= 3, f"Not enough channels in array of shape {array.shape}"
+    BGR_channels = array[..., :3]
+    RGB_channels = np.ascontiguousarray(BGR_channels[..., ::-1])
+    array[:, :, :3] = RGB_channels
+    return array
+
+
+def list_input_images(img_dir_or_csv: str,
+                      bucket_name: str = None,
+                      glob_patterns: List = None):
+    """
+    Create list of images from given directory or csv file.
+
+    :param img_dir_or_csv: (str) directory containing input images or csv with list of images
+    :param bucket_name: (str, optional) name of aws s3 bucket
+    :param glob_patterns: (list of str) if directory is given as input (not csv), these are the glob patterns that will be used
+                        to find desired images
+
+    returns list of dictionaries where keys are "tif" and values are paths to found images. "meta" key is also added
+        if input is csv and second column contains a metadata file. Then, value is path to metadata file.
+    """
+    if bucket_name:
+        s3 = boto3.resource('s3')
+        bucket = s3.Bucket(bucket_name)
+        if img_dir_or_csv.endswith('.csv'):
+            bucket.download_file(img_dir_or_csv, 'img_csv_file.csv')
+            list_img = read_csv('img_csv_file.csv')
+        else:
+            raise NotImplementedError(
+                'Specify a csv file containing images for inference. Directory input not implemented yet')
+    else:
+        if img_dir_or_csv.endswith('.csv'):
+            list_img = read_csv(img_dir_or_csv)
+        else:
+            img_dir = Path(img_dir_or_csv)
+            assert img_dir.is_dir(), f'Could not find directory "{img_dir_or_csv}"'
+
+            list_img_paths = set()
+            for glob_pattern in glob_patterns:
+                assert isinstance(glob_pattern, str), f'Invalid glob pattern: "{glob_pattern}"'
+                list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
+
+            list_img = []
+            for img_path in list_img_paths:
+                img = {}
+                img['tif'] = img_path
+                list_img.append(img)
+            assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
+    return list_img
+
+
+def read_csv(csv_file_name):
+    """Open csv file and parse it, returning a list of dict.
+
+    If inference == True, the dict contains this info:
+        - tif full path
+        - metadata yml full path (may be empty string if unavailable)
+    Else, the returned list contains a dict with this info:
+        - tif full path
+        - metadata yml full path (may be empty string if unavailable)
+        - gpkg full path
+        - attribute_name
+        - dataset (trn or val)
+    """
+
+    list_values = []
+    with open(csv_file_name, 'r') as f:
+        reader = csv.reader(f)
+        for index, row in enumerate(reader):
+            row_length = len(row) if index == 0 else row_length
+            assert len(row) == row_length, "Rows in csv should be of same length"
+            row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
+            list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
+            assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
+            if row[2] is not None:
+                assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'
+                assert isinstance(row[3], str)
+    try:
+        # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
+        list_values = sorted(list_values, key=lambda k: k['dataset'])
+    except TypeError:
+        list_values
+    return list_values
