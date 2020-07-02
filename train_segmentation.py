@@ -75,7 +75,7 @@ def loader(path):
 def create_dataloader(samples_folder, batch_size, num_devices, params):
     """
     Function to create dataloader objects for training, validation and test datasets.
-    :param samples_folder: (str) path to the folder containting .hdf5 files if task is segmentation
+    :param samples_folder: path to the folder containting .hdf5 files if task is segmentation
     :param batch_size: (int) batch size
     :param num_devices: (int) number of GPUs used
     :param params: (dict) Parameters found in the yaml config file.
@@ -102,8 +102,9 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare_val,
                                        radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
-                                       geom_transform=aug.compose_transforms(params, subset, type='geometric', ignore_index=dontcare_val)
-                                       totensor_transform=aug.compose_transforms(params, subset, type='totensor')
+                                       geom_transform=aug.compose_transforms(params, subset, type='geometric',
+                                                                             ignore_index=dontcare_val),
+                                       totensor_transform=aug.compose_transforms(params, subset, type='totensor'),
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
@@ -113,7 +114,9 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     # Shuffle must be set to True.
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
                                 drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
+    # Using batch_metrics with shuffle=False on val dataset will always mesure metrics on the same portion of the val samples.
+    # Shuffle should be set to True.
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
                                 drop_last=True)
     tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
                                 drop_last=True) if num_samples['tst'] > 0 else None
@@ -129,26 +132,24 @@ def get_num_samples(samples_path, params):
     :return: (dict) number of samples for trn, val and tst.
     """
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
-    task_name = {'trn':'training', 'val':'validation', 'tst':'inference'}
 
     for i in ['trn', 'val', 'tst']:
-        if params['training'][f"num_{i}_samples"]:
+        if get_key_def(f"num_{i}_samples", params['training'], None) is not None:
             num_samples[i] = params['training'][f"num_{i}_samples"]
 
-            with h5py.File(os.path.join(samples_path, f"{i}_samples.hdf5"), 'r') as hdf5_file:
+            with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), 'r') as hdf5_file:
                 file_num_samples = len(hdf5_file['map_img'])
             if num_samples[i] > file_num_samples:
-                raise IndexError(f"The number of {task_name[i]} samples in the configuration file"
-                                 f"({num_samples[i]}) exceeds the number of {task_name[i]} samples"
-                                 f"in the hdf5 {task_name[i]} dataset ({file_num_samples}).")
+                raise IndexError(f"The number of training samples in the configuration file ({num_samples[i]}) "
+                                 f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
         else:
-            with h5py.File(os.path.join(samples_path, f"{i}_samples.hdf5"), "r") as hdf5_file:
+             with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), "r") as hdf5_file:
                 num_samples[i] = len(hdf5_file['map_img'])
 
     return num_samples
 
 
-def set_hyperparameters(params, num_classes, model, checkpoint):
+def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
     """
     Function to set hyperparameters based on values provided in yaml config file.
     Will also set model to GPU, if available.
@@ -169,26 +170,15 @@ def set_hyperparameters(params, num_classes, model, checkpoint):
     class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
     if params['training']['class_weights']:
         verify_weights(num_classes, class_weights)
-    ignore_index = get_key_def('ignore_index', params['training'], -1)
 
     # Loss function
-    criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
+    criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'],
+                                    ignore_index=dontcare_val,
+                                    weight=class_weights)
 
     # Optimizer
     opt_fn = params['training']['optimizer']
-
-    ############################
-    # TODO: 
-    #optimizer = create_optimizer(
-    #        params=[{'params': model[1].parameters()}, {'params': model[0].parameters()}],
-    #        mode=opt_fn, base_lr=lr, weight_decay=weight_decay
-    #        )
-
     optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
-    ############################
-
-    #optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
-    
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
     if checkpoint:
@@ -213,33 +203,35 @@ def main(params, config_path):
     num_classes = params['global']['num_classes']
     task = params['global']['task']
     assert task == 'segmentation', f"The task should be segmentation. The provided value is {task}"
-    num_classes_corrected = num_classes + 1 # + 1 for background # FIXME temporary patch for num_classes problem.
+    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model, checkpoint, model_name = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
     tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
-    bucket_name = params['global']['bucket_name']
-    data_path = params['global']['data_path']
-    assert Path(data_path).is_dir(), f'Could not locate data path {data_path}'
+    bucket_name = get_key_def('bucket_name', params['global'])
+    data_path = Path(params['global']['data_path'])
+    assert data_path.is_dir(), f'Could not locate data path {data_path}'
 
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
-    min_annot_perc = params['sample']['sampling']['map']
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
     num_bands = params['global']['number_of_bands']
-    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: preferred name structure? document!
-    samples_folder = Path(data_path).joinpath(samples_folder_name) if task == 'segmentation' else Path(data_path)
+    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: won't check if folder has datetime suffix (if multiple folders)
+    samples_folder = data_path.joinpath(samples_folder_name)
+
 
     modelname = config_path.stem
-    output_path = Path(samples_folder).joinpath('model') / modelname
+    output_path = samples_folder.joinpath('model') / modelname
     if output_path.is_dir():
-        output_path = Path(str(output_path)+'_'+now)
+        output_path = output_path.joinpath(f"_{now}")
     output_path.mkdir(parents=True, exist_ok=False)
     shutil.copy(str(config_path), str(output_path))
     tqdm.write(f'Model and log files will be saved to: {output_path}\n\n')
-    task = params['global']['task']
+    # task = params['global']['task']
     batch_size = params['training']['batch_size']
 
     if bucket_name:
+        from utils.aws import download_s3_files
         bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
                                                                                data_path=data_path,
                                                                                output_path=output_path)
