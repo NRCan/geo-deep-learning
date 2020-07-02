@@ -7,8 +7,8 @@
 #   6) Inference parameters
 #   7) Model parameters
 
-# Global parameters
 
+# Global parameters
 global:
   samples_size: 256
   num_classes: 4 
@@ -22,11 +22,17 @@ global:
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 2
-  aux_vector_file: 
-  aux_vector_dist_map: False
+  BGR_to_RGB: True
   scale_data: [0,1]
-  debug_mode: False #True
-
+  aux_vector_file:
+  aux_vector_attrib:
+  aux_vector_ids:
+  aux_vector_dist_maps:
+  aux_vector_dist_log:
+  aux_vector_scale:
+  debug_mode: True
+  coordconv_convert: False
+  coordvonc_scale:
   #####
   # Module to include the NIR (temporary)
   # 'conv1',
@@ -36,41 +42,34 @@ global:
   # 'layer4',
   concatenate_depth: 'layer4'
   #####
-  
-# Data analysis parameters; used in data_analysis.py ------------------
 
+
+# Data analysis parameters; used in data_analysis.py ------------------
 data_analysis:
   create_csv: False
   optimal_parameters_search : False
-  sampling: {'method':['min_annotated_percent', 'class_proportion'], 'map': 0, '0':0, '1':0, '2':0}
-  # 'method' : One or both in any order of min_annotated_percent, class_proportion; must be presented in list format
-    # 'map' : Min % of non background pixels in stored samples. Default: 0
-    # following keys:
-      # keys must be all classes present in the images
-      # keys must be numerical values in 'string' format
-      # class value must be in 'integer' format
-      # class value represent class minimum threshold targeted in samples
+  sampling_method: # class_proportion or min_annotated_percent
+    'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
+    'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:
+    # keys (numerical values in 'string' format) represent class id
+    # values (int) represent class minimum threshold targeted in samples
+
 
 # Sample parameters; used in images_to_samples.py -------------------
-
 sample:
   prep_csv_file: /home/cauthier/data/test4channel.csv # TODO: put in git ignor
   val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
   overlap: 25
-  sampling: {'method':['min_annotated_percent'], 'map': 0, '0':0, '1':0, '2':0} # One of class_proportion, annotated_percent
-    # 'method' : One or both in any order of min_annotated_percent, class_proportion; must be presented in list format
-    # 'map' : Min % of non background pixels in samples. Default: 0
-    # following keys:
-      # keys must include all classes present in the images
-      # keys must be numerical values in 'string' format
-      # class value must be in 'integer' format
-      # class value represents class minimum threshold targeted in samples
+  sampling_method: # class_proportion or min_annotated_percent
+    'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
+    'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:
+    # keys (numerical values in 'string' format) represent class id
+    # values (int) represent class minimum threshold targeted in samples
 
   mask_reference: False
 
 
 # Training parameters; used in train_segmentation.py ----------------------
-
 training:
   state_dict_path: #path/to/pretrained/file/checkpoint.pth.tar (optional)
   num_trn_samples: 4960
@@ -97,17 +96,17 @@ training:
     mean:
     std:
 
-# Inference parameters; used in inference.py --------
 
+# Inference parameters; used in inference.py --------
 inference:
   img_dir_or_csv_file: /home/cauthier/data/test4channel.csv #/path/to/csv/containing/images/list.csv
-  working_folder: #/path/to/folder/with/resulting/images
   state_dict_path: ./data/samples256_overlap25_min-annot0_4bands/model/config_test_4channels_implementation_2020-06-23_14-39/checkpoint.pth.tar #/path/to/model/weights/for/inference/checkpoint.pth.tar
-  chunk_size: 256 # (int) Size (height and width) of each prediction patch. Default: 512
+  chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
+  heatmap: True
+
 
 # Visualization parameters
-
 visualization:
   vis_batch_range: [0,2,1] #start, finish, increment
   vis_at_checkpoint: True
