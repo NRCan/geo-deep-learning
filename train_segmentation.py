@@ -396,7 +396,7 @@ def main(params, config_path):
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if int(params['training']['num_epochs']) > 0:  #if num_epochs is set to 0, model is loaded to evaluate on test set
+    if int(params['training']['num_epochs']) > 0:   #if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
 
@@ -469,27 +469,32 @@ def train(train_loader,
             # forward
             optimizer.zero_grad()
 
-            ############################
-            # Test Implementation of the NIR
-            ############################
-            # Init NIR   TODO: make a proper way to read the NIR channel 
-            #                  and put an option to be able to give the idex of the NIR channel
-            inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
-            inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
-            inputs = inputs[:,:-1, ...] # Need to be change 
-            #inputs_NIR = data['NIR'].to(device)
-
-            outputs = model(inputs, inputs_NIR)
-            ############################
-            # End of the test implementation module
-            ############################
+            if inputs.size[1] == 4:
+                ############################
+                # Test Implementation of the NIR
+                ############################
+                # Init NIR   TODO: make a proper way to read the NIR channel 
+                #                  and put an option to be able to give the idex of the NIR channel
+                inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
+                inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
+                inputs = inputs[:,:-1, ...] # Need to be change 
+                #inputs_NIR = data['NIR'].to(device)
+    
+                outputs = model(inputs, inputs_NIR)
+                ############################
+                # End of the test implementation module
+                ############################
+            else:
+                outputs = model(inputs)
 
             # added for torchvision models that output an OrderedDict with outputs in 'out' key.
             # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
             if isinstance(outputs, OrderedDict):
                 outputs = outputs['out']
 
-            if vis_batch_range is not None and vis_at_train and batch_index in range(min_vis_batch, max_vis_batch, increment):
+            if vis_batch_range and vis_at_train:
+                min_vas_batch, max_vis_batch, increment = vis_batch_range
+                if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0:
                         tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
@@ -510,7 +515,7 @@ def train(train_loader,
                                               gpu_perc=f'{res.gpu} %',
                                               gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
                                               lr=optimizer.param_groups[0]['lr'],
-                                              img=data['sat_img'].numpy().shape[1:],
+                                              img=data['sat_img'].numpy().shape,
                                               smpl=data['map_img'].numpy().shape,
                                               bs=batch_size,
                                               out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
@@ -519,11 +524,12 @@ def train(train_loader,
             optimizer.step()
 
     scheduler.step()
-    print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
+    if train_metrics["loss"].avg is not None:
+        print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
     return train_metrics
 
 
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -531,7 +537,6 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
     :param criterion: loss criterion
     :param num_classes: number of classes
     :param batch_size: number of samples to process simultaneously
-    :param task: segmentation or classification
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
     :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
@@ -546,7 +551,6 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, task, ep_
             m.track_running_stats = False
     vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-    min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
