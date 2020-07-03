@@ -469,7 +469,7 @@ def train(train_loader,
             # forward
             optimizer.zero_grad()
 
-            if inputs.size[1] == 4:
+            if inputs.shape[1] == 4:
                 ############################
                 # Test Implementation of the NIR
                 ############################
