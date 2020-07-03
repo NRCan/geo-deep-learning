@@ -108,7 +108,7 @@ def sem_seg_inference(
                         inputs = inputs.to(device)
 
                         # forward
-                        if inputs.size[1] == 4:
+                        if inputs.shape[1] == 4:
                             ############################
                             # Test Implementation of the NIR
                             ############################
