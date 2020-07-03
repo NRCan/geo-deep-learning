@@ -666,7 +666,7 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                     inputs = data['sat_img'].to(device)
                     labels = data['map_img'].to(device)
                     
-                    if inputs.size[1] == 4:
+                    if inputs.shape[1] == 4:
                         ############################
                         # Test Implementation of the NIR
                         ############################
