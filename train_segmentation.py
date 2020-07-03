@@ -561,7 +561,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
                 labels = data['map_img'].to(device)
                 labels_flatten = flatten_labels(labels)
 
-                if inputs.size[1] == 4:
+                if inputs.shape[1] == 4:
                     ############################
                     # Test Implementation of the NIR
                     ############################
