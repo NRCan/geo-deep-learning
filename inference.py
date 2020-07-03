@@ -103,7 +103,7 @@ def sem_seg_inference(
                             sample['sat_img'] = MetaSegmentationDataset.append_meta_layers(sample['sat_img'], meta_map, metadata)
 
                         sample = totensor_transform(sample)
-                        inputs = sample['sat_img'],unsqueeze_(0)  # Add dummy batch dimension
+                        inputs = sample['sat_img'].unsqueeze_(0)  # Add dummy batch dimension
 
                         inputs = inputs.to(device)
 
