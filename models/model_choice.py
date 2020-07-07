@@ -65,17 +65,23 @@ def net(net_params, num_channels, inference=False):
         assert (num_bands == 3 or num_bands == 4), msg
         if num_bands == 3:
             print('Finetuning pretrained deeplabv3 with 3 bands')
-            model = models.segmentation.deeplabv3_resnet101(
-                    pretrained=False, progress=True, num_classes=num_channels
-                    )
+            model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True)
+            classifier = list(model.classifier.children())
+            model.classifier = nn.Sequential(*classifier[:-1])
+            model.classifier.add_module(
+                    '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
+            )
         elif num_bands == 4:
             print('Finetuning pretrained deeplabv3 with 4 bands')
             print('Testing with 4 bands, concatenating at {}.'.format(conc_point))
             
-            model = models.segmentation.deeplabv3_resnet101(
-                    pretrained=False, progress=True, num_classes=num_channels
-                    )
-            
+            model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True)
+            classifier = list(model.classifier.children())
+            model.classifier = nn.Sequential(*classifier[:-1])
+            model.classifier.add_module(
+                    '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
+            )
+
             ###################
             # TODO: See what to do with it
             #conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
