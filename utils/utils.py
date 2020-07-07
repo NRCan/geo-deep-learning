@@ -335,6 +335,9 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
     """
     metadata_dict = {'name': raster_handle.name, 'csv_info': raster_info, 'source_raster_bincount': {}}
     metadata_dict.update(raster_handle.meta)
+    if not metadata_dict['dtype'] in ["uint8", "uint16"]:
+        warnings.warn(f"Datatype should be \"uint8\" or \"uint16\". Got \"{metadata_dict['dtype']}\". "
+                      f"Problems may occur if scaling values or using radiometric trimming during training.")
     # Save bin count (i.e. histogram) to metadata
     assert isinstance(sat_img_arr, np.ndarray) and len(sat_img_arr.shape) == 3, f"Array should be 3-dimensional"
     for band_index in range(sat_img_arr.shape[2]):

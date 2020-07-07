@@ -56,6 +56,7 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     """Clips input raster to limits of vector data in gpkg. Adapted from: https://automating-gis-processes.github.io/CSC18/lessons/L6/clipping-raster.html
     raster: Rasterio file handle holding the (already opened) input raster
     gpkg: Path and name of reference GeoPackage
+    debug: if True, output raster as given by this function is saved to disk
     """
     from shapely.geometry import box  # geopandas and shapely become a project dependency only during sample creation
     import geopandas as gpd
