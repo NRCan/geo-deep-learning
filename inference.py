@@ -119,12 +119,13 @@ def sem_seg_inference(
                             inputs = inputs[:,:-1, ...] # take out the NIR channel and take only the RGB for the inputs
                             # Suggestion of implementation
                             #inputs_NIR = data['NIR'].to(device)
-                            outputs = model(inputs, inputs_NIR)
+                            inputs = [inputs, inputs_NIR]
+                            #outputs = model(inputs, inputs_NIR)
                             ############################
                             # End of the test implementation module
                             ############################
-                        else: 
-                            outputs = model(inputs)
+                        #else: 
+                        outputs = model(inputs)
 
                         # torchvision models give output in 'out' key. May cause problems in future versions of torchvision.
                         if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():

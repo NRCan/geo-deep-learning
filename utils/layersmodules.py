@@ -19,8 +19,17 @@ class LayersEnsemble(nn.Module):
 
         # Ajusting the second entry
         model_nir.backbone.conv1 = nn.Conv2d(
-                1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False
+                1, model_rgb.backbone.conv1.out_channels, kernel_size=(7, 7),
+                stride=(2, 2), padding=(3, 3), bias=False
         )
+
+        # Adding the weight of the green channel of the pretrained weight (if load)
+        # to the nir conv1 (if the image in input is a RGB).
+        conv1_w = model_rgb.backbone._modules['conv1'].weight.detach()#.numpy()
+        #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
+        #conv1_w = np.append(conv1_w, depth, axis=1)
+        #conv1 = torch.from_numpy(conv1).float()
+        model_nir.backbone._modules['conv1'].weight = nn.Parameter(conv1_w[1], requires_grad=True)
         
         if conc_point in ['conv1', 'maxpool']:
             out_channels  = model_rgb.backbone.conv1.out_channels
@@ -53,7 +62,8 @@ class LayersEnsemble(nn.Module):
         
         del model_nir, model_rgb
 
-    def forward(self, x1, x2):
+    def forward(self, inputs):
+        x1, x2 = inputs
         input_shape = x1.shape[-2:]
         # Contract: features is a dict of tensors
         result = OrderedDict()

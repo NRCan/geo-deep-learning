@@ -479,13 +479,14 @@ def train(train_loader,
                 inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
                 inputs = inputs[:,:-1, ...] # Need to be change 
                 #inputs_NIR = data['NIR'].to(device)
-    
-                outputs = model(inputs, inputs_NIR)
+   
+                inputs = [inputs, inputs_NIR]
+                #outputs = model(inputs, inputs_NIR)
                 ############################
                 # End of the test implementation module
                 ############################
-            else:
-                outputs = model(inputs)
+            #else:
+            outputs = model(inputs)
 
             # added for torchvision models that output an OrderedDict with outputs in 'out' key.
             # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
@@ -573,12 +574,13 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
                     inputs = inputs[:,:-1, ...] # Need to be change 
                     #inputs_NIR = data['NIR'].to(device)
 
-                    outputs = model(inputs, inputs_NIR)
+                    inputs = [inputs, inputs_NIR]
+                    #outputs = model(inputs, inputs_NIR)
                     ############################
                     # End of the test implementation module
                     ############################
-                else:
-                    outputs = model(inputs)
+                #else:
+                outputs = model(inputs)
 
                 if isinstance(outputs, OrderedDict):
                     outputs = outputs['out']
@@ -677,12 +679,13 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                         inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
                         inputs = inputs[:,:-1, ...] # Need to be change 
                         
-                        outputs = model(inputs, inputs_NIR)
+                        inputs = [inputs, inputs_NIR]
+                        #outputs = model(inputs, inputs_NIR)
                         ############################
                         # Test Implementation of the NIR
                         ############################
-                    else:
-                        outputs = model(inputs)
+                    #else:
+                    outputs = model(inputs)
 
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
