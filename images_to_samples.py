@@ -368,7 +368,7 @@ def main(params):
         params["training"]["ignore_index"] = -1
 
     # creates pixel_classes dict and keys
-    pixel_classes = {key: 0 for key in gpkg_classes}
+    pixel_classes = {int(key): 0 for key in gpkg_classes}
     background_val = 0
     pixel_classes[background_val] = 0
     class_prop = validate_class_prop_dict(pixel_classes, class_prop)
