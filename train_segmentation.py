@@ -517,9 +517,6 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
     """
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
-    for m in model.modules():
-        if isinstance(m, nn.BatchNorm2d):
-            m.track_running_stats = False
     vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
 

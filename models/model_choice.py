@@ -65,7 +65,8 @@ def net(net_params, num_channels, inference=False):
             print('Finetuning pretrained deeplabv3 with 4 bands')
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
             conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-            depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
+            depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
+            # depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
             conv1 = np.append(conv1, depth, axis=1)
             conv1 = torch.from_numpy(conv1).float()
             model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
