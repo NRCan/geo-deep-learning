@@ -211,7 +211,7 @@ def main(params, config_path):
     set_experiment('GDL')
     log_params(params['training'])
     log_params(params['global'])
-    log_params(params['samples'])
+    log_params(params['sample'])
 
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
