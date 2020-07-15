@@ -15,7 +15,7 @@ install:
   - conda create -n ci_env python=3.7 pytorch-cpu torchvision-cpu pillow=6.2.1 torchvision ruamel_yaml h5py>=2.10 scikit-image scikit-learn rasterio tqdm matplotlib geopandas
   - source activate ci_env
   - conda install fiona
-  - conda install mlflow
+  - conda install mlflow -c conda-forge
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
   - unzip ./data/classification_data.zip -d ./data
