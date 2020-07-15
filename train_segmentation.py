@@ -299,7 +299,6 @@ def main(params, config_path):
     criterion = criterion.to(device)
 
     filename = output_path.joinpath('checkpoint.pth.tar')
-    log_artifact(filename)
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
@@ -365,7 +364,8 @@ def main(params, config_path):
                         'model': state_dict,
                         'best_loss': best_loss,
                         'optimizer': optimizer.state_dict()}, filename)
-
+            if epoch == 0:
+                log_artifact(filename)
             if bucket_name:
                 bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
