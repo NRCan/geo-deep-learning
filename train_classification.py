@@ -360,7 +360,7 @@ def main(params, config_path):
                                 debug=debug)
         val_loss = val_report['loss'].avg
         if params['training']['batch_metrics'] is not None:
-            val_log.add_values(val_report, epoch)
+            val_log.add_values(val_report, epoch, ignore=['iou'])
         else:
             val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
@@ -401,7 +401,7 @@ def main(params, config_path):
                                 batch_metrics=params['training']['batch_metrics'],
                                 dataset='tst',
                                 device=device)
-        tst_log.add_values(tst_report, params['training']['num_epochs'])
+        tst_log.add_values(tst_report, params['training']['num_epochs'], ignore=['iou'])
 
         if bucket_name:
             bucket_filename = os.path.join(bucket_output_path, 'last_epoch.pth.tar')
