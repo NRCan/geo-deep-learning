@@ -33,7 +33,7 @@ from losses import MultiClassCriterion
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
-from mlflow import log_params
+from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact
 
 
 def verify_weights(num_classes, weights):
@@ -206,6 +206,13 @@ def main(params, config_path):
     data_path = Path(params['global']['data_path'])
     assert data_path.is_dir(), f'Could not locate data path {data_path}'
 
+    # mlflow tracking path + parameters logging
+    set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
+    set_experiment('GDL')
+    log_params(params['training'])
+    log_params(params['global'])
+    log_params(params['samples'])
+
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
@@ -220,7 +227,6 @@ def main(params, config_path):
     output_path.mkdir(parents=True, exist_ok=False)
     shutil.copy(str(config_path), str(output_path))
     tqdm.write(f'Model and log files will be saved to: {output_path}\n\n')
-    # task = params['global']['task']
     batch_size = params['training']['batch_size']
 
     if bucket_name:
@@ -251,7 +257,7 @@ def main(params, config_path):
     if num_devices == 1:
         print(f"Using Cuda device {lst_device_ids[0]}\n")
     elif num_devices > 1:
-        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
+        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n")  # TODO: why are we showing indices [1:-1] for lst_device_ids?
         try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
@@ -293,15 +299,17 @@ def main(params, config_path):
     criterion = criterion.to(device)
 
     filename = output_path.joinpath('checkpoint.pth.tar')
+    log_artifact(filename)
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment). Check once for all visualization tasks.
         assert isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int) for x in vis_batch_range)
-        vis_at_init = get_key_def('vis_at_init', params['visualization'], False)
         vis_at_init_dataset = get_key_def('vis_at_init_dataset', params['visualization'], 'val')
-        if vis_at_init:
+
+        # Visualization at initialization. Visualize batch range before first eopch.
+        if get_key_def('vis_at_init', params['visualization'], False):
             tqdm.write(f'Visualizing initialized model on batch range {vis_batch_range} from {vis_at_init_dataset} dataset...\n')
             vis_from_dataloader(params=params,
                                 eval_loader=val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader,
@@ -636,9 +644,5 @@ if __name__ == '__main__':
     config_path = Path(args.param_file)
     params = read_parameters(args.param_file)
 
-    compteur = 0
-    log_params(params['training'])
-    log_params(params['global'])
-    log_params(params['samples'])
     main(params, config_path)
     print('End of training')

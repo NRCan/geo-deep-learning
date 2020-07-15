@@ -12,6 +12,7 @@ global:
   samples_size: 256
   num_classes: 1  # will automatically create a 'background' class
   data_path: ./data
+  mlflow_uri: ./mlruns
   number_of_bands: 3
   model_name: checkpointed_unet     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
