@@ -277,9 +277,9 @@ def main(params):
     elif task == 'segmentation':
         if bucket:
             bucket.download_file(state_dict_path, "saved_model.pth.tar")  # TODO: is this still valid?
-            model, _ = load_from_checkpoint("saved_model.pth.tar", model, inference=True)
+            model, _ = load_from_checkpoint("saved_model.pth.tar", model)
         else:
-            model, _ = load_from_checkpoint(state_dict_path, model, inference=True)
+            model, _ = load_from_checkpoint(state_dict_path, model)
 
         ignore_index = get_key_def('ignore_index', params['training'], -1)
         meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
