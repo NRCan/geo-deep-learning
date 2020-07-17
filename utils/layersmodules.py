@@ -28,19 +28,19 @@ class LayersEnsemble(nn.Module):
     .. todo:: Make it more general to be able to be apply on a **UNet** or others.
     """
     def __init__(self, model, conc_point='conv1'):
-         """
-         In the constructor we instantiate all the part needed for the* model*:
+        """
+        In the constructor we instantiate all the part needed for the* model*:
 
-          - ``modelRGB``, containing all the backbone layers **before** the concatenation point.
-          - ``modelNIR``, containing all the backbone layers **before** the concatenation point
-            and have the number of channels in input change for 1. 
-          - ``leftover``, containing all the backbone layers **after** the concatenation point.
-            For some points, this variables will be empty, since we concatenate after the backbone.
-          - ``conv1x1``, an conv2D layer that will be use after the concatenation to go back at
-            the depth of one model, since the concatenation operation will double the depth.
+         - ``modelRGB``, containing all the backbone layers **before** the concatenation point.
+         - ``modelNIR``, containing all the backbone layers **before** the concatenation point
+           and have the number of channels in input change for 1. 
+         - ``leftover``, containing all the backbone layers **after** the concatenation point.
+           For some points, this variables will be empty, since we concatenate after the backbone.
+         - ``conv1x1``, an conv2D layer that will be use after the concatenation to go back at
+           the depth of one model, since the concatenation operation will double the depth.
 
-         And assign them as member variables.
-         """
+        And assign them as member variables.
+        """
         super(LayersEnsemble, self).__init__()
         # Init model
         model_rgb = model
