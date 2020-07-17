@@ -59,13 +59,13 @@ def net(net_params, num_channels, inference=False):
         model = inception.Inception3(num_channels, num_bands)
     elif model_name == 'fcn_resnet101':
         assert num_bands == 3, msg
-        model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
+        model = models.segmentation.fcn_resnet101(pretrained=pretrained, progress=True, num_classes=num_channels,
                                                   aux_loss=None)
     elif model_name == 'deeplabv3_resnet101':
         assert (num_bands == 3 or num_bands == 4), msg
         if num_bands == 3:
             print('Finetuning pretrained deeplabv3 with 3 bands')
-            model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True)
+            model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
             classifier = list(model.classifier.children())
             model.classifier = nn.Sequential(*classifier[:-1])
             model.classifier.add_module(
@@ -75,7 +75,7 @@ def net(net_params, num_channels, inference=False):
             print('Finetuning pretrained deeplabv3 with 4 bands')
             print('Testing with 4 bands, concatenating at {}.'.format(conc_point))
             
-            model = models.segmentation.deeplabv3_resnet101(pretrained=True, progress=True)
+            model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
             classifier = list(model.classifier.children())
             model.classifier = nn.Sequential(*classifier[:-1])
             model.classifier.add_module(
