@@ -5,7 +5,7 @@ import warnings
 import torch
 import torch.nn as nn
 import torchvision.models as models
-from models import TernausNet, unet, checkpointed_unet, inception, coordconv, common
+from models import TernausNet, unet, checkpointed_unet, inception, coordconv
 from utils.utils import get_key_def
 
 
@@ -57,17 +57,22 @@ def net(net_params, num_channels, inference=False):
         assert (num_bands == 3 or num_bands == 4), msg
         if num_bands == 3:
             print('Finetuning pretrained deeplabv3 with 3 bands')
-            model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True, aux_loss=None)
-            model.classifier = common.DeepLabHead(2048, num_channels)
+            model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
+            classifier = list(model.classifier.children())
+            model.classifier = nn.Sequential(*classifier[:-1])
+            model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
         elif num_bands == 4:
             print('Finetuning pretrained deeplabv3 with 4 bands')
-            model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True, aux_loss=None)
+            model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
             conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-            depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
+            depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
+            # depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
             conv1 = np.append(conv1, depth, axis=1)
             conv1 = torch.from_numpy(conv1).float()
             model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-            model.classifier = common.DeepLabHead(2048, num_channels)
+            classifier = list(model.classifier.children())
+            model.classifier = nn.Sequential(*classifier[:-1])
+            model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
 

@@ -19,8 +19,8 @@ from pathlib import Path
 
 from models.model_choice import net
 from utils import augmentation
-from utils.augmentation import RadiometricTrim
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, list_input_images
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, list_input_images, \
+    add_metadata_from_raster_to_sample
 from utils.readers import read_parameters, image_reader_as_array
 from utils.CreateDataset import MetaSegmentationDataset
 from utils.verifications import add_background_to_num_class
@@ -38,7 +38,6 @@ def sem_seg_inference(model,
                       chunk_size,
                       num_classes,
                       device,
-                      src_raster_dtype=None,
                       meta_map=None,
                       metadata=None,
                       output_path=Path(os.getcwd()),
@@ -52,7 +51,6 @@ def sem_seg_inference(model,
         chunk_size: size of individual chunks to be processed during inference
         num_classes: number of different classes that may be predicted by the model
         device: device used by pytorch (cpu ou cuda)
-        src_raster_dtype: datatype of source raster
         meta_map:
         metadata:
         output_path: path to save debug files
@@ -92,7 +90,7 @@ def sem_seg_inference(model,
                 with tqdm(range(overlay, w + chunk_size, chunk_size - overlay), position=2, leave=False, desc='Inferring columns') as _tqdm:
                     for col in _tqdm:
                         sample = {'sat_img': None, 'metadata': {'dtype': None}}
-                        sample['metadata']['dtype'] = src_raster_dtype
+                        sample['metadata'] = metadata
                         totensor_transform = augmentation.compose_transforms(params, dataset="tst", type='totensor')
 
                         col_start = col - overlay
@@ -179,7 +177,7 @@ def classifier(params, img_list, model, device, working_folder):
     classified_results = np.empty((0, 2 + num_classes))
 
     for image in img_list:
-        img_name = os.path.basename(image['tif']) #TODO: pathlib
+        img_name = os.path.basename(image['tif'])  # TODO: pathlib
         model.eval()
         if bucket:
             img = Image.open(f"Images/{img_name}").resize((299, 299), resample=Image.BILINEAR)
@@ -209,13 +207,13 @@ def classifier(params, img_list, model, device, working_folder):
     csv_results = 'classification_results.csv'
     if bucket:
         np.savetxt(csv_results, classified_results, fmt='%s', delimiter=',')
-        bucket.upload_file(csv_results, os.path.join(working_folder, csv_results)) #TODO: pathlib
+        bucket.upload_file(csv_results, os.path.join(working_folder, csv_results))  # TODO: pathlib
     else:
-        np.savetxt(os.path.join(working_folder, csv_results), classified_results, fmt='%s', #TODO: pathlib
+        np.savetxt(os.path.join(working_folder, csv_results), classified_results, fmt='%s',  # TODO: pathlib
                    delimiter=',')
 
 
-def main(params):
+def main(params: dict):
     """
     Identify the class to which each image belongs.
     :param params: (dict) Parameters found in the yaml config file.
@@ -240,7 +238,14 @@ def main(params):
     img_dir_or_csv = params['inference']['img_dir_or_csv_file']
 
     default_working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
-    working_folder = Path(get_key_def('working_folder', params['inference'], default_working_folder)) # TODO: remove working_folder parameter in all templates
+    working_folder = get_key_def('working_folder', params['inference'], None)
+    if working_folder:  # TODO: July 2020: deprecation started. Remove custom working_folder parameter as of Sept 2020?
+        working_folder = Path(working_folder)
+        warnings.warn(f"Deprecated parameter. Remove it in your future yamls as this folder is now created "
+                      f"automatically in a logical path, "
+                      f"i.e. [state_dict_path from inference section in yaml]/inference_[num_bands]bands")
+    else:
+        working_folder = default_working_folder
     Path.mkdir(working_folder, exist_ok=True)
     print(f'Inferences will be saved to: {working_folder}\n\n')
 
@@ -272,17 +277,17 @@ def main(params):
     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
 
     if task == 'classification':
-        classifier(params, list_img, model, device, working_folder)  # TODO: why don't we load from checkpoint in classification?
+        classifier(params, list_img, model, device, working_folder)  # FIXME: why don't we load from checkpoint in classification?
 
     elif task == 'segmentation':
         if bucket:
             bucket.download_file(state_dict_path, "saved_model.pth.tar")  # TODO: is this still valid?
-            model, _ = load_from_checkpoint("saved_model.pth.tar", model, inference=True)
+            model, _ = load_from_checkpoint("saved_model.pth.tar", model)
         else:
-            model, _ = load_from_checkpoint(state_dict_path, model, inference=True)
+            model, _ = load_from_checkpoint(state_dict_path, model)
 
         ignore_index = get_key_def('ignore_index', params['training'], -1)
-        meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
+        meta_map, yaml_metadata = get_key_def("meta_map", params["global"], {}), None
 
         # LOOP THROUGH LIST OF INPUT IMAGES
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
@@ -307,7 +312,7 @@ def main(params):
                 inf_sample = {'sat_img': None, 'metadata': None}
 
                 with rasterio.open(local_img, 'r') as raster_handle:
-                    inf_sample['sat_img'], raster_handle, dataset_nodata = image_reader_as_array(
+                    inf_sample['sat_img'], raster_handle_updated, dataset_nodata = image_reader_as_array(
                                     input_image=raster_handle,
                                     aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
                                     aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
@@ -315,36 +320,10 @@ def main(params):
                                     aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
                                     aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
-                metadata = raster_handle.meta
-                metadata['name'] = raster_handle.name
-                metadata['csv_info'] = info
-                inf_sample['metadata'] = metadata
-                inf_sample['metadata']['source_raster_bincount'] = {}
-                # Save bincount (i.e. histogram) to metadata
-                for band_index in range(inf_sample['sat_img'].shape[2]):
-                    band = inf_sample['sat_img'][..., band_index]
-                    inf_sample['metadata']['source_raster_bincount'][f'band{band_index}'] = {count for count in
-                                                                                np.bincount(band.flatten())}
-
-                random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['training']['augmentation'], None)
-                if random_radiom_trim_range is not None:  # TODO: test this
-                    trim_at_inference = round((random_radiom_trim_range[-1]-random_radiom_trim_range[0])/2, 1)
-                    radiom_scaling = RadiometricTrim(range=[trim_at_inference, trim_at_inference])
-                    inf_sample = radiom_scaling(inf_sample)
-
-                    if debug:
-                        output_name = working_folder / f'{local_img.stem}_radiomtrim.TIF'
-                        out_meta = raster_handle.meta.copy()
-                        np_image_debug = inf_sample['sat_img'].transpose(2, 0, 1).astype(out_meta['dtype'])
-                        out_meta.update({"driver": "GTiff"})
-                        with rasterio.open(output_name, "w", **out_meta) as dest:
-                            dest.write(np_image_debug)
-                        print(f'DEBUG: Saved raster after radiometric trim to {output_name}')
-
-                if meta_map:
-                    assert info['meta'] is not None and isinstance(info['meta'], str) and os.path.isfile(info['meta']), \
-                        "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"
-                    metadata = read_parameters(info['meta'])
+                inf_sample['metadata'] = add_metadata_from_raster_to_sample(sat_img_arr=inf_sample['sat_img'],
+                                                                            raster_handle=raster_handle_updated,
+                                                                            meta_map=meta_map,
+                                                                            raster_info=info)
 
                 _tqdm.set_postfix(OrderedDict(img_name=img_name,
                                               img=inf_sample['sat_img'].shape,
@@ -372,9 +351,8 @@ def main(params):
                                                               chunk_size,
                                                               num_classes_corrected,
                                                               device,
-                                                              raster_handle.meta["dtype"],
                                                               meta_map,
-                                                              metadata,
+                                                              inf_sample['metadata'],
                                                               output_path=working_folder,
                                                               index=_tqdm.n,
                                                               debug=debug)
