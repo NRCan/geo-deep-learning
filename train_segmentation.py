@@ -469,7 +469,7 @@ def train(train_loader,
             # forward
             optimizer.zero_grad()
 
-            if inputs.shape[1] == 4:
+            if inputs.shape[1] == 4:  # FIXME: need to match the number of channel enter in the yaml
                 ############################
                 # Test Implementation of the NIR
                 ############################
