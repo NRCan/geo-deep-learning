@@ -45,22 +45,21 @@ After installing the required computing environment (see next section), one need
 - nvidia GPU highly recommended
 - The system can be used on your workstation or cluster and on [AWS](https://aws.amazon.com/).
 
-## Installation on your workstation
+## Installation on your workstation using miniconda
 1. Using conda, you can set and activate your python environment with the following commands:  
     With GPU (defaults to CUDA 10.0 if `cudatoolkit=X.0` is not specified):
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch torchvision -c pytorch
-    source activate YOUR_ENV
-    conda install opencv -c conda-forge
-    conda install ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c conda-forge
-    conda install nvidia-ml-py3 -c fastai
+    conda create -n gpu_ENV python=3.6 -c pytorch pytorch torchvision 
+    conda activate gpu_ENV
+    conda install -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm 
+    conda install -c fastai nvidia-ml-py3 
     ```
     CPU only:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision -c pytorch
-    source activate YOUR_ENV
-    conda install opencv -c conda-forge
-    conda install ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c conda-forge
+    conda create -n cpu_ENV python=3.6 -c pytorch pytorch-cpu torchvision 
+    conda activate cpu_ENV
+    conda install -c conda-forge opencv
+    conda install -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm 
     ```
     > For Windows user, you might want to install rasterio, fiona and gdal first, before installing the rest. We've experienced some [installation issues](https://github.com/conda-forge/gdal-feedstock/issues/213), with those libraries.
 1. Set your parameters in the `config.yaml` (see section below)
