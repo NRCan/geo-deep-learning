@@ -13,6 +13,7 @@ global:
   samples_size: 512
   num_classes: 5
   data_path: path/to/data
+  mlflow_uri: path/to/mlflow_tracking_uri  # Default to ./mlruns
   number_of_bands: 4
   model_name: unet     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
