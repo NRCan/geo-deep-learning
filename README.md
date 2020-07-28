@@ -52,16 +52,21 @@ After installing the required computing environment (see next section), one need
     conda create -n gpu_ENV python=3.6 -c pytorch pytorch torchvision 
     conda activate gpu_ENV
     conda install -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm 
-    conda install -c fastai nvidia-ml-py3 
+    conda install -c fastai nvidia-ml-py3
+    conda install mlflow 
     ```
     CPU only:
     ```shell
     conda create -n cpu_ENV python=3.6 -c pytorch pytorch-cpu torchvision-cpu 
     conda activate cpu_ENV
     conda install -c conda-forge opencv
-    conda install -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm 
+    conda install -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm
+    conda install mlflow 
     ```
-    > For Windows user, you might want to install rasterio, fiona and gdal first, before installing the rest. We've experienced some [installation issues](https://github.com/conda-forge/gdal-feedstock/issues/213), with those libraries.
+    > For Windows OS: 
+    > - Install rasterio, fiona and gdal first, before installing the rest. We've experienced some [installation issues](https://github.com/conda-forge/gdal-feedstock/issues/213), with those libraries. 
+    > - Mlflow should be installed using pip rather than conda, as mentionned [here](https://github.com/mlflow/mlflow/issues/1951)  
+    >
 1. Set your parameters in the `config.yaml` (see section below)
 1. Prepare your data and `csv` file
 1. Start your task using one of the following command:
