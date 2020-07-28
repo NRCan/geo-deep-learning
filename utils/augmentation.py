@@ -140,7 +140,7 @@ class RadiometricTrim(object):
 
 class Scale(object):
     """
-    Scale array values from range [0,255]  or [0,65535] to values in config (e.g. [0,1])
+    Scale array values from range [0,255]  or [0,65535] to values in config ([0,1] or [-1, 1])
     Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
     """
     def __init__(self, range):
@@ -341,3 +341,4 @@ class ToTensorTarget(object):
             map_img = np.int64(sample['map_img'])
             map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
+    

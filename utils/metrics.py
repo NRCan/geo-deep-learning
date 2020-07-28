@@ -1,7 +1,8 @@
-from sklearn.metrics import classification_report
 import numpy as np
+from sklearn.metrics import classification_report
+from math import sqrt
 
-
+min_val = 1e-6
 def create_metrics_dict(num_classes):
     metrics_dict = {'precision': AverageMeter(), 'recall': AverageMeter(), 'fscore': AverageMeter(),
                     'loss': AverageMeter(), 'iou': AverageMeter()}
@@ -76,7 +77,6 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
 
 def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
     """Calculate the intersection over union class-wise and mean-iou"""
-    min_val = 1e-6
     ious = []
     pred = pred.cpu()
     label = label.cpu()
@@ -94,3 +94,97 @@ def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
     mean_IOU = np.nanmean(ious)
     metric_dict['iou'].update(mean_IOU, batch_size)
     return metric_dict
+
+#### Benchmark Metrics ####
+""" Segmentation Metrics from : https://github.com/jeremiahws/dlae/blob/master/metnet_seg_experiment_evaluator.py """
+
+class ComputePixelMetrics():
+    '''
+    Compute pixel-based metrics between two segmentation masks.
+    :param label: (numpy array) reference segmentaton mask
+    :param pred: (numpy array) predicted segmentaton mask
+    '''
+    __slots__ = 'label', 'pred', 'num_classes'
+    
+    def __init__(self, label, pred, num_classes):
+        self.label = label
+        self.pred = pred
+        self.num_classes = num_classes
+    
+    def update(self, metric_func):
+        classes= []
+        for i in range(self.num_classes):
+            c_label = self.label.ravel() == i
+            if c_label.sum() == 0:
+                classes.append(np.nan)
+                continue
+            c_pred = self.pred.ravel()== i
+            m = metric_func(c_label, c_pred)
+            classes.append(m)
+        mean_m = np.nanmean(classes)
+        return classes, mean_m
+        
+    @staticmethod
+    def jaccard_index(label, pred):
+        '''
+        :return: IOU
+        '''
+        both = np.logical_and(label, pred)
+        either = np.logical_or(label, pred)
+        ji = (np.sum(both) + min_val) / (np.sum(either) + min_val)
+        
+        return ji
+    
+    @staticmethod
+    def dice(label, pred):
+        '''
+        :return: Dice similarity coefficient
+        '''
+        both = np.logical_and(label, pred)
+        dsc = 2 * int(np.sum(both)) / (int(np.sum(label)) + int(np.sum(pred)))
+
+        return dsc
+    
+    @staticmethod
+    def precision(label, pred):
+        '''
+        :return: precision
+        '''
+        tp = int(np.sum(np.logical_and(label, pred)))
+        fp = int(np.sum(np.logical_and(pred, np.logical_not(label))))
+        p = tp / (tp + fp)
+
+        return p
+    
+    @staticmethod
+    def recall(label, pred):
+        '''
+        :return: recall
+        '''
+        tp = int(np.sum(np.logical_and(label, pred)))
+        fn = int(np.sum(np.logical_and(label, np.logical_not(pred))))
+        r = tp / (tp + fn)
+
+        return r
+    
+    @staticmethod
+    def matthews(label, pred):
+        '''
+        :return: Matthews correlation coefficient
+        '''
+        tp = int(np.sum(np.logical_and(label, pred)))
+        fp = int(np.sum(np.logical_and(pred, np.logical_not(label))))
+        tn = int(np.sum(np.logical_and(np.logical_not(label), np.logical_not(pred))))
+        fn = int(np.sum(np.logical_and(label, np.logical_not(pred))))
+        mcc = (tp * tn - fp * fn) / (sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)))
+
+        return mcc
+    
+    @staticmethod
+    def accuracy(label, pred):
+        '''
+        :return: accuracy
+        '''
+        acc = np.mean(pred == label)
+        return acc
+ 

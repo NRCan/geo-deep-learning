@@ -56,7 +56,7 @@ After installing the required computing environment (see next section), one need
     ```
     CPU only:
     ```shell
-    conda create -n cpu_ENV python=3.6 -c pytorch pytorch-cpu torchvision 
+    conda create -n cpu_ENV python=3.6 -c pytorch pytorch-cpu torchvision-cpu 
     conda activate cpu_ENV
     conda install -c conda-forge opencv
     conda install -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm 

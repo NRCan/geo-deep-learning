@@ -47,13 +47,10 @@ def image_reader_as_array(input_image,
     """
     if clip_gpkg:
         np_array, input_image = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
-        np_array = np.transpose(np_array, (1, 2, 0))  # send channels last
-
     else:
-        np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.uint16)
-        for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
-            np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
+        np_array = input_image.read()
 
+    np_array = np.moveaxis(np_array, 0, -1) # send channels last
     assert np_array.dtype in ['uint8', 'uint16'], f"Invalid datatype {np_array.dtype}. " \
                                                   f"Only uint8 and uint16 are supported in current version"
 
