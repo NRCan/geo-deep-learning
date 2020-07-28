@@ -26,6 +26,7 @@ from utils.readers import read_parameters, image_reader_as_array
 from utils.CreateDataset import MetaSegmentationDataset
 from utils.verifications import add_background_to_num_class
 from utils.visualization import vis, vis_from_batch
+from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics 
 
 try:
     import boto3
@@ -154,7 +155,6 @@ def main(params: dict):
     task = params['global']['task']
     img_dir_or_csv = params['inference']['img_dir_or_csv_file']
     chunk_size = get_key_def('chunk_size', params['inference'], 512)
-    ignore_index = get_key_def('ignore_index', params['training'], -1)
     num_classes = params['global']['num_classes']
     num_classes_corrected = add_background_to_num_class(task, num_classes)
     num_bands = params['global']['number_of_bands']
@@ -184,6 +184,13 @@ def main(params: dict):
         print(f"Unable to use device. Trying device 0")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
+    
+    # mlflow tracking path + parameters logging
+    set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
+    set_experiment('gdl-inference/benchmarking')
+    log_params(params['global'])
+    log_params(params['inference'])
+
     # CREATE LIST OF INPUT IMAGES FOR INFERENCE
     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
 
@@ -215,31 +222,36 @@ def main(params: dict):
                         info['meta'] = info['meta'].split('/')[-1]
                 else:  # FIXME: else statement should support img['meta'] integration as well.
                     local_img = Path(info['tif'])
-                    inference_image = working_folder.joinpath(f"{img_name.split('.')[0]}_inference.tif")                    
+                    inference_image = working_folder.joinpath(f"{img_name.split('.')[0]}_inference.tif")
+                    print(inference_image)                    
                 assert local_img.is_file(), f"Could not locate raster file at {local_img}"
                 with rasterio.open(local_img, 'r') as raster:
+                    inf_meta= raster.meta
                     pred = segmentation(raster, local_gpkg, model, chunk_size, device)
                     if local_gpkg:
                         assert local_gpkg.is_file(), f"Could not locate gkpg file at {local_gpkg}"
                         label = vector_to_raster(vector_file=local_gpkg,
-                                                           input_image=raster,
-                                                           out_shape=pred.shape[:2],
-                                                           attribute_name=info['attribute_name'],
-                                                           fill=0)  # background value in rasterized vector.
-                        pixelMetrics= ComputePixelMetrics(label, pred, num_classes_corrected)
-                        iou_classes, iou_mean  = pixelMetrics.update(pixelMetrics.jaccard_index)
-                        print('IOU:', iou_classes, iou_mean)
-                        dice_classes, dice_mean  = pixelMetrics.update(pixelMetrics.dice)
-                        print('Dice:', dice_classes, dice_mean)
-                        precision_classes, precision_mean  = pixelMetrics.update(pixelMetrics.precision)
-                        print('Precision:', precision_classes, precision_mean)
-                        recall_classes, recall_mean  = pixelMetrics.update(pixelMetrics.recall)
-                        print('Recall:', recall_classes, recall_mean)
-                        matthews_classes, matthews_mean  = pixelMetrics.update(pixelMetrics.matthews)
-                        print('Matthews:', matthews_classes, matthews_mean)
-                        acc_classes, acc_mean  = pixelMetrics.update(pixelMetrics.accuracy)
-                        print('Accuracy:', acc_classes, acc_mean)
-                        
+                                                 input_image=raster,
+                                                 out_shape=pred.shape[:2],
+                                                 attribute_name=info['attribute_name'],
+                                                 fill=0)  # background value in rasterized vector.
+                        with start_run(run_name=img_name, nested=True):
+                            pixelMetrics= ComputePixelMetrics(label, pred, num_classes_corrected)
+                            log_metrics(pixelMetrics.update(pixelMetrics.jaccard))
+                            log_metrics(pixelMetrics.update(pixelMetrics.dice))
+                            log_metrics(pixelMetrics.update(pixelMetrics.precision))
+                            log_metrics(pixelMetrics.update(pixelMetrics.recall))
+                            log_metrics(pixelMetrics.update(pixelMetrics.accuracy))
+                    pred = pred[np.newaxis, :, :]       
+                    inf_meta.update({"driver": "GTiff",
+                                     "height": pred.shape[1],
+                                     "width": pred.shape[2],
+                                     "count": pred.shape[0],
+                                     "dtype": 'uint8'})
+                    
+                    with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
+                        dest.write(pred)
+        log_artifact(working_folder)   
     time_elapsed = time.time() - since
     print('Inference and Benchmarking completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
@@ -247,7 +259,7 @@ if __name__ == '__main__':
     print('\n\nStart:\n\n')
     parser = argparse.ArgumentParser(description='Inference and Benchmark on images using trained model')
     parser.add_argument('param_file', metavar='file',
-                        help='Path to training parameters stored in yaml')
+                        help='Path to parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.param_file)
 

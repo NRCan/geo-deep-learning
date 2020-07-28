@@ -111,6 +111,7 @@ class ComputePixelMetrics():
         self.num_classes = num_classes
     
     def update(self, metric_func):
+        metric = {}
         classes= []
         for i in range(self.num_classes):
             c_label = self.label.ravel() == i
@@ -119,12 +120,14 @@ class ComputePixelMetrics():
                 continue
             c_pred = self.pred.ravel()== i
             m = metric_func(c_label, c_pred)
+            metric[metric_func.__name__ + '_' + str(i)] = m
             classes.append(m)
         mean_m = np.nanmean(classes)
-        return classes, mean_m
+        metric[metric_func.__name__] = mean_m
+        return metric
         
     @staticmethod
-    def jaccard_index(label, pred):
+    def jaccard(label, pred):
         '''
         :return: IOU
         '''
