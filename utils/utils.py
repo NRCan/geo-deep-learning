@@ -7,12 +7,14 @@ import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
 import numpy as np
+import scipy.signal
 import warnings
 import matplotlib
+import matplotlib.pyplot as plt
 
 from utils.readers import read_parameters
 
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 
 try:
     from ruamel_yaml import YAML
@@ -254,6 +256,19 @@ def BGR_to_RGB(array):
     array[:, :, :3] = RGB_channels
     return array
 
+def ind2rgb(arr, map):
+    """
+    :param arr: (numpy array) index image to be color mapped
+    :param map: (list of RGB color values) for each class
+    :return: (numpy_array) RGB image
+    """
+    h, w, c = arr.shape
+    arr = np.reshape(arr, (h, w, c))
+    rgb = np.zeros((h, w, 3))
+    for i in range(h):
+        for j in range(w):
+            rgb[i][j][:] = map[arr[i][j]][:]
+    return rgb
 
 def list_input_images(img_dir_or_csv: str,
                       bucket_name: str = None,
@@ -365,3 +380,46 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
         yaml_metadata = read_parameters(raster_info['meta'])
         metadata_dict.update(yaml_metadata)
     return metadata_dict
+
+#### Image Patches Smoothing Functions ####
+""" Adapted from : https://github.com/Vooban/Smoothly-Blend-Image-Patches  """
+def _spline_window(window_size, power=2):
+    """
+    Squared spline (power=2) window function:
+    https://www.wolframalpha.com/input/?i=y%3Dx**2,+y%3D-(x-2)**2+%2B2,+y%3D(x-4)**2,+from+y+%3D+0+to+2
+    """
+    intersection = int(window_size/4)
+    wind_outer = (abs(2*(scipy.signal.triang(window_size))) ** power)/2
+    wind_outer[intersection:-intersection] = 0
+
+    wind_inner = 1 - (abs(2*(scipy.signal.triang(window_size) - 1)) ** power)/2
+    wind_inner[:intersection] = 0
+    wind_inner[-intersection:] = 0
+
+    wind = wind_inner + wind_outer
+    wind = wind / np.average(wind)
+    return wind
+
+
+cached_2d_windows = dict()
+def _window_2D(window_size, power=2):
+    """
+    Make a 1D window function, then infer and return a 2D window function.
+    Done with an augmentation, and self multiplication with its transpose.
+    Could be generalized to more dimensions.
+    """
+    # Memoization
+    global cached_2d_windows
+    key = "{}_{}".format(window_size, power)
+    if key in cached_2d_windows:
+        wind = cached_2d_windows[key]
+    else:
+        wind = _spline_window(window_size, power)
+        wind = np.expand_dims(np.expand_dims(wind, 1), -1)
+        wind = wind * wind.transpose(1, 0, 2)
+        # wind = wind.squeeze()
+        # plt.imshow(wind[:, :, 0], cmap="viridis")
+        # plt.title("2D Windowing Function for a Smooth Blending of Overlapping Patches")
+        # plt.show()
+        cached_2d_windows[key] = wind
+    return wind

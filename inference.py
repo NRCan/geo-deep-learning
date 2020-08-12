@@ -21,7 +21,7 @@ from models.model_choice import net
 from utils import augmentation
 from utils.geoutils import vector_to_raster
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, \
-list_input_images, pad, pad_diff, add_metadata_from_raster_to_sample
+list_input_images, pad, pad_diff, ind2rgb, add_metadata_from_raster_to_sample, _window_2D
 from utils.readers import read_parameters, image_reader_as_array
 from utils.CreateDataset import MetaSegmentationDataset
 from utils.verifications import add_background_to_num_class
@@ -32,10 +32,14 @@ try:
     import boto3
 except ModuleNotFoundError:
     pass
-        
+colors = {0: [0, 0, 0],  # Background
+          1: [27, 120, 55],  # Vegetation
+          2: [116, 173, 209], # Hydro
+          3: [223, 194, 125],  # Roads
+          4: [150, 150, 150]}  # Buildings     
 
 @torch.no_grad()
-def segmentation(raster, clip_gpkg, model, sample_size, device):
+def segmentation_with_smoothing(raster, clip_gpkg, model, sample_size, overlap, num_bands, device):
     # switch to evaluate mode
     model.eval()
     img_array, input_image, dataset_nodata = image_reader_as_array(input_image=raster,
@@ -44,7 +48,54 @@ def segmentation(raster, clip_gpkg, model, sample_size, device):
                                                     input_image, 
                                                     meta_map=None, 
                                                     raster_info=None)
-    h, w, num_bands = img_array.shape
+    h, w, bands = img_array.shape
+    assert num_bands <= bands, f"Num of specified bands is not compatible with image shape {img_array.shape}"
+    if num_bands < bands:
+       img_array = img_array[:, :, :num_bands]
+    
+    padding = int(round(sample_size * (1 - 1.0/overlap)))
+    padded_img = pad(img_array, padding=padding, fill=0)
+    WINDOW_SPLINE_2D = _window_2D(window_size=sample_size, power=1)
+    WINDOW_SPLINE_2D = np.moveaxis(WINDOW_SPLINE_2D, 2, 0)
+    step = int(sample_size/overlap)
+    h_, w_ = padded_img.shape[:2]
+    pred_img = np.empty((h_, w_), dtype=np.uint8)
+    for row in tqdm(range(0, h_ - sample_size + 1, step), position=1, leave=False, desc='Inferring rows'):
+        with tqdm(range(0, w_ - sample_size + 1, step), position=2, leave=False, desc='Inferring columns') as _tqdm:
+            for col in _tqdm:
+                sample = {'sat_img': None, 'metadata': None}
+                sample['metadata'] = metadata
+                totensor_transform = augmentation.compose_transforms(params, dataset="tst", type='totensor')
+                sub_images = padded_img[row:row+sample_size, col:col+sample_size, :]
+                sample['sat_img'] = sub_images
+                sample = totensor_transform(sample)
+                inputs = sample['sat_img'].unsqueeze_(0)
+                inputs = inputs.to(device)
+                outputs = model(inputs)
+                # torchvision models give output in 'out' key. May cause problems in future versions of torchvision.
+                if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
+                    outputs = outputs['out']
+                outputs = F.softmax(outputs, dim=1).squeeze(dim=0).cpu().numpy()
+                outputs = WINDOW_SPLINE_2D * outputs
+                outputs = outputs.argmax(axis=0)
+                pred_img[row:row + sample_size, col:col + sample_size] = outputs
+    pred_img = pred_img[padding:-padding, padding:-padding]
+    return pred_img[:h, :w]
+
+@torch.no_grad()
+def segmentation(raster, clip_gpkg, model, sample_size, num_bands, device):
+    # switch to evaluate mode
+    model.eval()
+    img_array, input_image, dataset_nodata = image_reader_as_array(input_image=raster,
+                                                                   clip_gpkg=clip_gpkg)
+    metadata = add_metadata_from_raster_to_sample(img_array, 
+                                                    input_image, 
+                                                    meta_map=None, 
+                                                    raster_info=None)
+    h, w, bands = img_array.shape
+    assert num_bands <= bands, f"Num of specified bands is not compatible with image shape {img_array.shape}"
+    if num_bands < bands: 
+       img_array = img_array[:, :, :num_bands]
     h_ = sample_size * math.ceil(h / sample_size)
     w_ = sample_size * math.ceil(w / sample_size)
     pred_img = np.empty((h_, w_), dtype=np.uint8)
@@ -155,6 +206,8 @@ def main(params: dict):
     task = params['global']['task']
     img_dir_or_csv = params['inference']['img_dir_or_csv_file']
     chunk_size = get_key_def('chunk_size', params['inference'], 512)
+    prediction_with_smoothing = get_key_def('smooth_prediction', params['inference'], False)
+    overlap = get_key_def('overlap', params['inference'], 2)
     num_classes = params['global']['num_classes']
     num_classes_corrected = add_background_to_num_class(task, num_classes)
     num_bands = params['global']['number_of_bands']
@@ -187,7 +240,7 @@ def main(params: dict):
     
     # mlflow tracking path + parameters logging
     set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
-    set_experiment('gdl-inference/benchmarking')
+    set_experiment('gdl-benchmarking/' + working_folder.name)
     log_params(params['global'])
     log_params(params['inference'])
 
@@ -227,7 +280,11 @@ def main(params: dict):
                 assert local_img.is_file(), f"Could not locate raster file at {local_img}"
                 with rasterio.open(local_img, 'r') as raster:
                     inf_meta= raster.meta
-                    pred = segmentation(raster, local_gpkg, model, chunk_size, device)
+                    if prediction_with_smoothing:
+                        print('Smoothening Predictions with 2D interpolation')
+                        pred = segmentation_with_smoothing(raster, local_gpkg, model, chunk_size, overlap, num_bands, device)
+                    else:
+                        pred = segmentation(raster, local_gpkg, model, chunk_size, num_bands, device)
                     if local_gpkg:
                         assert local_gpkg.is_file(), f"Could not locate gkpg file at {local_gpkg}"
                         label = vector_to_raster(vector_file=local_gpkg,
@@ -239,9 +296,19 @@ def main(params: dict):
                             pixelMetrics= ComputePixelMetrics(label, pred, num_classes_corrected)
                             log_metrics(pixelMetrics.update(pixelMetrics.jaccard))
                             log_metrics(pixelMetrics.update(pixelMetrics.dice))
+                            log_metrics(pixelMetrics.update(pixelMetrics.accuracy))
                             log_metrics(pixelMetrics.update(pixelMetrics.precision))
                             log_metrics(pixelMetrics.update(pixelMetrics.recall))
-                            log_metrics(pixelMetrics.update(pixelMetrics.accuracy))
+                            log_metrics(pixelMetrics.update(pixelMetrics.matthews))
+                        
+                        label_classes = np.unique(label)
+                        assert len(colors) >= len(label_classes), f'Not enough colors and class names for number of classes in output'
+                        # FIXME: color mapping scheme is hardcoded for now because of memory constraint; To be fixed.
+                        label_rgb = ind2rgb(label[:, :, np.newaxis], np.array([*colors.values()]))
+                        pred_rgb = ind2rgb(pred[:, :, np.newaxis], np.array([*colors.values()]))
+                        Image.fromarray((label_rgb).astype(np.uint8), mode='RGB').save(os.path.join(working_folder, 'label_rgb_' + inference_image.stem + '.png'))
+                        Image.fromarray((pred_rgb).astype(np.uint8), mode='RGB').save(os.path.join(working_folder, 'pred_rgb_' + inference_image.stem + '.png'))
+                        del label_rgb, pred_rgb                         
                     pred = pred[np.newaxis, :, :]       
                     inf_meta.update({"driver": "GTiff",
                                      "height": pred.shape[1],

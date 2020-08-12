@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, matthews_corrcoef, recall_score
 from math import sqrt
 
 min_val = 1e-6
@@ -123,7 +123,9 @@ class ComputePixelMetrics():
             metric[metric_func.__name__ + '_' + str(i)] = m
             classes.append(m)
         mean_m = np.nanmean(classes)
-        metric[metric_func.__name__] = mean_m
+        metric['macro_avg_'+ metric_func.__name__] = mean_m
+        micro = metric_func(self.label.ravel(), self.pred.ravel())
+        metric['micro_avg_'+ metric_func.__name__] = micro
         return metric
         
     @staticmethod
@@ -154,7 +156,7 @@ class ComputePixelMetrics():
         '''
         tp = int(np.sum(np.logical_and(label, pred)))
         fp = int(np.sum(np.logical_and(pred, np.logical_not(label))))
-        p = tp / (tp + fp)
+        p = (tp + min_val) / (tp + fp + min_val)
 
         return p
     
@@ -165,7 +167,7 @@ class ComputePixelMetrics():
         '''
         tp = int(np.sum(np.logical_and(label, pred)))
         fn = int(np.sum(np.logical_and(label, np.logical_not(pred))))
-        r = tp / (tp + fn)
+        r = (tp + min_val) / (tp + fn + min_val)
 
         return r
     

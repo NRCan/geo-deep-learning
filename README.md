@@ -375,12 +375,12 @@ global:
 
 
 inference:
-  img_dir_or_csv_file: /path/to/list.csv        # Directory containing all images to infer on OR CSV file with list of images
+  img_dir_or_csv_file: /path/to/list.csv        # CSV file containing directory of images with or without gpkg labels(used in benchmarking) 
   working_folder: /path/to/output_images        # Folder where all resulting images will be written (DEPRECATED, leave blank)
   state_dict_path: /path/to/checkpoint.pth.tar  # Path to model weights for inference
   chunk_size: 512                               # (int) Size (height and width) of each prediction patch. Default: 512
-  overlap: 10                                   # (int) Percentage of overlap between 2 chunks. Default: 10
-  heatmaps: False                               # if True, heatmaps for each class will be saved along with inference .tif
+  smooth_prediction: True                       # Smoothening Predictions with 2D interpolation
+  overlap: 2                                    # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
 ```
 ### Process
 - The process will load trained weights to the chosen model and perform a per-pixel inference task on all the images contained in the working_folder
