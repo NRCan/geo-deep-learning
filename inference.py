@@ -304,8 +304,8 @@ def main(params: dict):
                         label_classes = np.unique(label)
                         assert len(colors) >= len(label_classes), f'Not enough colors and class names for number of classes in output'
                         # FIXME: color mapping scheme is hardcoded for now because of memory constraint; To be fixed.
-                        label_rgb = ind2rgb(label[:, :, np.newaxis], np.array([*colors.values()]))
-                        pred_rgb = ind2rgb(pred[:, :, np.newaxis], np.array([*colors.values()]))
+                        label_rgb = ind2rgb(label, colors)
+                        pred_rgb = ind2rgb(pred, colors)
                         Image.fromarray((label_rgb).astype(np.uint8), mode='RGB').save(os.path.join(working_folder, 'label_rgb_' + inference_image.stem + '.png'))
                         Image.fromarray((pred_rgb).astype(np.uint8), mode='RGB').save(os.path.join(working_folder, 'pred_rgb_' + inference_image.stem + '.png'))
                         del label_rgb, pred_rgb                         

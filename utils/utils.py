@@ -256,18 +256,18 @@ def BGR_to_RGB(array):
     array[:, :, :3] = RGB_channels
     return array
 
-def ind2rgb(arr, map):
+def ind2rgb(arr, color):
     """
     :param arr: (numpy array) index image to be color mapped
-    :param map: (list of RGB color values) for each class
+    :param color: (dict of RGB color values) for each class
     :return: (numpy_array) RGB image
-    """
-    h, w, c = arr.shape
-    arr = np.reshape(arr, (h, w, c))
-    rgb = np.zeros((h, w, 3))
-    for i in range(h):
-        for j in range(w):
-            rgb[i][j][:] = map[arr[i][j]][:]
+    """ 
+    
+    h, w = arr.shape
+    rgb = np.empty((h, w, 3), dtype=np.uint8)
+    for cl in color:
+        for ch in range(3):
+          rgb[..., ch][arr == cl] = (color[cl][ch])
     return rgb
 
 def list_input_images(img_dir_or_csv: str,
