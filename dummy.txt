@@ -1,0 +1,1 @@
+Dummy file from another branch to be integrated as a PR. To test https://github.com/release-drafter/release-drafter
