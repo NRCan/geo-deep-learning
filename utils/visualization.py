@@ -14,9 +14,9 @@ from utils.utils import minmax_scale, unnormalize, get_key_def
 from utils.geoutils import create_new_raster_from_base
 
 
-def grid_vis(input, output, heatmaps_dict, label=None, heatmaps=True):
+def grid_vis(in_tensor, output, heatmaps_dict, label=None, heatmaps=True):
     """ Create a grid with PIL images and titles
-    :param input: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
+    :param in_tensor: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
     :param output: (tensor) output array as pytorch tensor, e.g. as returned by dataloader
     :param heatmaps_dict: (dict) Dictionary of heatmaps where key is grayscale value of class and value a dict {'class_name': (str), 'heatmap_PIL': (PIL object))
     :param label: (tensor) label array as pytorch tensor, e.g. as returned by dataloader (optional)
@@ -24,7 +24,7 @@ def grid_vis(input, output, heatmaps_dict, label=None, heatmaps=True):
     :return: Saves .png to disk
     """
 
-    list_imgs_pil = [input, label, output] if label is not None else [input, output]
+    list_imgs_pil = [in_tensor, label, output] if label is not None else [in_tensor, output]
     list_titles = ['input', 'label', 'output'] if label is not None else ['input', 'output']
 
     num_tiles = (len(list_imgs_pil) + len(heatmaps_dict))
@@ -69,8 +69,8 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
 
     for batch_samp_index, zipped in enumerate(zip(inputs, labels, outputs)):
         epoch_samp_index = batch_samp_index + len(inputs) * batch_index
-        input, label, output = zipped
-        vis(params, input, output,
+        in_tensor, label, output = zipped
+        vis(params, in_tensor, output,
             vis_path=vis_path,
             sample_num=epoch_samp_index+1,
             label=label,
@@ -79,10 +79,10 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
             debug=debug)
 
 
-def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', ep_num=0, inference_input_path=False, debug=False):
+def vis(params, in_tensor, output, vis_path, sample_num=0, label=None, dataset='', ep_num=0, inference_input_path=False, debug=False):
     """saves input, output and label (if given) as .png in a grid or as individual pngs
     :param params: parameters from .yaml config file
-    :param input: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
+    :param in_tensor: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
     :param output: (tensor) output array as pytorch tensor before argmax, e.g. as returned by dataloader
     :param vis_path: path where visualisation images will be saved
     :param sample_num: index of sample if function is from for loop iterating through a batch or list of images.
@@ -101,12 +101,15 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
     ignore_index = get_key_def('ignore_index', params['training'], -1)
     mean = get_key_def('mean', params['training']['normalization'])
     std = get_key_def('std', params['training']['normalization'])
+        
+    # TODO: Temporary fix, need to be discuss, `in_tensor` is a list if the initial input as NIR with the RGB at [0].
+    in_tensor = in_tensor[0] if type(in_tensor) is list else in_tensor
 
     assert vis_path.parent.is_dir()
     vis_path.mkdir(exist_ok=True)
 
     if not inference:  # FIXME: function parameters should not come in as different types if inference or not.
-        input = input.cpu().permute(1, 2, 0).numpy()  # channels last
+        in_tensor = input_tensor.cpu().permute(1, 2, 0).numpy()  # channels last
         output = F.softmax(output, dim=0)  # Inference output is already softmax
         output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
         if label is not None:
@@ -121,15 +124,15 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
     norm_std = get_key_def('std', params['training']['normalization'])
 
     if norm_mean and norm_std:
-        input = unnormalize(input_img=input, mean=mean, std=std)
-    input = minmax_scale(img=input, orig_range=(scale[0], scale[1]), scale_range=(0, 255)) if scale else input
-    if 1 <= input.shape[2] <= 2:
-        input = input[:, :, :1]  # take first band (will become grayscale image)
-        input = np.squeeze(input)
-    elif input.shape[2] >= 3:
-        input = input[:, :, :3]  # take three first bands assuming they are RGB in correct order
-    mode = 'L' if input.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
-    input_PIL = Image.fromarray(input.astype(np.uint8), mode=mode)  # TODO: test this with grayscale input.
+        in_tensor = unnormalize(input_img=in_tensor, mean=mean, std=std)
+    in_tensor = minmax_scale(img=in_tensor, orig_range=(scale[0], scale[1]), scale_range=(0, 255)) if scale else in_tensor
+    if 1 <= in_tensor.shape[2] <= 2:
+        in_tensor = in_tensor[:, :, :1]  # take first band (will become grayscale image)
+        in_tensor = np.squeeze(in_tensor)
+    elif in_tensor.shape[2] >= 3:
+        in_tensor = in_tensor[:, :, :3]  # take three first bands assuming they are RGB in correct order
+    mode = 'L' if in_tensor.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
+    input_PIL = Image.fromarray(in_tensor.astype(np.uint8), mode=mode)  # TODO: test this with grayscale input.
 
     # Give value of class to band with highest value in final inference
     output_argmax = np.argmax(output, axis=2).astype(np.uint8)  # Flatten along channels axis. Convert to 8bit
