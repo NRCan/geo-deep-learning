@@ -10,7 +10,7 @@ from PIL import Image
 from matplotlib import pyplot as plt, gridspec, cm, colors
 import csv
 
-from utils.utils import minmax_scale, unnormalize, get_key_def
+from utils.utils import unscale, unnormalize, get_key_def
 from utils.geoutils import create_new_raster_from_base
 
 
@@ -122,7 +122,7 @@ def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', e
 
     if norm_mean and norm_std:
         input = unnormalize(input_img=input, mean=mean, std=std)
-    input = minmax_scale(img=input, orig_range=(scale[0], scale[1]), scale_range=(0, 255)) if scale else input
+    input = unscale(img=input, float_range=(scale[0], scale[1]), orig_range=(0, 255)) if scale else input
     if 1 <= input.shape[2] <= 2:
         input = input[:, :, :1]  # take first band (will become grayscale image)
         input = np.squeeze(input)

@@ -7,12 +7,14 @@ import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
 import numpy as np
+import scipy.signal
 import warnings
 import matplotlib
+import matplotlib.pyplot as plt
 
 from utils.readers import read_parameters
 
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 
 try:
     from ruamel_yaml import YAML
@@ -155,21 +157,32 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
                 del config[key]
     return val
 
-
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
-    """Rescale data values from original range to specified range
-
+    """
+    scale data values from original range to specified range
     :param img: (numpy array) Image to be scaled
-    :param scale_range: Desired range of transformed data.
+    :param scale_range: Desired range of transformed data (0, 1) or (-1, 1).
     :param orig_range: Original range of input data.
     :return: (numpy array) Scaled image
     """
-    # range(0, 1)
-    scale_img = (img - orig_range[0]) / (orig_range[1] - orig_range[0])
-    # range(min_value, max_value)
-    scale_img = scale_img * (scale_range[1] - scale_range[0]) + scale_range[0]
+    assert scale_range == (0, 1) or scale_range == (-1, 1), 'expects scale_range as (0, 1) or (-1, 1)'
+    if scale_range == (0, 1):
+        scale_img = (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0])
+    else:
+        scale_img = 2.0 * (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0]) - 1.0
     return scale_img
 
+def unscale(img, float_range=(0, 1), orig_range=(0, 255)):
+    """
+    unscale data values from float range (0, 1) or (-1, 1) to original range (0, 255)
+    :param img: (numpy array) Image to be scaled
+    :param float_range: (0, 1) or (-1, 1).
+    :param orig_range: (0, 255) or (0, 65535).
+    :return: (numpy array) Unscaled image
+    """
+    f_r = float_range[1] - float_range[0]
+    o_r = orig_range[1] - orig_range[0]
+    return (o_r * (img - float_range[0]) / f_r) + orig_range[0]
 
 def pad(img, padding, fill=0):
     r"""Pad the given ndarray on all sides with specified padding mode and fill value.
@@ -243,6 +256,19 @@ def BGR_to_RGB(array):
     array[:, :, :3] = RGB_channels
     return array
 
+def ind2rgb(arr, color):
+    """
+    :param arr: (numpy array) index image to be color mapped
+    :param color: (dict of RGB color values) for each class
+    :return: (numpy_array) RGB image
+    """ 
+    
+    h, w = arr.shape
+    rgb = np.empty((h, w, 3), dtype=np.uint8)
+    for cl in color:
+        for ch in range(3):
+          rgb[..., ch][arr == cl] = (color[cl][ch])
+    return rgb
 
 def list_input_images(img_dir_or_csv: str,
                       bucket_name: str = None,
@@ -289,17 +315,13 @@ def list_input_images(img_dir_or_csv: str,
 
 
 def read_csv(csv_file_name):
-    """Open csv file and parse it, returning a list of dict.
-
-    If inference == True, the dict contains this info:
-        - tif full path
-        - metadata yml full path (may be empty string if unavailable)
-    Else, the returned list contains a dict with this info:
-        - tif full path
-        - metadata yml full path (may be empty string if unavailable)
-        - gpkg full path
-        - attribute_name
-        - dataset (trn or val)
+    """
+    Open csv file and parse it, returning a list of dict.
+    - tif full path
+    - metadata yml full path (may be empty string if unavailable)
+    - gpkg full path
+    - attribute_name
+    - dataset (trn or tst)
     """
 
     list_values = []
@@ -311,7 +333,7 @@ def read_csv(csv_file_name):
             row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
             list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
             assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
-            if row[2] is not None:
+            if row[2]:
                 assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'
                 assert isinstance(row[3], str)
     try:
@@ -325,7 +347,8 @@ def read_csv(csv_file_name):
 def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
                                        raster_handle: dict,
                                        meta_map: dict,
-                                       raster_info: dict) -> dict:
+                                       raster_info: dict
+                                       ) -> dict:
     """
     @param sat_img_arr: source image as array (opened with rasterio.read)
     @param meta_map: meta map parameter from yaml (global section)
@@ -357,3 +380,46 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
         yaml_metadata = read_parameters(raster_info['meta'])
         metadata_dict.update(yaml_metadata)
     return metadata_dict
+
+#### Image Patches Smoothing Functions ####
+""" Adapted from : https://github.com/Vooban/Smoothly-Blend-Image-Patches  """
+def _spline_window(window_size, power=2):
+    """
+    Squared spline (power=2) window function:
+    https://www.wolframalpha.com/input/?i=y%3Dx**2,+y%3D-(x-2)**2+%2B2,+y%3D(x-4)**2,+from+y+%3D+0+to+2
+    """
+    intersection = int(window_size/4)
+    wind_outer = (abs(2*(scipy.signal.triang(window_size))) ** power)/2
+    wind_outer[intersection:-intersection] = 0
+
+    wind_inner = 1 - (abs(2*(scipy.signal.triang(window_size) - 1)) ** power)/2
+    wind_inner[:intersection] = 0
+    wind_inner[-intersection:] = 0
+
+    wind = wind_inner + wind_outer
+    wind = wind / np.average(wind)
+    return wind
+
+
+cached_2d_windows = dict()
+def _window_2D(window_size, power=2):
+    """
+    Make a 1D window function, then infer and return a 2D window function.
+    Done with an augmentation, and self multiplication with its transpose.
+    Could be generalized to more dimensions.
+    """
+    # Memoization
+    global cached_2d_windows
+    key = "{}_{}".format(window_size, power)
+    if key in cached_2d_windows:
+        wind = cached_2d_windows[key]
+    else:
+        wind = _spline_window(window_size, power)
+        wind = np.expand_dims(np.expand_dims(wind, 1), -1)
+        wind = wind * wind.transpose(1, 0, 2)
+        # wind = wind.squeeze()
+        # plt.imshow(wind[:, :, 0], cmap="viridis")
+        # plt.title("2D Windowing Function for a Smooth Blending of Overlapping Patches")
+        # plt.show()
+        cached_2d_windows[key] = wind
+    return wind

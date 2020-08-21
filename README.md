@@ -45,25 +45,24 @@ After installing the required computing environment (see next section), one need
 - nvidia GPU highly recommended
 - The system can be used on your workstation or cluster and on [AWS](https://aws.amazon.com/).
 
-## Installation on your workstation
+## Installation on your workstation using miniconda
 1. Using conda, you can set and activate your python environment with the following commands:  
     With GPU (defaults to CUDA 10.0 if `cudatoolkit=X.0` is not specified):
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch torchvision -c pytorch
-    source activate YOUR_ENV
-    conda install opencv -c conda-forge
-    conda install ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c conda-forge
-    conda install nvidia-ml-py3 -c fastai
-    conda install mlflow
+    conda create -n gpu_ENV python=3.6 -c pytorch pytorch torchvision 
+    conda activate gpu_ENV
+    conda install -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm 
+    conda install -c fastai nvidia-ml-py3
+    conda install mlflow 
     ```
     CPU only:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision -c pytorch
-    source activate YOUR_ENV
-    conda install opencv -c conda-forge
-    conda install ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c conda-forge
-    conda install mlflow
-   ```
+    conda create -n cpu_ENV python=3.6 -c pytorch pytorch-cpu torchvision-cpu 
+    conda activate cpu_ENV
+    conda install -c conda-forge opencv
+    conda install -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm
+    conda install mlflow 
+    ```
     > For Windows OS: 
     > - Install rasterio, fiona and gdal first, before installing the rest. We've experienced some [installation issues](https://github.com/conda-forge/gdal-feedstock/issues/213), with those libraries. 
     > - Mlflow should be installed using pip rather than conda, as mentionned [here](https://github.com/mlflow/mlflow/issues/1951)  
@@ -376,12 +375,12 @@ global:
 
 
 inference:
-  img_dir_or_csv_file: /path/to/list.csv        # Directory containing all images to infer on OR CSV file with list of images
+  img_dir_or_csv_file: /path/to/list.csv        # CSV file containing directory of images with or without gpkg labels(used in benchmarking) 
   working_folder: /path/to/output_images        # Folder where all resulting images will be written (DEPRECATED, leave blank)
   state_dict_path: /path/to/checkpoint.pth.tar  # Path to model weights for inference
   chunk_size: 512                               # (int) Size (height and width) of each prediction patch. Default: 512
-  overlap: 10                                   # (int) Percentage of overlap between 2 chunks. Default: 10
-  heatmaps: False                               # if True, heatmaps for each class will be saved along with inference .tif
+  smooth_prediction: True                       # Smoothening Predictions with 2D interpolation
+  overlap: 2                                    # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
 ```
 ### Process
 - The process will load trained weights to the chosen model and perform a per-pixel inference task on all the images contained in the working_folder
