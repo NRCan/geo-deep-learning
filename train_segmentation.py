@@ -82,6 +82,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     assert samples_folder.is_dir(), f'Could not locate: {samples_folder}'
     assert len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
     num_samples = get_num_samples(samples_path=samples_folder, params=params)
+    assert num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size, f"Number of samples in .hdf5 files is less than batch size"    
     print(f"Number of samples : {num_samples}\n")
     meta_map = get_key_def("meta_map", params["global"], {})
     num_bands = get_key_def("number_of_bands", params["global"], {})
@@ -376,7 +377,7 @@ def main(params, config_path):
             vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if last_vis_epoch == 0:
-                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for '
+                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for' 
                                f'batches in range {vis_batch_range}')
                 vis_from_dataloader(params=params,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
