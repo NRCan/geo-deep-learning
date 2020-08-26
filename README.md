@@ -605,25 +605,35 @@ Process:
 
 See [here](https://docs.docker.com/get-started/part2/) for a general walk through on building and running docker images.
 
-Build the Docker image using:
+First build the Docker image using:
 
 ```bash
 $ docker build --tag gdl_gpu:2.0 .
+```
+
+As the code is updated, the tag should also be upated to reflect code changes. For example a good Docker image tag is obtained with:
+
+```bash
+$ git log -1 --pretty=%h
 ```
 
 ### images_to_samples.py
 
 Now after following the steps of the samples script, instead of running
 
-```python
+```bash
 $ python images_to_samples.py path/to/config/file/config.yaml
 ```
 
 Run
 
 ```bash
-$ docker run -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns -it gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python images_to_samples.py /app/conf/config.yaml"
+$ docker run -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python images_to_samples.py path/to/config/file/config.yaml"
 ```
+
+where `path/to/config/file/config.yaml` is an absolute path in the docker container, such as `/app/conf/config.yaml`. Here, and in the following scripts, the `data` and `conf` directories are volume mounted at run time so they can be changed beforehand. The python code however, is copied into the image at build time, so the image has to be rebuilt after different versions of the code are written.
+
+Note that the `bash -c` command is necessary to activate the conda environment before running python.
 
 ### train_segmentation.py
 
@@ -631,14 +641,14 @@ To use GPUs, first install the [nvidia-container-toolkit (1.2.0 to be precise)](
 
 Now after following the steps of the train segmentation script, instead of running
 
-```python
+```bash
 $ python train_segmentation.py path/to/config/file/config.yaml
 ```
 
 Run
 
 ```bash
-$ docker run --gpus all --shm-size=1024m  -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns -it gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python train_segmentation.py /app/conf/config.yaml"
+$ docker run --gpus all --shm-size=1024m  -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python train_segmentation.py path/to/config/file/config.yaml"
 ```
 
 The flag `--gpus all` gives the container access to all gpus, and `--shm-size=1024m` sets the [shared memory](https://docs.docker.com/engine/reference/run/). See [here](https://github.com/NVIDIA/nvidia-docker) for additional gpu options.
@@ -647,12 +657,12 @@ The flag `--gpus all` gives the container access to all gpus, and `--shm-size=10
 
 Now after following the steps of the train segmentation script, instead of running
 
-```python
+```bash
 $ python inference.py path/to/config/file/config.yaml
 ```
 
 Run
 
 ```bash
-$ docker run --gpus all --shm-size=1024m  -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns -it gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python inference.py /app/conf/config.yaml"
+$ docker run --gpus all --shm-size=1024m  -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python inference.py path/to/config/file/config.yaml"
 ```
