@@ -666,3 +666,39 @@ Run
 ```bash
 $ docker run --gpus all --shm-size=1024m  -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python inference.py path/to/config/file/config.yaml"
 ```
+
+### Remote runs
+
+Suppose we have the following ec2 host in our local `~/.ssh/config`:
+
+```bash
+Host ec2
+  IdentityFile ~/.ssh/key.pem
+  HostName ec2-3-96-179-145.ca-central-1.compute.amazonaws.com
+  User ubuntu
+  ProxyCommand ssh -i ~/.ssh/key.pem -W %h:%p ec2-user@93.35.142.12
+```
+
+Then the above docker commands can be run on the ec2 remote host with a few adjustments. The first is that the above docker commands have to be run with `-H ssh://ec2` after `docker`. For example, the build command has to be run as follows:
+
+```bash
+$ docker -H ssh://ec2 build --tag gdl_gpu:2.0 .
+```
+
+In order to run the python scripts, the data has to be copied to an appropriate directory on the remote host:
+
+```bash
+$ scp -r ./data ec2:~/Code/geo-deep-learning/data && scp -r ./conf ec2:~/Code/geo-deep-learning/conf
+```
+
+Then, for example, the train script can be run as follows:
+
+```bash
+$ docker -H ssh://ec2 run --gpus all --shm-size=1024m  -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python train_segmentation.py path/to/config/file/config.yaml"
+```
+
+Finally, the data must be copied back locally:
+
+```bash
+scp -r ec2:~/Code/geo-deep-learning/data .
+```
