@@ -600,3 +600,11 @@ Outputs:
 Process:
 - The process will load trained weights to the specified architecture and perform a classification task on all the images contained in the ```working_folder```.
 - The full file path of the classified image, the class identified, as well as the top 5 most likely classes and their value will be displayed on the screen
+
+## Viewing tensorboard logs
+
+Once the `train_segmentation.py` has been run to completition, and for concreteness, the experiments have been logged to the folder `data/Quatreclasses4/samples512_overlap25_min-annot0_3bands/model/config/_2020-08-27_17-24/experiments`, the tensorboard logs can be viewed with:
+
+```bash
+tensorboard --logdir=data/Quatreclasses4/samples512_overlap25_min-annot0_3bands/model/config/_2020-08-27_17-24/experiments
+```
