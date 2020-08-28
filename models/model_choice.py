@@ -80,7 +80,7 @@ def net(net_params, num_channels, inference=False):
             encoder_weights="imagenet",
             in_channels=num_bands,
             classes=num_channels,
-            activation="logsoftmax")
+            activation=None)
     elif model_name == 'unet_pretrained':
         model = smp.Unet(
             encoder_name="resnext50_32x4d",
@@ -88,28 +88,28 @@ def net(net_params, num_channels, inference=False):
             encoder_depth=5,
             in_channels=num_bands,
             classes=num_channels,
-            activation='softmax')
+            activation=None)
     elif model_name == 'fpn_pretrained':
         model = smp.FPN(
             encoder_name="resnext50_32x4d",
             encoder_weights="imagenet",
             in_channels=num_bands,
             classes=num_channels,
-            activation='softmax2d')
+            activation=None)
     elif model_name == 'pspnet_pretrained': 
         model = smp.PSPNet(
             encoder_name="resnext50_32x4d",
             encoder_weights="imagenet",
             in_channels=num_bands,
             classes=num_channels,
-            activation='softmax')
+            activation=None)
     elif model_name == 'deeplabv3+_pretrained':
         model = smp.DeepLabV3Plus(
             encoder_name="resnext50_32x4d",
             encoder_weights="imagenet",
             in_channels=num_bands,
             classes=num_channels,
-            activation='softmax2d')
+            activation=None)
     
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')

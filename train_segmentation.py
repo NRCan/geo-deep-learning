@@ -183,6 +183,216 @@ def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
     return model, criterion, optimizer, lr_scheduler
 
 
+def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
+    """
+    Use a model and dataloader to provide outputs that can then be sent to vis_from_batch function to visualize performances of model, for example.
+    :param params: (dict) Parameters found in the yaml config file.
+    :param eval_loader: data loader
+    :param model: model to evaluate
+    :param ep_num: epoch index (for file naming purposes)
+    :param dataset: (str) 'val or 'tst'
+    :param device: device used by pytorch (cpu ou cuda)
+    :param vis_batch_range: (int) max number of samples to perform visualization on
+
+    :return:
+    """
+    vis_path = output_path.joinpath(f'visualization')
+    tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
+    min_vis_batch, max_vis_batch, increment = vis_batch_range
+
+    model.eval()
+    with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
+        for batch_index, data in enumerate(_tqdm):
+            if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
+                with torch.no_grad():
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
+
+                    outputs = model(inputs)
+                    if isinstance(outputs, OrderedDict):
+                        outputs = outputs['out']
+
+                    vis_from_batch(params, inputs, outputs,
+                                   batch_index=batch_index,
+                                   vis_path=vis_path,
+                                   labels=labels,
+                                   dataset=dataset,
+                                   ep_num=ep_num)
+    tqdm.write(f'Saved visualization figures.\n')
+
+
+def train(train_loader,
+          model,
+          criterion,
+          optimizer,
+          scheduler,
+          num_classes,
+          batch_size,
+          ep_idx,
+          progress_log,
+          vis_params,
+          device,
+          debug=False
+          ):
+    """
+    Train the model and return the metrics of the training epoch
+    :param train_loader: training data loader
+    :param model: model to train
+    :param criterion: loss criterion
+    :param optimizer: optimizer to use
+    :param scheduler: learning rate scheduler
+    :param num_classes: number of classes
+    :param batch_size: number of samples to process simultaneously
+    :param ep_idx: epoch index (for hypertrainer log)
+    :param progress_log: progress log file (for hypertrainer log)
+    :param vis_params: (dict) Parameters found in the yaml config file. Named vis_params because they are only used for
+                        visualization functions.
+    :param device: device used by pytorch (cpu ou cuda)
+    :param debug: (bool) Debug mode
+    :return: Updated training loss
+    """
+    model.train()
+    train_metrics = create_metrics_dict(num_classes)
+    vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
+    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
+
+    with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
+        for batch_index, data in enumerate(_tqdm):
+            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
+
+            inputs = data['sat_img'].to(device)
+            labels = data['map_img'].to(device)
+
+            # forward
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            # added for torchvision models that output an OrderedDict with outputs in 'out' key.
+            # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
+            if isinstance(outputs, OrderedDict):
+                outputs = outputs['out']
+
+            if vis_batch_range and vis_at_train:
+                min_vis_batch, max_vis_batch, increment = vis_batch_range
+                if batch_index in range(min_vis_batch, max_vis_batch, increment):
+                    vis_path = progress_log.parent.joinpath('visualization')
+                    if ep_idx == 0:
+                        tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
+                    vis_from_batch(params, inputs, outputs,
+                                   batch_index=batch_index,
+                                   vis_path=vis_path,
+                                   labels=labels,
+                                   dataset='trn',
+                                   ep_num=ep_idx+1)
+
+            loss = criterion(outputs, labels)
+
+            train_metrics['loss'].update(loss.item(), batch_size)
+
+            if device.type == 'cuda' and debug:
+                res, mem = gpu_stats(device=device.index)
+                _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
+                                              gpu_perc=f'{res.gpu} %',
+                                              gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+                                              lr=optimizer.param_groups[0]['lr'],
+                                              img=data['sat_img'].numpy().shape,
+                                              smpl=data['map_img'].numpy().shape,
+                                              bs=batch_size,
+                                              out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
+
+            loss.backward()
+            optimizer.step()
+
+    scheduler.step()
+    if train_metrics["loss"].avg is not None:
+        print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
+    return train_metrics
+
+
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
+    """
+    Evaluate the model and return the updated metrics
+    :param eval_loader: data loader
+    :param model: model to evaluate
+    :param criterion: loss criterion
+    :param num_classes: number of classes
+    :param batch_size: number of samples to process simultaneously
+    :param ep_idx: epoch index (for hypertrainer log)
+    :param progress_log: progress log file (for hypertrainer log)
+    :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
+    :param dataset: (str) 'val or 'tst'
+    :param device: device used by pytorch (cpu ou cuda)
+    :return: (dict) eval_metrics
+    """
+    eval_metrics = create_metrics_dict(num_classes)
+    model.eval()
+    vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
+    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
+
+    with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
+        for batch_index, data in enumerate(_tqdm):
+            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
+
+            with torch.no_grad():
+                inputs = data['sat_img'].to(device)
+                labels = data['map_img'].to(device)
+                labels_flatten = flatten_labels(labels)
+
+                outputs = model(inputs)
+                if isinstance(outputs, OrderedDict):
+                    outputs = outputs['out']
+
+                if vis_batch_range and vis_at_eval:
+                    min_vis_batch, max_vis_batch, increment = vis_batch_range
+                    if batch_index in range(min_vis_batch, max_vis_batch, increment):
+                        vis_path = progress_log.parent.joinpath('visualization')
+                        if ep_idx == 0 and batch_index == min_vis_batch:
+                            tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
+                                       f'images will be saved to {vis_path}\n')
+                        vis_from_batch(params, inputs, outputs,
+                                       batch_index=batch_index,
+                                       vis_path=vis_path,
+                                       labels=labels,
+                                       dataset=dataset,
+                                       ep_num=ep_idx+1)
+
+                outputs_flatten = flatten_outputs(outputs, num_classes)
+
+                loss = criterion(outputs, labels)
+
+                eval_metrics['loss'].update(loss.item(), batch_size)
+
+                if (dataset == 'val') and (batch_metrics is not None):
+                    # Compute metrics every n batches. Time consuming.
+                    assert batch_metrics <= len(_tqdm), f"Batch_metrics ({batch_metrics} is smaller than batch size " \
+                        f"{len(_tqdm)}. Metrics in validation loop won't be computed"
+                    if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
+                        a, segmentation = torch.max(outputs_flatten, dim=1)
+                        eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
+                        eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
+                                                             ignore_index=eval_loader.dataset.dontcare)
+                elif dataset == 'tst':
+                    a, segmentation = torch.max(outputs_flatten, dim=1)
+                    eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
+                    eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
+                                                         ignore_index=eval_loader.dataset.dontcare)
+
+                _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
+
+                if debug and device.type == 'cuda':
+                    res, mem = gpu_stats(device=device.index)
+                    _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
+                                                  gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
+
+    print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
+    if batch_metrics is not None:
+        print(f"{dataset} precision: {eval_metrics['precision'].avg}")
+        print(f"{dataset} recall: {eval_metrics['recall'].avg}")
+        print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
+        print(f"{dataset} iou: {eval_metrics['iou'].avg}")
+
+    return eval_metrics
+
+
 def main(params, config_path):
     """
     Function to train and validate a models for semantic segmentation or classification.
@@ -421,216 +631,6 @@ def main(params, config_path):
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-
-
-def train(train_loader,
-          model,
-          criterion,
-          optimizer,
-          scheduler,
-          num_classes,
-          batch_size,
-          ep_idx,
-          progress_log,
-          vis_params,
-          device,
-          debug=False
-          ):
-    """
-    Train the model and return the metrics of the training epoch
-    :param train_loader: training data loader
-    :param model: model to train
-    :param criterion: loss criterion
-    :param optimizer: optimizer to use
-    :param scheduler: learning rate scheduler
-    :param num_classes: number of classes
-    :param batch_size: number of samples to process simultaneously
-    :param ep_idx: epoch index (for hypertrainer log)
-    :param progress_log: progress log file (for hypertrainer log)
-    :param vis_params: (dict) Parameters found in the yaml config file. Named vis_params because they are only used for
-                        visualization functions.
-    :param device: device used by pytorch (cpu ou cuda)
-    :param debug: (bool) Debug mode
-    :return: Updated training loss
-    """
-    model.train()
-    train_metrics = create_metrics_dict(num_classes)
-    vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
-    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-
-    with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
-        for batch_index, data in enumerate(_tqdm):
-            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
-
-            inputs = data['sat_img'].to(device)
-            labels = data['map_img'].to(device)
-
-            # forward
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            # added for torchvision models that output an OrderedDict with outputs in 'out' key.
-            # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
-            if isinstance(outputs, OrderedDict):
-                outputs = outputs['out']
-
-            if vis_batch_range and vis_at_train:
-                min_vis_batch, max_vis_batch, increment = vis_batch_range
-                if batch_index in range(min_vis_batch, max_vis_batch, increment):
-                    vis_path = progress_log.parent.joinpath('visualization')
-                    if ep_idx == 0:
-                        tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
-                    vis_from_batch(params, inputs, outputs,
-                                   batch_index=batch_index,
-                                   vis_path=vis_path,
-                                   labels=labels,
-                                   dataset='trn',
-                                   ep_num=ep_idx+1)
-
-            loss = criterion(outputs, labels)
-
-            train_metrics['loss'].update(loss.item(), batch_size)
-
-            if device.type == 'cuda' and debug:
-                res, mem = gpu_stats(device=device.index)
-                _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
-                                              gpu_perc=f'{res.gpu} %',
-                                              gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
-                                              lr=optimizer.param_groups[0]['lr'],
-                                              img=data['sat_img'].numpy().shape,
-                                              smpl=data['map_img'].numpy().shape,
-                                              bs=batch_size,
-                                              out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
-
-            loss.backward()
-            optimizer.step()
-
-    scheduler.step()
-    if train_metrics["loss"].avg is not None:
-        print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
-    return train_metrics
-
-
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
-    """
-    Evaluate the model and return the updated metrics
-    :param eval_loader: data loader
-    :param model: model to evaluate
-    :param criterion: loss criterion
-    :param num_classes: number of classes
-    :param batch_size: number of samples to process simultaneously
-    :param ep_idx: epoch index (for hypertrainer log)
-    :param progress_log: progress log file (for hypertrainer log)
-    :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
-    :param dataset: (str) 'val or 'tst'
-    :param device: device used by pytorch (cpu ou cuda)
-    :return: (dict) eval_metrics
-    """
-    eval_metrics = create_metrics_dict(num_classes)
-    model.eval()
-    vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
-    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-
-    with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
-        for batch_index, data in enumerate(_tqdm):
-            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
-
-            with torch.no_grad():
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
-                labels_flatten = flatten_labels(labels)
-
-                outputs = model(inputs)
-                if isinstance(outputs, OrderedDict):
-                    outputs = outputs['out']
-
-                if vis_batch_range and vis_at_eval:
-                    min_vis_batch, max_vis_batch, increment = vis_batch_range
-                    if batch_index in range(min_vis_batch, max_vis_batch, increment):
-                        vis_path = progress_log.parent.joinpath('visualization')
-                        if ep_idx == 0 and batch_index == min_vis_batch:
-                            tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
-                                       f'images will be saved to {vis_path}\n')
-                        vis_from_batch(params, inputs, outputs,
-                                       batch_index=batch_index,
-                                       vis_path=vis_path,
-                                       labels=labels,
-                                       dataset=dataset,
-                                       ep_num=ep_idx+1)
-
-                outputs_flatten = flatten_outputs(outputs, num_classes)
-
-                loss = criterion(outputs, labels)
-
-                eval_metrics['loss'].update(loss.item(), batch_size)
-
-                if (dataset == 'val') and (batch_metrics is not None):
-                    # Compute metrics every n batches. Time consuming.
-                    assert batch_metrics <= len(_tqdm), f"Batch_metrics ({batch_metrics} is smaller than batch size " \
-                        f"{len(_tqdm)}. Metrics in validation loop won't be computed"
-                    if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
-                        a, segmentation = torch.max(outputs_flatten, dim=1)
-                        eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
-                        eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                             ignore_index=eval_loader.dataset.dontcare)
-                elif dataset == 'tst':
-                    a, segmentation = torch.max(outputs_flatten, dim=1)
-                    eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
-                    eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                         ignore_index=eval_loader.dataset.dontcare)
-
-                _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
-
-                if debug and device.type == 'cuda':
-                    res, mem = gpu_stats(device=device.index)
-                    _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
-                                                  gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
-
-    print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
-    if batch_metrics is not None:
-        print(f"{dataset} precision: {eval_metrics['precision'].avg}")
-        print(f"{dataset} recall: {eval_metrics['recall'].avg}")
-        print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
-        print(f"{dataset} iou: {eval_metrics['iou'].avg}")
-
-    return eval_metrics
-
-
-def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
-    """
-    Use a model and dataloader to provide outputs that can then be sent to vis_from_batch function to visualize performances of model, for example.
-    :param params: (dict) Parameters found in the yaml config file.
-    :param eval_loader: data loader
-    :param model: model to evaluate
-    :param ep_num: epoch index (for file naming purposes)
-    :param dataset: (str) 'val or 'tst'
-    :param device: device used by pytorch (cpu ou cuda)
-    :param vis_batch_range: (int) max number of samples to perform visualization on
-
-    :return:
-    """
-    vis_path = output_path.joinpath(f'visualization')
-    tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
-    min_vis_batch, max_vis_batch, increment = vis_batch_range
-
-    model.eval()
-    with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
-        for batch_index, data in enumerate(_tqdm):
-            if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
-                with torch.no_grad():
-                    inputs = data['sat_img'].to(device)
-                    labels = data['map_img'].to(device)
-
-                    outputs = model(inputs)
-                    if isinstance(outputs, OrderedDict):
-                        outputs = outputs['out']
-
-                    vis_from_batch(params, inputs, outputs,
-                                   batch_index=batch_index,
-                                   vis_path=vis_path,
-                                   labels=labels,
-                                   dataset=dataset,
-                                   ep_num=ep_num)
-    tqdm.write(f'Saved visualization figures.\n')
 
 
 if __name__ == '__main__':

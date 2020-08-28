@@ -24,6 +24,7 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
     :return: (obj) PyTorch's compose object of the transformations to be applied.
     """
     lst_trans = []
+    input_space = get_key_def('BGR_to_RGB', params['global'], False)
     scale = get_key_def('scale_data', params['global'], None)
     norm_mean = get_key_def('mean', params['training']['normalization'])
     norm_std = get_key_def('std', params['training']['normalization'])
@@ -67,6 +68,10 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             else:
                 trim_at_eval = round((random_radiom_trim_range[-1] - random_radiom_trim_range[0]) / 2, 1)
             lst_trans.append(RadiometricTrim(random_range=[trim_at_eval, trim_at_eval]))
+
+        if input_space:
+            lst_trans.append(BgrToRgb(input_space))
+
         if scale:
             lst_trans.append(Scale(scale))  # TODO: assert coherence with below normalization
 
@@ -74,7 +79,7 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
                                        std=params['training']['normalization']['std']))
 
-        lst_trans.append(ToTensorTarget(get_key_def('BGR_to_RGB', params['global'], False))) # Send channels first, convert numpy array to torch tensor
+        lst_trans.append(ToTensorTarget()) # Send channels first, convert numpy array to torch tensor
 
     return transforms.Compose(lst_trans)
 
@@ -324,15 +329,23 @@ class Normalize(object):
         else:
             return sample
 
+class BgrToRgb(object):
+    """Normalize Image with Mean and STD and similar to Pytorch(transform.Normalize) function """
 
-class ToTensorTarget(object):
-    """Convert ndarrays in sample to Tensors."""
     def __init__(self, bgr_to_rgb):
         self.bgr_to_rgb = bgr_to_rgb
 
     def __call__(self, sample):
+        sat_img = BGR_to_RGB(sample['sat_img']) if self.bgr_to_rgb else sample['sat_img']
+        sample['sat_img'] = sat_img
+
+        return sample
+
+
+class ToTensorTarget(object):
+    """Convert ndarrays in sample to Tensors."""
+    def __call__(self, sample):
         sat_img = np.nan_to_num(sample['sat_img'], copy=False)
-        sat_img = BGR_to_RGB(sat_img) if self.bgr_to_rgb else sat_img
         sat_img = np.float32(np.transpose(sat_img, (2, 0, 1)))
         sat_img = torch.from_numpy(sat_img)
 
@@ -341,4 +354,5 @@ class ToTensorTarget(object):
             map_img = np.int64(sample['map_img'])
             map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
-    
+
+
