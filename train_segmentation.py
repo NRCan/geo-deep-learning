@@ -393,11 +393,6 @@ def main(params, config_path):
     # Tensorboard tutorial: https://pytorch.org/tutorials/intermediate/tensorboard_tutorial.html
     # Add path for tensorboard experiments
     writer = SummaryWriter(log_dir=output_path / "experiments")
-    # Load images for testing
-    dataiter = iter(val_dataloader)
-    dataiter.next()
-    val_data = dataiter.next()
-    val_inputs = val_data["sat_img"].to(device)
 
     for epoch in range(0, params["training"]["num_epochs"]):
         print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
@@ -531,10 +526,6 @@ def main(params, config_path):
             bucket.upload_file("output.txt", bucket_output_path.joinpath(f"Logs/{now}_output.txt"))
             bucket.upload_file(filename, bucket_filename)
 
-    # if num_devices == 1: - This is leading to GPU memory issues :(
-    #    writer.add_graph(model, val_inputs)
-    # elif num_devices > 1:
-    #    writer.add_graph(model.module, val_inputs)
     # Log to tensorboard.
     test_metric_log = {"tst/loss": tst_report["loss"].avg}
 
@@ -554,6 +545,18 @@ def main(params, config_path):
         },
         test_metric_log,
     )
+    # Load images for testing
+    dataiter = iter(val_dataloader)
+    dataiter.next()
+    val_data = dataiter.next()
+    val_inputs = val_data["sat_img"].to("cpu")
+
+    model.to("cpu")
+    if num_devices == 1:  # - This is leading to GPU memory issues :(
+        writer.add_graph(model, val_inputs)
+    elif num_devices > 1:
+        writer.add_graph(model.module, val_inputs)
+
     writer.close()
 
     time_elapsed = time.time() - since
