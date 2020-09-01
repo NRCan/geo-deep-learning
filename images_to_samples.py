@@ -210,7 +210,9 @@ def samples_preparation(in_img_array,
 
     # Adds raster metadata to the dataset. All samples created by tiling below will point to that metadata by index
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
-
+    
+    if overlap > 25:
+         warnings.warn("high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
     excl_samples = 0
