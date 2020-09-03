@@ -13,13 +13,6 @@ from collections import OrderedDict
 import shutil
 import numpy as np
 
-############
-# TODO: remove after test
-#import sys
-#sys.path.append('../pytorch-summary/torchsummary')
-#from torchsummary import summary
-############
-
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -479,7 +472,7 @@ def train(train_loader,
                 inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
                 inputs = inputs[:,:-1, ...] # Need to be change 
                 #inputs_NIR = data['NIR'].to(device)
-   
+
                 inputs = [inputs, inputs_NIR]
                 #outputs = model(inputs, inputs_NIR)
                 ############################
@@ -656,18 +649,13 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
 
     model.eval()
 
-    ###################
-    # TODO: remove after test
-    #summary(model, [(3,256,256),(1,256,256)], file_n='summary.txt')
-    ###################
-
     with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
         for batch_index, data in enumerate(_tqdm):
             if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
                 with torch.no_grad():
                     inputs = data['sat_img'].to(device)
                     labels = data['map_img'].to(device)
-                    
+
                     if inputs.shape[1] == 4:
                         ############################
                         # Test Implementation of the NIR
@@ -678,7 +666,7 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                         inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
                         inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
                         inputs = inputs[:,:-1, ...] # Need to be change 
-                        
+
                         inputs = [inputs, inputs_NIR]
                         #outputs = model(inputs, inputs_NIR)
                         ############################
@@ -707,6 +695,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
     config_path = Path(args.param_file)
     params = read_parameters(args.param_file)
+
+    # Limit of the NIR implementation TODO: Update after each version
+    if 'deeplabv3' in not args.model_name and args.modalities is 'RGBN':
+        print(
+            '\n The NIR modality will only be concatenate at the begining,' /
+            ' the implementation of the concatenation point is only available' /
+            ' for the deeplabv3 model for now. \n More will follow on demande.\n'
+             )
 
     main(params, config_path)
     print('End of training')
