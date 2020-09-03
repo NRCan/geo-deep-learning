@@ -101,9 +101,10 @@ def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', 
     ignore_index = get_key_def('ignore_index', params['training'], -1)
     mean = get_key_def('mean', params['training']['normalization'])
     std = get_key_def('std', params['training']['normalization'])
-        
+
     # TODO: Temporary fix, need to be discuss, `input_` is a list if the initial input as NIR with the RGB at [0].
-    input_ = input_[0] if type(input_) is list else input_
+    # The `squeeze` fonction cut the useless dimension, append in inference.
+    input_ = np.squeeze(input_[0]) if type(input_) is list else np.squeeze(input_)
 
     assert vis_path.parent.is_dir()
     vis_path.mkdir(exist_ok=True)

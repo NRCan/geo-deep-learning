@@ -81,7 +81,7 @@ def sem_seg_inference(
     output_probs = np.empty([num_classes, h_padded, w_padded], dtype=np.float32)
     # Create identical 0-filled array without channels dimension to receive counts for number of outputs generated in specific area.
     output_counts = np.zeros([output_probs.shape[1], output_probs.shape[2]], dtype=np.int32)
-                        
+
     totensor_transform = augmentation.compose_transforms(params, dataset="tst", type='totensor')
 
     if padded_array.any():
@@ -147,6 +147,9 @@ def sem_seg_inference(
                                                                                             axis=0)
 
                         if debug and device.type == 'cuda':
+                            # Select only the RGB image if `inputs` is a list of images [RGB, NIR]
+                            inputs = inputs[0] if type(inputs) is list else inputs
+
                             res, mem = gpu_stats(device=device.index)
                             _tqdm.set_postfix(OrderedDict(gpu_perc=f'{res.gpu} %',
                                                           gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
