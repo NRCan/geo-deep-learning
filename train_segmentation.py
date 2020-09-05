@@ -697,7 +697,8 @@ if __name__ == '__main__':
     params = read_parameters(args.param_file)
 
     # Limit of the NIR implementation TODO: Update after each version
-    if 'deeplabv3' not in args.global.model_name and args.global.modalities is 'RGBN':
+    modalities = None if 'modalities' not in params['global'] else params['global']['modalities']
+    if 'deeplabv3' not in params['global']['model_name'] and modalities is 'RGBN':
         print(
             '\n The NIR modality will only be concatenate at the begining,' /
             ' the implementation of the concatenation point is only available' /
