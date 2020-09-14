@@ -12,7 +12,7 @@ install:
   - conda config --prepend channels pytorch
   - conda update -q conda
   - conda info -a
-  - conda create -n ci_env python=3.7 pytorch-cpu torchvision-cpu pillow=6.2.1 torchvision ruamel_yaml h5py>=2.10 scikit-image scikit-learn rasterio tqdm matplotlib geopandas
+  - conda create -n ci_env python=3.7 pytorch-cpu torchvision-cpu pillow=6.2.1 torchvision ruamel_yaml h5py>=2.10 scikit-image scikit-learn rasterio tqdm matplotlib geopandas tensorboard=1.15.0
   - source activate ci_env
   - conda install fiona
   - conda install mlflow -c conda-forge
