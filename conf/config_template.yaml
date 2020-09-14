@@ -13,6 +13,7 @@ global:
   samples_size: 512
   num_classes: 5
   data_path: path/to/data
+  mlflow_uri: path/to/mlflow_tracking_uri  # Default to ./mlruns
   number_of_bands: 4
   model_name: unet     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
@@ -47,7 +48,7 @@ data_analysis:
 sample:
   prep_csv_file: /path/to/csv/file.csv
   val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
-  overlap: 25
+  overlap: 25 # (int) Percentage of overlap between 2 chunks.
   sampling_method: # class_proportion or min_annotated_percent
     'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
     'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:
@@ -96,8 +97,8 @@ inference:
   img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
-  overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
-  heatmaps: True
+  smooth_prediction: True
+  overlap: 2 # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
 
 
 # Visualization parameters

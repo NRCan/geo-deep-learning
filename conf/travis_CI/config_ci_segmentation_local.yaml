@@ -12,8 +12,9 @@ global:
   samples_size: 256
   num_classes: 1  # will automatically create a 'background' class
   data_path: ./data
+  mlflow_uri: ./mlruns
   number_of_bands: 3
-  model_name: checkpointed_unet     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
+  model_name: deeplabv3_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 0
@@ -48,9 +49,9 @@ training:
   num_trn_samples:
   num_val_samples:
   num_tst_samples:
-  batch_size: 4
+  batch_size: 2
   num_epochs: 2
-  target_size: 256
+  target_size: 128
   loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
   optimizer: adam # One of adam, sgd or adabound
   learning_rate: 0.0001
@@ -77,8 +78,8 @@ inference:
   img_dir_or_csv_file: ./data/inference_sem_seg_ci_csv.csv
   state_dict_path: ./data/samples256_overlap33_min-annot3_3bands/model/config_ci_segmentation_local/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
-  overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
-  heatmaps: True
+  smooth_prediction: False
+  overlap: 2 # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
 
 # Visualization parameters
 

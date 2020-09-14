@@ -7,11 +7,14 @@ import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
 import numpy as np
+import scipy.signal
 import warnings
-import collections
 import matplotlib
+import matplotlib.pyplot as plt
 
-matplotlib.use('Agg')
+from utils.readers import read_parameters
+
+# matplotlib.use('Agg')
 
 try:
     from ruamel_yaml import YAML
@@ -62,7 +65,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
     model.load_state_dict(checkpoint['model'], strict=False)
     print(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-        optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
+        optimizer.load_state_dict(checkpoint['optimizer'])
     return model, optimizer
 
 
@@ -154,33 +157,32 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
                 del config[key]
     return val
 
-
-def get_key_recursive(key, config):
-    """Returns a value recursively given a dictionary key that may contain multiple subkeys."""
-    if not isinstance(key, list):
-        key = key.split("/")  # subdict indexing split using slash
-    assert key[0] in config, f"missing key '{key[0]}' in metadata dictionary: {config}"
-    val = config[key[0]]
-    if isinstance(val, (dict, collections.OrderedDict)):
-        assert len(key) > 1, "missing keys to index metadata subdictionaries"
-        return get_key_recursive(key[1:], val)
-    return val
-
-
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
-    """Rescale data values from original range to specified range
-
+    """
+    scale data values from original range to specified range
     :param img: (numpy array) Image to be scaled
-    :param scale_range: Desired range of transformed data.
+    :param scale_range: Desired range of transformed data (0, 1) or (-1, 1).
     :param orig_range: Original range of input data.
     :return: (numpy array) Scaled image
     """
-    # range(0, 1)
-    scale_img = (img - orig_range[0]) / (orig_range[1] - orig_range[0])
-    # range(min_value, max_value)
-    scale_img = scale_img * (scale_range[1] - scale_range[0]) + scale_range[0]
+    assert scale_range == (0, 1) or scale_range == (-1, 1), 'expects scale_range as (0, 1) or (-1, 1)'
+    if scale_range == (0, 1):
+        scale_img = (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0])
+    else:
+        scale_img = 2.0 * (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0]) - 1.0
     return scale_img
 
+def unscale(img, float_range=(0, 1), orig_range=(0, 255)):
+    """
+    unscale data values from float range (0, 1) or (-1, 1) to original range (0, 255)
+    :param img: (numpy array) Image to be scaled
+    :param float_range: (0, 1) or (-1, 1).
+    :param orig_range: (0, 255) or (0, 65535).
+    :return: (numpy array) Unscaled image
+    """
+    f_r = float_range[1] - float_range[0]
+    o_r = orig_range[1] - orig_range[0]
+    return (o_r * (img - float_range[0]) / f_r) + orig_range[0]
 
 def pad(img, padding, fill=0):
     r"""Pad the given ndarray on all sides with specified padding mode and fill value.
@@ -229,8 +231,7 @@ def pad(img, padding, fill=0):
 
 
 def pad_diff(actual_height, actual_width, desired_shape):
-    """ Pads img_arr width or height < samples_size with zeros
-    """
+    """ Pads img_arr width or height < samples_size with zeros """
     h_diff = desired_shape - actual_height
     w_diff = desired_shape - actual_width
     padding = (0, 0, w_diff, h_diff)  # left, top, right, bottom
@@ -255,6 +256,19 @@ def BGR_to_RGB(array):
     array[:, :, :3] = RGB_channels
     return array
 
+def ind2rgb(arr, color):
+    """
+    :param arr: (numpy array) index image to be color mapped
+    :param color: (dict of RGB color values) for each class
+    :return: (numpy_array) RGB image
+    """ 
+    
+    h, w = arr.shape
+    rgb = np.empty((h, w, 3), dtype=np.uint8)
+    for cl in color:
+        for ch in range(3):
+          rgb[..., ch][arr == cl] = (color[cl][ch])
+    return rgb
 
 def list_input_images(img_dir_or_csv: str,
                       bucket_name: str = None,
@@ -301,17 +315,13 @@ def list_input_images(img_dir_or_csv: str,
 
 
 def read_csv(csv_file_name):
-    """Open csv file and parse it, returning a list of dict.
-
-    If inference == True, the dict contains this info:
-        - tif full path
-        - metadata yml full path (may be empty string if unavailable)
-    Else, the returned list contains a dict with this info:
-        - tif full path
-        - metadata yml full path (may be empty string if unavailable)
-        - gpkg full path
-        - attribute_name
-        - dataset (trn or val)
+    """
+    Open csv file and parse it, returning a list of dict.
+    - tif full path
+    - metadata yml full path (may be empty string if unavailable)
+    - gpkg full path
+    - attribute_name
+    - dataset (trn or tst)
     """
 
     list_values = []
@@ -323,7 +333,7 @@ def read_csv(csv_file_name):
             row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
             list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
             assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
-            if row[2] is not None:
+            if row[2]:
                 assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'
                 assert isinstance(row[3], str)
     try:
@@ -332,3 +342,84 @@ def read_csv(csv_file_name):
     except TypeError:
         list_values
     return list_values
+
+
+def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
+                                       raster_handle: dict,
+                                       meta_map: dict,
+                                       raster_info: dict
+                                       ) -> dict:
+    """
+    @param sat_img_arr: source image as array (opened with rasterio.read)
+    @param meta_map: meta map parameter from yaml (global section)
+    @param raster_info: info from raster as read with read_csv (except at inference)
+    @return: Returns a metadata dictionary populated with info from source raster, including original csv line and
+             histogram.
+    """
+    metadata_dict = {'name': raster_handle.name, 'csv_info': raster_info, 'source_raster_bincount': {}}
+    assert 'dtype' in raster_handle.meta.keys(), "\"dtype\" could not be found in source image metadata"
+    metadata_dict.update(raster_handle.meta)
+    if not metadata_dict['dtype'] in ["uint8", "uint16"]:
+        warnings.warn(f"Datatype should be \"uint8\" or \"uint16\". Got \"{metadata_dict['dtype']}\". ")
+        if sat_img_arr.min() >= 0 and sat_img_arr.max() <= 255:
+            metadata_dict['dtype'] = "uint8"
+        elif sat_img_arr.min() >= 0 and sat_img_arr.max() <= 65535:
+            metadata_dict['dtype'] = "uint16"
+        else:
+            raise ValueError(f"Min and max values of array ({[sat_img_arr.min(), sat_img_arr.max()]}) are not contained"
+                             f"in 8 bit nor 16 bit range. Datatype cannot be overwritten.")
+    # Save bin count (i.e. histogram) to metadata
+    assert isinstance(sat_img_arr, np.ndarray) and len(sat_img_arr.shape) == 3, f"Array should be 3-dimensional"
+    for band_index in range(sat_img_arr.shape[2]):
+        band = sat_img_arr[..., band_index]
+        metadata_dict['source_raster_bincount'][f'band{band_index}'] = {count for count in np.bincount(band.flatten())}
+    if meta_map:
+        assert raster_info['meta'] is not None and isinstance(raster_info['meta'], str) \
+               and Path(raster_info['meta']).is_file(), "global configuration requested metadata mapping onto loaded " \
+                                                        "samples, but raster did not have available metadata"
+        yaml_metadata = read_parameters(raster_info['meta'])
+        metadata_dict.update(yaml_metadata)
+    return metadata_dict
+
+#### Image Patches Smoothing Functions ####
+""" Adapted from : https://github.com/Vooban/Smoothly-Blend-Image-Patches  """
+def _spline_window(window_size, power=2):
+    """
+    Squared spline (power=2) window function:
+    https://www.wolframalpha.com/input/?i=y%3Dx**2,+y%3D-(x-2)**2+%2B2,+y%3D(x-4)**2,+from+y+%3D+0+to+2
+    """
+    intersection = int(window_size/4)
+    wind_outer = (abs(2*(scipy.signal.triang(window_size))) ** power)/2
+    wind_outer[intersection:-intersection] = 0
+
+    wind_inner = 1 - (abs(2*(scipy.signal.triang(window_size) - 1)) ** power)/2
+    wind_inner[:intersection] = 0
+    wind_inner[-intersection:] = 0
+
+    wind = wind_inner + wind_outer
+    wind = wind / np.average(wind)
+    return wind
+
+
+cached_2d_windows = dict()
+def _window_2D(window_size, power=2):
+    """
+    Make a 1D window function, then infer and return a 2D window function.
+    Done with an augmentation, and self multiplication with its transpose.
+    Could be generalized to more dimensions.
+    """
+    # Memoization
+    global cached_2d_windows
+    key = "{}_{}".format(window_size, power)
+    if key in cached_2d_windows:
+        wind = cached_2d_windows[key]
+    else:
+        wind = _spline_window(window_size, power)
+        wind = np.expand_dims(np.expand_dims(wind, 1), -1)
+        wind = wind * wind.transpose(1, 0, 2)
+        # wind = wind.squeeze()
+        # plt.imshow(wind[:, :, 0], cmap="viridis")
+        # plt.title("2D Windowing Function for a Smooth Blending of Overlapping Patches")
+        # plt.show()
+        cached_2d_windows[key] = wind
+    return wind

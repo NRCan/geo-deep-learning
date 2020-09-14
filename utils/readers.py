@@ -28,7 +28,6 @@ def image_reader_as_array(input_image,
                           aux_vector_dist_log=True,
                           aux_vector_scale=None,
                           clip_gpkg=None,
-                          bgr_to_rgb=False,
                           debug=False):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
@@ -41,20 +40,17 @@ def image_reader_as_array(input_image,
         aux_vector_dist_log: flag indicating whether log distances should be used in distance maps or not
         aux_vector_scale: optional floating point scale factor to multiply to rasterized vector maps
         clip_gpkg: optional path to gpkg used to clip input_image
-        nodata_to_nan: if True, nodata values as given by rasterio dataset object will be set to np.nan
+        debug: if True, output raster as given by clip_raster_with_gpkg function is saved to disk
 
     Return:
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
     if clip_gpkg:
         np_array, input_image = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
-        np_array = np.transpose(np_array, (1, 2, 0))  # send channels last
-
     else:
-        np_array = np.empty([input_image.height, input_image.width, input_image.count], dtype=np.uint16)
-        for i in tqdm(range(input_image.count), position=1, leave=False, desc=f'Reading image bands: {Path(input_image.files[0]).stem}'):
-            np_array[:, :, i] = input_image.read(i+1)  # Bands starts at 1 in rasterio not 0
+        np_array = input_image.read()
 
+    np_array = np.moveaxis(np_array, 0, -1) # send channels last
     assert np_array.dtype in ['uint8', 'uint16'], f"Invalid datatype {np_array.dtype}. " \
                                                   f"Only uint8 and uint16 are supported in current version"
 
@@ -74,30 +70,32 @@ def image_reader_as_array(input_image,
                                       target_ids=aux_vector_ids,
                                       merge_all=False)
         if aux_vector_dist_maps:
-            # import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
+            import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
             vec_tensor = vec_tensor.astype(np.float32)
             for vec_band_idx in range(vec_tensor.shape[2]):
                 mask = vec_tensor[:, :, vec_band_idx]
                 kernel = np.ones(3, 3)
                 # mask = cv.dilate(mask, kernel)  # make points and linestring easier to work with
                 mask = morphology.binary_dilation(mask, kernel)  # make points and linestring easier to work with
-                #display_resize = cv.resize(np.where(mask, np.uint8(0), np.uint8(255)), (1000, 1000))
-                #cv.imshow("mask", display_resize)
-                dmap = cv.distanceTransform(np.where(mask, np.uint8(0), np.uint8(255)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
+                # display_resize = cv.resize(np.where(mask, np.uint8(0), np.uint8(255)), (1000, 1000))
+                # cv.imshow("mask", display_resize)
+                dmap = cv.distanceTransform(np.where(mask, np.uint8(0), np.uint8(255)), cv.DIST_L2,
+                                            cv.DIST_MASK_PRECISE)
                 if aux_vector_dist_log:
                     dmap = np.log(dmap + 1)
-                #display_resize = cv.resize(cv.normalize(dmap, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
-                #cv.imshow("dmap1", display_resize)
-                dmap_inv = cv.distanceTransform(np.where(mask, np.uint8(255), np.uint8(0)), cv.DIST_L2, cv.DIST_MASK_PRECISE)
+                # display_resize = cv.resize(cv.normalize(dmap, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
+                # cv.imshow("dmap1", display_resize)
+                dmap_inv = cv.distanceTransform(np.where(mask, np.uint8(255), np.uint8(0)), cv.DIST_L2,
+                                                cv.DIST_MASK_PRECISE)
                 if aux_vector_dist_log:
                     dmap_inv = np.log(dmap_inv + 1)
-                #display_resize = cv.resize(cv.normalize(dmap_inv, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
-                #cv.imshow("dmap2", display_resize)
+                # display_resize = cv.resize(cv.normalize(dmap_inv, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
+                # cv.imshow("dmap2", display_resize)
                 vec_tensor[:, :, vec_band_idx] = np.where(mask, -dmap_inv, dmap)
-                #display = cv.normalize(vec_tensor[:, :, vec_band_idx], None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F)
-                #display_resize = cv.resize(display, (1000, 1000))
-                #cv.imshow("distmap", display_resize)
-                #cv.waitKey(0)
+                # display = cv.normalize(vec_tensor[:, :, vec_band_idx], None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F)
+                # display_resize = cv.resize(display, (1000, 1000))
+                # cv.imshow("distmap", display_resize)
+                # cv.waitKey(0)
         if aux_vector_scale:
             for vec_band_idx in vec_tensor.shape[2]:
                 vec_tensor[:, :, vec_band_idx] *= aux_vector_scale

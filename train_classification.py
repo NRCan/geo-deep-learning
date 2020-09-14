@@ -88,7 +88,7 @@ def get_s3_classification_images(dataset, bucket, bucket_name, data_path, output
 
     path = os.path.join('Images', dataset)
     try:
-        os.mkdir(path) # TODO use Path from pathlib instead?
+        os.mkdir(path)  # TODO use Path from pathlib instead?
     except FileExistsError:
         pass
     for c in classes:
@@ -163,7 +163,7 @@ def create_classif_dataloader(data_path, batch_size, num_devices):
                                                    transform=transforms.Compose(
                                                        [transforms.Resize(299), transforms.ToTensor()]),
                                                    loader=loader)
-    num_samples['tst'] = len([f for f in Path(data_path).joinpath('tst').glob('**/*')]) # FIXME assert that f is a file
+    num_samples['tst'] = len([f for f in Path(data_path).joinpath('tst').glob('**/*')])  # FIXME assert that f is a file
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
     num_workers = num_devices * 4 if num_devices > 1 else 4
@@ -286,9 +286,9 @@ def main(params, config_path):
     if not progress_log.exists():
         progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))  # Add header
 
-    trn_log = InformationLogger(output_path, 'trn')
-    val_log = InformationLogger(output_path, 'val')
-    tst_log = InformationLogger(output_path, 'tst')
+    trn_log = InformationLogger('trn')
+    val_log = InformationLogger('val')
+    tst_log = InformationLogger('tst')
 
     num_devices = params['global']['num_gpus']
     assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
@@ -300,7 +300,7 @@ def main(params, config_path):
     if num_devices == 1:
         print(f"Using Cuda device {lst_device_ids[0]}\n")
     elif num_devices > 1:
-        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
+        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n")  # TODO: why are we showing indices [1:-1] for lst_device_ids?
         try:  # TODO: For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
@@ -322,7 +322,7 @@ def main(params, config_path):
     model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes, model, checkpoint)
 
     criterion = criterion.to(device)
-    try: # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
+    try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
         model.to(device)
     except RuntimeError:
         warnings.warn(f"Unable to use device. Trying device 0...\n")
@@ -347,7 +347,6 @@ def main(params, config_path):
                            debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-
         val_report = evaluation(eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
@@ -361,7 +360,7 @@ def main(params, config_path):
                                 debug=debug)
         val_loss = val_report['loss'].avg
         if params['training']['batch_metrics'] is not None:
-            val_log.add_values(val_report, epoch)
+            val_log.add_values(val_report, epoch, ignore=['iou'])
         else:
             val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
@@ -387,7 +386,7 @@ def main(params, config_path):
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if int(params['training']['num_epochs']) > 0:    #if num_epochs is set to 0, model is loaded to evaluate on test set
+    if int(params['training']['num_epochs']) > 0:  # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
 
@@ -402,7 +401,7 @@ def main(params, config_path):
                                 batch_metrics=params['training']['batch_metrics'],
                                 dataset='tst',
                                 device=device)
-        tst_log.add_values(tst_report, params['training']['num_epochs'])
+        tst_log.add_values(tst_report, params['training']['num_epochs'], ignore=['iou'])
 
         if bucket_name:
             bucket_filename = os.path.join(bucket_output_path, 'last_epoch.pth.tar')
