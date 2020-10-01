@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+=======
+import collections
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 from pathlib import Path
 
 import numpy as np
@@ -8,8 +12,11 @@ import rasterio
 from rasterio.features import is_valid_geom
 from rasterio.mask import mask
 
+<<<<<<< HEAD
 from utils.utils import get_key_recursive
 
+=======
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
 def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
     '''
@@ -57,6 +64,10 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     """Clips input raster to limits of vector data in gpkg. Adapted from: https://automating-gis-processes.github.io/CSC18/lessons/L6/clipping-raster.html
     raster: Rasterio file handle holding the (already opened) input raster
     gpkg: Path and name of reference GeoPackage
+<<<<<<< HEAD
+=======
+    debug: if True, output raster as given by this function is saved to disk
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     """
     from shapely.geometry import box  # geopandas and shapely become a project dependency only during sample creation
     import geopandas as gpd
@@ -151,7 +162,11 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     """
     if len(write_array.shape) == 2:  # 2D array
         count = 1
+<<<<<<< HEAD
     elif len(write_array.shape) == 3:  # 3D array
+=======
+    elif len(write_array.shape) == 3:  # 3D array  # FIXME: why not keep all bands?
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
         count = 3
     else:
         raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
@@ -168,4 +183,20 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
             if count == 1:
                 dst.write(write_array[:, :], 1)
             elif count == 3:
+<<<<<<< HEAD
                 dst.write(write_array[:, :, :3])  # Take only first three bands assuming they are RGB.
+=======
+                dst.write(write_array[:, :, :3])  # Take only first three bands assuming they are RGB.
+
+
+def get_key_recursive(key, config):
+    """Returns a value recursively given a dictionary key that may contain multiple subkeys."""
+    if not isinstance(key, list):
+        key = key.split("/")  # subdict indexing split using slash
+    assert key[0] in config, f"missing key '{key[0]}' in metadata dictionary: {config}"
+    val = config[key[0]]
+    if isinstance(val, (dict, collections.OrderedDict)):
+        assert len(key) > 1, "missing keys to index metadata subdictionaries"
+        return get_key_recursive(key[1:], val)
+    return val
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5

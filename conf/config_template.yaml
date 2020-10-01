@@ -8,13 +8,23 @@
 #   7) Visualization parameters
 
 # Global parameters
+<<<<<<< HEAD
+=======
+
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 global:
   samples_size: 512
   num_classes: 5
   data_path: path/to/data
+<<<<<<< HEAD
   number_of_bands: 4
   # Model available: unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50, deeplabv3_resnet101
   model_name: unet
+=======
+  mlflow_uri: path/to/mlflow_tracking_uri  # Default to ./mlruns
+  number_of_bands: 4
+  model_name: unet     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50,deeplabv3_resnet101
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 2
@@ -32,6 +42,10 @@ global:
 
 
 # Data analysis parameters; used in data_analysis.py ------------------
+<<<<<<< HEAD
+=======
+
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 data_analysis:
   create_csv: False
   optimal_parameters_search : False
@@ -42,10 +56,18 @@ data_analysis:
     # values (int) represent class minimum threshold targeted in samples
 
 # Sample parameters; used in images_to_samples.py -------------------
+<<<<<<< HEAD
 sample:
   prep_csv_file: /path/to/csv/file.csv
   val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
   overlap: 25
+=======
+
+sample:
+  prep_csv_file: /path/to/csv/file.csv
+  val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
+  overlap: 25 # (int) Percentage of overlap between 2 chunks.
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
   sampling_method: # class_proportion or min_annotated_percent
     'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
     'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:
@@ -56,6 +78,10 @@ sample:
 
 
 # Training parameters; used in train_segmentation.py ----------------------
+<<<<<<< HEAD
+=======
+
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 training:
   state_dict_path: path/to/pretrained/file/checkpoint.pth.tar    # optional
   num_trn_samples: 4960
@@ -64,15 +90,21 @@ training:
   batch_size: 32
   num_epochs: 100
   target_size: 128
+<<<<<<< HEAD
   # Loss function available: CrossEntropy, Lovasz, Focal, OhemCrossEntropy 
   #                          (*Lovasz for segmentation tasks only)
   loss_fn: Lovasz
   # Optimizer available: adam. sgd, adabound
   optimizer: adabound
+=======
+  loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
+  optimizer: adabound # One of adam, sgd or adabound
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
   learning_rate: 0.0001
   weight_decay: 0
   step_size: 4
   gamma: 0.9
+<<<<<<< HEAD
   dropout: False   # (bool) Use dropout or not
   dropout_prob:    # (float) Set dropout probability, e.g. 0.5
   class_weights: [1.0, 2.0]
@@ -109,15 +141,45 @@ training:
     noise: # Not yet implemented
 
 # Inference parameters; used in inference.py --------
+=======
+  dropout: False    # (bool) Use dropout or not
+  dropout_prob:    # (float) Set dropout probability, e.g. 0.5
+  class_weights: [1.0, 2.0]
+  batch_metrics:    # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
+  ignore_index: 255 # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
+  normalization:  # Normalization parameters for finetuning (Ex. mean: [0.485, 0.456, 0.406], std: std: [0.229, 0.224, 0.225])
+    mean:
+    std:
+
+  augmentation:
+      rotate_limit: 45         # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
+      rotate_prob: 0.5         # Specifies the probability for data rotation. If not specified, no rotation will be performed.
+      hflip_prob: 0.5          # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.
+      random_radiom_trim_range: [0.1, 2.0] # Specifies the range in which a random percentile value will be chosen to trim values. This value applies to both left and right sides of the raster's histogram. If not specified, no enhancement will be performed.
+      brightness_contrast_range: # Not yet implemented
+      noise: # Not yet implemented
+
+# Inference parameters; used in inference.py --------
+
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 inference:
   img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
   state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
+<<<<<<< HEAD
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
   heatmaps: True
 
 
 # Visualization parameters
+=======
+  smooth_prediction: True
+  overlap: 2 # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
+
+
+# Visualization parameters
+
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 visualization:
   vis_batch_range: [0,200,10] #start, finish, increment
   vis_at_checkpoint: True
@@ -129,4 +191,8 @@ visualization:
   vis_at_train: True
   grid: True
   heatmaps: True
+<<<<<<< HEAD
   colormap_file: ./data/colormap.csv
+=======
+  colormap_file: ./data/colormap.csv
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5

@@ -7,7 +7,11 @@ from torch.utils.data import Dataset
 import numpy as np
 
 import models.coordconv
-from utils.utils import get_key_def, get_key_recursive
+from utils.utils import get_key_def
+from utils.geoutils import get_key_recursive
+
+from rasterio.crs import CRS  # don't delete these two imports!
+from affine import Affine
 
 from rasterio.crs import CRS  # don't delete these two imports!
 from affine import Affine

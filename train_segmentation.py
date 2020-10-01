@@ -32,6 +32,10 @@ from losses import MultiClassCriterion
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
+<<<<<<< HEAD
+=======
+from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
 
 def verify_weights(num_classes, weights):
@@ -68,18 +72,27 @@ def loader(path):
 def create_dataloader(samples_folder, batch_size, num_devices, params):
     """
     Function to create dataloader objects for training, validation and test datasets.
+<<<<<<< HEAD
     :param samples_folder: path to the folder containting .hdf5 files if task is segmentation
+=======
+    :param samples_folder: path to folder containting .hdf5 files if task is segmentation
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     :param batch_size: (int) batch size
     :param num_devices: (int) number of GPUs used
     :param params: (dict) Parameters found in the yaml config file.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
     debug = get_key_def('debug_mode', params['global'], False)
+<<<<<<< HEAD
     dontcare_val = get_key_def('ignore_index', params['training'], -1)
+=======
+    dontcare_val = get_key_def("ignore_index", params["training"], -1)
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
     assert samples_folder.is_dir(), f'Could not locate: {samples_folder}'
     assert len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
     num_samples = get_num_samples(samples_path=samples_folder, params=params)
+    assert num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size, f"Number of samples in .hdf5 files is less than batch size"    
     print(f"Number of samples : {num_samples}\n")
     meta_map = get_key_def("meta_map", params["global"], {})
     num_bands = get_key_def("number_of_bands", params["global"], {})
@@ -181,6 +194,216 @@ def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
     return model, criterion, optimizer, lr_scheduler
 
 
+def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
+    """
+    Use a model and dataloader to provide outputs that can then be sent to vis_from_batch function to visualize performances of model, for example.
+    :param params: (dict) Parameters found in the yaml config file.
+    :param eval_loader: data loader
+    :param model: model to evaluate
+    :param ep_num: epoch index (for file naming purposes)
+    :param dataset: (str) 'val or 'tst'
+    :param device: device used by pytorch (cpu ou cuda)
+    :param vis_batch_range: (int) max number of samples to perform visualization on
+
+    :return:
+    """
+    vis_path = output_path.joinpath(f'visualization')
+    tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
+    min_vis_batch, max_vis_batch, increment = vis_batch_range
+
+    model.eval()
+    with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
+        for batch_index, data in enumerate(_tqdm):
+            if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
+                with torch.no_grad():
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
+
+                    outputs = model(inputs)
+                    if isinstance(outputs, OrderedDict):
+                        outputs = outputs['out']
+
+                    vis_from_batch(params, inputs, outputs,
+                                   batch_index=batch_index,
+                                   vis_path=vis_path,
+                                   labels=labels,
+                                   dataset=dataset,
+                                   ep_num=ep_num)
+    tqdm.write(f'Saved visualization figures.\n')
+
+
+def train(train_loader,
+          model,
+          criterion,
+          optimizer,
+          scheduler,
+          num_classes,
+          batch_size,
+          ep_idx,
+          progress_log,
+          vis_params,
+          device,
+          debug=False
+          ):
+    """
+    Train the model and return the metrics of the training epoch
+    :param train_loader: training data loader
+    :param model: model to train
+    :param criterion: loss criterion
+    :param optimizer: optimizer to use
+    :param scheduler: learning rate scheduler
+    :param num_classes: number of classes
+    :param batch_size: number of samples to process simultaneously
+    :param ep_idx: epoch index (for hypertrainer log)
+    :param progress_log: progress log file (for hypertrainer log)
+    :param vis_params: (dict) Parameters found in the yaml config file. Named vis_params because they are only used for
+                        visualization functions.
+    :param device: device used by pytorch (cpu ou cuda)
+    :param debug: (bool) Debug mode
+    :return: Updated training loss
+    """
+    model.train()
+    train_metrics = create_metrics_dict(num_classes)
+    vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
+    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
+
+    with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
+        for batch_index, data in enumerate(_tqdm):
+            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
+
+            inputs = data['sat_img'].to(device)
+            labels = data['map_img'].to(device)
+
+            # forward
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            # added for torchvision models that output an OrderedDict with outputs in 'out' key.
+            # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
+            if isinstance(outputs, OrderedDict):
+                outputs = outputs['out']
+
+            if vis_batch_range and vis_at_train:
+                min_vis_batch, max_vis_batch, increment = vis_batch_range
+                if batch_index in range(min_vis_batch, max_vis_batch, increment):
+                    vis_path = progress_log.parent.joinpath('visualization')
+                    if ep_idx == 0:
+                        tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
+                    vis_from_batch(params, inputs, outputs,
+                                   batch_index=batch_index,
+                                   vis_path=vis_path,
+                                   labels=labels,
+                                   dataset='trn',
+                                   ep_num=ep_idx+1)
+
+            loss = criterion(outputs, labels)
+
+            train_metrics['loss'].update(loss.item(), batch_size)
+
+            if device.type == 'cuda' and debug:
+                res, mem = gpu_stats(device=device.index)
+                _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
+                                              gpu_perc=f'{res.gpu} %',
+                                              gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+                                              lr=optimizer.param_groups[0]['lr'],
+                                              img=data['sat_img'].numpy().shape,
+                                              smpl=data['map_img'].numpy().shape,
+                                              bs=batch_size,
+                                              out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
+
+            loss.backward()
+            optimizer.step()
+
+    scheduler.step()
+    if train_metrics["loss"].avg is not None:
+        print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
+    return train_metrics
+
+
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
+    """
+    Evaluate the model and return the updated metrics
+    :param eval_loader: data loader
+    :param model: model to evaluate
+    :param criterion: loss criterion
+    :param num_classes: number of classes
+    :param batch_size: number of samples to process simultaneously
+    :param ep_idx: epoch index (for hypertrainer log)
+    :param progress_log: progress log file (for hypertrainer log)
+    :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
+    :param dataset: (str) 'val or 'tst'
+    :param device: device used by pytorch (cpu ou cuda)
+    :return: (dict) eval_metrics
+    """
+    eval_metrics = create_metrics_dict(num_classes)
+    model.eval()
+    vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
+    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
+
+    with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
+        for batch_index, data in enumerate(_tqdm):
+            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
+
+            with torch.no_grad():
+                inputs = data['sat_img'].to(device)
+                labels = data['map_img'].to(device)
+                labels_flatten = flatten_labels(labels)
+
+                outputs = model(inputs)
+                if isinstance(outputs, OrderedDict):
+                    outputs = outputs['out']
+
+                if vis_batch_range and vis_at_eval:
+                    min_vis_batch, max_vis_batch, increment = vis_batch_range
+                    if batch_index in range(min_vis_batch, max_vis_batch, increment):
+                        vis_path = progress_log.parent.joinpath('visualization')
+                        if ep_idx == 0 and batch_index == min_vis_batch:
+                            tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
+                                       f'images will be saved to {vis_path}\n')
+                        vis_from_batch(params, inputs, outputs,
+                                       batch_index=batch_index,
+                                       vis_path=vis_path,
+                                       labels=labels,
+                                       dataset=dataset,
+                                       ep_num=ep_idx+1)
+
+                outputs_flatten = flatten_outputs(outputs, num_classes)
+
+                loss = criterion(outputs, labels)
+
+                eval_metrics['loss'].update(loss.item(), batch_size)
+
+                if (dataset == 'val') and (batch_metrics is not None):
+                    # Compute metrics every n batches. Time consuming.
+                    assert batch_metrics <= len(_tqdm), f"Batch_metrics ({batch_metrics} is smaller than batch size " \
+                        f"{len(_tqdm)}. Metrics in validation loop won't be computed"
+                    if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
+                        a, segmentation = torch.max(outputs_flatten, dim=1)
+                        eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
+                        eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
+                                                             ignore_index=eval_loader.dataset.dontcare)
+                elif dataset == 'tst':
+                    a, segmentation = torch.max(outputs_flatten, dim=1)
+                    eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
+                    eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
+                                                         ignore_index=eval_loader.dataset.dontcare)
+
+                _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
+
+                if debug and device.type == 'cuda':
+                    res, mem = gpu_stats(device=device.index)
+                    _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
+                                                  gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
+
+    print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
+    if batch_metrics is not None:
+        print(f"{dataset} precision: {eval_metrics['precision'].avg}")
+        print(f"{dataset} recall: {eval_metrics['recall'].avg}")
+        print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
+        print(f"{dataset} iou: {eval_metrics['iou'].avg}")
+
+    return eval_metrics
+
+
 def main(params, config_path):
     """
     Function to train and validate a models for semantic segmentation or classification.
@@ -204,6 +427,7 @@ def main(params, config_path):
     bucket_name = get_key_def('bucket_name', params['global'])
     data_path = Path(params['global']['data_path'])
     assert data_path.is_dir(), f'Could not locate data path {data_path}'
+<<<<<<< HEAD
 
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
@@ -212,6 +436,22 @@ def main(params, config_path):
     samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: won't check if folder has datetime suffix (if multiple folders)
     samples_folder = data_path.joinpath(samples_folder_name)
 
+=======
+
+    # mlflow tracking path + parameters logging
+    set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
+    set_experiment('gdl-training')
+    log_params(params['training'])
+    log_params(params['global'])
+    log_params(params['sample'])
+
+    samples_size = params["global"]["samples_size"]
+    overlap = params["sample"]["overlap"]
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], 0, expected_type=int)
+    num_bands = params['global']['number_of_bands']
+    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: won't check if folder has datetime suffix (if multiple folders)
+    samples_folder = data_path.joinpath(samples_folder_name)
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
     modelname = config_path.stem
     output_path = samples_folder.joinpath('model') / modelname
@@ -220,7 +460,10 @@ def main(params, config_path):
     output_path.mkdir(parents=True, exist_ok=False)
     shutil.copy(str(config_path), str(output_path))
     tqdm.write(f'Model and log files will be saved to: {output_path}\n\n')
+<<<<<<< HEAD
     # task = params['global']['task']
+=======
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     batch_size = params['training']['batch_size']
 
     if bucket_name:
@@ -237,9 +480,9 @@ def main(params, config_path):
     if not progress_log.exists():
         progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))  # Add header
 
-    trn_log = InformationLogger(output_path, 'trn')
-    val_log = InformationLogger(output_path, 'val')
-    tst_log = InformationLogger(output_path, 'tst')
+    trn_log = InformationLogger('trn')
+    val_log = InformationLogger('val')
+    tst_log = InformationLogger('tst')
 
     num_devices = params['global']['num_gpus']
     assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
@@ -251,7 +494,11 @@ def main(params, config_path):
     if num_devices == 1:
         print(f"Using Cuda device {lst_device_ids[0]}\n")
     elif num_devices > 1:
+<<<<<<< HEAD
         print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
+=======
+        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n")  # TODO: why are we showing indices [1:-1] for lst_device_ids?
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
         try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
@@ -271,7 +518,10 @@ def main(params, config_path):
                       " will be remapped to -1 while loading the dataset, and inside the config from now on.")
         params["training"]["ignore_index"] = -1
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     tqdm.write(f'Creating dataloaders from data in {samples_folder}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
@@ -300,9 +550,10 @@ def main(params, config_path):
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment). Check once for all visualization tasks.
         assert isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int) for x in vis_batch_range)
-        vis_at_init = get_key_def('vis_at_init', params['visualization'], False)
         vis_at_init_dataset = get_key_def('vis_at_init_dataset', params['visualization'], 'val')
-        if vis_at_init:
+
+        # Visualization at initialization. Visualize batch range before first eopch.
+        if get_key_def('vis_at_init', params['visualization'], False):
             tqdm.write(f'Visualizing initialized model on batch range {vis_batch_range} from {vis_at_init_dataset} dataset...\n')
             vis_from_dataloader(params=params,
                                 eval_loader=val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader,
@@ -329,7 +580,6 @@ def main(params, config_path):
                            device=device,
                            debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
-
 
         val_report = evaluation(eval_loader=val_dataloader,
                                 model=model,
@@ -359,7 +609,8 @@ def main(params, config_path):
                         'model': state_dict,
                         'best_loss': best_loss,
                         'optimizer': optimizer.state_dict()}, filename)
-
+            if epoch == 0:
+                log_artifact(filename)
             if bucket_name:
                 bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
@@ -370,7 +621,11 @@ def main(params, config_path):
             vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if last_vis_epoch == 0:
+<<<<<<< HEAD
                     tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for '
+=======
+                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for' 
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
                                f'batches in range {vis_batch_range}')
                 vis_from_dataloader(params=params,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
@@ -416,6 +671,7 @@ def main(params, config_path):
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
+<<<<<<< HEAD
 def train(train_loader,
           model,
           criterion,
@@ -687,6 +943,8 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
     tqdm.write(f'Saved visualization figures.\n')
 
 
+=======
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 if __name__ == '__main__':
     print(f'Start\n')
     parser = argparse.ArgumentParser(description='Training execution')

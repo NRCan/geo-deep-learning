@@ -10,7 +10,11 @@ from PIL import Image
 from matplotlib import pyplot as plt, gridspec, cm, colors
 import csv
 
+<<<<<<< HEAD
 from utils.utils import minmax_scale, unnormalize, get_key_def
+=======
+from utils.utils import unscale, unnormalize, get_key_def
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 from utils.geoutils import create_new_raster_from_base
 
 
@@ -79,7 +83,11 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
             debug=debug)
 
 
+<<<<<<< HEAD
 def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', ep_num=0, inference_input_path=False, debug=False):
+=======
+def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', ep_num=0, inference_input_path=False, debug=False):
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     """saves input, output and label (if given) as .png in a grid or as individual pngs
     :param params: parameters from .yaml config file
     :param input_: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
@@ -125,6 +133,7 @@ def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', 
     norm_std = get_key_def('std', params['training']['normalization'])
 
     if norm_mean and norm_std:
+<<<<<<< HEAD
         input_ = unnormalize(input_img=input_, mean=mean, std=std)
     input_ = minmax_scale(img=input_, orig_range=(scale[0], scale[1]), scale_range=(0, 255)) if scale else input_
     if 1 <= input_.shape[2] <= 2:
@@ -134,6 +143,17 @@ def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', 
         input_ = input_[:, :, :3]  # take three first bands assuming they are RGB in correct order
     mode = 'L' if input_.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
     input_PIL = Image.fromarray(input_.astype(np.uint8), mode=mode)  # TODO: test this with grayscale input.
+=======
+        input = unnormalize(input_img=input, mean=mean, std=std)
+    input = unscale(img=input, float_range=(scale[0], scale[1]), orig_range=(0, 255)) if scale else input
+    if 1 <= input.shape[2] <= 2:
+        input = input[:, :, :1]  # take first band (will become grayscale image)
+        input = np.squeeze(input)
+    elif input.shape[2] >= 3:
+        input = input[:, :, :3]  # take three first bands assuming they are RGB in correct order
+    mode = 'L' if input.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
+    input_PIL = Image.fromarray(input.astype(np.uint8), mode=mode)  # TODO: test this with grayscale input.
+>>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
     # Give value of class to band with highest value in final inference
     output_argmax = np.argmax(output, axis=2).astype(np.uint8)  # Flatten along channels axis. Convert to 8bit
