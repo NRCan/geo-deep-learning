@@ -1,6 +1,4 @@
-# Deep learning configuration file ------------------------------------------------
-# Five sections :
-#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
+
 #   2) Sampling parameters
 #   3) Training parameters
 #   4) Inference parameters
@@ -51,11 +49,7 @@ training:
   num_tst_samples:
   batch_size: 2
   num_epochs: 2
-<<<<<<< HEAD:conf/travis_CI/config_ci_segmentation_local.yaml
   target_size: 256
-=======
-  target_size: 128
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5:conf/config_ci_segmentation_local.yaml
   loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
   optimizer: adam # One of adam, sgd or adabound
   learning_rate: 0.0001
