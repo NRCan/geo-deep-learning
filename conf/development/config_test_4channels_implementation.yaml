@@ -35,6 +35,7 @@ global:
   coordvonc_scale:
   #####
   # Module to include the NIR (temporary)
+  # 'baseline'
   # 'conv1',
   # 'maxpool',
   # 'layer2',

@@ -352,7 +352,6 @@ def main(params: dict):
                             log_metrics(pixelMetrics.update(pixelMetrics.matthews))
 
                         label_classes = np.unique(label)
-                        print(len(color), len(label_classes))
                         assert len(colors) >= len(label_classes), f'Not enough colors and class names for number of classes in output'
                         # FIXME: color mapping scheme is hardcoded for now because of memory constraint; To be fixed.
                         label_rgb = ind2rgb(label, colors)

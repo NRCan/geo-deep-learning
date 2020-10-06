@@ -78,22 +78,32 @@ def net(net_params, num_channels, inference=False):
             print('Testing with 4 bands, concatenating at {}.'.format(conc_point))
 
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
-            classifier = list(model.classifier.children())
-            model.classifier = nn.Sequential(*classifier[:-1])
-            model.classifier.add_module(
+
+            if conc_point=='baseline':
+                conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
+                depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
+                conv1 = np.append(conv1, depth, axis=1)
+                conv1 = torch.from_numpy(conv1).float()
+                model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
+                classifier = list(model.classifier.children())
+                model.classifier = nn.Sequential(*classifier[:-1])
+                model.classifier.add_module(
                     '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
-            )
-
-            ###################
-            # TODO: See what to do with it
-            #conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-            #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
-            #conv1 = np.append(conv1, depth, axis=1)
-            #conv1 = torch.from_numpy(conv1).float()
-            #model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-            ###################
-
-            model = LayersEnsemble(model, conc_point=conc_point)
+                )
+            else:
+                classifier = list(model.classifier.children())
+                model.classifier = nn.Sequential(*classifier[:-1])
+                model.classifier.add_module(
+                        '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
+                )
+                ###################
+                #conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
+                #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
+                #conv1 = np.append(conv1, depth, axis=1)
+                #conv1 = torch.from_numpy(conv1).float()
+                #model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
+                ###################
+                model = LayersEnsemble(model, conc_point=conc_point)
 
     elif model_name == 'pan_pretrained':
         model = smp.PAN(
