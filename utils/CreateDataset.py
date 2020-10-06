@@ -13,9 +13,6 @@ from utils.geoutils import get_key_recursive
 from rasterio.crs import CRS  # don't delete these two imports!
 from affine import Affine
 
-from rasterio.crs import CRS  # don't delete these two imports!
-from affine import Affine
-
 
 def create_files_and_datasets(params, samples_folder):
     """
