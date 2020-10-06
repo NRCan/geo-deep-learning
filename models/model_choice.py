@@ -41,7 +41,7 @@ def net(net_params, num_channels, inference=False):
     pretrained = get_key_def('pretrained', net_params['training'], True) if not inference else False
     dropout = get_key_def('dropout', net_params['training'], False)
     dropout_prob = get_key_def('dropout_prob', net_params['training'], 0.5)
-    
+
     # TODO: find a way to maybe implement it in classification one day
     if 'concatenate_depth' in net_params['global']:
         # Read the concatenation point
@@ -60,8 +60,9 @@ def net(net_params, num_channels, inference=False):
         model = inception.Inception3(num_channels, num_bands)
     elif model_name == 'fcn_resnet101':
         assert num_bands == 3, msg
-        model = models.segmentation.fcn_resnet101(pretrained=pretrained, progress=True, num_classes=num_channels,
-                                                  aux_loss=None)
+        model = models.segmentation.fcn_resnet101(
+            pretrained=pretrained, progress=True, num_classes=num_channels, aux_loss=None
+        )
     elif model_name == 'deeplabv3_resnet101':
         assert (num_bands == 3 or num_bands == 4), msg
         if num_bands == 3:
@@ -69,14 +70,13 @@ def net(net_params, num_channels, inference=False):
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
             classifier = list(model.classifier.children())
             model.classifier = nn.Sequential(*classifier[:-1])
-<<<<<<< HEAD
             model.classifier.add_module(
                     '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
             )
         elif num_bands == 4:
             print('Finetuning pretrained deeplabv3 with 4 bands')
             print('Testing with 4 bands, concatenating at {}.'.format(conc_point))
-            
+
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
             classifier = list(model.classifier.children())
             model.classifier = nn.Sequential(*classifier[:-1])
@@ -95,20 +95,6 @@ def net(net_params, num_channels, inference=False):
 
             model = LayersEnsemble(model, conc_point=conc_point)
 
-=======
-            model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
-        elif num_bands == 4:
-            print('Finetuning pretrained deeplabv3 with 4 bands')
-            model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
-            conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-            depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
-            # depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
-            conv1 = np.append(conv1, depth, axis=1)
-            conv1 = torch.from_numpy(conv1).float()
-            model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-            classifier = list(model.classifier.children())
-            model.classifier = nn.Sequential(*classifier[:-1])
-            model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
     elif model_name == 'pan_pretrained':
         model = smp.PAN(
             encoder_name='se_resnext101_32x4d',
@@ -131,7 +117,7 @@ def net(net_params, num_channels, inference=False):
             in_channels=num_bands,
             classes=num_channels,
             activation=None)
-    elif model_name == 'pspnet_pretrained': 
+    elif model_name == 'pspnet_pretrained':
         model = smp.PSPNet(
             encoder_name="resnext50_32x4d",
             encoder_weights="imagenet",
@@ -145,8 +131,7 @@ def net(net_params, num_channels, inference=False):
             in_channels=num_bands,
             classes=num_channels,
             activation=None)
-    
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
+
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
 
@@ -158,8 +143,10 @@ def net(net_params, num_channels, inference=False):
         radius_channel = get_key_def('coordconv_radius_channel', net_params['global'], False)
         scale = get_key_def('coordconv_scale', net_params['global'], 1.0)
         # note: this operation will not attempt to preserve already-loaded model parameters!
-        model = coordconv.swap_coordconv_layers(model, centered=centered, normalized=normalized, noise=noise,
-                                                radius_channel=radius_channel, scale=scale)
+        model = coordconv.swap_coordconv_layers(
+            model, centered=centered, normalized=normalized, noise=noise,
+            radius_channel=radius_channel, scale=scale
+        )
 
     if inference:
         state_dict_path = net_params['inference']['state_dict_path']

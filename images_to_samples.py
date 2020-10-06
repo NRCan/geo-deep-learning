@@ -12,20 +12,12 @@ from tqdm import tqdm
 from collections import OrderedDict
 
 from utils.CreateDataset import create_files_and_datasets
-<<<<<<< HEAD
-from utils.utils import get_key_def, pad, pad_diff, read_csv
-=======
 from utils.utils import get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 from utils.geoutils import vector_to_raster
 from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import validate_num_classes, assert_num_bands, assert_crs_match, \
     validate_features_from_gpkg
-<<<<<<< HEAD
-=======
-
 from rasterio.features import is_valid_geom
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
 try:
     import boto3
@@ -73,28 +65,16 @@ def append_to_dataset(dataset, sample):
     dataset.resize(old_size + 1, axis=0)
     dataset[old_size, ...] = sample
     return old_size
-<<<<<<< HEAD
 
 
-=======
-
-
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 def validate_class_prop_dict(actual_classes_dict, config_dict):
     """
     Populate dictionary containing class values found in vector data with values (thresholds) from sample/class_prop
     parameter in config file
-<<<<<<< HEAD
 
     actual_classes_dict: dict
         Dictionary where each key is a class found in vector data. Value is not relevant (should be 0)
 
-=======
-
-    actual_classes_dict: dict
-        Dictionary where each key is a class found in vector data. Value is not relevant (should be 0)
-
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     config_dict:
         Dictionary with class ids (keys and thresholds (values) from config file
 
@@ -208,11 +188,7 @@ def samples_preparation(in_img_array,
     :param val_sample_file: (hdf5 dataset) hdfs file where samples will be written (val)
     :param dataset: (str) Type of dataset where the samples will be written. Can be 'trn' or 'val' or 'tst'
     :param pixel_classes: (dict) samples pixel statistics
-<<<<<<< HEAD
-    :param image_metadata () ?
-=======
     :param image_metadata: (dict) metadata associated to source raster
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     :param dontcare: Value in gpkg features that will ignored during training
     :param min_annot_perc: optional, minimum annotated percent required for sample to be created
     :param class_prop: optional, minimal proportion of pixels for each class required for sample to be created
@@ -230,16 +206,10 @@ def samples_preparation(in_img_array,
         raise ValueError(f"Dataset value must be trn or tst. Provided value is {dataset}")
 
     idx_samples_v = samples_count['val']
-<<<<<<< HEAD
 
     # Adds raster metadata to the dataset. All samples created by tiling below will point to that metadata by index
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
-=======
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
-    # Adds raster metadata to the dataset. All samples created by tiling below will point to that metadata by index
-    metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
-    
     if overlap > 25:
          warnings.warn("high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
     dist_samples = round(sample_size * (1 - (overlap / 100)))
@@ -401,11 +371,7 @@ def main(params):
         params["training"]["ignore_index"] = -1
 
     # creates pixel_classes dict and keys
-<<<<<<< HEAD
-    pixel_classes = {int(key): 0 for key in gpkg_classes}
-=======
     pixel_classes = {key: 0 for key in gpkg_classes}
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     background_val = 0
     pixel_classes[background_val] = 0
     class_prop = validate_class_prop_dict(pixel_classes, class_prop)
@@ -487,24 +453,6 @@ def main(params):
                     raise ValueError(f"Dataset value must be trn or tst. Provided value is {info['dataset']}")
                 val_file = val_hdf5
 
-<<<<<<< HEAD
-                # TODO: save histogram to metadata, then use it at radiometric trimming, if chosen.
-                metadata = raster.meta
-                metadata['name'] = raster.name
-                metadata['csv_info'] = info
-                # Save label's per class pixel count to image metadata
-                metadata['source_label_bincount'] = {class_num: count for class_num, count in
-                                                     enumerate(np.bincount(np_label_debug.clip(min=0).flatten()))}
-                metadata['source_raster_bincount'] = {}
-                # Save bincount (i.e. histogram) to metadata
-                for band_index in range(np_input_image.shape[2]):
-                    band = np_input_image[..., band_index]
-                    metadata['source_raster_bincount'][f'band{band_index}'] = {count for count in
-                                                                               np.bincount(band.flatten())}
-                if info['meta'] is not None and isinstance(info['meta'], str) and Path(info['meta']).is_file():
-                    yaml_metadata = read_parameters(info['meta'])
-                    metadata.update(yaml_metadata)
-=======
                 metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
                                                               raster_handle=raster,
                                                               meta_map=meta_map,
@@ -513,7 +461,6 @@ def main(params):
                 metadata['source_label_bincount'] = {class_num: count for class_num, count in
                                                           enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
                                                      if count > 0}  # TODO: add this to add_metadata_from[...] function?
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
                 np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
                 # 3. Prepare samples!

@@ -7,13 +7,8 @@ import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
 import numpy as np
-<<<<<<< HEAD
-import warnings
-import collections
-=======
 import scipy.signal
 import warnings
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 import matplotlib
 import matplotlib.pyplot as plt
 
@@ -160,26 +155,9 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
                 assert isinstance(val, expected_type), f"{val} is of type {type(val)}, expected {expected_type}"
             if delete:
                 del config[key]
-<<<<<<< HEAD
     return val
 
 
-def get_key_recursive(key, config):
-    """Returns a value recursively given a dictionary key that may contain multiple subkeys."""
-    if not isinstance(key, list):
-        key = key.split("/")  # subdict indexing split using slash
-    assert key[0] in config, f"missing key '{key[0]}' in metadata dictionary: {config}"
-    val = config[key[0]]
-    if isinstance(val, (dict, collections.OrderedDict)):
-        assert len(key) > 1, "missing keys to index metadata subdictionaries"
-        return get_key_recursive(key[1:], val)
-    return val
-
-
-=======
-    return val
-
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     """
     scale data values from original range to specified range
@@ -254,12 +232,7 @@ def pad(img, padding, fill=0):
 
 
 def pad_diff(actual_height, actual_width, desired_shape):
-<<<<<<< HEAD
-    """ Pads img_arr width or height < samples_size with zeros
-    """
-=======
     """ Pads img_arr width or height < samples_size with zeros """
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     h_diff = desired_shape - actual_height
     w_diff = desired_shape - actual_width
     padding = (0, 0, w_diff, h_diff)  # left, top, right, bottom
@@ -284,22 +257,18 @@ def BGR_to_RGB(array):
     array[:, :, :3] = RGB_channels
     return array
 
-<<<<<<< HEAD
-=======
 def ind2rgb(arr, color):
     """
     :param arr: (numpy array) index image to be color mapped
     :param color: (dict of RGB color values) for each class
     :return: (numpy_array) RGB image
-    """ 
-    
+    """
     h, w = arr.shape
     rgb = np.empty((h, w, 3), dtype=np.uint8)
     for cl in color:
         for ch in range(3):
           rgb[..., ch][arr == cl] = (color[cl][ch])
     return rgb
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
 def list_input_images(img_dir_or_csv: str,
                       bucket_name: str = None,
@@ -346,19 +315,6 @@ def list_input_images(img_dir_or_csv: str,
 
 
 def read_csv(csv_file_name):
-<<<<<<< HEAD
-    """Open csv file and parse it, returning a list of dict.
-
-    If inference == True, the dict contains this info:
-        - tif full path
-        - metadata yml full path (may be empty string if unavailable)
-    Else, the returned list contains a dict with this info:
-        - tif full path
-        - metadata yml full path (may be empty string if unavailable)
-        - gpkg full path
-        - attribute_name
-        - dataset (trn or val)
-=======
     """
     Open csv file and parse it, returning a list of dict.
     - tif full path
@@ -366,9 +322,7 @@ def read_csv(csv_file_name):
     - gpkg full path
     - attribute_name
     - dataset (trn or tst)
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     """
-
     list_values = []
     with open(csv_file_name, 'r') as f:
         reader = csv.reader(f)
@@ -378,11 +332,7 @@ def read_csv(csv_file_name):
             row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
             list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
             assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
-<<<<<<< HEAD
-            if row[2] is not None:
-=======
             if row[2]:
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
                 assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'
                 assert isinstance(row[3], str)
     try:
@@ -390,9 +340,6 @@ def read_csv(csv_file_name):
         list_values = sorted(list_values, key=lambda k: k['dataset'])
     except TypeError:
         list_values
-<<<<<<< HEAD
-    return list_values
-=======
     return list_values
 
 
@@ -475,4 +422,3 @@ def _window_2D(window_size, power=2):
         # plt.show()
         cached_2d_windows[key] = wind
     return wind
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5

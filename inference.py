@@ -19,164 +19,20 @@ from pathlib import Path
 from utils.metrics import ComputePixelMetrics
 from models.model_choice import net
 from utils import augmentation
-<<<<<<< HEAD
-from utils.augmentation import RadiometricTrim
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, list_input_images
-=======
 from utils.geoutils import vector_to_raster
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, \
 list_input_images, pad, pad_diff, ind2rgb, add_metadata_from_raster_to_sample, _window_2D
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 from utils.readers import read_parameters, image_reader_as_array
 from utils.CreateDataset import MetaSegmentationDataset
 from utils.verifications import add_background_to_num_class
 from utils.visualization import vis, vis_from_batch
-from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics 
+from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
 
 try:
     import boto3
 except ModuleNotFoundError:
     pass
-<<<<<<< HEAD
 
-
-def sem_seg_inference(
-        model, nd_array, overlay, chunk_size, num_classes, device,
-        src_raster_dtype=None, meta_map=None, metadata=None,
-        output_path=Path(os.getcwd()), index=0, debug=False
-    ):
-    """Inference on images using semantic segmentation
-    Args:
-        model: model to use for inference
-        nd_array: input raster as array
-        overlay: amount of overlay to apply
-        chunk_size: size of individual chunks to be processed during inference
-        num_classes: number of different classes that may be predicted by the model
-        device: device used by pytorch (cpu ou cuda)
-        src_raster_dtype: datatype of source raster
-        meta_map:
-        metadata:
-        output_path: path to save debug files
-        index: (int) index of array from list of images on which inference is performed
-
-    Returns:
-        output_mask_raw_cropped: numpy array of the same size (h,w) as the input image,
-                                 where each value is the predicted output.
-
-    Raises:
-        IOError: If the image shape of {len(nd_array.shape)} is not recognized.
-
-    """
-
-    # switch to evaluate mode
-    model.eval()
-
-    if len(nd_array.shape) == 3:
-        h, w, nb = nd_array.shape
-        # Pad with overlay on left and top and pad with chunk_size on right and bottom
-        padded_array = np.pad(nd_array, ((overlay, chunk_size), (overlay, chunk_size), (0, 0)), mode='constant')
-    elif len(nd_array.shape) == 2:
-        h, w = nd_array.shape
-        padded_array = np.expand_dims(np.pad(nd_array, ((overlay, chunk_size), (overlay, chunk_size)),
-                                             mode='constant'), axis=0)
-    else:
-        h = 0
-        w = 0
-        padded_array = None
-
-    h_padded, w_padded = padded_array.shape[:2]
-    # Create an empty array of dimensions (c x h x w): num_classes x height of padded array x width of padded array
-    output_probs = np.empty([num_classes, h_padded, w_padded], dtype=np.float32)
-    # Create identical 0-filled array without channels dimension to receive counts for number of outputs generated in specific area.
-    output_counts = np.zeros([output_probs.shape[1], output_probs.shape[2]], dtype=np.int32)
-
-    totensor_transform = augmentation.compose_transforms(params, dataset="tst", type='totensor')
-
-    if padded_array.any():
-        with torch.no_grad():
-            for row in tqdm(range(overlay, h + chunk_size, chunk_size - overlay), position=1, leave=False,
-                      desc=f'Inferring rows with "{device}"'):
-                row_start = row - overlay
-                row_end = row_start + chunk_size
-                with tqdm(range(overlay, w + chunk_size, chunk_size - overlay), position=2, leave=False, desc='Inferring columns') as _tqdm:
-                    for col in _tqdm:
-                        sample = {'sat_img': None, 'metadata': {'dtype':None}}
-                        sample['metadata']['dtype'] = src_raster_dtype
-
-                        col_start = col - overlay
-                        col_end = col_start + chunk_size
-
-                        sample['sat_img'] = padded_array[row_start:row_end, col_start:col_end, :]
-                        if meta_map:
-                            sample['sat_img'] = MetaSegmentationDataset.append_meta_layers(sample['sat_img'], meta_map, metadata)
-
-                        sample = totensor_transform(sample)
-                        inputs = sample['sat_img'].unsqueeze_(0)  # Add dummy batch dimension
-
-                        inputs = inputs.to(device)
-
-                        # forward
-                        if inputs.shape[1] == 4:
-                            ############################
-                            # Test Implementation of the NIR
-                            ############################
-                            # Init NIR   TODO: make a proper way to read the NIR channel 
-                            #                  and put an option to be able to give the idex of the NIR channel
-                            inputs_NIR = inputs[:,-1,...] # Extract the NIR channel -> [batch size, H, W] since it's only one channel
-                            inputs_NIR.unsqueeze_(1) # add a channel to get the good size -> [:, 1, :, :]
-                            inputs = inputs[:,:-1, ...] # take out the NIR channel and take only the RGB for the inputs
-                            # Suggestion of implementation
-                            #inputs_NIR = data['NIR'].to(device)
-                            inputs = [inputs, inputs_NIR]
-                            #outputs = model(inputs, inputs_NIR)
-                            ############################
-                            # End of the test implementation module
-                            ############################
-                        #else: 
-                        outputs = model(inputs)
-
-                        # torchvision models give output in 'out' key. May cause problems in future versions of torchvision.
-                        if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
-                            outputs = outputs['out']
-
-                        if debug:
-                            if index == 0:
-                                tqdm.write(f'(debug mode) Visualizing inferred tiles...')
-                            vis_from_batch(params, inputs, outputs, batch_index=0, vis_path=output_path,
-                                           dataset=f'{row_start}_{col_start}_inf', ep_num=index, debug=True)
-
-                        outputs = F.softmax(outputs, dim=1)
-
-                        output_counts[row_start:row_end, col_start:col_end] += 1
-
-                        # Add inference on sub-image to all completed inferences on previous sub-images.
-                        # TODO: This operation need to be optimized. Using a lot of RAM on large images.
-                        output_probs[:, row_start:row_end, col_start:col_end] += np.squeeze(outputs.cpu().numpy(),
-                                                                                            axis=0)
-
-                        if debug and device.type == 'cuda':
-                            # Select only the RGB image if `inputs` is a list of images [RGB, NIR]
-                            inputs = inputs[0] if type(inputs) is list else inputs
-
-                            res, mem = gpu_stats(device=device.index)
-                            _tqdm.set_postfix(OrderedDict(gpu_perc=f'{res.gpu} %',
-                                                          gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
-                                                          inp_size=inputs.cpu().numpy().shape,
-                                                          out_size=outputs.cpu().numpy().shape,
-                                                          overlay=overlay))
-
-            # Divide array according to output counts. Manages overlap and returns a softmax array as if only one forward pass had been done.
-            output_mask_raw = np.divide(output_probs, np.maximum(output_counts, 1))  # , 1 is added to overwrite 0 values.
-
-            # Resize the output array to the size of the input image and write it
-            output_mask_raw_cropped = np.moveaxis(output_mask_raw, 0, -1)
-            output_mask_raw_cropped = output_mask_raw_cropped[overlay:(h + overlay), overlay:(w + overlay), :]
-
-            return output_mask_raw_cropped
-    else:
-        raise IOError(f"Error classifying image : Image shape of {len(nd_array.shape)} is not recognized")
-
-=======
 colors = {0: [0, 0, 0],  # Background
           1: [27, 120, 55],  # Vegetation
           2: [116, 173, 209], # Hydro
@@ -189,15 +45,15 @@ def segmentation_with_smoothing(raster, clip_gpkg, model, sample_size, overlap, 
     model.eval()
     img_array, input_image, dataset_nodata = image_reader_as_array(input_image=raster,
                                                                    clip_gpkg=clip_gpkg)
-    metadata = add_metadata_from_raster_to_sample(img_array, 
-                                                    input_image, 
-                                                    meta_map=None, 
+    metadata = add_metadata_from_raster_to_sample(img_array,
+                                                    input_image,
+                                                    meta_map=None,
                                                     raster_info=None)
     h, w, bands = img_array.shape
     assert num_bands <= bands, f"Num of specified bands is not compatible with image shape {img_array.shape}"
     if num_bands < bands:
        img_array = img_array[:, :, :num_bands]
-    
+
     padding = int(round(sample_size * (1 - 1.0/overlap)))
     padded_img = pad(img_array, padding=padding, fill=0)
     WINDOW_SPLINE_2D = _window_2D(window_size=sample_size, power=1)
@@ -210,14 +66,38 @@ def segmentation_with_smoothing(raster, clip_gpkg, model, sample_size, overlap, 
             for col in _tqdm:
                 sample = {'sat_img': None, 'metadata': None}
                 sample['metadata'] = metadata
-                totensor_transform = augmentation.compose_transforms(params, dataset="tst", type='totensor')
+                totensor_transform = augmentation.compose_transforms(
+                    params, dataset="tst", type='totensor'
+                )
                 sub_images = padded_img[row:row+sample_size, col:col+sample_size, :]
                 sample['sat_img'] = sub_images
                 sample = totensor_transform(sample)
                 inputs = sample['sat_img'].unsqueeze_(0)
                 inputs = inputs.to(device)
+
+                if inputs.shape[1] == 4:
+                    ############################
+                    # Test Implementation of the NIR
+                    ############################
+                    # Init NIR   TODO: make a proper way to read the NIR channel 
+                    #                  and put an option to be able to give the idex of the NIR channel
+                    # Extract the NIR channel -> [batch size, H, W] since it's only one channel
+                    inputs_NIR = inputs[:,-1,...]
+                    # add a channel to get the good size -> [:, 1, :, :]
+                    inputs_NIR.unsqueeze_(1)
+                    # take out the NIR channel and take only the RGB for the inputs
+                    inputs = inputs[:,:-1, ...]
+                    # Suggestion of implementation
+                    #inputs_NIR = data['NIR'].to(device)
+                    inputs = [inputs, inputs_NIR]
+                    #outputs = model(inputs, inputs_NIR)
+                    ############################
+                    # End of the test implementation module
+                    ############################
+
                 outputs = model(inputs)
-                # torchvision models give output in 'out' key. May cause problems in future versions of torchvision.
+                # torchvision models give output in 'out' key.
+                # May cause problems in future versions of torchvision.
                 if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
                     outputs = outputs['out']
                 outputs = F.softmax(outputs, dim=1).squeeze(dim=0).cpu().numpy()
@@ -233,13 +113,13 @@ def segmentation(raster, clip_gpkg, model, sample_size, num_bands, device):
     model.eval()
     img_array, input_image, dataset_nodata = image_reader_as_array(input_image=raster,
                                                                    clip_gpkg=clip_gpkg)
-    metadata = add_metadata_from_raster_to_sample(img_array, 
-                                                    input_image, 
-                                                    meta_map=None, 
+    metadata = add_metadata_from_raster_to_sample(img_array,
+                                                    input_image,
+                                                    meta_map=None,
                                                     raster_info=None)
     h, w, bands = img_array.shape
     assert num_bands <= bands, f"Num of specified bands is not compatible with image shape {img_array.shape}"
-    if num_bands < bands: 
+    if num_bands < bands:
        img_array = img_array[:, :, :num_bands]
     h_ = sample_size * math.ceil(h / sample_size)
     w_ = sample_size * math.ceil(w / sample_size)
@@ -253,7 +133,7 @@ def segmentation(raster, clip_gpkg, model, sample_size, num_bands, device):
                 sub_images = img_array[row:row + sample_size, column:column + sample_size, :]
                 sub_images_row = sub_images.shape[0]
                 sub_images_col = sub_images.shape[1]
-                
+
                 if sub_images_row < sample_size or sub_images_col < sample_size:
                     padding = pad_diff(actual_height=sub_images_row,
                                         actual_width=sub_images_col,
@@ -272,7 +152,6 @@ def segmentation(raster, clip_gpkg, model, sample_size, num_bands, device):
                 pred_img[row:row + sample_size, column:column + sample_size] = outputs
 
     return pred_img[:h, :w]
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
 def classifier(params, img_list, model, device, working_folder):
     """
@@ -349,20 +228,8 @@ def main(params: dict):
     """
     # SET BASIC VARIABLES AND PATHS
     since = time.time()
-<<<<<<< HEAD
-
-    debug = get_key_def('debug_mode', params['global'], False)
-    if debug:
-        warnings.warn(f'Debug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.')
-
-    num_classes = params['global']['num_classes']
-    task = params['global']['task']
-    num_classes_corrected = add_background_to_num_class(task, num_classes)
-
-=======
     task = params['global']['task']
     img_dir_or_csv = params['inference']['img_dir_or_csv_file']
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     chunk_size = get_key_def('chunk_size', params['inference'], 512)
     prediction_with_smoothing = get_key_def('smooth_prediction', params['inference'], False)
     overlap = get_key_def('overlap', params['inference'], 2)
@@ -377,33 +244,17 @@ def main(params: dict):
     bucket = None
     bucket_file_cache = []
     bucket_name = get_key_def('bucket_name', params['global'])
-<<<<<<< HEAD
 
     # CONFIGURE MODEL
     model, state_dict_path, model_name = net(params, num_channels=num_classes_corrected, inference=True)
 
-    num_devices = params['global']['num_gpus'] if params['global']['num_gpus'] else 0
-=======
-    
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
-    # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
-    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-
-    if lst_device_ids:
-        print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using {lst_device_ids[0]}\n\n")
-    else:
-        warnings.warn(f"No Cuda device available. This process will only run on CPU")
-
-    # CONFIGURE MODEL
-    model, state_dict_path, model_name = net(params, num_channels=num_classes_corrected, inference=True)
     try:
         model.to(device)
     except RuntimeError:
         print(f"Unable to use device. Trying device 0")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
-    
+
     # mlflow tracking path + parameters logging
     set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
     set_experiment('gdl-benchmarking/' + working_folder.name)
@@ -412,42 +263,25 @@ def main(params: dict):
 
     # CREATE LIST OF INPUT IMAGES FOR INFERENCE
     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
-<<<<<<< HEAD
-    
-    if task == 'classification':
-        classifier(params, list_img, model, device, working_folder)  # TODO: why don't we load from checkpoint in classification?
-        
-    elif task == 'segmentation':
-=======
 
     if task == 'classification':
-        classifier(params, list_img, model, device, working_folder)  # FIXME: why don't we load from checkpoint in classification?
+        # FIXME: why don't we load from checkpoint in classification?
+        classifier(params, list_img, model, device, working_folder)
 
     elif task == 'segmentation':
         # TODO: Add verifications?
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
         if bucket:
             bucket.download_file(state_dict_path, "saved_model.pth.tar")  # TODO: is this still valid?
             model, _ = load_from_checkpoint("saved_model.pth.tar", model)
         else:
             model, _ = load_from_checkpoint(state_dict_path, model)
-<<<<<<< HEAD
-
-        ignore_index = get_key_def('ignore_index', params['training'], -1)
-        meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
-        
-=======
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
         # LOOP THROUGH LIST OF INPUT IMAGES
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
             for info in _tqdm:
                 img_name = Path(info['tif']).name
-<<<<<<< HEAD
-=======
                 local_gpkg = info['gpkg']
                 if local_gpkg:
                     local_gpkg = Path(local_gpkg)
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
                 if bucket:
                     local_img = f"Images/{img_name}"
                     bucket.download_file(info['tif'], local_img)
@@ -460,105 +294,15 @@ def main(params: dict):
                 else:  # FIXME: else statement should support img['meta'] integration as well.
                     local_img = Path(info['tif'])
                     inference_image = working_folder.joinpath(f"{img_name.split('.')[0]}_inference.tif")
-<<<<<<< HEAD
-
-                assert local_img.is_file(), f"Could not open raster file at {local_img}"
-
-                # Empty sample as dictionary
-                inf_sample = {'sat_img': None, 'metadata': None}
-                
-                with rasterio.open(local_img, 'r') as raster_handle:
-                    inf_sample['sat_img'], raster_handle, dataset_nodata = image_reader_as_array(
-                            input_image=raster_handle,
-                            aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
-                            aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
-                            aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
-                            aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
-                            aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None)
-                    )
-                    
-                metadata = raster_handle.meta
-                metadata['name'] = raster_handle.name
-                metadata['csv_info'] = info
-                inf_sample['metadata'] = metadata
-                inf_sample['metadata']['source_raster_bincount'] = {}
-                # Save bincount (i.e. histogram) to metadata
-                for band_index in range(inf_sample['sat_img'].shape[2]):
-                    band = inf_sample['sat_img'][..., band_index]
-                    inf_sample['metadata']['source_raster_bincount'][f'band{band_index}'] = {
-                            count for count in np.bincount(band.flatten())
-                    }
-                    
-                random_radiom_trim_range = get_key_def(
-                        'random_radiom_trim_range', params['training']['augmentation'], None
-                )
-                if random_radiom_trim_range is not None:  # TODO: test this
-                    trim_at_inference = round((random_radiom_trim_range[-1]-random_radiom_trim_range[0])/2, 1)
-                    radiom_scaling = RadiometricTrim(range=[trim_at_inference, trim_at_inference])
-                    inf_sample = radiom_scaling(inf_sample)
-                    
-                    if debug:
-                        output_name = working_folder / f'{local_img.stem}_radiomtrim.TIF'
-                        out_meta = raster_handle.meta.copy()
-                        np_image_debug = inf_sample['sat_img'].transpose(2, 0, 1).astype(out_meta['dtype'])
-                        out_meta.update({"driver": "GTiff"})
-                        with rasterio.open(output_name, "w", **out_meta) as dest:
-                            dest.write(np_image_debug)
-                        print(f'DEBUG: Saved raster after radiometric trim to {output_name}')
-                                    
-                if meta_map:
-                    assert info['meta'] is not None and isinstance(info['meta'], str) and os.path.isfile(info['meta']), \
-                        "global configuration requested metadata mapping onto loaded samples, but raster did not have available metadata"
-                    metadata = read_parameters(info['meta'])
-
-                _tqdm.set_postfix(OrderedDict(img_name=img_name,
-                                              img=inf_sample['sat_img'].shape,
-                                              img_min_val=np.min(inf_sample['sat_img']),
-                                              img_max_val=np.max(inf_sample['sat_img'])))
-
-                input_band_count = inf_sample['sat_img'].shape[2] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
-                if input_band_count > num_bands:  # TODO: move as new function in utils.verifications
-                    # FIXME: Following statements should be reconsidered to better manage inconsistencies between
-                    #  provided number of band and image number of band.
-                    warnings.warn(f"Input image has more band than the number provided in the yaml file ({num_bands}). "
-                                  f"Will use the first {num_bands} bands of the input image.")
-                    inf_sample['sat_img'] = inf_sample['sat_img'][:, :, 0:num_bands]
-                    print(f"Input image's new shape: {inf_sample['sat_img'].shape}")
-
-                elif input_band_count < num_bands:
-                    warnings.warn(f"Skipping image: The number of bands requested in the yaml file ({num_bands})"
-                                  f"can not be larger than the number of band in the input image ({input_band_count}).")
-                    continue
-
-                # START INFERENCES ON SUB-IMAGES
-                sem_seg_results_per_class = sem_seg_inference(
-                        model, inf_sample['sat_img'], nbr_pix_overlap, chunk_size,
-                        num_classes_corrected, device, raster_handle.meta['dtype'],
-                        meta_map, metadata, output_path=working_folder, index=_tqdm.n,
-                        debug=debug
-                )
-
-                # CREATE GEOTIF FROM METADATA OF ORIGINAL IMAGE
-                tqdm.write(f'Saving inference...\n')
-                if get_key_def('heatmaps', params['inference'], False):
-                    tqdm.write(f'Heatmaps will be saved.\n')
-                vis(params, inf_sample['sat_img'], sem_seg_results_per_class, working_folder, inference_input_path=local_img, debug=debug)
-
-                tqdm.write(f"\n\nSemantic segmentation of image {img_name} completed\n\n")
-                if bucket:
-                    bucket.upload_file(inference_image, os.path.join(working_folder, f"{img_name.split('.')[0]}_inference.tif"))
-    else:
-        raise ValueError(
-            f"The task should be either classification or segmentation. The provided value is {params['global']['task']}")
-
-=======
-                    print(inference_image)                    
+                    print(inference_image)
                 assert local_img.is_file(), f"Could not locate raster file at {local_img}"
                 with rasterio.open(local_img, 'r') as raster:
                     inf_meta= raster.meta
                     if prediction_with_smoothing:
                         print('Smoothening Predictions with 2D interpolation')
-                        pred = segmentation_with_smoothing(raster, local_gpkg, model, chunk_size, overlap, num_bands, device)
+                        pred = segmentation_with_smoothing(
+                            raster, local_gpkg, model, chunk_size, overlap, num_bands, device
+                        )
                     else:
                         pred = segmentation(raster, local_gpkg, model, chunk_size, num_bands, device)
                     if local_gpkg:
@@ -576,7 +320,7 @@ def main(params: dict):
                             log_metrics(pixelMetrics.update(pixelMetrics.precision))
                             log_metrics(pixelMetrics.update(pixelMetrics.recall))
                             log_metrics(pixelMetrics.update(pixelMetrics.matthews))
-                        
+
                         label_classes = np.unique(label)
                         assert len(colors) >= len(label_classes), f'Not enough colors and class names for number of classes in output'
                         # FIXME: color mapping scheme is hardcoded for now because of memory constraint; To be fixed.
@@ -584,18 +328,17 @@ def main(params: dict):
                         pred_rgb = ind2rgb(pred, colors)
                         Image.fromarray((label_rgb).astype(np.uint8), mode='RGB').save(os.path.join(working_folder, 'label_rgb_' + inference_image.stem + '.png'))
                         Image.fromarray((pred_rgb).astype(np.uint8), mode='RGB').save(os.path.join(working_folder, 'pred_rgb_' + inference_image.stem + '.png'))
-                        del label_rgb, pred_rgb                         
-                    pred = pred[np.newaxis, :, :]       
+                        del label_rgb, pred_rgb
+                    pred = pred[np.newaxis, :, :]
                     inf_meta.update({"driver": "GTiff",
                                      "height": pred.shape[1],
                                      "width": pred.shape[2],
                                      "count": pred.shape[0],
                                      "dtype": 'uint8'})
-                    
+
                     with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
                         dest.write(pred)
-        log_artifact(working_folder)   
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
+        log_artifact(working_folder)
     time_elapsed = time.time() - since
     print('Inference and Benchmarking completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 

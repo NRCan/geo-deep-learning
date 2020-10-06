@@ -1,4 +1,5 @@
-# WARNING: data being augmented may be scaled to (0,1) rather, for example, (0,255). Therefore, implementing radiometric
+# WARNING: data being augmented may be scaled to (0,1) rather, for example, (0,255).
+#          Therefore, implementing radiometric
 # augmentations (ex.: changing hue, saturation, brightness, contrast) may give undesired results.
 # Scaling process is done in images_to_samples.py l.215
 import numbers
@@ -6,7 +7,8 @@ import warnings
 from typing import Sequence
 
 import torch
-# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
+# import torch should be first.
+# Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import random
 import numpy as np
 from skimage import transform, exposure
@@ -24,33 +26,20 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
     :return: (obj) PyTorch's compose object of the transformations to be applied.
     """
     lst_trans = []
-<<<<<<< HEAD
-    scale = get_key_def('scale_data', params['global'], None)
-    norm_mean = get_key_def('mean', params['training']['normalization'])
-    norm_std = get_key_def('std', params['training']['normalization'])
-=======
     input_space = get_key_def('BGR_to_RGB', params['global'], False)
     scale = get_key_def('scale_data', params['global'], None)
     norm_mean = get_key_def('mean', params['training']['normalization'])
     norm_std = get_key_def('std', params['training']['normalization'])
     random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['training']['augmentation'], None)
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
     if dataset == 'trn':
 
         if type == 'radiometric':
-<<<<<<< HEAD
-            random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['training']['augmentation'], None)
             noise = get_key_def('noise', params['training']['augmentation'], None)
 
             if random_radiom_trim_range:  # Contrast stretching
-                lst_trans.append(RadiometricTrim(range=random_radiom_trim_range))  # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
-=======
-            noise = get_key_def('noise', params['training']['augmentation'], None)
-
-            if random_radiom_trim_range:  # Contrast stretching
-                lst_trans.append(RadiometricTrim(random_range=random_radiom_trim_range))  # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
+                # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
+                lst_trans.append(RadiometricTrim(random_range=random_radiom_trim_range))
 
             if noise:
                 raise NotImplementedError
@@ -67,25 +56,22 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
 
             if hflip:
                 lst_trans.append(HorizontalFlip(prob=params['training']['augmentation']['hflip_prob']))
-<<<<<<< HEAD
 
             if rotate_limit and rotate_prob:
-                lst_trans.append(RandomRotationTarget(limit=rotate_limit, prob=rotate_prob, ignore_index=ignore_index))
+                lst_trans.append(
+                    RandomRotationTarget(
+                        limit=rotate_limit, prob=rotate_prob, ignore_index=ignore_index
+                    )
+                )
 
-=======
-
-            if rotate_limit and rotate_prob:
-                lst_trans.append(RandomRotationTarget(limit=rotate_limit, prob=rotate_prob, ignore_index=ignore_index))
-
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
             if crop_size:
                 lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=ignore_index))
 
     if type == 'totensor':
-<<<<<<< HEAD
-=======
-        if not dataset == 'trn' and random_radiom_trim_range:  # Contrast stretching at eval. Use mean of provided range
-            RadiometricTrim.input_checker(random_radiom_trim_range)  # Assert range is number or 2 element sequence
+        # Contrast stretching at eval. Use mean of provided range
+        if not dataset == 'trn' and random_radiom_trim_range:
+            # Assert range is number or 2 element sequence
+            RadiometricTrim.input_checker(random_radiom_trim_range)
             if isinstance(random_radiom_trim_range, numbers.Number):
                 trim_at_eval = random_radiom_trim_range
             else:
@@ -95,7 +81,6 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
         if input_space:
             lst_trans.append(BgrToRgb(input_space))
 
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
         if scale:
             lst_trans.append(Scale(scale))  # TODO: assert coherence with below normalization
 
@@ -103,11 +88,7 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
                                        std=params['training']['normalization']['std']))
 
-<<<<<<< HEAD
-        lst_trans.append(ToTensorTarget(get_key_def('BGR_to_RGB', params['global'], False))) # Send channels first, convert numpy array to torch tensor
-=======
         lst_trans.append(ToTensorTarget()) # Send channels first, convert numpy array to torch tensor
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
 
     return transforms.Compose(lst_trans)
 
@@ -116,37 +97,13 @@ class RadiometricTrim(object):
     """Trims values left and right of the raster's histogram. Also called linear scaling or enhancement.
     Percentile, chosen randomly based on inputted range, applies to both left and right sides of the histogram.
     Ex.: Values below the 1.7th and above the 98.3th percentile will be trimmed if random value is 1.7"""
-<<<<<<< HEAD
-    def __init__(self, range):
-        self.range = range
-
-    def __call__(self, sample):
-        trim = round(random.uniform(self.range[0], self.range[-1]), 1)
-        out_dtype = sample['metadata']['dtype']
-        rescaled_sat_img = np.empty(sample['sat_img'].shape, dtype=sample['sat_img'].dtype)
-        for band_idx in range(sample['sat_img'].shape[2]):
-            band = sample['sat_img'][:, :, band_idx]
-            left_pixel_val = round(sum(sample['metadata']['source_raster_bincount'][f'band{band_idx}']) / 100 * trim)
-            right_pixel_val = round(sum(sample['metadata']['source_raster_bincount'][f'band{band_idx}']) / 100 * (100-trim))
-            pixel_count = 0
-            # TODO: can this for loop be optimized? Also, this hasn't been tested with non 8-bit data. Should be fine though.
-            for pixel_val, bin_count_per_bin in enumerate(sample['metadata']['source_raster_bincount'][f'band{band_idx}']):
-                lower_limit = pixel_count
-                upper_limit = pixel_count + bin_count_per_bin
-                if lower_limit <= left_pixel_val <= upper_limit:
-                    perc_left = pixel_val
-                if lower_limit <= right_pixel_val <= upper_limit:
-                    perc_right = pixel_val
-                pixel_count += bin_count_per_bin
-            rescaled_band = exposure.rescale_intensity(band, in_range=(perc_left, perc_right), out_range=out_dtype)
-=======
     def __init__(self, random_range):
         """
         @param random_range: numbers.Number (float or int) or Sequence (list or tuple) with length of 2
         """
         random_range = self.input_checker(random_range)
         self.range = random_range
-        
+
     @staticmethod
     def input_checker(input_param):
         if not isinstance(input_param, (numbers.Number, Sequence)):
@@ -190,7 +147,6 @@ class RadiometricTrim(object):
             # Enhance using above left and right pixel values as in_range
             rescaled_band = exposure.rescale_intensity(band, in_range=(left_pix_val, right_pix_val), out_range=out_dtype)
             # Write each enhanced band to empty array
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
             rescaled_sat_img[:, :, band_idx] = rescaled_band
         sample['sat_img'] = rescaled_sat_img
         return sample
@@ -198,11 +154,7 @@ class RadiometricTrim(object):
 
 class Scale(object):
     """
-<<<<<<< HEAD
-    Scale array values from range [0,255]  or [0,65535] to values in config (e.g. [0,1])
-=======
     Scale array values from range [0,255]  or [0,65535] to values in config ([0,1] or [-1, 1])
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
     Guidelines for pre-processing: http://cs231n.github.io/neural-networks-2/#datapre
     """
     def __init__(self, range):
@@ -217,14 +169,11 @@ class Scale(object):
         min_val, max_val = np.nanmin(raster), np.nanmax(raster)
         if 'int' in dtype:
             orig_range = (np.iinfo(dtype).min, np.iinfo(dtype).max)
-<<<<<<< HEAD
-=======
         elif min_val >= 0 and max_val <= 255:
             orig_range = (0, 255)
             warnings.warn(f"Values in input image of shape {raster.shape} "
                           f"range from {min_val} to {max_val}."
                           f"Image will be considered 8 bit for scaling.")
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
         elif min_val >= 0 and max_val <= 65535:
             orig_range = (0, 65535)
             warnings.warn(f"Values in input image of shape {raster.shape} "
@@ -300,7 +249,9 @@ class HorizontalFlip(object):
         return sample
 
 
-class RandomCrop(object):  # TODO: what to do with overlap in samples_prep (images_to_samples, l.106)? overlap doesn't need to be larger than, say, 5%
+class RandomCrop(object):  
+    # TODO: what to do with overlap in samples_prep (images_to_samples, l.106)?
+    #       overlap doesn't need to be larger than, say, 5%
     """Randomly crop image according to a certain dimension.
     Adapted from https://pytorch.org/docs/stable/_modules/torchvision/transforms/transforms.html#RandomCrop
     to support >3 band images (not currently supported by PIL)"""
@@ -404,17 +355,8 @@ class BgrToRgb(object):
 
 class ToTensorTarget(object):
     """Convert ndarrays in sample to Tensors."""
-<<<<<<< HEAD
-    def __init__(self, bgr_to_rgb):
-        self.bgr_to_rgb = bgr_to_rgb
-
     def __call__(self, sample):
         sat_img = np.nan_to_num(sample['sat_img'], copy=False)
-        sat_img = BGR_to_RGB(sat_img) if self.bgr_to_rgb else sat_img
-=======
-    def __call__(self, sample):
-        sat_img = np.nan_to_num(sample['sat_img'], copy=False)
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5
         sat_img = np.float32(np.transpose(sat_img, (2, 0, 1)))
         sat_img = torch.from_numpy(sat_img)
 
@@ -423,8 +365,3 @@ class ToTensorTarget(object):
             map_img = np.int64(sample['map_img'])
             map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
-<<<<<<< HEAD
-=======
-
-
->>>>>>> 990ca1799dfeef317fe7438ec2f3eba9dfad70d5

@@ -11,12 +11,12 @@ nir_layers = {'conv1':1, 'maxpool':4, 'layer2':6, 'layer3':7, 'layer4':8}
 class LayersEnsemble(nn.Module):
     """
     Class create a model where 2 heads concatenate at a specific point.
-    
+
     This class copy the *model* in input when initialize, copy it,
-    change the input of the second *model* for the input dimension 
+    change the input of the second *model* for the input dimension
     of the second entry. Concatenate the 2 *models* at a specific
     point chosen when initialize. Like that we have a new *model*
-    that take 2 entries with differents depth and combine it to 
+    that take 2 entries with differents depth and combine it to
     have an ouput with the depth of corresponding at the number of
     classes.
 
@@ -33,7 +33,7 @@ class LayersEnsemble(nn.Module):
 
          - ``modelRGB``, containing all the backbone layers **before** the concatenation point.
          - ``modelNIR``, containing all the backbone layers **before** the concatenation point
-           and have the number of channels in input change for 1. 
+           and have the number of channels in input change for 1.
          - ``leftover``, containing all the backbone layers **after** the concatenation point.
            For some points, this variables will be empty, since we concatenate after the backbone.
          - ``conv1x1``, an conv2D layer that will be use after the concatenation to go back at
@@ -59,7 +59,7 @@ class LayersEnsemble(nn.Module):
         green_weight = conv1_w[:, 1] # [R, G, B] -> [0, 1, 2], shape: [64, 7, 7]
         green_weight.unsqueeze_(1) # shape: [64, 1, 7, 7], otherwise didn't work
         model_nir.backbone.conv1.weight = nn.Parameter(green_weight, requires_grad=True)
-       
+
         # Concatenation point output channels dimension
         if conc_point in ['conv1', 'maxpool']:
             out_channels  = model_rgb.backbone.conv1.out_channels
@@ -88,26 +88,26 @@ class LayersEnsemble(nn.Module):
         self.conv1x1 = nn.Conv2d(
                 in_channels = out_channels*2, out_channels = out_channels, kernel_size=1
         )
-        
+
         del model_nir, model_rgb, conv1_w, green_weight
 
     def forward(self, inputs):
         """
         In the forward function we accept a list of Tensors in input data and return
-        a Tensor of output data. 
+        a Tensor of output data.
 
-        So in the input list, they should have two tensor, the firt one need to be the 
+        So in the input list, they should have two tensor, the firt one need to be the
         one containing the **RGB** images, the second one will be the other *modalitie*.
 
         .. note:: for now we only accept **NIR** as second entry, with a shape of [1, h, w].
 
         The result of each partial model (RGB and the other) are concatenate on the depth
-        dimension and pass by a convolution operation to recover the depth taht match the 
-        ``leftover`` entry. Follow by the classifier and the interpolation to return a 
+        dimension and pass by a convolution operation to recover the depth taht match the
+        ``leftover`` entry. Follow by the classifier and the interpolation to return a
         Tensor with the same [h, w] then the input Tensor.
 
         :param inputs: (list) List containing two Tensors
-        :return: (tensor) Result 
+        :return: (tensor) Result
         """
         x1, x2 = inputs
         # Get the input shape for the interpolation

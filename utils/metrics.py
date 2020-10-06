@@ -88,7 +88,8 @@ def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
         c_pred = pred == i
         intersection = (c_pred & c_label).float().sum()
         union = (c_pred | c_label).float().sum()
-        iou = (intersection + min_val) / (union + min_val)  # minimum value added to avoid Zero division
+        # minimum value added to avoid Zero division
+        iou = (intersection + min_val) / (union + min_val)
         ious.append(iou)
         metric_dict['iou_' + str(i)].update(iou.item(), batch_size)
     mean_IOU = np.nanmean(ious)
@@ -105,12 +106,12 @@ class ComputePixelMetrics():
     :param pred: (numpy array) predicted segmentaton mask
     '''
     __slots__ = 'label', 'pred', 'num_classes'
-    
+
     def __init__(self, label, pred, num_classes):
         self.label = label
         self.pred = pred
         self.num_classes = num_classes
-    
+
     def update(self, metric_func):
         metric = {}
         classes= []
@@ -128,7 +129,7 @@ class ComputePixelMetrics():
         micro = metric_func(self.label.ravel(), self.pred.ravel())
         metric['micro_avg_'+ metric_func.__name__] = micro
         return metric
-        
+
     @staticmethod
     def jaccard(label, pred):
         '''
@@ -137,9 +138,9 @@ class ComputePixelMetrics():
         both = np.logical_and(label, pred)
         either = np.logical_or(label, pred)
         ji = (np.sum(both) + min_val) / (np.sum(either) + min_val)
-        
+
         return ji
-    
+
     @staticmethod
     def dice(label, pred):
         '''
@@ -149,7 +150,7 @@ class ComputePixelMetrics():
         dsc = 2 * int(np.sum(both)) / (int(np.sum(label)) + int(np.sum(pred)))
 
         return dsc
-    
+
     @staticmethod
     def precision(label, pred):
         '''
@@ -160,7 +161,7 @@ class ComputePixelMetrics():
         p = (tp + min_val) / (tp + fp + min_val)
 
         return p
-    
+
     @staticmethod
     def recall(label, pred):
         '''
@@ -171,7 +172,7 @@ class ComputePixelMetrics():
         r = (tp + min_val) / (tp + fn + min_val)
 
         return r
-    
+
     @staticmethod
     def matthews(label, pred):
         '''
@@ -184,7 +185,7 @@ class ComputePixelMetrics():
         mcc = (tp * tn - fp * fn) / (sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn)))
 
         return mcc
-    
+
     @staticmethod
     def accuracy(label, pred):
         '''
@@ -192,4 +193,3 @@ class ComputePixelMetrics():
         '''
         acc = np.mean(pred == label)
         return acc
- 
