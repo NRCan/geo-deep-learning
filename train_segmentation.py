@@ -263,7 +263,7 @@ def train(train_loader,
             inputs = data['sat_img'].to(device)
             labels = data['map_img'].to(device)
 
-            if inputs.shape[1] == 4:
+            if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
                 ############################
                 # Test Implementation of the NIR
                 ############################
@@ -353,7 +353,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
                 labels = data['map_img'].to(device)
                 labels_flatten = flatten_labels(labels)
 
-                if inputs.shape[1] == 4:
+                if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
                     ############################
                     # Test Implementation of the NIR
                     ############################

@@ -75,7 +75,7 @@ def segmentation_with_smoothing(raster, clip_gpkg, model, sample_size, overlap, 
                 inputs = sample['sat_img'].unsqueeze_(0)
                 inputs = inputs.to(device)
 
-                if inputs.shape[1] == 4:
+                if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
                     ############################
                     # Test Implementation of the NIR
                     ############################
@@ -144,7 +144,7 @@ def segmentation(raster, clip_gpkg, model, sample_size, num_bands, device):
                 inputs = sample['sat_img'].unsqueeze_(0)
                 inputs = inputs.to(device)
 
-                if inputs.shape[1] == 4:
+                if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
                     ############################
                     # Test Implementation of the NIR
                     ############################
