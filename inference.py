@@ -143,6 +143,27 @@ def segmentation(raster, clip_gpkg, model, sample_size, num_bands, device):
                 sample = totensor_transform(sample)
                 inputs = sample['sat_img'].unsqueeze_(0)
                 inputs = inputs.to(device)
+
+                if inputs.shape[1] == 4:
+                    ############################
+                    # Test Implementation of the NIR
+                    ############################
+                    # Init NIR   TODO: make a proper way to read the NIR channel 
+                    #                  and put an option to be able to give the idex of the NIR channel
+                    # Extract the NIR channel -> [batch size, H, W] since it's only one channel
+                    inputs_NIR = inputs[:,-1,...]
+                    # add a channel to get the good size -> [:, 1, :, :]
+                    inputs_NIR.unsqueeze_(1)
+                    # take out the NIR channel and take only the RGB for the inputs
+                    inputs = inputs[:,:-1, ...]
+                    # Suggestion of implementation
+                    #inputs_NIR = data['NIR'].to(device)
+                    inputs = [inputs, inputs_NIR]
+                    #outputs = model(inputs, inputs_NIR)
+                    ############################
+                    # End of the test implementation module
+                    ############################
+
                 outputs = model(inputs)
                 # torchvision models give output in 'out' key. May cause problems in future versions of torchvision.
                 if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
