@@ -1,3 +1,7 @@
+__pycache__/
+*.py[cod]
 *__pycache__**
 *.idea**
 *.vscode**
+
+/mlruns/

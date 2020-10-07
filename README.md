@@ -615,3 +615,111 @@ Outputs:
 Process:
 - The process will load trained weights to the specified architecture and perform a classification task on all the images contained in the ```working_folder```.
 - The full file path of the classified image, the class identified, as well as the top 5 most likely classes and their value will be displayed on the screen
+
+## Run segmentation using docker
+
+We shall show how to run the geo-deep-learning code base on any computer with Docker and GPU support. Specifically, with docker 19.03+, GPU support including the nvidia driver, and nvidia-container-toolkit (1.2.0 to be precise) installed. See [here](https://docs.docker.com/get-started/part2/) for a general walk through on building and running docker images.
+
+### Building images
+
+First build the Docker image using:
+
+```bash
+$ docker build --tag gdl_gpu:2.0 .
+```
+
+As the code is updated, the tag, which in this case is `2.0`, should also be upated to reflect code changes. For example a good Docker image tag is obtained with:
+
+```bash
+$ git log -1 --pretty=%h
+```
+
+### Replicability
+
+In order to ensure replicability of the docker images that are built, precise versions of base image are used in the Dockerfile, and precise versions of python packages are used in `environment-gpu.yml`. However, this can be done with Anaconda and doesn't quite justify the use of Docker. In addition to being cross-platform, once a Docker image is built, it can be `comitted` and pushed to docker repository such as DockerHub, allowing the user to reuse the same image on any computer with docker 19.03+, and GPU support, as stated above.
+
+### images_to_samples.py
+
+Now after following the steps of the samples script above, instead of running
+
+```bash
+$ python images_to_samples.py path/to/config/file/config.yaml
+```
+
+Run
+
+```bash
+$ docker run -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python images_to_samples.py path/to/config/file/config.yaml"
+```
+
+where `path/to/config/file/config.yaml` is an absolute path in the docker container, such as `/app/conf/config.yaml`. Here, and in the following scripts, the `data` and `conf` directories are mounted at run time so their contents can be changed beforehand. The python code however, is copied into the image at build time, so the image has to be rebuilt after different versions of the code are written.
+
+Note that the `bash -c` command is necessary to activate the conda environment before running python.
+
+### train_segmentation.py
+
+To use GPUs, first install the [nvidia-container-toolkit (1.2.0 to be precise)](https://github.com/NVIDIA/nvidia-docker) with docker 19.03+.
+
+Now after following the steps of the train segmentation script, instead of running
+
+```bash
+$ python train_segmentation.py path/to/config/file/config.yaml
+```
+
+Run
+
+```bash
+$ docker run --gpus all --shm-size=1024m  -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python train_segmentation.py path/to/config/file/config.yaml"
+```
+
+The flag `--gpus all` gives the container access to all gpus, and `--shm-size=1024m` sets the [shared memory](https://docs.docker.com/engine/reference/run/). See [here](https://github.com/NVIDIA/nvidia-docker) for additional gpu options.
+
+### inference.py
+
+Now after following the steps of the train segmentation script, instead of running
+
+```bash
+$ python inference.py path/to/config/file/config.yaml
+```
+
+Run
+
+```bash
+$ docker run --gpus all --shm-size=1024m  -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python inference.py path/to/config/file/config.yaml"
+```
+
+### Remote runs
+
+Suppose we have the following ec2 host in our local `~/.ssh/config` file:
+
+```bash
+Host ec2
+  IdentityFile ~/.ssh/key.pem
+  HostName ec2-3-96-179-145.ca-central-1.compute.amazonaws.com
+  User ubuntu
+  ProxyCommand ssh -i ~/.ssh/key.pem -W %h:%p ec2-user@93.35.142.12
+```
+
+Then the above docker commands can be run on the ec2 remote host with a few adjustments. The first is that the above docker commands have to be run with `-H ssh://ec2` after `docker`. For example, the build command has to be run as follows:
+
+```bash
+$ docker -H ssh://ec2 build --tag gdl_gpu:2.0 .
+```
+
+In order to run the python scripts, the data has to be copied to an appropriate directory (`~/Code/geo-deep-learning`) on the remote host:
+
+```bash
+$ scp -r ./data ec2:~/Code/geo-deep-learning/data && scp -r ./conf ec2:~/Code/geo-deep-learning/conf
+```
+
+Then, for example, the train script can be run as follows:
+
+```bash
+$ docker -H ssh://ec2 run --gpus all --shm-size=1024m  -v $(pwd)/conf:/app/conf -v $(pwd)/data:/app/data -v $(pwd)/mlruns:/mlruns gdl_gpu:2.0 bash -c "source /opt/conda/etc/profile.d/conda.sh  && conda activate gpu_ENV  &&  python train_segmentation.py path/to/config/file/config.yaml"
+```
+
+Finally, the data must be copied back locally:
+
+```bash
+scp -r ec2:~/Code/geo-deep-learning/data .
+```
