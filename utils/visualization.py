@@ -125,15 +125,15 @@ def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', 
     norm_std = get_key_def('std', params['training']['normalization'])
 
     if norm_mean and norm_std:
-        input = unnormalize(input_img=input, mean=mean, std=std)
-    input = unscale(img=input, float_range=(scale[0], scale[1]), orig_range=(0, 255)) if scale else input
-    if 1 <= input.shape[2] <= 2:
-        input = input[:, :, :1]  # take first band (will become grayscale image)
-        input = np.squeeze(input)
-    elif input.shape[2] >= 3:
-        input = input[:, :, :3]  # take three first bands assuming they are RGB in correct order
-    mode = 'L' if input.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
-    input_PIL = Image.fromarray(input.astype(np.uint8), mode=mode)  # TODO: test this with grayscale input.
+        input_ = unnormalize(input_img=input_, mean=mean, std=std)
+    input_ = unscale(img=input_, float_range=(scale[0], scale[1]), orig_range=(0, 255)) if scale else input_
+    if 1 <= input_.shape[2] <= 2:
+        input_ = input_[:, :, :1]  # take first band (will become grayscale image)
+        input_ = np.squeeze(input_)
+    elif input_.shape[2] >= 3:
+        input_ = input_[:, :, :3]  # take three first bands assuming they are RGB in correct order
+    mode = 'L' if input_.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
+    input_PIL = Image.fromarray(input_.astype(np.uint8), mode=mode)  # TODO: test this with grayscale input.
 
     # Give value of class to band with highest value in final inference
     output_argmax = np.argmax(output, axis=2).astype(np.uint8)  # Flatten along channels axis. Convert to 8bit
