@@ -79,7 +79,7 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
             debug=debug)
 
 
-def vis(params, input, output, vis_path, sample_num=0, label=None, dataset='', ep_num=0, inference_input_path=False, debug=False):
+def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', ep_num=0, inference_input_path=False, debug=False):
     """saves input, output and label (if given) as .png in a grid or as individual pngs
     :param params: parameters from .yaml config file
     :param input_: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
