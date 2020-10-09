@@ -1,4 +1,5 @@
-# WARNING: data being augmented may be scaled to (0,1) rather, for example, (0,255). Therefore, implementing radiometric
+# WARNING: data being augmented may be scaled to (0,1) rather, for example, (0,255).
+#          Therefore, implementing radiometric
 # augmentations (ex.: changing hue, saturation, brightness, contrast) may give undesired results.
 # Scaling process is done in images_to_samples.py l.215
 import numbers
@@ -6,7 +7,8 @@ import warnings
 from typing import Sequence
 
 import torch
-# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
+# import torch should be first.
+# Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import random
 import numpy as np
 from skimage import transform, exposure
@@ -36,7 +38,8 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             noise = get_key_def('noise', params['training']['augmentation'], None)
 
             if random_radiom_trim_range:  # Contrast stretching
-                lst_trans.append(RadiometricTrim(random_range=random_radiom_trim_range))  # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
+                # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
+                lst_trans.append(RadiometricTrim(random_range=random_radiom_trim_range))
 
             if noise:
                 raise NotImplementedError
@@ -55,14 +58,20 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
                 lst_trans.append(HorizontalFlip(prob=params['training']['augmentation']['hflip_prob']))
 
             if rotate_limit and rotate_prob:
-                lst_trans.append(RandomRotationTarget(limit=rotate_limit, prob=rotate_prob, ignore_index=ignore_index))
+                lst_trans.append(
+                    RandomRotationTarget(
+                        limit=rotate_limit, prob=rotate_prob, ignore_index=ignore_index
+                    )
+                )
 
             if crop_size:
                 lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=ignore_index))
 
     if type == 'totensor':
-        if not dataset == 'trn' and random_radiom_trim_range:  # Contrast stretching at eval. Use mean of provided range
-            RadiometricTrim.input_checker(random_radiom_trim_range)  # Assert range is number or 2 element sequence
+        # Contrast stretching at eval. Use mean of provided range
+        if not dataset == 'trn' and random_radiom_trim_range:
+            # Assert range is number or 2 element sequence
+            RadiometricTrim.input_checker(random_radiom_trim_range)
             if isinstance(random_radiom_trim_range, numbers.Number):
                 trim_at_eval = random_radiom_trim_range
             else:
@@ -94,7 +103,7 @@ class RadiometricTrim(object):
         """
         random_range = self.input_checker(random_range)
         self.range = random_range
-        
+
     @staticmethod
     def input_checker(input_param):
         if not isinstance(input_param, (numbers.Number, Sequence)):
@@ -240,7 +249,9 @@ class HorizontalFlip(object):
         return sample
 
 
-class RandomCrop(object):  # TODO: what to do with overlap in samples_prep (images_to_samples, l.106)? overlap doesn't need to be larger than, say, 5%
+class RandomCrop(object):  
+    # TODO: what to do with overlap in samples_prep (images_to_samples, l.106)?
+    #       overlap doesn't need to be larger than, say, 5%
     """Randomly crop image according to a certain dimension.
     Adapted from https://pytorch.org/docs/stable/_modules/torchvision/transforms/transforms.html#RandomCrop
     to support >3 band images (not currently supported by PIL)"""
@@ -354,5 +365,3 @@ class ToTensorTarget(object):
             map_img = np.int64(sample['map_img'])
             map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
-
-

@@ -13,7 +13,6 @@ from collections import OrderedDict
 import shutil
 import numpy as np
 
-
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -70,7 +69,7 @@ def loader(path):
 def create_dataloader(samples_folder, batch_size, num_devices, params):
     """
     Function to create dataloader objects for training, validation and test datasets.
-    :param samples_folder: path to folder containting .hdf5 files if task is segmentation
+    :param samples_folder: path to the folder containting .hdf5 files if task is segmentation
     :param batch_size: (int) batch size
     :param num_devices: (int) number of GPUs used
     :param params: (dict) Parameters found in the yaml config file.
@@ -82,7 +81,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     assert samples_folder.is_dir(), f'Could not locate: {samples_folder}'
     assert len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
     num_samples = get_num_samples(samples_path=samples_folder, params=params)
-    assert num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size, f"Number of samples in .hdf5 files is less than batch size"    
+    assert num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size, f"Number of samples in .hdf5 files is less than batch size"
     print(f"Number of samples : {num_samples}\n")
     meta_map = get_key_def("meta_map", params["global"], {})
     num_bands = get_key_def("number_of_bands", params["global"], {})
@@ -93,6 +92,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
+        # TODO: transform the aug.compose_transforms in a class with radiom, geom, totensor in def
         datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare_val,
@@ -263,6 +263,20 @@ def train(train_loader,
             inputs = data['sat_img'].to(device)
             labels = data['map_img'].to(device)
 
+            if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
+                ############################
+                # Test Implementation of the NIR
+                ############################
+                # TODO: remove after the merge of Remy branch with no visualization option
+                # TODO: or change it to match the reste of the implementation
+                inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
+                inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
+                inputs = inputs[:,:-1, ...] # Need to be change                 
+                inputs = [inputs, inputs_NIR]
+                ############################
+                # Test Implementation of the NIR
+                ############################
+
             # forward
             optimizer.zero_grad()
             outputs = model(inputs)
@@ -290,14 +304,16 @@ def train(train_loader,
 
             if device.type == 'cuda' and debug:
                 res, mem = gpu_stats(device=device.index)
-                _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
-                                              gpu_perc=f'{res.gpu} %',
-                                              gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
-                                              lr=optimizer.param_groups[0]['lr'],
-                                              img=data['sat_img'].numpy().shape,
-                                              smpl=data['map_img'].numpy().shape,
-                                              bs=batch_size,
-                                              out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
+                _tqdm.set_postfix(
+                    OrderedDict(
+                        trn_loss=f'{train_metrics["loss"].val:.2f}',
+                        gpu_perc=f'{res.gpu} %',
+                        gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+                        lr=optimizer.param_groups[0]['lr'],
+                        img=data['sat_img'].numpy().shape,
+                        smpl=data['map_img'].numpy().shape,
+                        bs=batch_size,
+                        out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
 
             loss.backward()
             optimizer.step()
@@ -336,6 +352,20 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
                 inputs = data['sat_img'].to(device)
                 labels = data['map_img'].to(device)
                 labels_flatten = flatten_labels(labels)
+
+                if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
+                    ############################
+                    # Test Implementation of the NIR
+                    ############################
+                    # TODO: remove after the merge of Remy branch with no visualization option
+                    # TODO: or change it to match the reste of the implementation
+                    inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
+                    inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
+                    inputs = inputs[:,:-1, ...] # Need to be change                 
+                    inputs = [inputs, inputs_NIR]
+                    ############################
+                    # Test Implementation of the NIR
+                    ############################
 
                 outputs = model(inputs)
                 if isinstance(outputs, OrderedDict):
@@ -468,7 +498,8 @@ def main(params, config_path):
     if num_devices == 1:
         print(f"Using Cuda device {lst_device_ids[0]}\n")
     elif num_devices > 1:
-        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n")  # TODO: why are we showing indices [1:-1] for lst_device_ids?
+        # TODO: why are we showing indices [1:-1] for lst_device_ids?
+        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n")
         try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
             model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         except AssertionError:
@@ -587,7 +618,7 @@ def main(params, config_path):
             vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if last_vis_epoch == 0:
-                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for' 
+                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
                                f'batches in range {vis_batch_range}')
                 vis_from_dataloader(params=params,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
@@ -641,6 +672,15 @@ if __name__ == '__main__':
     args = parser.parse_args()
     config_path = Path(args.param_file)
     params = read_parameters(args.param_file)
+
+    # Limit of the NIR implementation TODO: Update after each version
+    modalities = None if 'modalities' not in params['global'] else params['global']['modalities']
+    if 'deeplabv3' not in params['global']['model_name'] and modalities is 'RGBN':
+        print(
+            '\n The NIR modality will only be concatenate at the begining,' /
+            ' the implementation of the concatenation point is only available' /
+            ' for the deeplabv3 model for now. \n More will follow on demande.\n'
+             )
 
     main(params, config_path)
     print('End of training')

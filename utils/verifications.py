@@ -21,11 +21,11 @@ def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attrib
     Return:
         List of unique attribute values found in gpkg vector file
     """
-
     distinct_att = set()
     with fiona.open(vector_file, 'r') as src:
         for feature in tqdm(src, leave=False, position=1, desc=f'Scanning features'):
-            distinct_att.add(get_key_recursive(attribute_name, feature))  # Use property of set to store unique values
+            # Use property of set to store unique values
+            distinct_att.add(get_key_recursive(attribute_name, feature))
 
     detected_classes = len(distinct_att) - len([ignore_index]) if ignore_index in distinct_att else len(distinct_att)
 
@@ -36,7 +36,8 @@ def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attrib
     return distinct_att
 
 
-def add_background_to_num_class(task: str, num_classes: int):  # FIXME temporary patch for num_classes problem.
+def add_background_to_num_class(task: str, num_classes: int):
+    # FIXME temporary patch for num_classes problem.
     """
     Adds one to number of classes for all segmentation tasks.
 
@@ -62,7 +63,6 @@ def assert_num_bands(raster_path: Union[str, Path], num_bands: int, meta_map):
     :param num_bands: number of bands raster file is expected to have
     :param meta_map:
     """
-
     # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
     #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
     with rasterio.open(raster_path, 'r') as raster:

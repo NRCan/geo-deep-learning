@@ -17,7 +17,6 @@ from utils.geoutils import vector_to_raster
 from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import validate_num_classes, assert_num_bands, assert_crs_match, \
     validate_features_from_gpkg
-
 from rasterio.features import is_valid_geom
 
 try:
@@ -210,7 +209,7 @@ def samples_preparation(in_img_array,
 
     # Adds raster metadata to the dataset. All samples created by tiling below will point to that metadata by index
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
-    
+
     if overlap > 25:
          warnings.warn("high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
     dist_samples = round(sample_size * (1 - (overlap / 100)))

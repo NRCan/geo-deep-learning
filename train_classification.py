@@ -163,7 +163,8 @@ def create_classif_dataloader(data_path, batch_size, num_devices):
                                                    transform=transforms.Compose(
                                                        [transforms.Resize(299), transforms.ToTensor()]),
                                                    loader=loader)
-    num_samples['tst'] = len([f for f in Path(data_path).joinpath('tst').glob('**/*')])  # FIXME assert that f is a file
+    # FIXME assert that f is a file
+    num_samples['tst'] = len([f for f in Path(data_path).joinpath('tst').glob('**/*')])
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
     num_workers = num_devices * 4 if num_devices > 1 else 4
@@ -300,9 +301,14 @@ def main(params, config_path):
     if num_devices == 1:
         print(f"Using Cuda device {lst_device_ids[0]}\n")
     elif num_devices > 1:
-        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n")  # TODO: why are we showing indices [1:-1] for lst_device_ids?
-        try:  # TODO: For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
-            model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+        # TODO: why are we showing indices [1:-1] for lst_device_ids?
+        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n")
+        try:
+            # TODO: For HPC when device 0 not available.
+            # Error: Invalid device id (in torch/cuda/__init__.py).
+
+            # DataParallel adds prefix 'module.' to state_dict keys.
+            model = nn.DataParallel(model, device_ids=lst_device_ids)
         except AssertionError:
             warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
             device = torch.device('cuda:0')
