@@ -141,6 +141,28 @@ def net(net_params, num_channels, inference=False):
             in_channels=num_bands,
             classes=num_channels,
             activation=None)
+    elif model_name == 'spacenet_unet_efficientnetB5_pretrained':
+        model = smp.Unet(
+            encoder_name="efficientnet-b5",
+            encoder_weights="imagenet",
+            in_channels=num_bands,
+            classes=num_channels,
+            activation=None)
+    elif model_name == 'spacenet_unet_SENet152_pretrained':
+        model = smp.Unet(
+            encoder_name="senet154",
+            encoder_weights="imagenet",
+            in_channels=num_bands,
+            classes=num_channels,
+            activation=None)
+    elif model_name == 'spacenet_unet_baseline_pretrained':
+        # In the article of SpaceNet, the baseline is originaly pretrained on 'SN6 PS-RGB Imagery'.
+        model = smp.Unet(
+            encoder_name="vgg11",
+            encoder_weights="imagenet",
+            in_channels=num_bands,
+            classes=num_channels,
+            activation=None)
 
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
