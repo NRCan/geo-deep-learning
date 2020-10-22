@@ -16,6 +16,7 @@ install:
   - source activate ci_env
   - conda install fiona
   - conda install mlflow -c conda-forge
+  - pip install git+https://github.com/qubvel/segmentation_models.pytorch
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
   - unzip ./data/classification_data.zip -d ./data

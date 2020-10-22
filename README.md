@@ -45,25 +45,24 @@ After installing the required computing environment (see next section), one need
 - nvidia GPU highly recommended
 - The system can be used on your workstation or cluster and on [AWS](https://aws.amazon.com/).
 
-## Installation on your workstation
+## Installation on your workstation using miniconda
 1. Using conda, you can set and activate your python environment with the following commands:  
     With GPU (defaults to CUDA 10.0 if `cudatoolkit=X.0` is not specified):
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch torchvision -c pytorch
-    source activate YOUR_ENV
-    conda install opencv -c conda-forge
-    conda install ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c conda-forge
-    conda install nvidia-ml-py3 -c fastai
-    conda install mlflow
+    conda create -n gpu_ENV python=3.6 -c pytorch pytorch torchvision 
+    conda activate gpu_ENV
+    conda install -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm 
+    conda install -c fastai nvidia-ml-py3
+    conda install mlflow 
     ```
     CPU only:
     ```shell
-    conda create -p YOUR_PATH python=3.6 pytorch-cpu torchvision -c pytorch
-    source activate YOUR_ENV
-    conda install opencv -c conda-forge
-    conda install ruamel_yaml h5py fiona rasterio scikit-image scikit-learn tqdm -c conda-forge
-    conda install mlflow
-   ```
+    conda create -n cpu_ENV python=3.6 -c pytorch pytorch-cpu torchvision-cpu 
+    conda activate cpu_ENV
+    conda install -c conda-forge opencv
+    conda install -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm
+    conda install mlflow 
+    ```
     > For Windows OS: 
     > - Install rasterio, fiona and gdal first, before installing the rest. We've experienced some [installation issues](https://github.com/conda-forge/gdal-feedstock/issues/213), with those libraries. 
     > - Mlflow should be installed using pip rather than conda, as mentionned [here](https://github.com/mlflow/mlflow/issues/1951)  
@@ -138,13 +137,29 @@ Structure as created by geo-deep-learning
 **See: [train_segmentation.py / Outputs](training_outputs)
 
 ## Models available
+
+Models: Train from Scratch
 - [Unet](https://arxiv.org/abs/1505.04597)
-- [Deeplabv3 (backbone: resnet101, optional: pretrained on coco dataset)](https://arxiv.org/abs/1706.05587)
-- Experimental: Deeplabv3 (default: pretrained on coco dataset) adapted for RGB-NIR(4 Bands) supported
 - Unet small (less deep version of Unet)
 - Checkpointed Unet (same as Unet small, but uses less GPU memory and recomputes data during the backward pass)
 - [Ternausnet](https://arxiv.org/abs/1801.05746)
+
+Models: Pre-trained (torch vision)
+- [Deeplabv3 (backbone: resnet101, optional: pretrained on coco dataset)](https://arxiv.org/abs/1706.05587)
+- Experimental: Deeplabv3 (default: pretrained on coco dataset) adapted for RGB-NIR(4 Bands) supported
 - [FCN (backbone: resnet101, optional: pretrained on coco dataset)](https://people.eecs.berkeley.edu/~jonlong/long_shelhamer_fcn.pdf)
+
+Models: Segmentation Models Pytorch Library
+
+The following highly configurable models are offered from this easy to use [library](https://github.com/qubvel/segmentation_models.pytorch).
+
+- unet_pretrained
+- [pan_pretrained](https://arxiv.org/abs/1805.10180)
+- [fpn_pretrained](http://presentations.cocodataset.org/COCO17-Stuff-FAIR.pdf)
+- [pspnet_pretrained](https://arxiv.org/abs/1612.01105)
+- [deeplabv3+_pretrained](https://arxiv.org/pdf/1802.02611.pdf)
+
+Models from this library support any number of image bands and offers modular encoder architectures. Check the official [github repo](https://github.com/qubvel/segmentation_models.pytorch) for more details.  
 
 ## `csv` preparation
 The `csv` specifies the input images and the reference vector data that will be use during the training.
@@ -256,7 +271,7 @@ global:
   debug_mode: True           # Activates various debug features (ex.: details about intermediate outputs, detailled progress bars, etc.). Default: False
 
 sample:
-  overlap: 20                # % of overlap between 2 samples.
+  overlap: 20                # % of overlap between 2 samples Note: high overlap > 25 creates very similar samples between train and val sets.   
   min_annotated_percent: 10  # Min % of non background pixels in stored samples.
 
 training:
@@ -376,12 +391,12 @@ global:
 
 
 inference:
-  img_dir_or_csv_file: /path/to/list.csv        # Directory containing all images to infer on OR CSV file with list of images
+  img_dir_or_csv_file: /path/to/list.csv        # CSV file containing directory of images with or without gpkg labels(used in benchmarking) 
   working_folder: /path/to/output_images        # Folder where all resulting images will be written (DEPRECATED, leave blank)
   state_dict_path: /path/to/checkpoint.pth.tar  # Path to model weights for inference
   chunk_size: 512                               # (int) Size (height and width) of each prediction patch. Default: 512
-  overlap: 10                                   # (int) Percentage of overlap between 2 chunks. Default: 10
-  heatmaps: False                               # if True, heatmaps for each class will be saved along with inference .tif
+  smooth_prediction: True                       # Smoothening Predictions with 2D interpolation
+  overlap: 2                                    # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
 ```
 ### Process
 - The process will load trained weights to the chosen model and perform a per-pixel inference task on all the images contained in the working_folder
@@ -459,6 +474,67 @@ The `vis_batch_range` parameter plays a central role in visualization. First num
 ### Debug mode
 - if in inference, `vis()` will print all unique values in each heatmap array. If there are only a few values, it gives a hint on usefulness of heatmap.
 - if in inference, `vis()` will check number of predicted classes in output array. If only one predicted class, a warning is sent.
+
+### Training and Inference for Segmentation on RGB-NIR images
+For the majorities of the YAML file will be the same as before for RGB images, this section will present the modifications to do to be able the use a model that use RGBN images. For more informations on the implementation, see the article [Transfer Learning from RGB to Multi-band Imagery](https://www.azavea.com/blog/2019/08/30/transfer-learning-from-rgb-to-multi-band-imagery/) frome [Azavea](https://www.azavea.com/).
+
+Here some specifications on this fonctionnality:
+- At the moment this fonctionnality is only available for the [Deeplabv3 (backbone: resnet101)](https://arxiv.org/abs/1706.05587)
+- You may need to reduce the size of the `batch_size` to fit everything in the memory.
+
+To launch the training and the inference program, the commands are the same as normal, only the YAML need to change:
+```bash
+python train_segmentation.py path/to/config/file/config.yaml
+python inference.py path/to/config/file/config.yaml
+```
+
+Details on parameters used by this module:
+```yaml
+
+# Global parameters
+global:
+  samples_size: 256
+  num_classes: 4 
+  data_path: /home/cauthier/data/ # TODO: put it in the git ignor
+  number_of_bands: 4
+  # Model must be in the follow list:
+  # unet, unetsmall, checkpointed_unet, ternausnet,
+  # fcn_resnet101, deeplabv3_resnet101
+  model_name: deeplabv3_resnet101
+  bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
+  task: segmentation  # Task to perform. Either segmentation or classification
+  num_gpus: 2
+  BGR_to_RGB: True
+  scale_data: [0,1]
+  aux_vector_file:
+  aux_vector_attrib:
+  aux_vector_ids:
+  aux_vector_dist_maps:
+  aux_vector_dist_log:
+  aux_vector_scale:
+  debug_mode: True
+  coordconv_convert: False
+  coordvonc_scale:
+  
+  # Module to include the NIR
+  modalities: RGBN
+  concatenate_depth: 'layer4'
+```
+
+The rest of the YAML file will be the same as present bellow.
+
+The major changes are the `modalities`, `number_of_bands` and `concatenate_depth` parameters. If the model select is not **DeeplavV3** but the `nuber_of_band = 4` and the `modalities = RGBN`, the model will train with the basic architecture but the input will be an image with 4 dimmensions. 
+
+Since we have the concatenation point for the NIR band only for the **DeeplabV3**, the `concatenate_depth` parameter option are:
+- conv1
+- maxpool
+- layer2
+- layer3
+- layer4
+
+**Illustration of the principale will fellow soon**
+
+
 
 # Classification Task
 The classification task allows images to be recognized as a whole rather than identifying the class of each pixel individually as is done in semantic segmentation.
