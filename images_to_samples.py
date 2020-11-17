@@ -1,6 +1,8 @@
 import argparse
 import datetime
 import os
+from typing import List
+
 import numpy as np
 np.random.seed(1234)  # Set random seed for reproducibility
 import warnings
@@ -294,6 +296,8 @@ def main(params):
     bucket_name = get_key_def('bucket_name', params['global'])
     data_path = Path(params['global']['data_path'])
     Path.mkdir(data_path, exist_ok=True, parents=True)
+    num_classes = params['global']['num_classes']
+    hide_classes = get_key_def('hide_classes', params['global'], default=[], expected_type=List)
     csv_file = params['sample']['prep_csv_file']
     val_percent = params['sample']['val_percent']
     samples_size = params["global"]["samples_size"]
@@ -343,7 +347,10 @@ def main(params):
     for info in tqdm(list_data_prep, position=0):
         assert_num_bands(info['tif'], num_bands, meta_map)
         if info['gpkg'] not in valid_gpkg_set:
-            gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'],
+            gpkg_classes = validate_num_classes(info['gpkg'],
+                                                num_classes,
+                                                hide_classes,
+                                                info['attribute_name'],
                                                 ignore_index)
             assert_crs_match(info['tif'], info['gpkg'])
             valid_gpkg_set.add(info['gpkg'])

@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Union
+from typing import Union, List
 
 import fiona
 import rasterio
@@ -10,7 +10,7 @@ from utils.CreateDataset import MetaSegmentationDataset
 from utils.geoutils import lst_ids, get_key_recursive
 
 
-def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attribute_name: str, ignore_index: int):
+def validate_num_classes(vector_file: Union[str, Path], num_classes: int, hide_classes: List, attribute_name: str, ignore_index: int):
     """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
     FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
     Args:
@@ -29,6 +29,8 @@ def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attrib
 
     detected_classes = len(distinct_att) - len([ignore_index]) if ignore_index in distinct_att else len(distinct_att)
 
+    if len(hide_classes) > 0:
+        num_classes = num_classes + len(hide_classes)
     if detected_classes != num_classes:
         raise ValueError('The number of classes in the yaml.config {} is different than the number of classes in '
                          'the file {} {}'.format(num_classes, vector_file, str(list(distinct_att))))
