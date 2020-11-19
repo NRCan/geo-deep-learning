@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Union, List
+from typing import Union
 
 import fiona
 import rasterio

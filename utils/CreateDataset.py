@@ -116,12 +116,15 @@ class SegmentationDataset(Dataset):
         ######################  SINGLE-CLASS MODELS TEST  #######################
 
         # Loop through classes that should be hidden (i.e. converted to background)
-        for lbl_class in [1, 2, 3]:  # FIXME hardcoded to keep only class 4 (buildings)
+        # FIXME hardcoded to keep only class 4 (buildings)
+        for lbl_class in [1, 2, 3]:  
             # overwrite with background value (0)
             map_img[map_img == lbl_class] = 0
+        map_img[map_img == 4] = 1
+
 
         ######################  END  #######################
-
+        
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
                   "hdf5_path": self.hdf5_path}
 
