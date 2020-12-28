@@ -15,6 +15,7 @@ def read_parameters(param_file):
         YAML (Ruamel) CommentedMap dict-like object
     """
     yaml = YAML()
+    yaml.allow_duplicate_keys=True
     with open(param_file) as yamlfile:
         params = yaml.load(yamlfile)
     return params
