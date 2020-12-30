@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import segmentation_models_pytorch as smp
 import torchvision.models as models
-from models import TernausNet, unet, checkpointed_unet, inception, coordconv
+from models import TernausNet, unet, checkpointed_unet, inception, coordconv, fcn
 from utils.utils import get_key_def
 ###############################
 from utils.layersmodules import LayersEnsemble
@@ -41,6 +41,7 @@ def net(net_params, num_channels, inference=False):
     pretrained = get_key_def('pretrained', net_params['training'], True) if not inference else False
     dropout = get_key_def('dropout', net_params['training'], False)
     dropout_prob = get_key_def('dropout_prob', net_params['training'], 0.5)
+    num_classes = net_params['global']['num_classes']
 
     # TODO: find a way to maybe implement it in classification one day
     if 'concatenate_depth' in net_params['global']:
@@ -51,6 +52,9 @@ def net(net_params, num_channels, inference=False):
         model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'unet':
         model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
+    elif model_name == 'segnet':
+        vgg_model = fcn.VGGNet(requires_grad=True)
+        model = fcn.FCNs(pretrained_net=vgg_model, n_class=num_channels)
     elif model_name == 'ternausnet':
         assert num_bands == 3, msg
         model = TernausNet.ternausnet(num_channels)
