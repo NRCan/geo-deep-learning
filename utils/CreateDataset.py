@@ -10,7 +10,7 @@ import models.coordconv
 from utils.utils import get_key_def
 from utils.geoutils import get_key_recursive
 
-from rasterio.crs import CRS  # don't delete these two imports!
+from rasterio.crs import CRS  # don't delete these two imports! Why not?
 from affine import Affine
 
 
@@ -73,6 +73,8 @@ class SegmentationDataset(Dataset):
                 metadata = hdf5_file["metadata"][i, ...]
                 if isinstance(metadata, np.ndarray) and len(metadata) == 1:
                     metadata = metadata[0]
+                    metadata = metadata.decode('ascii')
+                    metadata = metadata.replace('\n', '')
                 if isinstance(metadata, str):
                     if "ordereddict" in metadata:
                         metadata = metadata.replace("ordereddict", "collections.OrderedDict")
