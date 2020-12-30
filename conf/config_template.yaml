@@ -9,16 +9,16 @@
 
 # Global parameters
 global:
-  samples_size: 512
-  num_classes: 5
-  data_path: path/to/data
-  number_of_bands: 4
+  samples_size: 64
+  num_classes: 1
+  data_path: ./data/
+  number_of_bands: 3
   # Model available: unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50, deeplabv3_resnet101
   model_name: unet
-  mlflow_uri: path/to/mlflow_tracking_uri  # Default to ./mlruns
+  mlflow_uri: #path/to/mlflow_tracking_uri  # Default to ./mlruns
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
-  num_gpus: 2
+  num_gpus: 0
   BGR_to_RGB: True
   scale_data: [0,1]
   aux_vector_file:
@@ -34,22 +34,22 @@ global:
 
 # Data analysis parameters; used in data_analysis.py ------------------
 data_analysis:
-  create_csv: False
-  optimal_parameters_search : False
+  create_csv: True
+  optimal_parameters_search : True
   sampling_method: # class_proportion or min_annotated_percent
     'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
-    'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:
+    'class_proportion': {'1':0} #, '2':0, '3':0, '4':0} # See below:
     # keys (numerical values in 'string' format) represent class id
     # values (int) represent class minimum threshold targeted in samples
 
 # Sample parameters; used in images_to_samples.py -------------------
 sample:
-  prep_csv_file: /path/to/csv/file.csv
-  val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
-  overlap: 25 # (int) Percentage of overlap between 2 chunks.
+  prep_csv_file: ./data/images_to_samples_ci_csv.csv
+  val_percent: 20 # Percentage of validation samples created from train set (0 - 100)
+  overlap: 15 # (int) Percentage of overlap between 2 chunks.
   sampling_method: # class_proportion or min_annotated_percent
     'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
-    'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:
+    'class_proportion': {'1':0} #'2':0, '3':0, '4':0} # See below:
     # keys (numerical values in 'string' format) represent class id
     # values (int) represent class minimum threshold targeted in samples
   mask_reference: False
@@ -57,18 +57,18 @@ sample:
 
 # Training parameters; used in train_segmentation.py ----------------------
 training:
-  state_dict_path: path/to/pretrained/file/checkpoint.pth.tar    # optional
-  num_trn_samples: 4960
-  num_val_samples: 2208
-  num_tst_samples: 1000
-  batch_size: 32
-  num_epochs: 100
-  target_size: 128
+  state_dict_path: #./samples/checkpoint.pth.tar    # optional
+  num_trn_samples: 
+  num_val_samples: 
+  num_tst_samples: 
+  batch_size: 4
+  num_epochs: 15
+  target_size: 64
   # Loss function available: CrossEntropy, Lovasz, Focal, OhemCrossEntropy 
   #                          (*Lovasz for segmentation tasks only)
   loss_fn: Lovasz
   # Optimizer available: adam. sgd, adabound
-  optimizer: adabound
+  optimizer: adam
   learning_rate: 0.0001
   weight_decay: 0
   step_size: 4
@@ -111,9 +111,9 @@ training:
 
 # Inference parameters; used in inference.py --------
 inference:
-  img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
-  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
-  chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
+  img_dir_or_csv_file: ./data/images_to_samples_ci_csv.csv #/path/to/csv/containing/images/list.csv
+  state_dict_path: /Users/matt/Documents/geo-deep-learning/data/samples64_overlap15_min-annot0_3bands/model/config_template/checkpoint.pth.tar #/path/to/model/weights/for/inference/checkpoint.pth.tar
+  chunk_size: 64 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
   heatmaps: True
 
@@ -125,14 +125,14 @@ inference:
 
 # Visualization parameters
 visualization:
-  vis_batch_range: [0,200,10] #start, finish, increment
-  vis_at_checkpoint: True
+  vis_batch_range: [0,4,1] #start, finish, increment
+  vis_at_checkpoint: False
   vis_at_ckpt_min_ep_diff: 0
   vis_at_ckpt_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.
-  vis_at_init: True
+  vis_at_init: False
   vis_at_init_dataset: val
   vis_at_evaluation: True #val during training, tst at end of training
-  vis_at_train: True
+  vis_at_train: False
   grid: True
   heatmaps: True
   colormap_file: ./data/colormap.csv
