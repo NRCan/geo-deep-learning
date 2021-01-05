@@ -64,8 +64,8 @@ def net(net_params, num_channels, inference=False):
             pretrained=pretrained, progress=True, num_classes=num_channels, aux_loss=None
         )
     elif model_name == 'fcn_vgg':
-        vgg_model = fcn.VGGNet(requires_grad=True)
-        model = fcn.FCNs(pretrained_net=vgg_model, n_class=num_channels)
+        vgg_model = fcn_vgg.VGGNet(requires_grad=True)
+        model = fcn_vgg.FCNs(pretrained_net=vgg_model, n_class=num_channels)
     elif model_name == 'deeplabv3_resnet101':
         assert (num_bands == 3 or num_bands == 4), msg
         if num_bands == 3:
