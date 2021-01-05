@@ -10,7 +10,7 @@ import models.coordconv
 from utils.utils import get_key_def
 from utils.geoutils import get_key_recursive
 
-from rasterio.crs import CRS  # don't delete these two imports! Why not?
+from rasterio.crs import CRS  # don't delete these two imports!
 from affine import Affine
 
 
