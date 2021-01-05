@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import segmentation_models_pytorch as smp
 import torchvision.models as models
-from models import TernausNet, unet, checkpointed_unet, inception, coordconv, fcn
+from models import TernausNet, unet, checkpointed_unet, inception, coordconv, fcn_vgg
 from utils.utils import get_key_def
 ###############################
 from utils.layersmodules import LayersEnsemble
@@ -51,10 +51,6 @@ def net(net_params, num_channels, inference=False):
         model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'unet':
         model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
-    elif model_name == 'fcn':
-        vgg_model = fcn.VGGNet(requires_grad=True)
-        model = fcn.FCNs(pretrained_net=vgg_model, n_class=num_channels)
-        if num_classes <= 2: "Warning: FCN has not been tested on problems with more than two classes." 
     elif model_name == 'ternausnet':
         assert num_bands == 3, msg
         model = TernausNet.ternausnet(num_channels)
@@ -67,6 +63,9 @@ def net(net_params, num_channels, inference=False):
         model = models.segmentation.fcn_resnet101(
             pretrained=pretrained, progress=True, num_classes=num_channels, aux_loss=None
         )
+    elif model_name == 'fcn_vgg':
+        vgg_model = fcn.VGGNet(requires_grad=True)
+        model = fcn.FCNs(pretrained_net=vgg_model, n_class=num_channels)
     elif model_name == 'deeplabv3_resnet101':
         assert (num_bands == 3 or num_bands == 4), msg
         if num_bands == 3:
