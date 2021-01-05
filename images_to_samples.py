@@ -33,7 +33,7 @@ def mask_image(arrayA, arrayB):
     >>> x2 = np.array([1.5, 1.2, 1.6, 1.2, 11., 1.1, 25.9, 0.1], dtype=np.float32).reshape(2,2,2)
     >>> mask_image(x1, x2)
     array([[[ 0. ,  0. ],
-        [.6,  1.2]],
+        [ 1.6,  1.2]],
         [[11. ,  1.1],
         [25.9,  0.1]]], dtype=float32)
     """
@@ -81,7 +81,7 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
     """
     # Validation of class proportion parameters (assert types).
     if not isinstance(config_dict, dict):
-        warnings.warn(f"Class_proportion parameter should be a dictionary. Got type {type(config_dict)}." 
+        warnings.warn(f"Class_proportion parameter should be a dictionary. Got type {type(config_dict)}. "
                       f"Ignore if parameter was omitted)")
         return None
 
@@ -292,7 +292,7 @@ def main(params):
     assert params['global']['task'] == 'segmentation', f"images_to_samples.py isn't necessary when performing classification tasks"
 
     # SET BASIC VARIABLES AND PATHS. CREATE OUTPUT FOLDERS.
-    # bucket_name = False #get_key_def('bucket_name', params['global'])
+    bucket_name = get_key_def('bucket_name', params['global'])
     data_path = Path(params['global']['data_path'])
     Path.mkdir(data_path, exist_ok=True, parents=True)
     csv_file = params['sample']['prep_csv_file']
@@ -310,23 +310,21 @@ def main(params):
     sample_path_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
 
     # AWS
-    # if bucket_name:
-    #     s3 = boto3.resource('s3')
-    #     bucket = s3.Bucket(bucket_name)
-    #     bucket.download_file(csv_file, 'samples_prep.csv')
-    #     list_data_prep = read_csv('samples_prep.csv')
-    #     if data_path:
-    #         # creates new sample folder
-    #         final_samples_folder = data_path.joinpath("samples")
-    #     else:
-    #         final_samples_folder = "samples"
-    #     samples_folder = sample_path_name
+    if bucket_name:
+        s3 = boto3.resource('s3')
+        bucket = s3.Bucket(bucket_name)
+        bucket.download_file(csv_file, 'samples_prep.csv')
+        list_data_prep = read_csv('samples_prep.csv')
+        if data_path:
+            final_samples_folder = data_path.joinpath("samples")
+        else:
+            final_samples_folder = "samples"
+        samples_folder = sample_path_name
 
-    # else:
-    list_data_prep = read_csv(csv_file)
-    samples_folder = data_path.joinpath(sample_path_name)
+    else:
+        list_data_prep = read_csv(csv_file)
+        samples_folder = data_path.joinpath(sample_path_name)
 
-    # check if output sample folder exists
     if samples_folder.is_dir():
         warnings.warn(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')
         samples_folder = Path(str(samples_folder) + '_' + now)
@@ -385,18 +383,18 @@ def main(params):
             _tqdm.set_postfix(
                 OrderedDict(tif=f'{Path(info["tif"]).stem}', sample_size=params['global']['samples_size']))
             try:
-                # if bucket_name:
-                #     bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
-                #     info['tif'] = "Images/" + info['tif'].split('/')[-1]
-                #     if info['gpkg'] not in bucket_file_cache:
-                #         bucket_file_cache.append(info['gpkg'])
-                #         bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
-                #     info['gpkg'] = info['gpkg'].split('/')[-1]
-                #     if info['meta']:
-                #         if info['meta'] not in bucket_file_cache:
-                #             bucket_file_cache.append(info['meta'])
-                #             bucket.download_file(info['meta'], info['meta'].split('/')[-1])
-                #         info['meta'] = info['meta'].split('/')[-1]
+                if bucket_name:
+                    bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
+                    info['tif'] = "Images/" + info['tif'].split('/')[-1]
+                    if info['gpkg'] not in bucket_file_cache:
+                        bucket_file_cache.append(info['gpkg'])
+                        bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
+                    info['gpkg'] = info['gpkg'].split('/')[-1]
+                    if info['meta']:
+                        if info['meta'] not in bucket_file_cache:
+                            bucket_file_cache.append(info['meta'])
+                            bucket.download_file(info['meta'], info['meta'].split('/')[-1])
+                        info['meta'] = info['meta'].split('/')[-1]
 
                 with rasterio.open(info['tif'], 'r') as raster:
                     # 1. Read the input raster image
@@ -505,11 +503,11 @@ def main(params):
 
     print("Number of samples created: ", number_samples)
 
-    # if bucket_name and final_samples_folder:
-    #     print('Transfering Samples to the bucket')
-    #     bucket.upload_file(samples_folder + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
-    #     bucket.upload_file(samples_folder + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
-    #     bucket.upload_file(samples_folder + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
+    if bucket_name and final_samples_folder:
+        print('Transfering Samples to the bucket')
+        bucket.upload_file(samples_folder + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
+        bucket.upload_file(samples_folder + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
+        bucket.upload_file(samples_folder + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
 
     print("End of process")
 
