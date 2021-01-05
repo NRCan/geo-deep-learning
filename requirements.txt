@@ -1,7 +1,7 @@
 torch
 torchvision
 numpy
-ruamel_yaml
+ruamel.yaml
 fiona
 nvidia-ml-py3
 boto3
@@ -16,3 +16,4 @@ matplotlib
 geopandas
 fiona
 segmentation_models_pytorch
+mlflow
