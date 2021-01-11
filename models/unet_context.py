@@ -1,6 +1,9 @@
 import torch.nn as nn
 import segmentation_models_pytorch as smp
 
+# Context Module Implementation as described here: https://arxiv.org/abs/1511.07122
+
+
 def dilated_conv(n_convs, in_channels, out_channels, dilation):
     layers = []
     for i in range(n_convs):

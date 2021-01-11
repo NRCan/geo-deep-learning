@@ -23,7 +23,6 @@ def load_checkpoint(filename):
     '''
     try:
         print(f"=> loading model '{filename}'\n")
-        # checkpoint = torch.load(filename) if torch.cuda.is_available() else torch.load(filename, map_location='cpu')
         # For loading external models with different structure in state dict. May cause problems when trying to load optimizer
         checkpoint = torch.load(filename, map_location='cpu')
         if 'model' not in checkpoint.keys():
