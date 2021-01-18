@@ -22,4 +22,4 @@
 Models from this [library](https://github.com/qubvel/segmentation_models.pytorch) support any number of image bands and offers modular encoder architectures. Check the official [github repo](https://github.com/qubvel/segmentation_models.pytorch) for more details.  
 
 ## New Models
-To add a new model, by sure that it can be call in `model_choice.py` with all the particularities needed to be train.
+To add a new model, be sure that it can be call in `model_choice.py` with all the particularities needed to be train.
