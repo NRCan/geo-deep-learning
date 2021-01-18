@@ -1,4 +1,5 @@
-# Geo-Deep-Learning
+
+![Logo](./docs/img/logo.png)
 
 ## **Overview**
 
