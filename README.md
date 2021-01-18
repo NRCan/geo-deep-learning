@@ -72,7 +72,7 @@ We suggest a high level structure to organize the images and the code.
 ```
 
 
-## Running GDL
+## **Running GDL**
 1. Clone this github repo.
 ```shell
 git clone https://github.com/NRCan/geo-deep-learning.git
@@ -107,7 +107,7 @@ python inference.py ./conf/your_config.yaml
 
 ---
 
-## Segmentation on RGB-NIR images with transfer learning
+## **Segmentation on RGB-NIR images with transfer learning**
 
 ![img_rgb_nir](docs/img/rgb_nir.png)
 
