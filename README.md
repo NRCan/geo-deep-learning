@@ -83,7 +83,7 @@ cd geo-deep-learning
 Prepare your data directory and add the paths to a `csv` file.
 ```shell
 # Copying the config_template and rename it at the same time
-cp conf/config_template.yaml path/to/yyaml_files/your_config.yaml
+cp conf/config_template.yaml path/to/yaml_files/your_config.yaml
 # Creating the csv file
 touch path/to/images.csv  
 ```
@@ -92,11 +92,11 @@ touch path/to/images.csv
 3. Execute your task (can be use separately).
 ```shell
 # Creating the hdf5 from the raw data
-python images_to_samples.py ./conf/your_config.yaml
+python images_to_samples.py path/to/yaml_files/your_config.yaml
 # Training the neural network
-python train_segmentation.py ./conf/your_config.yaml
+python train_segmentation.py path/to/yaml_files/your_config.yaml
 # Inference on the new data
-python inference.py ./conf/your_config.yaml
+python inference.py path/to/yaml_files/your_config.yaml
 ```
 > If you only want to use the `inference.py` you dont have to fill all the `yaml` file, only fill the inference section.
 
