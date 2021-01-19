@@ -19,7 +19,7 @@ Each image is a new line like:
 ---
 
 ## **Preparation of the `yaml` file**
-The `config_template.yaml` file located in the `conf` directory. We highly recommend to copy that file and past it inside a folder with all the information of the training (see the `folder structure` in the [README.md](../README.md) the main directory).
+The `config_template.yaml` file located in the `conf` directory. We highly recommend to copy that file and past it inside a folder with all the information of the training (see the `Folder Structure` in the [README.md](../README.md#Folder-Structure) the main directory).
 
 So this `yaml` file stores the values of all parameters needed by the deep learning algorithms for the three phases. The file contains the following 4 sections:
 * [global](#global)
