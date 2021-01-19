@@ -67,15 +67,35 @@ global:
 
 - **`model_name` :** Name of the model use to train the neural network, see the list of all the implemented models in [`/models`](../models#Models-available).
 
-- **`mlflow_uri` :**
+- **`mlflow_uri` :** Path where *mlflow* will store all the informations about the runs. By default the path is `./mlruns`.
 
-- **`bucket_name` :**
+- **`bucket_name` (Optional) :** Name of the S3 bucket where the data is stored. Leave blank if using local files.
 
-- **`task` :**
+- **`task` :** Task to perform, either segmentation or classification, but classification is no longer supported.
 
-- **`num_gpus` :**
+- **`num_gpus` :** Number of **GPUs** that you want to use, `0` will use the **CPU**.
 
-- **`BGR_to_RGB` :**
+- **`BGR_to_RGB` :** **TODO**
+
+- **`scale_data` :** Min and Max for input data rescaling, by default: `[0, 1]` meaning no rescaling.
+
+- **`aux_vector_file` :** **TODO**
+
+- **`aux_vector_attrib` :** **TODO**
+
+- **`aux_vector_ids` :** **TODO**
+
+- **`aux_vector_dist_maps` :** **TODO**
+
+- **`aux_vector_dist_log` :** **TODO**
+
+- **`aux_vector_scale` :** **TODO**
+
+- **`debug_mode` :** Activates various debug features for example, details about intermediate outputs, detailed progress bars, etc. By default this mode is `False`.
+
+- **`coordconv_convert` :** **TODO** False
+
+- **`coordvonc_scale` :** **TODO**
 
 ### **Data Analysis**
 The [data_analysis](data_analysis.py) module is used to visualize the composition of the sample's classes and see how it shapes the training dataset and can be  useful for balancing training data in which a class is under-represented. Using basic statistical analysis, the user can test multiple sampling parameters and immediately see their impact on the classes' distribution. It can also be used to automatically search optimal sampling parameters and obtain a more balanced class distribution in the dataset.
@@ -135,24 +155,52 @@ python data_analysis.py path/to/yaml_files/your_config.yaml
 ```
 
 ### **Sampling**
-```yaml
-global:
-  samples_size: 256         # Size (in pixel) of the samples.
-  num_classes: 2            # Number of classes.
-  data_path: /path/to/data  # Path to folder where samples folder will be automatically created
-  number_of_bands: 3        # Number of bands in input images.
-  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
-  bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
-  scale_data: [0, 1]        # Min and Max for input data rescaling. Default: [0, 1]. Default: No rescaling
-  debug_mode: True          # Activates various debug features (ex.: details about intermediate outputs, detailled progress bars, etc.). Default: False
+This section is use by [images_to_samples.py](../images_to_samples.py) to prepare the images for the training, validation and inference. Those images must be geotiff combine with a GeoPackage, otherwise it will not work.
 
+In addition, [images_to_samples.py](../images_to_samples.py) will assert that all geometries for features in GeoPackages are valid according to [Rasterio's algorithm](https://github.com/mapbox/rasterio/blob/d4e13f4ba43d0f686b6f4eaa796562a8a4c7e1ee/rasterio/features.py#L461).
+
+```yaml
 sample:
-  prep_csv_file: /path/to/file_name.csv  # Path to CSV file used in preparation.
-  overlap: 200                           # (int) Percentage of overlap between 2 samples. Mandatory
-  val_percent: 5                         # Percentage of validation samples created from train set (0 - 100)
-  min_annotated_percent: 10              # Min % of non background pixels in stored samples. Mandatory
-  mask_reference: False                  # When True, mask the input image where there is no reference data.
+  prep_csv_file: path/to/images.csv
+  val_percent: 5
+  overlap: 25
+  sampling_method:
+    'min_annotated_percent': 0
+    'class_proportion': {'1':0, '2':0, '3':0, '4':0}
+  mask_reference: False
 ```
+- **`prep_csv_file` :** Path to your `csv` file with the information on the images.
+
+- **`val_percent` :** Percentage of validation samples created from train set (0 - 100), we recommend at least `5`, must be an integer (int).
+
+- **`overlap` :** Percentage of overlap between 2 chunks, must be an integer (int).
+
+- **`sampling_method` :**
+  - `min_annotated_percent` is the percentage minimum of non background pixels in samples by default we chose `0`, must be an integer (int).
+  - `class_proportion` is a dictionary (dict) where the keys (numerical values in 'string' format) represent class id and the values (int) represent the class minimum threshold targeted in samples. An example of four classes with no minimum: `{'1':0, '2':0, '3':0, '4':0}`.
+
+- **`mask_reference` :** A mask that mask the input image where there is no reference data, when the value is `True`.
+
+###### Running [images_to_samples.py](../images_to_samples.py)
+You must run this code before training to generate the `hdf5` use by the other code.
+Even if you only want to do inference on the images, you need to generate a `tst_samples.hdf5`.
+
+To launch the code:
+```shell
+python images_to_samples.py path/to/yaml_files/your_config.yaml
+```
+The output of this code will result at the following structure:
+```
+├── {data_path}
+    └── {samples_folder}
+        └── trn_samples.hdf5
+        └── val_samples.hdf5
+        └── tst_samples.hdf5
+```
+The name of the `{samples_folder}` will be written by the informations chosen like :
+`samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands`
+
+>If folder already exists, a suffix with `_YYYY-MM-DD_HH-MM` will be added
 
 ### **Training**
 
@@ -161,17 +209,6 @@ sample:
 ---
 
 ## images_to_samples.py
-
-The first phase of the process is to determine sub-images (samples) to be used for training, validation and, optionally, test.  Images to be used must be of the geotiff type.  Sample locations in each image must be stored in a GeoPackage.
-
-To launch the program:  
-
-```
-python images_to_samples.py path/to/config/file/config.yaml
-```
-
-> Note: A data analysis module can be found [here](./docs/data_analysis.md).  
-> It is useful for balancing training data.
 
 Details on parameters used by this module:
 
@@ -210,20 +247,7 @@ sample:
     5. Crop arrays in smaller samples of size `samples_size` and distance `num_classes` specified in the configuration file. Visual representation of this is provided [here](https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f)
     6. Write samples from input image and label into the "val", "trn" or "tst" hdf5 file, depending on the value contained in the csv file. Refer to `samples_preparation()`.
 
-### <a name="samples_outputs"></a> Outputs
-- 3 .hdf5 files with input images and reference data, stored as arrays, with following structure:
-```
-├── {data_path}
-    └── {samples_folder}*
-        └── trn_samples.hdf5
-        └── val_samples.hdf5
-        └── tst_samples.hdf5
-```
-*{samples_folder} is set from values in .yaml:
 
-"samples{`samples_size`}\_overlap{`overlap`}\_min-annot{`min_annot_perc`}\_{`num_bands`}bands"
-
->If folder already exists, a suffix with `_YYYY-MM-DD_HH-MM` is added
 
 ### Debug mode
 - Images_to_samples.py will assert that all geometries for features in GeoPackages are valid according to [Rasterio's algorithm](https://github.com/mapbox/rasterio/blob/d4e13f4ba43d0f686b6f4eaa796562a8a4c7e1ee/rasterio/features.py#L461).   
