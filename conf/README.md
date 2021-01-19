@@ -21,45 +21,144 @@ Each image is a new line like:
 ## **Preparation of the `yaml` file**
 The `config_template.yaml` file located in the `conf` directory. We highly recommend to copy that file and past it inside a folder with all the information of the training (see the `Folder Structure` in the [README.md](../README.md#Folder-Structure) the main directory).
 
-So this `yaml` file stores the values of all parameters needed by the deep learning algorithms for the three phases. The file contains the following 4 sections:
-* [global](#global)
+So this `yaml` file stores the values of all parameters needed by the deep learning algorithms for the three phases. The file contains the following sections:
+* [Global](#Global)
+* [Data Analysis](#Data-Analysis)
+* [Sampling](#Sampling)
+* [Training](#Training)
+* [Inference](#Inference)
+* [Visualization](#Visualisation)
 
+<!-- Specific parameters in each section are shown below, where relevant. For more information about config.yaml, view file directly: [conf/config.yaml](https://github.com/NRCan/geo-deep-learning/blob/master/conf/config.yaml) -->
+
+### **Global**
+This section regroup all the general information and use by more that one sections.
+
+```YAML
+global:
+  samples_size: 512
+  num_classes: 5
+  data_path: path/to/data
+  number_of_bands: 4
+  model_name: unet
+  mlflow_uri: path/to/mlflow_tracking_uri
+  bucket_name:
+  task: segmentation
+  num_gpus: 2
+  BGR_to_RGB: True
+  scale_data: [0,1]
+  aux_vector_file:
+  aux_vector_attrib:
+  aux_vector_ids:
+  aux_vector_dist_maps:
+  aux_vector_dist_log:
+  aux_vector_scale:
+  debug_mode: True
+  coordconv_convert: False
+  coordvonc_scale:
+```
+- **`samples_size` :** Size of the tiles that you want to train/val/test with. We recommend `512` or `256` for the train/val task.
+
+- **`num_classes` :** Number of classes that your *ground truth* have and which you want to predict at the end.
+
+- **`data_path` :** Path to the folder where samples folder will be automatically created and all the other informations will be stored. **add the link to the example of stucture**
+
+- **`number_of_bands` :** Number of bands in input images (RGB = 3 and RGBNir = 4).
+
+- **`model_name` :** Name of the model use to train the neural network, see the list of all the implemented models in [`/models`](../models#Models-available).
+
+- **`mlflow_uri` :**
+
+- **`bucket_name` :**
+
+- **`task` :**
+
+- **`num_gpus` :**
+
+- **`BGR_to_RGB` :**
+
+### **Data Analysis**
+The [data_analysis](data_analysis.py) module is used to visualize the composition of the sample's classes and see how it shapes the training dataset and can be  useful for balancing training data in which a class is under-represented. Using basic statistical analysis, the user can test multiple sampling parameters and immediately see their impact on the classes' distribution. It can also be used to automatically search optimal sampling parameters and obtain a more balanced class distribution in the dataset.
+
+The sampling parameters can then be used in [images_to_samples.py](../images_to_samples.py) to obtain the desired dataset or can be use alone this way there is no need to run the full code to find out how the classes are distributed (see the [example](#Running)).
+
+Before running [data_analysis.py](data_analysis.py), the paths to the `csv` file containing all the information about the images and the data folder must be specified in the `yaml` file use to the experience.
+```YAML
+# Global parameters
+global:
+  samples_size: 512
+  num_classes: 5
+  data_path: path/to/data                 # <--- must be specified
+  number_of_bands: 4
+
+      ...
+
+# Sample parameters; used in images_to_samples.py -------------------
+sample:
+  prep_csv_file: /path/to/csv/images.csv  # <--- must be specified
+  val_percent: 5
+
+```
+
+Here is an example of the data_analysis section in the `YAML` file :
+
+```YAML
+data_analysis:
+  create_csv: True
+  optimal_parameters_search : False
+  sampling_method: # class_proportion or min_annotated_percent
+    'min_annotated_percent': 0  # Min % of non background pixels in samples.
+    'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:
+    # keys (numerical values in 'string' format) represent class id
+    # values (int) represent class minimum threshold targeted in samples
+```
+- **`create_csv` :**
+This parameter is used to create a `csv` file containing the class proportion data of each image sample. This first step is mandatory to ensure the proper operation of the module. Once it is created, the same `csv` file is used for every tests the user wants to perform. Once that is done, the parameter can then be changed to `False`.
+This parameter would have to be changed to `True` again if any changes were made to the content of the `prep_csv_file` or if the user wishes to change the values of the `samples_size` parameters. These parameters have a direct effect on the class proportion calculation. The `csv` file created is stored in the folder specified in the `data_path` of the global section.
+
+- **`optimal_parameters_search` :**
+When this parameter is set to `True`, it activates the optimal sampling parameters search function. This function aims to find which sampling parameters produce the most balanced dataset based on the standard deviation between the proportions of each class in the dataset. The sampling method(s) used for the search function must first be specified in the `sampling_method` dictionary in the `data_analysis` section. It does not take into account the values of the other keys in the dictionary. The function first returns the optimal threshold(s) for the chosen sampling method(s). It then returns a preview of the proportions of each classes and the size of the final dataset without creating it, like the following image.
+<p align="center">
+   <img align="center" src="/docs/screenshots/stats_parameters_search_map_cp.PNG">
+</p>
+
+- **`sampling_method` :**
+For `min_annotated_percent` is the minimum percent of non background pixels in the samples. By default the value is `0` and the targeted minimum annotated percent must by a integer.
+`class_proportion` should be a dictionary with the number of each classes in the images in quotes. Specify the minimum class proportion of one or all classes with integer(s) or float(s). Example, `'0':0, '1':10, '2':5, '3':5, ...`
+<!-- `min_annotated_percent`, For this value to be taken into account, the `optimal_paramters_search` function must be turned off and 'min_annotated_percent' must be listed in the `'method'` key of the `sampling` dictionary. -->
+<!-- `class_proportion`, For these values to be taken into account, the `optimal_paramters_search` function must be turned off and 'class_proportion' must be listed in the `'method'` key of the `sampling` dictionary. -->
+
+###### Running [data_analysis.py](data_analysis.py)
+You can run the data analysis alone if you only want the stats, and to do that you only need to launch the program :
+```shell
+python data_analysis.py path/to/yaml_files/your_config.yaml
+```
+
+### **Sampling**
 ```yaml
-# Deep learning configuration file ------------------------------------------------
-# Five sections:
-#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
-#   2) Sampling parameters
-#   3) Training parameters
-#   4) Inference parameters
-#   5) Visualization
+global:
+  samples_size: 256         # Size (in pixel) of the samples.
+  num_classes: 2            # Number of classes.
+  data_path: /path/to/data  # Path to folder where samples folder will be automatically created
+  number_of_bands: 3        # Number of bands in input images.
+  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
+  bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
+  scale_data: [0, 1]        # Min and Max for input data rescaling. Default: [0, 1]. Default: No rescaling
+  debug_mode: True          # Activates various debug features (ex.: details about intermediate outputs, detailled progress bars, etc.). Default: False
 
+sample:
+  prep_csv_file: /path/to/file_name.csv  # Path to CSV file used in preparation.
+  overlap: 200                           # (int) Percentage of overlap between 2 samples. Mandatory
+  val_percent: 5                         # Percentage of validation samples created from train set (0 - 100)
+  min_annotated_percent: 10              # Min % of non background pixels in stored samples. Mandatory
+  mask_reference: False                  # When True, mask the input image where there is no reference data.
 ```
 
-Specific parameters in each section are shown below, where relevant. For more information about config.yaml, view file directly: [conf/config.yaml](https://github.com/NRCan/geo-deep-learning/blob/master/conf/config.yaml)
+### **Training**
 
 
 
-
-Structure as created by geo-deep-learning
-```
-├── {data_path}
-    └── {samples_folder}*
-        └── trn_samples.hdf5
-        └── val_samples.hdf5
-        └── tst_samples.hdf5
-        └── model
-            └── {model_name}**
-                └── checkpoint.pth.tar
-                └── {log files}
-                └── copy of config.yaml (automatic)
-                └── visualization
-                    └── {.pngs from visualization}
-                └── inference
-                    └── {.tifs from inference}
-```
-
-### global
-
+---
 
 ## images_to_samples.py
 
@@ -358,3 +457,24 @@ The `vis_batch_range` parameter plays a central role in visualization. First num
 ### Debug mode
 - if in inference, `vis()` will print all unique values in each heatmap array. If there are only a few values, it gives a hint on usefulness of heatmap.
 - if in inference, `vis()` will check number of predicted classes in output array. If only one predicted class, a warning is sent.
+
+
+---
+
+Structure as created by geo-deep-learning
+```
+├── {data_path}
+    └── {samples_folder}*
+        └── trn_samples.hdf5
+        └── val_samples.hdf5
+        └── tst_samples.hdf5
+        └── model
+            └── {model_name}**
+                └── checkpoint.pth.tar
+                └── {log files}
+                └── copy of config.yaml (automatic)
+                └── visualization
+                    └── {.pngs from visualization}
+                └── inference
+                    └── {.tifs from inference}
+```

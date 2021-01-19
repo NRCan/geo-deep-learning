@@ -2,10 +2,10 @@
 # Five sections :
 #   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
 #   2) Data analysis parameters
-#   4) Sampling parameters
-#   5) Training parameters
-#   6) Inference parameters
-#   7) Visualization parameters
+#   3) Sampling parameters
+#   4) Training parameters
+#   5) Inference parameters
+#   6) Visualization parameters
 
 # Global parameters
 global:
