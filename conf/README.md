@@ -1,27 +1,28 @@
-documentation on how to fill the yaml file with all options and links
-
-
-## `csv` preparation
-The `csv` specifies the input images and the reference vector data that will be use during the training.
-Each row in the `csv` file must contain 5 comma-separated items:
-- input image file (tif)
-- metadata info (*more details to come*). Optional, leave empty if not desired. (see example below)
-- reference vector data (GeoPackage)
+## **Preparation of the `csv` file**
+The `csv` file specifies the input images and the reference vectors data that will be use during the training, validation and testing phases.
+Each row in the `csv` file must contain 5 comma-separated items for the five items that follow.
+- path to the input image file (tif)
+- (*Optional*) metadata info, leave empty if not desired. (see example below)
+- path to the vectors data (GeoPackage)
 - attribute of the GeoPackage to use as classes values
-- dataset (one of 'trn' for training, 'val' for validation or 'tst' for test) where the sample will be used. Test set is optional.  
+- where to use the dataset : '*trn*' for training, '*val*' for validation or '*tst*' for test  
 
-Each image is a new line in the csv file.  For example:  
+Each image is a new line like:
 
 ```
 \path\to\input\image1.tif,,\path\to\reference\vector1.gpkg,attribute,trn
 \path\to\input\image2.tif,,\path\to\reference\vector2.gpkg,attribute,val
 \path\to\input\image3.tif,,\path\to\reference\vector2.gpkg,attribute,tst
 ```
+> **Note :** '*tst*' is optional for training the neural network, but if you want only use the inference, the code will only use the images from '*tst*'.
 
+---
 
-## config.yaml
+## **Preparation of the `yaml` file**
+The `config_template.yaml` file located in the `conf` directory. We highly recommend to copy that file and past it inside a folder with all the information of the training (see the `folder structure` in the [README.md](../README.md) the main directory).
 
-The `config.yaml` file is located in the `conf` directory.  It stores the values of all parameters needed by the deep learning algorithms for all phases.  It contains the following 4 sections:
+So this `yaml` file stores the values of all parameters needed by the deep learning algorithms for the three phases. The file contains the following 4 sections:
+* [global](#global)
 
 ```yaml
 # Deep learning configuration file ------------------------------------------------
@@ -56,6 +57,8 @@ Structure as created by geo-deep-learning
                 └── inference
                     └── {.tifs from inference}
 ```
+
+### global
 
 
 ## images_to_samples.py
