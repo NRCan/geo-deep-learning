@@ -1,6 +1,5 @@
 # **Modules Documentation**
 
----
 
 ## **[Metrics](metrics.py)**
 Metrics are used to measure the quality of the statistical or the deep learning model. Evaluating deep learning models or algorithms is essential for any project. There some metrics available in **GDL**.

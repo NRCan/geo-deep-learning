@@ -75,7 +75,7 @@ training:
   gamma: 0.9
   dropout: False   # (bool) Use dropout or not
   dropout_prob:    # (float) Set dropout probability, e.g. 0.5
-  class_weights: [1.0, 2.0]
+  class_weights: [1.0, 0.9]
   # Batch metrics (int): The metrics computed every (int) batches.
   # If left blank, will not perform metrics.
   # If (int)=1, metrics computed on all batches.
@@ -90,7 +90,6 @@ training:
   normalization:
     mean:
     std:
-
   # For each augmentation parameters, if not specified,
   # the part of the augmentation will not be performed.
   augmentation:
@@ -116,9 +115,7 @@ inference:
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
   heatmaps: True
-
-
-# Visualization parameters
+  # Visualization parameters
   smooth_prediction: True
   overlap: 2 # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
 

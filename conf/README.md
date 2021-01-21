@@ -154,6 +154,7 @@ You can run the data analysis alone if you only want the stats, and to do that y
 python data_analysis.py path/to/yaml_files/your_config.yaml
 ```
 
+
 ### **Sampling**
 This section is use by [images_to_samples.py](../images_to_samples.py) to prepare the images for the training, validation and inference. Those images must be geotiff combine with a GeoPackage, otherwise it will not work.
 
@@ -175,8 +176,9 @@ sample:
 
 - **`overlap` :** Percentage of overlap between 2 chunks, must be an integer (int).
 
-- **`sampling_method` :**
+- **`sampling_method` :** Chose one of the following method.
   - `min_annotated_percent` is the percentage minimum of non background pixels in samples by default we chose `0`, must be an integer (int).
+
   - `class_proportion` is a dictionary (dict) where the keys (numerical values in 'string' format) represent class id and the values (int) represent the class minimum threshold targeted in samples. An example of four classes with no minimum: `{'1':0, '2':0, '3':0, '4':0}`.
 
 - **`mask_reference` :** A mask that mask the input image where there is no reference data, when the value is `True`.
@@ -202,125 +204,153 @@ The name of the `{samples_folder}` will be written by the informations chosen li
 
 >If folder already exists, a suffix with `_YYYY-MM-DD_HH-MM` will be added
 
+
 ### **Training**
+This section is use by [train_segmentation.py](../train_segmentation.py) to train the chosen model. The training phase is the crux of the learning process.
+During that phase, we can count two main actions:
+- The main training, where the samples labeled "trn" are used to train the neural network.
+
+- The validation, where the samples labeled "val" are used to estimate the training error (i.e. loss) on a set of sub-images (those image must not be used in the main training), after every epoch or after the number of epochs chosen.
+
+At the end of each validation, the model with the lowest error on validation data
+is save, if the network don't perform better than the last validation, the weights of the model will not be saved.
+
+```yaml
+training:
+  state_dict_path: /path/to/checkpoint.pth.tar
+  pretrained: True
+  num_trn_samples: 4960
+  num_val_samples: 2208
+  num_tst_samples: 1000
+  batch_size: 32   
+  num_epochs: 150  
+  target_size: 128
+  loss_fn: Lovasz
+  optimizer: adabound
+  learning_rate: 0.0001
+  weight_decay: 0     
+  step_size: 4        
+  gamma: 0.9
+  dropout: False
+  dropout_prob: False
+  class_weights: [1.0, 0.9]
+  batch_metrics: 2
+  ignore_index: 0            # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
+  # Normalization: parameters for finetuning.
+  # for esample
+  #    -> mean: [0.485, 0.456, 0.406]
+  #    -> std: std: [0.229, 0.224, 0.225])
+  normalization:
+    mean:
+    std:
+  # For each augmentation parameters, if not specified,
+  # the part of the augmentation will not be performed.
+  augmentation:
+    # Rotate limit: the upper and lower limits for data rotation.
+    rotate_limit: 45
+    # Rotate probability: the probability for data rotation.
+    rotate_prob: 0.5
+    # Horizontal flip: the probability for data horizontal flip.
+    hflip_prob: 0.5
+    # Range of the random percentile:
+    #   the range in which a random percentile value will
+    #   be chosen to trim values. This value applies to
+    #   both left and right sides of the raster's histogram.
+    random_radiom_trim_range: [0.1, 2.0]
+    brightness_contrast_range: # Not yet implemented
+    noise: # Not yet implemented
+```
+- **`state_dict_path` (Optional):** Path to checkpoint (weights) from a trained model as .pth.tar or .pth file.
+
+- **`pretrained` :** When `True` and the chosen model have the option available,  the model will load pretrained weights (e.g. Deeplabv3 pretrained on coco dataset). The default value is `True` if no `state_dict_path` is given.
+
+- **`num_trn_samples` :** Number of samples to use for training by default all samples in `hdf5` file are taken.
+
+- **`num_val_samples` :** Number of samples to use for validation by default all samples in `hdf5` file are taken.
+
+- **`num_tst_samples` :** Number of samples to use for test by default all samples in `hdf5` file are taken.
+
+- **`batch_size` :** Size of each batch given to the **GPUs** or **CPU** depending on what you are training.
+
+- **`num_epochs` :** Number of epochs on which the model will train.
+
+- **`target_size` :** **TODO**
+
+- **`loss_fn` :** Loss function, see the documentation on the losses [here](../losses#Losses-available) for all the losses available.
+
+- **`optimizer` :** Optimizer, see the documentation on the optimizers [here](../utils#Optimizers) for all the optimizers available.
+
+- **`learning_rate` :** Initial learning rate.
+
+- **`weight_decay` :** Value for weight decay for each epoch.
+
+- **`step_size` :** Apply gamma for every `step_size`.
+
+- **`gamma` :** Multiple for learning rate decay.
+
+- **`dropout` :** The use dropout or not, it's only applies to certain models, so the default value is `False`.
+
+- **`dropout_prob` :** If `dropout` is `True`, it set dropout probability, example `0.5` for 50%.
+
+- **`class_weights` :** Weights apply to the loss each class (certain loss functions only). We recommend to use weights that ones add to each other will give 1.0, for example, if you have two classes you can weight them `[0.1, 0.9]`
+
+- **`batch_metrics` :** Interval between each batch where all the metrics are computed, if left blank, it will not perform metrics, must be an integer (if `1`, metrics computed on all batches). See the documentation on the metrics [here](../utils#Metrics).
+
+- **`ignore_index` :** Specifies a target value that will be ignored and does not contribute to the input gradient during the training.
+
+- **`normalization` :** The normalization is parameters for fine tuning.
+  - **`mean` :** **TODO**
+
+  - **`std` :** **TODO**
+
+- **`augmentation` :** This part is for modifying the images samples to help the network to see different possibilities of representation (also call data augmentation[^1]). To be perform, all the following parameters need to be feel, otherwise the augmentation will not be performed. For specific details about implementation of these augmentations, check the docstrings in [`augmentation.py`](../utils/augmentation.py).
+  - **`rotate_limit` :** The upper and lower limits for data rotation.
+
+  - **`rotate_prob` :** The probability for data rotation.
+
+  - **`hflip_prob` :** The probability for data horizontal flip.
+
+  - **`random_radiom_trim_range` :** The range of the random percentile in which a random percentile value will be chosen to trim values. This value applies to both left and right sides of the raster's histogram.
+
+  - **`brightness_contrast_range` :** # Not yet implemented
+
+  - **`noise` :** # Not yet implemented
+
+[^1]: These augmentations are a [common procedure in machine learning](https://www.coursera.org/lecture/convolutional-neural-networks/data-augmentation-AYzbX). More augmentations could be implemented in a near. See issue [#106](https://github.com/NRCan/geo-deep-learning/issues/106).
 
 
+###### Running [train_segmentation.py](../train_segmentation.py)
+
+You must run [`images_to_samples.py`](../images_to_samples.py) code before training to generate the `hdf5` use for the training and the validation.
+
+To launch the code:
+```shell
+python train_segmentation.py path/to/yaml_files/your_config.yaml
+```
+
+The output of this code will result at the following structure:
+```
+├── {data_path}
+    └── {samples_folder} (See: the output of the sampling section)
+        └── model
+            └── {model_name}
+                └── checkpoint.pth.tar
+                └── {log files}
+                └── copy of config.yaml (automatic)
+```
+The trained model weights will be save as `checkpoint.pth.tar`. Corresponding to the training state where the validation loss was the lowest during the training process. All those information will be stored in the same directory than the `hdf5` images generated by the [sampling](#Sampling).
+The `{model_name}` is set from the `yaml` name. Therefore, `yaml` name should be relevant and unique and if the folder already exists, a suffix with `_YYYY-MM-DD_HH-MM` will be added.
+
+> **Advanced features :** To check how a trained model performs on test split without fine-tuning, simply:
+    1. Specify `training` / `state_dict_path` for this model in `config.yaml`
+    2. In same parameter section, set `num_epochs` to 0. The execution will then jump right away to `evaluation` on test set with loaded model without training.
 
 ---
 
-## images_to_samples.py
-
-Details on parameters used by this module:
-
-```yaml
-global:
-  samples_size: 256         # Size (in pixel) of the samples.
-  num_classes: 2            # Number of classes.
-  data_path: /path/to/data  # Path to folder where samples folder will be automatically created
-  number_of_bands: 3        # Number of bands in input images.
-  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
-  bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
-  scale_data: [0, 1]        # Min and Max for input data rescaling. Default: [0, 1]. Default: No rescaling
-  debug_mode: True          # Activates various debug features (ex.: details about intermediate outputs, detailled progress bars, etc.). Default: False
-
-sample:
-  prep_csv_file: /path/to/file_name.csv  # Path to CSV file used in preparation.
-  overlap: 200                           # (int) Percentage of overlap between 2 samples. Mandatory
-  val_percent: 5                         # Percentage of validation samples created from train set (0 - 100)
-  min_annotated_percent: 10              # Min % of non background pixels in stored samples. Mandatory
-  mask_reference: False                  # When True, mask the input image where there is no reference data.
-```
-
-### Process
-1. Read csv file and validate existence of all input files and GeoPackages.
-2. Do the following verifications:
-    1. Assert number of bands found in raster is equal to desired number of bands
-    2. Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage. Warning: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
-    3. Assert Coordinate reference system between raster and gpkg match.
-3. Read csv file and for each line in the file, do the following:
-    1. Read input image as array with `utils.readers.image_reader_as_array()`.
-        - If gpkg's extent is smaller than raster's extent, raster is clipped to gpkg's extent.
-        - If gpkg's extent is bigger than raster's extent, gpkg is clipped to raster's extent.
-    2. Convert GeoPackage vector information into the "label" raster with `utils.utils.vector_to_raster()`. The pixel value is determined by the attribute in the csv file.
-    3. Create a new raster called "label" with the same properties as the input image
-    4. Read metadata and add to input as new bands (*more details to come*)
-    5. Crop arrays in smaller samples of size `samples_size` and distance `num_classes` specified in the configuration file. Visual representation of this is provided [here](https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f)
-    6. Write samples from input image and label into the "val", "trn" or "tst" hdf5 file, depending on the value contained in the csv file. Refer to `samples_preparation()`.
-
-
-
-### Debug mode
-- Images_to_samples.py will assert that all geometries for features in GeoPackages are valid according to [Rasterio's algorithm](https://github.com/mapbox/rasterio/blob/d4e13f4ba43d0f686b6f4eaa796562a8a4c7e1ee/rasterio/features.py#L461).   
-
-## train_segmentation.py
-
-The crux of the learning process is in this phase : training.  
-- Samples labeled "trn" as per above are used to train the neural network.
-- Samples labeled "val" are used to estimate the training error (i.e. loss) on a set of sub-images not used for training, after every epoch.
-- At the end of all epochs, the model with the lowest error on validation data is loaded and samples labeled "tst", if they exist, are used to estimate the accuracy of the model on sub-images unseen during training or validation.
-
-To launch the program:
-```
-python train_segmentation.py path/to/config/file/config.yaml
-```
-Details on parameters used by this module:
-```yaml
-global:
-  samples_size: 256          # Size (in pixel) of the samples
-  num_classes: 2             # Number of classes
-  data_path: /path/to/data   # Path to folder containing samples folder. Model and log files will be written in samples folder
-  number_of_bands: 3         # Number of bands in input images
-  model_name: unetsmall      # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
-  bucket_name:               # name of the S3 bucket where data is stored. Leave blank if using local files
-  task: segmentation         # Task to perform. Either segmentation or classification
-  num_gpus: 0                # Number of GPU device(s) to use. Default: 0
-  debug_mode: True           # Activates various debug features (ex.: details about intermediate outputs, detailled progress bars, etc.). Default: False
-
-sample:
-  overlap: 20                # % of overlap between 2 samples Note: high overlap > 25 creates very similar samples between train and val sets.   
-  min_annotated_percent: 10  # Min % of non background pixels in stored samples.
-
-training:
-  state_dict_path: /path/to/checkpoint.pth.tar  # path to checkpoint from trained model as .pth.tar or .pth file. Optional.
-  pretrained: True           # if True, pretrained model will be loaded if available (e.g. Deeplabv3 pretrained on coco dataset). Default: True if no state_dict is given
-  num_trn_samples: 4960      # Number of samples to use for training. (default: all samples in hdfs file are taken)
-  num_val_samples: 2208      # Number of samples to use for validation. (default: all samples in hdfs file are taken)
-  num_tst_samples:           # Number of samples to use for test. (default: all samples in hdfs file are taken)
-  batch_size: 32             # Size of each batch
-  num_epochs: 150            # Number of epochs
-  loss_fn: Lovasz            # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
-  optimizer: adabound        # One of adam, sgd or adabound
-  learning_rate: 0.0001      # Initial learning rate
-  weight_decay: 0            # Value for weight decay (each epoch)
-  step_size: 4               # Apply gamma every step_size
-  gamma: 0.9                 # Multiple for learning rate decay
-  dropout: False             # (bool) Use dropout or not. Applies to certain models only.
-  dropout_prob: False        # (float) Set dropout probability, e.g. 0.5
-  class_weights: [1.0, 2.0]  # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class. Applies to certain loss functions only.
-  batch_metrics: 2           # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
-  ignore_index: 0            # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
-```
-
-### Inputs
-- samples folder as created by `images_to_samples.py` (See: [Images_to_samples.py / Outputs](#samples_outputs)) containing:
-    - `trn_samples.hdf5`, `val_samples.hdf5`, `tst_samples.hdf5`. Each hdf5 file contains input images and reference data as arrays used for training, validation and test, respectively.
-
 #### Augmentations
 
-Details on parameters used by this module:
-```yaml  
-training:
-   augmentation:
-        rotate_limit: 45         # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
-        rotate_prob: 0.5         # Specifies the probability for data rotation. If not specified, no rotation will be performed.
-        hflip_prob: 0.5          # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.    
-        random_radiom_trim_range: [0.1, 2.0] # Specifies the range in which a random percentile value will be chosen to trim values. This value applies to both left and right sides of the raster's histogram. If not specified, no enhancement will be performed.
-        geom_scale_range:        # Not yet implemented
-        noise:                   # Not yet implemented
-```
-These augmentations are a [common procedure in machine learning](https://www.coursera.org/lecture/convolutional-neural-networks/data-augmentation-AYzbX). More augmentations could be implemented in a near. See issue [#106](https://github.com/NRCan/geo-deep-learning/issues/106).
 
-Note: For specific details about implementation of these augmentations, check docstrings in utils.augmentation.py.
+Note:
 
 Warning:
 - RandomCrop is used only if parameter `target_size` (in training section of config file) is not empty. Also, if this parameter is omitted, the hdf5 samples will be fed as is to the model in training (after other augmentations, if applicable). This can have an major impact on GPU RAM used and could cause `CUDA: Out of memory errors`.  
@@ -336,45 +366,9 @@ Warning:
 7. For every epoch (if `batch_metrics: 1`), the application shows and logs the accuracy, recall and f-score on "val" dataset. Those metrics are also computed on each classes.  
 8. At the end of the training process, the application shows and logs the accuracy, recall and f-score on "tst" dataset. Those metrics are also computed on each classes.
 
-### <a name="training_outputs"></a> Output
-- Trained model weights as `checkpoint.pth.tar`. Corresponding to the training state where the validation loss was the lowest during the training process.
 
-```
-├── {data_path}
-    └── {samples_folder} (See: images_to_samples.py / Outputs)
-        └── model
-            └── {model_name}*
-                └── checkpoint.pth.tar
-                └── {log files}
-                └── copy of config.yaml (automatic)
-```
-*{model_name} is set from yaml name. Therefore, **yaml name should be relevant and unique**. If folder already exists, a suffix with `_YYYY-MM-DD_HH-MM` is added.
 
-### Loss functions
-- Cross-Entropy (standard loss functions as implemented in [torch.nn](https://pytorch.org/docs/stable/_modules/torch/nn/modules/loss.html))
-- [Multi-class Lovasz-Softmax loss](https://arxiv.org/abs/1705.08790)
-- Ohem Cross Entropy. Adapted from [OCNet Repository](https://github.com/PkuRainBow/OCNet)
-- [Focal Loss](https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/65938)
-
-### Optimizers
-- Adam (standard optimizer in [torch.optim](https://pytorch.org/docs/stable/optim.html))
-- SGD (standard optimizer in [torch.optim](https://pytorch.org/docs/stable/optim.html)
-- [Adabound/AdaboundW](https://openreview.net/forum?id=Bkg3g2R9FX)
-
-### Debug mode
-- During training, `train_segmentation.py` will display in progress bar:
-    - train loss for last batch
-    - GPUs usage (% and RAM)
-    - current learning rate
-    - input image shape
-    - label shape
-    - batch size
-    - number of predicted classes in each output array (if only one predicted class, there's a problem!)   
-
-### Advanced features
-- To check how a trained model performs on test split without fine-tuning, simply:
-    1. Specify `training` / `state_dict_path` for this model in `config.yaml`
-    2. In same parameter section, set `num_epochs` to 0. The execution will then jump right away to `evaluation` on test set with loaded model without training.
+---
 
 ## inference.py
 
