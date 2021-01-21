@@ -31,7 +31,7 @@ So this `yaml` file stores the values of all parameters needed by the deep learn
 
 <!-- Specific parameters in each section are shown below, where relevant. For more information about config.yaml, view file directly: [conf/config.yaml](https://github.com/NRCan/geo-deep-learning/blob/master/conf/config.yaml) -->
 
-### **Global**
+## **Global**
 This section regroup all the general information and use by more that one sections.
 
 ```YAML
@@ -97,7 +97,7 @@ global:
 
 - **`coordvonc_scale` :** **TODO**
 
-### **Data Analysis**
+## **Data Analysis**
 The [data_analysis](data_analysis.py) module is used to visualize the composition of the sample's classes and see how it shapes the training dataset and can be  useful for balancing training data in which a class is under-represented. Using basic statistical analysis, the user can test multiple sampling parameters and immediately see their impact on the classes' distribution. It can also be used to automatically search optimal sampling parameters and obtain a more balanced class distribution in the dataset.
 
 The sampling parameters can then be used in [images_to_samples.py](../images_to_samples.py) to obtain the desired dataset or can be use alone this way there is no need to run the full code to find out how the classes are distributed (see the [example](#Running)).
@@ -126,11 +126,9 @@ Here is an example of the data_analysis section in the `YAML` file :
 data_analysis:
   create_csv: True
   optimal_parameters_search : False
-  sampling_method: # class_proportion or min_annotated_percent
-    'min_annotated_percent': 0  # Min % of non background pixels in samples.
-    'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:
-    # keys (numerical values in 'string' format) represent class id
-    # values (int) represent class minimum threshold targeted in samples
+  sampling_method:
+    'min_annotated_percent': 0
+    'class_proportion': {'1':0, '2':0, '3':0, '4':0}
 ```
 - **`create_csv` :**
 This parameter is used to create a `csv` file containing the class proportion data of each image sample. This first step is mandatory to ensure the proper operation of the module. Once it is created, the same `csv` file is used for every tests the user wants to perform. Once that is done, the parameter can then be changed to `False`.
@@ -148,14 +146,14 @@ For `min_annotated_percent` is the minimum percent of non background pixels in t
 <!-- `min_annotated_percent`, For this value to be taken into account, the `optimal_paramters_search` function must be turned off and 'min_annotated_percent' must be listed in the `'method'` key of the `sampling` dictionary. -->
 <!-- `class_proportion`, For these values to be taken into account, the `optimal_paramters_search` function must be turned off and 'class_proportion' must be listed in the `'method'` key of the `sampling` dictionary. -->
 
-###### Running [data_analysis.py](data_analysis.py)
+#### Running [data_analysis.py](data_analysis.py)
 You can run the data analysis alone if you only want the stats, and to do that you only need to launch the program :
 ```shell
 python data_analysis.py path/to/yaml_files/your_config.yaml
 ```
 
 
-### **Sampling**
+## **Sampling**
 This section is use by [images_to_samples.py](../images_to_samples.py) to prepare the images for the training, validation and inference. Those images must be geotiff combine with a GeoPackage, otherwise it will not work.
 
 In addition, [images_to_samples.py](../images_to_samples.py) will assert that all geometries for features in GeoPackages are valid according to [Rasterio's algorithm](https://github.com/mapbox/rasterio/blob/d4e13f4ba43d0f686b6f4eaa796562a8a4c7e1ee/rasterio/features.py#L461).
@@ -183,7 +181,7 @@ sample:
 
 - **`mask_reference` :** A mask that mask the input image where there is no reference data, when the value is `True`.
 
-###### Running [images_to_samples.py](../images_to_samples.py)
+#### Running [images_to_samples.py](../images_to_samples.py)
 You must run this code before training to generate the `hdf5` use by the other code.
 Even if you only want to do inference on the images, you need to generate a `tst_samples.hdf5`.
 
@@ -205,7 +203,7 @@ The name of the `{samples_folder}` will be written by the informations chosen li
 >If folder already exists, a suffix with `_YYYY-MM-DD_HH-MM` will be added
 
 
-### **Training**
+## **Training**
 This section is use by [train_segmentation.py](../train_segmentation.py) to train the chosen model. The training phase is the crux of the learning process.
 During that phase, we can count two main actions:
 - The main training, where the samples labeled "trn" are used to train the neural network.
@@ -235,30 +233,17 @@ training:
   dropout_prob: False
   class_weights: [1.0, 0.9]
   batch_metrics: 2
-  ignore_index: 0            # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
-  # Normalization: parameters for finetuning.
-  # for esample
-  #    -> mean: [0.485, 0.456, 0.406]
-  #    -> std: std: [0.229, 0.224, 0.225])
+  ignore_index: 0
   normalization:
     mean:
     std:
-  # For each augmentation parameters, if not specified,
-  # the part of the augmentation will not be performed.
   augmentation:
-    # Rotate limit: the upper and lower limits for data rotation.
     rotate_limit: 45
-    # Rotate probability: the probability for data rotation.
     rotate_prob: 0.5
-    # Horizontal flip: the probability for data horizontal flip.
     hflip_prob: 0.5
-    # Range of the random percentile:
-    #   the range in which a random percentile value will
-    #   be chosen to trim values. This value applies to
-    #   both left and right sides of the raster's histogram.
     random_radiom_trim_range: [0.1, 2.0]
-    brightness_contrast_range: # Not yet implemented
-    noise: # Not yet implemented
+    brightness_contrast_range:
+    noise:
 ```
 - **`state_dict_path` (Optional):** Path to checkpoint (weights) from a trained model as .pth.tar or .pth file.
 
@@ -303,7 +288,7 @@ training:
 
   - **`std` :** **TODO**
 
-- **`augmentation` :** This part is for modifying the images samples to help the network to see different possibilities of representation (also call data augmentation[^1]). To be perform, all the following parameters need to be feel, otherwise the augmentation will not be performed. For specific details about implementation of these augmentations, check the docstrings in [`augmentation.py`](../utils/augmentation.py).
+- **`augmentation` :** This part is for modifying the images samples to help the network to see different possibilities of representation (also call data augmentation<sup>[1](#dataaugmentation)</sup>). To be perform, all the following parameters need to be feel, otherwise the augmentation will not be performed. For specific details about implementation of these augmentations, check the docstrings in [`augmentation.py`](../utils/augmentation.py).
   - **`rotate_limit` :** The upper and lower limits for data rotation.
 
   - **`rotate_prob` :** The probability for data rotation.
@@ -316,10 +301,8 @@ training:
 
   - **`noise` :** # Not yet implemented
 
-[^1]: These augmentations are a [common procedure in machine learning](https://www.coursera.org/lecture/convolutional-neural-networks/data-augmentation-AYzbX). More augmentations could be implemented in a near. See issue [#106](https://github.com/NRCan/geo-deep-learning/issues/106).
 
-
-###### Running [train_segmentation.py](../train_segmentation.py)
+#### Running [train_segmentation.py](../train_segmentation.py)
 
 You must run [`images_to_samples.py`](../images_to_samples.py) code before training to generate the `hdf5` use for the training and the validation.
 
@@ -341,113 +324,109 @@ The output of this code will result at the following structure:
 The trained model weights will be save as `checkpoint.pth.tar`. Corresponding to the training state where the validation loss was the lowest during the training process. All those information will be stored in the same directory than the `hdf5` images generated by the [sampling](#Sampling).
 The `{model_name}` is set from the `yaml` name. Therefore, `yaml` name should be relevant and unique and if the folder already exists, a suffix with `_YYYY-MM-DD_HH-MM` will be added.
 
-> **Advanced features :** To check how a trained model performs on test split without fine-tuning, simply:
-    1. Specify `training` / `state_dict_path` for this model in `config.yaml`
-    2. In same parameter section, set `num_epochs` to 0. The execution will then jump right away to `evaluation` on test set with loaded model without training.
-
----
-
-#### Augmentations
+> **Advanced features :** To check how a trained model performs on test split without fine-tuning, simply: Specify `training` / `state_dict_path` for this model in `config.yaml`, and in same parameter section, set `num_epochs` to 0. The execution will then jump right away to the evaluation on test set with loaded model without training.
 
 
-Note:
+## **Inference**
+This section is use by [inference.py](../inference.py) to make the inference.This is the final step in the process, assigning every pixel in an image never seen to a value corresponding to the most probable class.
+This process will load the trained weights associated to the lower loss score of the chosen model and perform a per-pixel inference task on all the images.
 
-Warning:
-- RandomCrop is used only if parameter `target_size` (in training section of config file) is not empty. Also, if this parameter is omitted, the hdf5 samples will be fed as is to the model in training (after other augmentations, if applicable). This can have an major impact on GPU RAM used and could cause `CUDA: Out of memory errors`.  
-
-### Process
-1. Model is instantiated and checkpoint is loaded from path, if provided in `config.yaml`.
-2. GPUs are requested according to desired amount of `num_gpus` and available GPUs.
-3. If more than 1 GPU is requested, model is casted to [`DataParallel`](https://pytorch.org/tutorials/beginner/blitz/data_parallel_tutorial.html) model
-4. Dataloaders are created with `create_dataloader()`
-5. Loss criterion, optimizer and learning rate are set with `set_hyperparameters()` as requested in `config.yaml`.
-5. Using these hyperparameters, the application will try to minimize the loss on the training data and evaluate every epoch on the validation data.
-6. For every epoch, the application shows and logs the loss on "trn" and "val" datasets.
-7. For every epoch (if `batch_metrics: 1`), the application shows and logs the accuracy, recall and f-score on "val" dataset. Those metrics are also computed on each classes.  
-8. At the end of the training process, the application shows and logs the accuracy, recall and f-score on "tst" dataset. Those metrics are also computed on each classes.
-
-
-
----
-
-## inference.py
-
-The final step in the process is to assign every pixel in the original image a value corresponding to the most probable class.
-
-To launch the program:
-```
-python inference.py path/to/config/file/config.yaml
-```
-
-Details on parameters used by this module:
-```yaml
-global:
-  number_of_bands: 3        # Number of bands in input images
-  model_name: unetsmall     # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
-  bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
-  task: segmentation        # Task to perform. Either segmentation or classification
-  scale_data: [0, 1]        # Min and Max for input data rescaling. Default: [0, 1]. Enter False if no rescaling is desired.
-  debug_mode: True          # Prints detailed progress bar
-
-
+```YAML
 inference:
-  img_dir_or_csv_file: /path/to/list.csv        # CSV file containing directory of images with or without gpkg labels(used in benchmarking)
-  working_folder: /path/to/output_images        # Folder where all resulting images will be written (DEPRECATED, leave blank)
-  state_dict_path: /path/to/checkpoint.pth.tar  # Path to model weights for inference
-  chunk_size: 512                               # (int) Size (height and width) of each prediction patch. Default: 512
-  smooth_prediction: True                       # Smoothening Predictions with 2D interpolation
-  overlap: 2                                    # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
+  img_dir_or_csv_file: /path/to/list.csv
+  working_folder: /path/to/output_images       
+  state_dict_path: /path/to/checkpoint.pth.tar
+  chunk_size: 512  
+  # Visualization parameters                            
+  smooth_prediction: True                      
+  overlap: 2                                   
 ```
-### Process
-- The process will load trained weights to the chosen model and perform a per-pixel inference task on all the images contained in the working_folder
+- **`img_dir_or_csv_file` :** The path to the `CSV` file containing directory of images with or without `gpkg` labels (used in benchmarking).
 
-### Outputs
-- one .tif per input image. Output file has same dimensions as input and georeference.
-- Structure:
+- **`working_folder` :** The path to the folder where all resulting images will be written (DEPRECATED, leave blank).
+
+- **`state_dict_path` :** The path to model weights that will be loaded for inference.
+
+- **`chunk_size` :** Size (height and width) of each prediction patch by default it's `512`.
+
+- **`smooth_prediction` :** When `True`, the prediction will be Smoothed with a 2D interpolation.
+
+- **`overlap` :** The overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
+
+#### Running [data_analysis.py](data_analysis.py)
+You can run the data analysis alone if you only want the stats, and to do that you only need to launch the program :
+```shell
+python inference.py path/to/yaml_files/your_config.yaml
+```
+The output of this code will result at the following structure:
 ```
 ├── {state_dict_path}
     └── checkpoint.pth.tar (used for inference)
     └── inference_{num_bands}
         └── {.tifs from inference}
 ```
+The output is compose of one `.tif` per input image with the same dimensions and georeference.
 
-### Debug mode
-- During inference, visualization is performed for each inferred chunk
-- Detailled progress bar with:
-    - GPUs usage (% and RAM)
-    - input chunk shape
-    - output shape
-    - overlay between chunks  
-- output_counts.png is saved. Let's user see regions were multiple inferences are done.
 
 ## Visualization
+The [visualization](../utils/visualization.py) module is used to visualize the inferred images without loading the `.tif` by saving some `.png` chosen by the `vis_batch_range` parameter.
+This code can't be launch alone, can be use in be use in three functions:
+1. `vis_from_dataloader()`: iterates through a provided dataloader and sends batch outputs, along with inputs and labels to `vis_from_batch()`. Is used when parameters `vis_at_checkpoint` or `vis_at_init` is `True`.
 
-Details on parameters used by this module:
+2. `vis_from_batch()`: iterates though items of a batch and sends them to `vis()`.
+
+3. `vis()`: converts input to 8bit image, iterates through channels of output to extract each heatmap (i.e. activation map) to builds a dictionary with heatmap where key is grayscale value and value is `{'class_name': 'name_of_class', 'heatmap_PIL': heatmap_as_PIL_Image}`. Saves 8bit input, color output and color label (if given) as `.png` in a grid or as individual pngs.
+
+> During inference, visualization functions are also called, but instead of outputting pngs, `vis()` outputs a georeferenced `.tif`.
+> Outputs are sent to visualization functions immediately after line `outputs = model(inputs)`, i.e. before `argmax()` function is used to flatten outputs and keep only value to most probable class, pixel-wise.
+
+
+
 ```yaml
 visualization:
-  vis_batch_range: [0,200,10] #first batch to visualize on, last batch (excluded), increment. If empty, no visualization will be performed no matter the value of other parameters.
-  vis_at_checkpoint: True     # Visualize samples every time a checkpoint is saved
-  vis_at_ckpt_min_ep_diff: 0  # Define minimum number of epoch that must separate two checkpoints in order to visualize at checkpoint
-  vis_at_ckpt_dataset: val    # define dataset to be used for vis_at_checkpoint. Default: 'val'
-  vis_at_init: True           # Visualize samples with instantiated model before first epoch
-  vis_at_init_dataset: val    # define dataset to be used for vis_at_init. Default: 'val'
-  vis_at_evaluation: True     # Visualize samples val during evaluation, 'val' during training, 'tst' at end of training
-  vis_at_train: True          # Visualize on training samples during training
-  grid: True                  # Save visualization outputs as a grid. If false, each image is saved as separate .png. Default: False
-  heatmaps: True              # Also save heatmaps (activation maps) for each class as given by model before argmax.
-  colormap_file: ./data/colormap.csv # Custom colormap to define custom class names and colors for visualization. Optional
+  vis_batch_range: [0,200,10]
+  vis_at_checkpoint: True    
+  vis_at_ckpt_min_ep_diff: 0
+  vis_at_ckpt_dataset: val   
+  vis_at_init: True          
+  vis_at_init_dataset: val
+  vis_at_evaluation: True    
+  vis_at_train: True         
+  grid: True                 
+  heatmaps: True             
+  colormap_file: ./data/colormap.csv
 ```
+- **`vis_batch_range` :** A list of the *first* batch to visualize on, *last* batch (excluded) and the *increment*. If the list is empty, no visualization will be performed no matter the value of other parameters.
 
-### Colormap
+- **`vis_at_checkpoint` :** Visualize samples every time a checkpoint is saved, by default this is `True`.
 
+- **`vis_at_ckpt_min_ep_diff` :** Define the minimum number of epoch that must separate two checkpoints in order to visualize at checkpoint.
+
+- **`vis_at_ckpt_dataset` :** Define dataset to be used for `vis_at_checkpoint`, by default it's `val`.
+
+- **`vis_at_init` :** When `True`, it visualize samples with instantiated model before first epoch.
+
+- **`vis_at_init_dataset` :** Define dataset to be used for `vis_at_init`, by default it's `val`.
+
+- **`vis_at_evaluation` :** When `True`, it visualize samples during evaluation, 'val' during training and 'tst' at end of training.
+
+- **`vis_at_train` :** When `True`, it visualize on training samples during training.
+
+- **`grid` :** When `True`, it save visualization outputs as a grid. If false, each image is saved as separate `.png`.
+
+- **`heatmaps` :** When `True`, it also save heatmaps (activation maps) for each class as given by model before argmax.
+
+- **`colormap_file` (Optional):** custom colormap to define custom class names and colors for visualization, we use `./data/colormap.csv`.
+
+#### Colormap
 All visualization functions use a colormap for two main purposes:
 1. Assign colors to grayscale outputs (as outputted by pytorch) and labels, if given (i.e. not during inference).
 
 2. Assign a name to each heatmap. This name is displayed above heatmap in grid if `grid: True`. Otherwise, each heatmap is saved as a .png. Class name is then added in the name of .png.
 If left empty, a default colormap is used and integers are assigned for each class in output.  
 
-If desired, the user can therefore specify a path to a custom colormap with the `colormap_file` parameter in the `config.yaml`.
-The custom colormap must be a .csv with 3 columns, as shown below. One line is added for each desired class.
+If desired, the user can specify a path to a custom colormap with the `colormap_file` parameter in `your_config.yaml`.
+The custom colormap must be a `csv` with 3 columns, as shown below. One line is added for each desired class.
 
 Input value|Class name|Html color
 :---:|:---:|:---:
@@ -456,30 +435,9 @@ Input value|Class name|Html color
 3|roads|#990000
 4|buildings|#efcd08   
 
-### Process and Outputs
-Visualization is called in three main functions:
-1. `vis_from_dataloader()`: iterates through a provided dataloader and sends batch outputs, along with inputs and labels to `vis_from_batch()`. Is used when parameters `vis_at_checkpoint` or `vis_at_init` is `True`
-2. `vis_from_batch()`: iterates though items of a batch and sends them to `vis()`
-3. `vis()`:
-    1. converts input to 8bit image if scaling had been performed during training (e.g. scaling between 0 and 1).
-    2. iterates through channels of output to extract each heatmap (i.e. activation map)
-    3. builds dictionary with heatmap where key is grayscale value and value is `{'class_name': 'name_of_class', 'heatmap_PIL': heatmap_as_PIL_Image}`
-    4. saves 8bit input, color output and color label (if given) as .png in a grid or as individual pngs.
 
-The `vis_batch_range` parameter plays a central role in visualization. First number in list is first batch to visualize on. Second number is last batch (excluded) from which no more visualization is done. Last number in list is increment in batch index. For example, if `vis_batch_range = [10,20,2]`, visualization will occur (as requested by other visualization parameters) on batches 10, 12, 14, 16 et 18. **If `vis_batch_range` is left empty, no visualization will be performed no matter the value of other parameters.**
-
-> Outputs are sent to visualization functions immediately after line `outputs = model(inputs)`, i.e. before `argmax()` function is used to flatten outputs and keep only value to most probable class, pixel-wise.
-
-> During inference, visualization functions are also called, but instead of outputting .pngs, `vis()` outputs a georeferenced .tif. Heatmaps, if `inference`/`heatmaps` is `True`, are also saved as georeferenced .tifs, in grayscale format (i.e. single band).
-
-### Debug mode
-- if in inference, `vis()` will print all unique values in each heatmap array. If there are only a few values, it gives a hint on usefulness of heatmap.
-- if in inference, `vis()` will check number of predicted classes in output array. If only one predicted class, a warning is sent.
-
-
----
-
-Structure as created by geo-deep-learning
+## Final Results
+If you run the three code: [images_to_samples.py](../images_to_samples.py), [train_segmentation.py](../train_segmentation.py) and [inference.py](../inference.py) with `your_config.yaml` you should end with a structure like:
 ```
 ├── {data_path}
     └── {samples_folder}*
@@ -496,3 +454,5 @@ Structure as created by geo-deep-learning
                 └── inference
                     └── {.tifs from inference}
 ```
+
+<a name="dataaugmentation">1</a>: These augmentations are a [common procedure in machine learning](https://www.coursera.org/lecture/convolutional-neural-networks/data-augmentation-AYzbX). More augmentations could be implemented in a near. See issue [#106](https://github.com/NRCan/geo-deep-learning/issues/106).

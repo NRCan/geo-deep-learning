@@ -319,7 +319,6 @@ def main(params):
 
     -------
     :param params: (dict) Parameters found in the yaml config file.
-
     """
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     bucket_file_cache = []
