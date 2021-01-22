@@ -425,7 +425,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
 
 def main(params, config_path):
     """
-    Function to train and validate a models for semantic segmentation.
+    Function to train and validate a model for semantic segmentation.
 
     Process
     -------
@@ -433,7 +433,7 @@ def main(params, config_path):
        `your_config.yaml`.
     2. GPUs are requested according to desired amount of `num_gpus` and
        available GPUs.
-    3. If more than 1 GPU is requested, model is casted to DataParallel model
+    3. If more than 1 GPU is requested, model is cast to DataParallel model
     4. Dataloaders are created with `create_dataloader()`
     5. Loss criterion, optimizer and learning rate are set with
        `set_hyperparameters()` as requested in `config.yaml`.
@@ -444,10 +444,10 @@ def main(params, config_path):
        "val" datasets.
     7. For every epoch (if `batch_metrics: 1`), the application shows and logs
        the accuracy, recall and f-score on "val" dataset. Those metrics are
-       also computed on each classes.
+       also computed on each class.
     8. At the end of the training process, the application shows and logs the
        accuracy, recall and f-score on "tst" dataset. Those metrics are also
-       computed on each classes.
+       computed on each class.
 
     -------
     :param params: (dict) Parameters found in the yaml config file.

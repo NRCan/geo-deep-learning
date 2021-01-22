@@ -309,9 +309,8 @@ def main(params):
         3. Create a new raster called "label" with the same properties as the
            input image.
         4. Read metadata and add to input as new bands (*more details to come*).
-        5. Crop arrays in smaller samples of size `samples_size` and distance
-           `num_classes` specified in the configuration file. Visual
-            representation of this is provided at
+        5. Crop the arrays in smaller samples of the size `samples_size` of
+           `your_conf.yaml`. Visual representation of this is provided at
             https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f
         6. Write samples from input image and label into the "val", "trn" or
            "tst" hdf5 file, depending on the value contained in the csv file.

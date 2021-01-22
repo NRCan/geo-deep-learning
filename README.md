@@ -43,9 +43,9 @@ Set and activate your python environment with the following commands:
 ```shell
 conda create -n gpu_ENV python=3.6 -c pytorch pytorch torchvision
 conda activate gpu_ENV
-conda install -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm
+conda install --override-channels -c main -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm
 conda install -c fastai nvidia-ml-py3
-conda install mlflow
+conda install mlflow segmentation-models-pytorch
 ```
 > For Windows OS:
 > - Install rasterio, fiona and gdal first, before installing the rest. We've experienced some [installation issues](https://github.com/conda-forge/gdal-feedstock/issues/213), with those libraries.

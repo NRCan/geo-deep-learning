@@ -1,6 +1,6 @@
 ## **Losses available**
 ### - [Cross Entropy Loss](https://en.wikipedia.org/wiki/Cross_entropy)
-Also called logarithmic loss, log loss or logistic loss. Each predicted class probability is compared to the actual class desired output 0 or 1 and a score/loss is calculated that penalizes the probability based on how far it is form the actual expected value.
+Also called logarithmic loss, log loss or logistic loss. Each predicted class probability is compared to the current class desired output 0 or 1 and a score/loss is calculated that penalizes the probability based on how far it is form the actual expected value.
 ### - [Boundary Loss](https://arxiv.org/abs/1905.07852.pdf)
 A differentiable surrogate of a metric accounting accuracy of boundary detection.
 ### - [Dice Loss](https://medium.com/ai-salon/understanding-dice-loss-for-crisp-boundary-detection-bb30c2e5f62b)
