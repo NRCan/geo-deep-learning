@@ -100,9 +100,9 @@ python inference.py path/to/yaml_files/your_config.yaml
 ```
 > If you only want to use the `inference.py` you dont have to fill all the `yaml` file, only fill the inference section.
 
----
 
-## Mettre des exemples de predictions obtenues sur nos jeux de donn/es
+
+<!-- ## Mettre des exemples de predictions obtenues sur nos jeux de donn/es -->
 
 
 ---

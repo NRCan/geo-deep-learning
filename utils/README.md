@@ -74,5 +74,14 @@ Accuracy is simply defined here as the ratio of correctly classified pixels to t
 ## **[Optimizers](optimizer.py)**
 For training a neural network to minimize the losses so as to perform better, we need to tweak the weights and parameters associated with the model and the loss function. This is where optimizers play a crucial role. The following optimizers are in **GDL**.
 
+#### adam
+Implementation of Adam algorithm, like it has been proposed in **_Adam: A Method for Stochastic Optimization_**, by [*PyTorch*](https://pytorch.org/docs/stable/optim.html). The implementation of the L2 penalty follows changes proposed in **_Decoupled Weight Decay Regularization_**.
 
-TODO
+#### sgd
+Implementation of the stochastic gradient descent (optionally with momentum), by [*PyTorch*](https://pytorch.org/docs/stable/optim.html). Nesterov momentum is based on the formula from **_On the importance of initialization and momentum in deep learning_**.
+
+#### adabound
+Implementation of the AdaBound algorithm, like it has been proposed in **_Adaptive Gradient Methods with Dynamic Bound of Learning Rate_**.
+
+#### adaboundw
+Implementation of the AdaBound algorithm with Decoupled Weight Decay ([article](arxiv.org/abs/1711.05101)), like it has been proposed in **_Adaptive Gradient Methods with Dynamic Bound of Learning Rate_**.
