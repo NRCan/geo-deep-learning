@@ -27,6 +27,8 @@ The final step in the process is to assign every pixel in the original image a v
 
 > The training and inference phases currently allow the use of a variety of neural networks to perform classification and semantic segmentation tasks (see the list in [models](models/)).
 
+**For more informations on a subject, go to the specific directory, a `README.md` is provided with all the informations and the explanations related to the code.**
+
 ## **Requirement**
 This project comprises a set of commands to be run at a shell command prompt.  Examples used here are for a bash shell in an Ubuntu GNU/Linux environment.
 
@@ -79,15 +81,15 @@ git clone https://github.com/NRCan/geo-deep-learning.git
 cd geo-deep-learning
 ```
 
-2. Copy the file `conf/config_template.yaml`, rename it `your_config.yaml` and change the parameters for your needs.
+2. Copy the file `config/config_template.yaml`, rename it `your_config.yaml` and change the parameters for your needs.
 Prepare your data directory and add the paths to a `csv` file.
 ```shell
 # Copying the config_template and rename it at the same time
-cp conf/config_template.yaml path/to/yaml_files/your_config.yaml
+cp config/config_template.yaml path/to/yaml_files/your_config.yaml
 # Creating the csv file
 touch path/to/images.csv  
 ```
-> See the documentation in the `conf/` directory for more information on how to fill the `yaml` and `csv` files.
+> See the documentation in the [`config/`](config/) directory for more information on how to fill the [`yaml`](config/#Preparation-of-the-yaml-file) and [`csv`](config/#Preparation-of-the-csv-file) files.
 
 3. Execute your task (can be use separately).
 ```shell
@@ -151,147 +153,4 @@ If the model select is not `model_name: deeplabv3_resnet101`, but the `number_of
 
 Since we have the concatenation point for the **NIR** band only for the `deeplabv3_resnet101`, the `concatenate_depth` parameter option are layers in the `resnet101` backbone: 'conv1', 'maxpool', 'layer2', 'layer3' and 'layer4'.
 
-**Illustration of the principale will fellow soon**
-
-
-
-<!-- # Classification Task
-The classification task allows images to be recognized as a whole rather than identifying the class of each pixel individually as is done in semantic segmentation.
-
-Currently, Inception-v3 is the only model available for classification tasks in our deep learning process. Other model architectures may be added in the future.
-
-## Models available
-- [Inception-v3](https://arxiv.org/abs/1512.00567)
-## Data preparation
-The images used for training the model must be split into folders for training and validation samples within the ```data_path``` global parameter from the configuration file. Each of these folders must be divided into subfolders by class in a structure like ImageNet-like structure. Torchvision's ```ImageLoader``` is used as the dataset for training and thus running ```images_to_samples.py``` isn't necessary when performing classification tasks. An example of the required file structure is provided below:
-
-```
-data_path
-├── trn
-│   ├── grassland
-│   │   ├── 103.tif
-│   │   └── 99.tif
-│   ├── roads
-│   │   ├── 1018.tif
-│   │   └── 999.tif
-│   ├── trees
-│   │   ├── 1.tif
-│   │   └── 94.tif
-│   └── water
-│       ├── 100.tif
-│       └── 98.tif
-└── val
-    ├── building
-    │   └── 323955.tif
-    ├── grassland
-    │   ├── 323831.tif
-    │   └── 323999.tif
-    ├── roads
-    │   └── 323859.tif
-    ├── trees
-    │   └── 323992.tif
-    └── water
-        └── 323998.tif
-```
-
-
-## train_classification.py
-Samples in the "trn" folder are used to train the model. Samples in the  "val" folder are used to estimate the training error on a set of images not used for training.
-
-During this phase of the classification task, a list of classes is made based on the subfolders in the trn path. The list of classes is saved in a csv file in the same folder as the trained model so that it can be referenced during the classification step.
-
-To launch the program:
-```
-python train_classification.py path/to/config/file/config.yaml
-```
-Details on parameters used by this module:
-```yaml
-global:
-  data_path: /path/to/data/folder   # Path to folder containing samples
-  number_of_bands: 3                # Number of bands in input images
-  model_name: inception             # One of unet, unetsmall, checkpointed_unet, ternausnet, or inception
-  bucket_name:                      # name of the S3 bucket where data is stored. Leave blank if using local files
-  task: classification              # Task to perform. Either segmentation or classification
-  debug_mode: True                  # Prints detailed progress bar with sample loss, GPU stats (RAM, % of use) and information about current samples.
-
-training:
-  state_dict_path: False      # Pretrained model path as .pth.tar or .pth file. Optional.
-  batch_size: 32                                # Size of each batch
-  num_epochs: 150                               # Number of epochs
-  learning_rate: 0.0001                         # Initial learning rate
-  weight_decay: 0                               # Value for weight decay (each epoch)
-  step_size: 4                                  # Apply gamma every step_size
-  gamma: 0.9                                    # Multiple for learning rate decay
-  dropout: False                                # (bool) Use dropout or not. Applies to certain models only.
-  dropout_prob: False                           # (float) Set dropout probability, e.g. 0.5
-  class_weights: [1.0, 2.0]                     # Weights to apply to each class. A value > 1.0 will apply more weights to the learning of the class.
-  batch_metrics: 2                              # (int) Metrics computed every (int) batches. If left blank, will not perform metrics. If (int)=1, metrics computed on all batches.
-  ignore_index: 0                               # Specifies a target value that is ignored and does not contribute to the input gradient. Default: None
-  augmentation:
-    rotate_limit: 45
-    rotate_prob: 0.5
-    hflip_prob: 0.5
-```
-Note: ```data_path``` must always have a value for classification tasks
-
-Inputs:
-- Tiff images in the file structure described in the Classification Task Data Preparation section
-
-Output:
-- Trained model weights
-    - checkpoint.pth.tar        Corresponding to the training state where the validation loss was the lowest during the training process.
-    - last_epoch.pth.tar         Corresponding to the training state after the last epoch.
-- Model weights and log files are saved to: data_path / 'model' / name_of_.yaml_file.
-- If running multiple tests with same data_path, a suffix containing date and time is added to directory (i.e. name of .yaml file)
-
-Process:
-- The application loads the model specified in the configuration file
-- Using the hyperparameters provided in `config.yaml` , the application will try to minimize the cross entropy loss on the training and validation data
-- For every epoch, the application shows the loss, accuracy, recall and f-score for both datasets (trn and val)
-- The application also log the accuracy, recall and f-score for each classes of both the datasets
-
-Loss functions:
-- Cross-Entropy (standard loss functions as implemented in [torch.nn](https://pytorch.org/docs/stable/_modules/torch/nn/modules/loss.html))
-- Ohem Cross Entropy. Adapted from [OCNet Repository](https://github.com/PkuRainBow/OCNet)
-- [Focal Loss](https://www.kaggle.com/c/tgs-salt-identification-challenge/discussion/65938)
-
-Optimizers:
-- Adam (standard optimizer in [torch.optim](https://pytorch.org/docs/stable/optim.html))
-- SGD (standard optimizer in [torch.optim](https://pytorch.org/docs/stable/optim.html)
-- [Adabound/AdaboundW](https://openreview.net/forum?id=Bkg3g2R9FX)
-
-## inference.py
-The final step of a classification task is to associate a label to each image that needs to be classified. The associations will be displayed on the screen and be saved in a csv file.
-
-The classes.csv file must be saved in the same folder as the trained model weights file.
-
-To launch the program:
-```
-python inference.py path/to/config/file/config.yaml
-```
-
-Details on parameters used by this module:
-```yaml
-global:
-  number_of_bands: 3        # Number of bands in input images
-  model_name: inception     # One of unet, unetsmall, checkpointed_unet or ternausnet
-  bucket_name:              # name of the S3 bucket where data is stored. Leave blank if using local files
-  task: classification      # Task to perform. Either segmentation or classification
-  debug_mode: True          # Prints detailed progress bar
-
-inference:
-  img_dir_or_csv_file: /path/to/csv/containing/images/list.csv                 # Directory containing all images to infer on OR CSV file with list of images
-  working_folder: /path/to/folder/with/resulting/images                       # Folder where all resulting images will be written
-  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar    # File containing pre-trained weights
-```
-Inputs:
-- Trained model (weights)
-- csv with the list of classes used in training
-- Images to be classified
-
-Outputs:
-- csv file associating each image by its file path to a label. This file also contains the class prediction vector with the classes in the same order as in classes.csv if it was generated during training.
-
-Process:
-- The process will load trained weights to the specified architecture and perform a classification task on all the images contained in the ```working_folder```.
-- The full file path of the classified image, the class identified, as well as the top 5 most likely classes and their value will be displayed on the screen -->
+**Illustration of the principle will fellow soon**
