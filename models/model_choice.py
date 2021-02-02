@@ -34,11 +34,11 @@ lm_smp = {
        'fct': smp.DeepLabV3Plus, 'params': {
            'encoder_name':'resnext50_32x4d',
        }},
-   'spacenet_unet_efficientnetB5_pretrained': {
+   'spacenet_unet_efficientnetb5_pretrained': {
        'fct': smp.Unet, 'params': {
            'encoder_name':"efficientnet-b5",
        }},
-   'spacenet_unet_SENet152_pretrained': {
+   'spacenet_unet_senet152_pretrained': {
        'fct': smp.Unet, 'params': {
            'encoder_name':'senet154',
        }},
@@ -144,8 +144,8 @@ def net(net_params, num_channels, inference=False):
     elif model_name in lm_smp.keys():
         lsmp = lm_smp[model_name]
         # TODO: add possibility of our own weights
-       clsmp['prams']['encoder_weights'] = "imagenet" if 'pretrained' in model_name.split("_")
-        lsmp['params']['in_chanels'] = num_bands
+        lsmp['params']['encoder_weights'] = "imagenet" if 'pretrained' in model_name.split("_") else None
+        lsmp['params']['in_channels'] = num_bands
         lsmp['params']['classes'] = num_channels
         lsmp['params']['activation'] = None
 
