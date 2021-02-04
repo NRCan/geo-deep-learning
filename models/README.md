@@ -19,8 +19,8 @@ Those models are pretrained on `imagenet`.
 - [fpn_pretrained](http://presentations.cocodataset.org/COCO17-Stuff-FAIR.pdf)
 - [pspnet_pretrained](https://arxiv.org/abs/1612.01105.pdf)
 - [deeplabv3+_pretrained](https://arxiv.org/pdf/1802.02611.pdf)
-- [spacenet_unet_efficientnetb5_pretrained]()
-- [spacenet_unet_senet152_pretrained]()
+- [spacenet_unet_efficientnetb5_pretrained](https://github.com/SpaceNetChallenge/SpaceNet_SAR_Buildings_Solutions/tree/master/1-zbigniewwojna)
+- [spacenet_unet_senet152_pretrained](https://github.com/SpaceNetChallenge/SpaceNet_SAR_Buildings_Solutions/tree/master/2-MaksimovKA)
 - [spacenet_unet_baseline_pretrained]() (In the article of SpaceNet, the baseline is originally pretrained on `SN6 PS-RGB Imagery` if you want to you can give those weights in parameters, but we don't have it in **GDL**).
 
 Models from this [library](https://github.com/qubvel/segmentation_models.pytorch) support any number of image bands and offers modular encoder architectures. Check the official [github repo](https://github.com/qubvel/segmentation_models.pytorch) for more details.  
