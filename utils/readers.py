@@ -1,5 +1,5 @@
 import numpy as np
-from ruamel_yaml import YAML
+from ruamel.yaml import YAML
 from tqdm import tqdm
 from pathlib import Path
 from skimage import morphology
@@ -15,6 +15,7 @@ def read_parameters(param_file):
         YAML (Ruamel) CommentedMap dict-like object
     """
     yaml = YAML()
+    yaml.allow_duplicate_keys=True
     with open(param_file) as yamlfile:
         params = yaml.load(yamlfile)
     return params

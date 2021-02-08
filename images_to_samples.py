@@ -81,7 +81,7 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
     """
     # Validation of class proportion parameters (assert types).
     if not isinstance(config_dict, dict):
-        warnings.warn(f"Class_proportion parameter should be a dictionary. Got type {type(config_dict)}. "
+        warnings.warn(f"Class_proportion parameter should be a dictionary. Got type {type(config_dict)}."
                       f"Ignore if parameter was omitted)")
         return None
 

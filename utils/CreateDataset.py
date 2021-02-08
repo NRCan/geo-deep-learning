@@ -73,6 +73,8 @@ class SegmentationDataset(Dataset):
                 metadata = hdf5_file["metadata"][i, ...]
                 if isinstance(metadata, np.ndarray) and len(metadata) == 1:
                     metadata = metadata[0]
+                    metadata = metadata.decode('ascii')
+                    metadata = metadata.replace('\n', '')
                 if isinstance(metadata, str):
                     if "ordereddict" in metadata:
                         metadata = metadata.replace("ordereddict", "collections.OrderedDict")
