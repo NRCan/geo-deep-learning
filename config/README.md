@@ -75,27 +75,27 @@ global:
 
 - **`num_gpus` :** Number of **GPUs** that you want to use, `0` will use the **CPU**.
 
-- **`BGR_to_RGB` :** **TODO**
+- **`BGR_to_RGB` :**  [True/False] If set to True this parameter changes the band order of images from BGR to RGB.
 
 - **`scale_data` :** Min and Max for input data rescaling, by default: `[0, 1]` meaning no rescaling.
 
-- **`aux_vector_file` :** **TODO**
+- **`aux_vector_file` (Optional) :** A vector file from which to extract auxiliary shapes.
 
-- **`aux_vector_attrib` :** **TODO**
+- **`aux_vector_attrib` (Optional) :** A vector file attribute name to parse in order to fetch ids.
 
-- **`aux_vector_ids` :** **TODO**
+- **`aux_vector_ids` (Optional) :** A vector ids to target in the vector file above.
 
-- **`aux_vector_dist_maps` :** **TODO**
+- **`aux_vector_dist_maps` (Optional) :** [True/False] Flag indicating whether aux vector bands should be distance maps or binary maps.
 
-- **`aux_vector_dist_log` :** **TODO**
+- **`aux_vector_dist_log` (Optional) :** [True/False] Flag indicating whether log distances should be used in distance maps or not.
 
-- **`aux_vector_scale` :** **TODO**
+- **`aux_vector_scale` (Optional) :** Floating point scale factor to multiply to rasterized vector maps.
 
 - **`debug_mode` :** Activates various debug features for example, details about intermediate outputs, detailed progress bars, etc. By default this mode is `False`.
 
-- **`coordconv_convert` :** **TODO** False
+- **`coordconv_convert` (Optional):** [True/False] Activate (or not) the function [`swap_coordconv_layers`](../models/coordconv.py#L94).
 
-- **`coordvonc_scale` :** **TODO**
+- **`coordvonc_scale` (Optional) :** Scale of the map.
 
 ## **Data Analysis**
 The [data_analysis](data_analysis.py) module is used to visualize the composition of the sample's classes and see how it shapes the training dataset and can be  useful for balancing training data in which a class is under-represented. Using basic statistical analysis, the user can test multiple sampling parameters and immediately see their impact on the classes' distribution. It can also be used to automatically search optimal sampling parameters and obtain a more balanced class distribution in the dataset.
@@ -259,7 +259,7 @@ training:
 
 - **`num_epochs` :** Number of epochs on which the model will train.
 
-- **`target_size` :** **TODO**
+- **`target_size` :**  Sets the crop size of image (H/W) only during training.
 
 - **`loss_fn` :** Loss function, see the documentation on the losses [here](../losses#Losses-available) for all the losses available.
 
@@ -284,9 +284,9 @@ training:
 - **`ignore_index` :** Specifies a target value that will be ignored and does not contribute to the input gradient during the training.
 
 - **`normalization` :** The normalization is parameters for fine tuning.
-  - **`mean` :** **TODO**
+  - **`mean` :** [list of floats] Mean per channel ([link](https://pytorch.org/vision/stable/models.html#semantic-segmentation)).
 
-  - **`std` :** **TODO**
+  - **`std` :** [list of floats] Standard deviation  per channel ([link](https://pytorch.org/vision/stable/models.html#semantic-segmentation)).
 
 - **`augmentation` :** This part is for modifying the images samples to help the network to see different possibilities of representation (also call data augmentation<sup>[1](#dataaugmentation)</sup>). To be perform, all the following parameters need to be feel, otherwise the augmentation will not be performed. For specific details about implementation of these augmentations, check the docstrings in [`augmentation.py`](../utils/augmentation.py).
   - **`rotate_limit` :** The upper and lower limits for data rotation.
