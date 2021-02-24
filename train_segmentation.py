@@ -112,7 +112,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
                                 drop_last=True)
     # Using batch_metrics with shuffle=False on val dataset will always mesure metrics on the same portion of the val samples.
     # Shuffle should be set to True.
-    val_dataloader = DataLoader(val_dataset, batch_size=1, num_workers=num_workers, shuffle=True,
+    val_dataloader = DataLoader(val_dataset, batch_size=1, num_workers=num_workers, shuffle=False,
                                 drop_last=True)
     tst_dataloader = DataLoader(tst_dataset, batch_size=1, num_workers=num_workers, shuffle=False,
                                 drop_last=True) if num_samples['tst'] > 0 else None

@@ -12,9 +12,45 @@ from tqdm import tqdm
 from utils.optimizer import create_optimizer
 from losses import MultiClassCriterion
 import torch.optim as optim
-from models import TernausNet, unet, checkpointed_unet, unet_context, inception, coordconv
+from models import TernausNet, unet, checkpointed_unet, inception, coordconv
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
 
+lm_smp = {
+    'pan_pretrained': {
+        'fct': smp.PAN, 'params': {
+            'encoder_name': 'se_resnext101_32x4d',
+        }},
+    'unet_pretrained': {
+        'fct': smp.Unet, 'params': {
+            'encoder_name': 'resnext50_32x4d',
+            'encoder_depth': 5,
+        }},
+    'fpn_pretrained': {
+        'fct': smp.FPN, 'params': {
+            'encoder_name': 'resnext50_32x4d',
+        }},
+    'pspnet_pretrained': {
+        'fct': smp.PSPNet, 'params': {
+            'encoder_name': "resnext50_32x4d",
+        }},
+    'deeplabv3+_pretrained': {
+        'fct': smp.DeepLabV3Plus, 'params': {
+            'encoder_name': 'resnext50_32x4d',
+        }},
+    'spacenet_unet_efficientnetb5_pretrained': {
+        'fct': smp.Unet, 'params': {
+            'encoder_name': "efficientnet-b5",
+        }},
+    'spacenet_unet_senet152_pretrained': {
+        'fct': smp.Unet, 'params': {
+            'encoder_name': 'senet154',
+        }},
+    'spacenet_unet_baseline_pretrained': {
+        # In the article of SpaceNet, the baseline is originaly pretrained on 'SN6 PS-RGB Imagery'.
+        'fct': smp.Unet, 'params': {
+            'encoder_name': 'vgg11',
+        }},
+}
 
 def load_checkpoint(filename):
     ''' Loads checkpoint from provided path
@@ -50,11 +86,10 @@ def verify_weights(num_classes, weights):
 def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
     """
     Function to set hyperparameters based on values provided in yaml config file.
-    Will also set model to GPU, if available.
     If none provided, default functions values may be used.
     :param params: (dict) Parameters found in the yaml config file
     :param num_classes: (int) number of classes for current task
-    :param model: Model loaded from model_choice.py
+    :param model: initialized model
     :param checkpoint: (dict) state dict as loaded by model_choice.py
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
@@ -163,46 +198,16 @@ def net(net_params, num_channels, inference=False):
                 ###################
                 model = LayersEnsemble(model, conc_point=conc_point)
 
-    elif model_name == 'pan_pretrained':
-        model = smp.PAN(
-            encoder_name='se_resnext101_32x4d',
-            encoder_weights="imagenet",
-            in_channels=num_bands,
-            classes=num_channels,
-            activation=None)
-    elif model_name == 'unet_pretrained':
-        model = smp.Unet(
-            encoder_name="resnext50_32x4d",
-            encoder_weights="imagenet",
-            encoder_depth=5,
-            in_channels=num_bands,
-            classes=num_channels,
-            activation=None)
-    elif model_name == 'fpn_pretrained':
-        model = smp.FPN(
-            encoder_name="se_resnext101_32x4d",
-            encoder_weights="imagenet",
-            in_channels=num_bands,
-            classes=num_channels,
-            decoder_merge_policy="cat",
-            decoder_dropout=0.5,
-            activation=None)
-    elif model_name == 'pspnet_pretrained': 
-        model = smp.PSPNet(
-            encoder_name="resnext50_32x4d",
-            encoder_weights="imagenet",
-            in_channels=num_bands,
-            classes=num_channels,
-            activation=None)
-    elif model_name == 'deeplabv3+_pretrained':
-        model = smp.DeepLabV3Plus(
-            encoder_name="resnext50_32x4d",
-            encoder_weights="imagenet",
-            in_channels=num_bands,
-            classes=num_channels,
-            activation=None)
-    elif model_name == 'unet_context':
-        model = unet_context.ContextualUnet(num_bands, num_channels)
+    elif model_name in lm_smp.keys():
+        lsmp = lm_smp[model_name]
+        # TODO: add possibility of our own weights
+        lsmp['params']['encoder_weights'] = "imagenet" if 'pretrained' in model_name.split("_") else None
+        lsmp['params']['in_channels'] = num_bands
+        lsmp['params']['classes'] = num_channels
+        lsmp['params']['activation'] = None
+
+        model = lsmp['fct'](**lsmp['params'])
+
 
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
