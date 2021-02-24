@@ -103,15 +103,12 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
     num_workers = num_devices * 4 if num_devices > 1 else 4
 
-    # Shuffle must be set to True.
     samples_weight = torch.from_numpy(samples_weight)
     sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
                                                              len(samples_weight))
 
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler,
                                 drop_last=True)
-    # Using batch_metrics with shuffle=False on val dataset will always mesure metrics on the same portion of the val samples.
-    # Shuffle should be set to True.
     val_dataloader = DataLoader(val_dataset, batch_size=1, num_workers=num_workers, shuffle=False,
                                 drop_last=True)
     tst_dataloader = DataLoader(tst_dataset, batch_size=1, num_workers=num_workers, shuffle=False,
