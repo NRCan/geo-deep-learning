@@ -120,6 +120,7 @@ def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
 
     return model, criterion, optimizer, lr_scheduler
 
+
 def net(net_params, num_channels, inference=False):
     """Define the neural net"""
     model_name = net_params['global']['model_name'].lower()

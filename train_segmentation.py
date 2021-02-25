@@ -16,32 +16,17 @@ try:
 except ModuleNotFoundError:
     warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
-import torch.optim as optim
 from torch.utils.data import DataLoader
 from PIL import Image
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, CreateDataset
-from utils.optimizer import create_optimizer
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint
-from losses import MultiClassCriterion
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
 from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact
-
-
-def verify_weights(num_classes, weights):
-    """Verifies that the number of weights equals the number of classes if any are given
-    Args:
-        num_classes: number of classes defined in the configuration file
-        weights: weights defined in the configuration file
-    """
-    if num_classes == 1 and len(weights) == 2:
-        warnings.warn("got two class weights for single class defined in configuration file; will assume index 0 = background")
-    elif num_classes != len(weights):
-        raise ValueError('The number of class weights in the configuration file is different than the number of classes')
 
 
 def flatten_labels(annotations):
@@ -147,45 +132,6 @@ def get_num_samples(samples_path, params):
                         samples_weight = compute_sample_weight('balanced', weights)
 
     return num_samples, samples_weight
-
-
-def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
-    """
-    Function to set hyperparameters based on values provided in yaml config file.
-    Will also set model to GPU, if available.
-    If none provided, default functions values may be used.
-    :param params: (dict) Parameters found in the yaml config file
-    :param num_classes: (int) number of classes for current task
-    :param model: Model loaded from model_choice.py
-    :param checkpoint: (dict) state dict as loaded by model_choice.py
-    :return: model, criterion, optimizer, lr_scheduler, num_gpus
-    """
-    # set mandatory hyperparameters values with those in config file if they exist
-    lr = get_key_def('learning_rate', params['training'], None, "missing mandatory learning rate parameter")
-    weight_decay = get_key_def('weight_decay', params['training'], None, "missing mandatory weight decay parameter")
-    step_size = get_key_def('step_size', params['training'], None, "missing mandatory step size parameter")
-    gamma = get_key_def('gamma', params['training'], None, "missing mandatory gamma parameter")
-
-    # optional hyperparameters. Set to None if not in config file
-    class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
-    if params['training']['class_weights']:
-        verify_weights(num_classes, class_weights)
-
-    # Loss function
-    criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'],
-                                    ignore_index=dontcare_val,
-                                    weight=class_weights)
-
-    # Optimizer
-    opt_fn = params['training']['optimizer']
-    optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
-
-    if checkpoint:
-        tqdm.write(f'Loading checkpoint...')
-        model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer)
-
-    return model, criterion, optimizer, lr_scheduler
 
 
 def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
