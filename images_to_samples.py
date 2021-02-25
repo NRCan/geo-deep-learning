@@ -33,9 +33,10 @@ def mask_image(arrayA, arrayB):
     >>> x2 = np.array([1.5, 1.2, 1.6, 1.2, 11., 1.1, 25.9, 0.1], dtype=np.float32).reshape(2,2,2)
     >>> mask_image(x1, x2)
     array([[[ 0. ,  0. ],
-        [ 1.6,  1.2]],
-        [[11. ,  1.1],
-        [25.9,  0.1]]], dtype=float32)
+            [ 1.6,  1.2]],
+    <BLANKLINE>
+           [[ 0. ,  0. ],
+            [25.9,  0.1]]], dtype=float32)
     """
 
     # Handle arrayA of shapes (h,w,c) and (h,w)
