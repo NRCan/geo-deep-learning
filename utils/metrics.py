@@ -93,7 +93,8 @@ def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
         ious.append(iou)
         metric_dict['iou_' + str(i)].update(iou.item(), batch_size)
     mean_IOU = np.nanmean(ious)
-    metric_dict['iou'].update(mean_IOU, batch_size)
+    if (not only_present) or (not np.isnan(mean_IOU)):
+        metric_dict['iou'].update(mean_IOU, batch_size)
     return metric_dict
 
 #### Benchmark Metrics ####
