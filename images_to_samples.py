@@ -308,7 +308,8 @@ def main(params):
 
     final_samples_folder = None
 
-    sample_path_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
+    run_name = get_key_def('mlflow_run_name', params['global'], default='gdl')
+    sample_path_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{run_name}'
 
     # AWS
     if bucket_name:
@@ -327,8 +328,7 @@ def main(params):
         samples_folder = data_path.joinpath(sample_path_name)
 
     if samples_folder.is_dir():
-        warnings.warn(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')
-        samples_folder = Path(str(samples_folder) + '_' + now)
+        raise FileExistsError(f'Data path exists: {samples_folder}. Remove it or use a different run_name.')
     else:
         tqdm.write(f'Writing samples to {samples_folder}')
     Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?

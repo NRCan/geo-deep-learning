@@ -16,6 +16,8 @@ global:
   # Model available: unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50, deeplabv3_resnet101
   model_name: unet
   mlflow_uri: path/to/mlflow_tracking_uri  # Default to ./mlruns
+  mlflow_experiment_name: gdl-training
+  mlflow_run_name: gdl  # also used for naming of preprocessing directories
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 2
@@ -30,6 +32,8 @@ global:
   debug_mode: True
   coordconv_convert: False
   coordvonc_scale:
+  max_used_ram: 2000
+  max_used_perc: 15
 
 
 # Data analysis parameters; used in data_analysis.py ------------------

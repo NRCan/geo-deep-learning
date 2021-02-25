@@ -32,7 +32,7 @@ from losses import MultiClassCriterion
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
-from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact
+from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact, start_run
 
 
 def verify_weights(num_classes, weights):
@@ -449,7 +449,9 @@ def main(params, config_path):
 
     # mlflow tracking path + parameters logging
     set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
-    set_experiment('gdl-training')
+    set_experiment(get_key_def('mlflow_experiment_name', params['global'], default='gdl-training'))
+    run_name = get_key_def('mlflow_run_name', params['global'], default='gdl')
+    start_run(run_name=run_name)
     log_params(params['training'])
     log_params(params['global'])
     log_params(params['sample'])
@@ -458,7 +460,8 @@ def main(params, config_path):
     overlap = params["sample"]["overlap"]
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], 0, expected_type=int)
     num_bands = params['global']['number_of_bands']
-    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: won't check if folder has datetime suffix (if multiple folders)
+    samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
+                           f'_{run_name}')
     samples_folder = data_path.joinpath(samples_folder_name)
 
     modelname = config_path.stem
@@ -491,7 +494,12 @@ def main(params, config_path):
     num_devices = params['global']['num_gpus']
     assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
+    max_used_ram = get_key_def('max_used_ram', params['global'], 2000)
+    max_used_perc = get_key_def('max_used_perc', params['global'], 15)
+    get_key_def('debug_mode', params['global'], False)
+    lst_device_ids = get_device_ids(
+        num_devices, max_used_ram=max_used_ram, max_used_perc=max_used_perc, debug=debug) \
+        if torch.cuda.is_available() else []
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
     print(f"Number of cuda devices requested: {params['global']['num_gpus']}. Cuda devices available: {lst_device_ids}\n")
