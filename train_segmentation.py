@@ -271,7 +271,7 @@ def train(train_loader,
                 # TODO: or change it to match the reste of the implementation
                 inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
                 inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
-                inputs = inputs[:,:-1, ...] # Need to be change                 
+                inputs = inputs[:,:-1, ...] # Need to be change
                 inputs = [inputs, inputs_NIR]
                 ############################
                 # Test Implementation of the NIR
@@ -361,7 +361,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
                     # TODO: or change it to match the reste of the implementation
                     inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
                     inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
-                    inputs = inputs[:,:-1, ...] # Need to be change                 
+                    inputs = inputs[:,:-1, ...] # Need to be change
                     inputs = [inputs, inputs_NIR]
                     ############################
                     # Test Implementation of the NIR
@@ -425,10 +425,33 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
 
 def main(params, config_path):
     """
-    Function to train and validate a models for semantic segmentation or classification.
+    Function to train and validate a model for semantic segmentation.
+
+    Process
+    -------
+    1. Model is instantiated and checkpoint is loaded from path, if provided in
+       `your_config.yaml`.
+    2. GPUs are requested according to desired amount of `num_gpus` and
+       available GPUs.
+    3. If more than 1 GPU is requested, model is cast to DataParallel model
+    4. Dataloaders are created with `create_dataloader()`
+    5. Loss criterion, optimizer and learning rate are set with
+       `set_hyperparameters()` as requested in `config.yaml`.
+    5. Using these hyperparameters, the application will try to minimize the
+       loss on the training data and evaluate every epoch on the validation
+       data.
+    6. For every epoch, the application shows and logs the loss on "trn" and
+       "val" datasets.
+    7. For every epoch (if `batch_metrics: 1`), the application shows and logs
+       the accuracy, recall and f-score on "val" dataset. Those metrics are
+       also computed on each class.
+    8. At the end of the training process, the application shows and logs the
+       accuracy, recall and f-score on "tst" dataset. Those metrics are also
+       computed on each class.
+
+    -------
     :param params: (dict) Parameters found in the yaml config file.
     :param config_path: (str) Path to the yaml config file.
-
     """
     debug = get_key_def('debug_mode', params['global'], False)
     if debug:
