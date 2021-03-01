@@ -7,44 +7,26 @@ import h5py
 import datetime
 import warnings
 import functools
-
 from tqdm import tqdm
 from collections import OrderedDict
 import shutil
 import numpy as np
-
 try:
     from pynvml import *
 except ModuleNotFoundError:
     warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
-import torch.optim as optim
-from torch import nn
 from torch.utils.data import DataLoader
 from PIL import Image
-
+from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, CreateDataset
-from utils.optimizer import create_optimizer
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint
-from losses import MultiClassCriterion
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
 from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact
-
-
-def verify_weights(num_classes, weights):
-    """Verifies that the number of weights equals the number of classes if any are given
-    Args:
-        num_classes: number of classes defined in the configuration file
-        weights: weights defined in the configuration file
-    """
-    if num_classes == 1 and len(weights) == 2:
-        warnings.warn("got two class weights for single class defined in configuration file; will assume index 0 = background")
-    elif num_classes != len(weights):
-        raise ValueError('The number of class weights in the configuration file is different than the number of classes')
 
 
 def flatten_labels(annotations):
@@ -69,7 +51,7 @@ def loader(path):
 def create_dataloader(samples_folder, batch_size, num_devices, params):
     """
     Function to create dataloader objects for training, validation and test datasets.
-    :param samples_folder: path to the folder containting .hdf5 files if task is segmentation
+    :param samples_folder: path to folder containting .hdf5 files if task is segmentation
     :param batch_size: (int) batch size
     :param num_devices: (int) number of GPUs used
     :param params: (dict) Parameters found in the yaml config file.
@@ -80,7 +62,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
 
     assert samples_folder.is_dir(), f'Could not locate: {samples_folder}'
     assert len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
-    num_samples = get_num_samples(samples_path=samples_folder, params=params)
+    num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=params)
     assert num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size, f"Number of samples in .hdf5 files is less than batch size"
     print(f"Number of samples : {num_samples}\n")
     meta_map = get_key_def("meta_map", params["global"], {})
@@ -92,7 +74,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
-        # TODO: transform the aug.compose_transforms in a class with radiom, geom, totensor in def
+
         datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare_val,
@@ -106,14 +88,15 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
     num_workers = num_devices * 4 if num_devices > 1 else 4
 
-    # Shuffle must be set to True.
-    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
+    samples_weight = torch.from_numpy(samples_weight)
+    sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
+                                                             len(samples_weight))
+
+    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler,
                                 drop_last=True)
-    # Using batch_metrics with shuffle=False on val dataset will always mesure metrics on the same portion of the val samples.
-    # Shuffle should be set to True.
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True,
+    val_dataloader = DataLoader(val_dataset, batch_size=1, num_workers=num_workers, shuffle=False,
                                 drop_last=True)
-    tst_dataloader = DataLoader(tst_dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False,
+    tst_dataloader = DataLoader(tst_dataset, batch_size=1, num_workers=num_workers, shuffle=False,
                                 drop_last=True) if num_samples['tst'] > 0 else None
 
     return trn_dataloader, val_dataloader, tst_dataloader
@@ -127,7 +110,7 @@ def get_num_samples(samples_path, params):
     :return: (dict) number of samples for trn, val and tst.
     """
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
-
+    weights = []
     for i in ['trn', 'val', 'tst']:
         if get_key_def(f"num_{i}_samples", params['training'], None) is not None:
             num_samples[i] = params['training'][f"num_{i}_samples"]
@@ -140,47 +123,15 @@ def get_num_samples(samples_path, params):
         else:
             with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), "r") as hdf5_file:
                 num_samples[i] = len(hdf5_file['map_img'])
+                if i == 'trn':
+                    for x in range(num_samples[i]):
+                        label = hdf5_file['map_img'][x]
+                        label = np.where(label == 255, 0, label)
+                        unique_labels = np.unique(label)
+                        weights.append(''.join([str(int(i)) for i in unique_labels]))
+                        samples_weight = compute_sample_weight('balanced', weights)
 
-    return num_samples
-
-
-def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
-    """
-    Function to set hyperparameters based on values provided in yaml config file.
-    Will also set model to GPU, if available.
-    If none provided, default functions values may be used.
-    :param params: (dict) Parameters found in the yaml config file
-    :param num_classes: (int) number of classes for current task
-    :param model: Model loaded from model_choice.py
-    :param checkpoint: (dict) state dict as loaded by model_choice.py
-    :return: model, criterion, optimizer, lr_scheduler, num_gpus
-    """
-    # set mandatory hyperparameters values with those in config file if they exist
-    lr = get_key_def('learning_rate', params['training'], None, "missing mandatory learning rate parameter")
-    weight_decay = get_key_def('weight_decay', params['training'], None, "missing mandatory weight decay parameter")
-    step_size = get_key_def('step_size', params['training'], None, "missing mandatory step size parameter")
-    gamma = get_key_def('gamma', params['training'], None, "missing mandatory gamma parameter")
-
-    # optional hyperparameters. Set to None if not in config file
-    class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
-    if params['training']['class_weights']:
-        verify_weights(num_classes, class_weights)
-
-    # Loss function
-    criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'],
-                                    ignore_index=dontcare_val,
-                                    weight=class_weights)
-
-    # Optimizer
-    opt_fn = params['training']['optimizer']
-    optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
-
-    if checkpoint:
-        tqdm.write(f'Loading checkpoint...')
-        model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer)
-
-    return model, criterion, optimizer, lr_scheduler
+    return num_samples, samples_weight
 
 
 def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
@@ -304,16 +255,14 @@ def train(train_loader,
 
             if device.type == 'cuda' and debug:
                 res, mem = gpu_stats(device=device.index)
-                _tqdm.set_postfix(
-                    OrderedDict(
-                        trn_loss=f'{train_metrics["loss"].val:.2f}',
-                        gpu_perc=f'{res.gpu} %',
-                        gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
-                        lr=optimizer.param_groups[0]['lr'],
-                        img=data['sat_img'].numpy().shape,
-                        smpl=data['map_img'].numpy().shape,
-                        bs=batch_size,
-                        out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
+                _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
+                                              gpu_perc=f'{res.gpu} %',
+                                              gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+                                              lr=optimizer.param_groups[0]['lr'],
+                                              img=data['sat_img'].numpy().shape,
+                                              smpl=data['map_img'].numpy().shape,
+                                              bs=batch_size,
+                                              out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
 
             loss.backward()
             optimizer.step()
@@ -463,12 +412,31 @@ def main(params, config_path):
     assert task == 'segmentation', f"The task should be segmentation. The provided value is {task}"
     num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
 
-    # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    model, checkpoint, model_name = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
-    tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
-    bucket_name = get_key_def('bucket_name', params['global'])
     data_path = Path(params['global']['data_path'])
     assert data_path.is_dir(), f'Could not locate data path {data_path}'
+    samples_size = params["global"]["samples_size"]
+    overlap = params["sample"]["overlap"]
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], 0, expected_type=int)
+    num_bands = params['global']['number_of_bands']
+    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: won't check if folder has datetime suffix (if multiple folders)
+    samples_folder = data_path.joinpath(samples_folder_name)
+    batch_size = params['training']['batch_size']
+    num_devices = params['global']['num_gpus']
+    # assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
+    # # list of GPU devices that are available and unused. If no GPUs, returns empty list
+    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
+    num_devices = len(lst_device_ids) if lst_device_ids else 0
+    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+
+    tqdm.write(f'Creating dataloaders from data in {samples_folder}...\n')
+    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
+                                                                       batch_size=batch_size,
+                                                                       num_devices=num_devices,
+                                                                       params=params)
+    # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
+    model, model_name, criterion, optimizer, lr_scheduler = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
+    tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
+    bucket_name = get_key_def('bucket_name', params['global'])
 
     # mlflow tracking path + parameters logging
     set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
@@ -477,13 +445,6 @@ def main(params, config_path):
     log_params(params['global'])
     log_params(params['sample'])
 
-    samples_size = params["global"]["samples_size"]
-    overlap = params["sample"]["overlap"]
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], 0, expected_type=int)
-    num_bands = params['global']['number_of_bands']
-    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'  # FIXME: won't check if folder has datetime suffix (if multiple folders)
-    samples_folder = data_path.joinpath(samples_folder_name)
-
     modelname = config_path.stem
     output_path = samples_folder.joinpath('model') / modelname
     if output_path.is_dir():
@@ -491,7 +452,6 @@ def main(params, config_path):
     output_path.mkdir(parents=True, exist_ok=False)
     shutil.copy(str(config_path), str(output_path))
     tqdm.write(f'Model and log files will be saved to: {output_path}\n\n')
-    batch_size = params['training']['batch_size']
 
     if bucket_name:
         from utils.aws import download_s3_files
@@ -510,59 +470,6 @@ def main(params, config_path):
     trn_log = InformationLogger('trn')
     val_log = InformationLogger('val')
     tst_log = InformationLogger('tst')
-
-    num_devices = params['global']['num_gpus']
-    assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
-    # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
-    num_devices = len(lst_device_ids) if lst_device_ids else 0
-    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-    print(f"Number of cuda devices requested: {params['global']['num_gpus']}. Cuda devices available: {lst_device_ids}\n")
-    if num_devices == 1:
-        print(f"Using Cuda device {lst_device_ids[0]}\n")
-    elif num_devices > 1:
-        # TODO: why are we showing indices [1:-1] for lst_device_ids?
-        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n")
-        try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
-            model = nn.DataParallel(model, device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-        except AssertionError:
-            warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
-            device = torch.device('cuda:0')
-            lst_device_ids = range(len(lst_device_ids))
-            model = nn.DataParallel(model,
-                                    device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-
-    else:
-        warnings.warn(f"No Cuda device available. This process will only run on CPU\n")
-
-    dontcare = get_key_def("ignore_index", params["training"], -1)
-    if dontcare == 0:
-        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
-                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
-        params["training"]["ignore_index"] = -1
-
-    tqdm.write(f'Creating dataloaders from data in {samples_folder}...\n')
-    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
-                                                                       batch_size=batch_size,
-                                                                       num_devices=num_devices,
-                                                                       params=params)
-
-    tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
-    try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
-        model.to(device)
-    except RuntimeError:
-        warnings.warn(f"Unable to use device. Trying device 0...\n")
-        device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-        model.to(device)
-    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params,
-                                                                    num_classes_corrected,
-                                                                    model,
-                                                                    checkpoint,
-                                                                    dontcare)
-
-    criterion = criterion.to(device)
-
     filename = output_path.joinpath('checkpoint.pth.tar')
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
