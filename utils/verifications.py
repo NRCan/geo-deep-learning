@@ -10,7 +10,7 @@ from utils.CreateDataset import MetaSegmentationDataset
 from utils.geoutils import lst_ids, get_key_recursive
 
 
-def validate_num_classes(vector_file: Union[str, Path], num_classes: int, hide_classes: List, attribute_name: str, ignore_index: int):
+def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attribute_name: str, ignore_index: int):
     """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
     FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
     Args:
@@ -21,16 +21,14 @@ def validate_num_classes(vector_file: Union[str, Path], num_classes: int, hide_c
     Return:
         List of unique attribute values found in gpkg vector file
     """
-
     distinct_att = set()
     with fiona.open(vector_file, 'r') as src:
         for feature in tqdm(src, leave=False, position=1, desc=f'Scanning features'):
-            distinct_att.add(get_key_recursive(attribute_name, feature))  # Use property of set to store unique values
+            # Use property of set to store unique values
+            distinct_att.add(get_key_recursive(attribute_name, feature))
 
     detected_classes = len(distinct_att) - len([ignore_index]) if ignore_index in distinct_att else len(distinct_att)
 
-    if len(hide_classes) > 0:
-        num_classes = num_classes + len(hide_classes)
     if detected_classes != num_classes:
         raise ValueError('The number of classes in the yaml.config {} is different than the number of classes in '
                          'the file {} {}'.format(num_classes, vector_file, str(list(distinct_att))))
@@ -38,7 +36,8 @@ def validate_num_classes(vector_file: Union[str, Path], num_classes: int, hide_c
     return distinct_att
 
 
-def add_background_to_num_class(task: str, num_classes: int):  # FIXME temporary patch for num_classes problem.
+def add_background_to_num_class(task: str, num_classes: int):
+    # FIXME temporary patch for num_classes problem.
     """
     Adds one to number of classes for all segmentation tasks.
 
@@ -64,7 +63,6 @@ def assert_num_bands(raster_path: Union[str, Path], num_bands: int, meta_map):
     :param num_bands: number of bands raster file is expected to have
     :param meta_map:
     """
-
     # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
     #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
     with rasterio.open(raster_path, 'r') as raster:

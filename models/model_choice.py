@@ -8,7 +8,46 @@ import segmentation_models_pytorch as smp
 import torchvision.models as models
 from models import TernausNet, unet, checkpointed_unet, inception, coordconv
 from utils.utils import get_key_def
+###############################
+from utils.layersmodules import LayersEnsemble
+###############################
 
+lm_smp = {
+    'pan_pretrained': {
+       'fct': smp.PAN, 'params': {
+           'encoder_name':'se_resnext101_32x4d',
+       }},
+   'unet_pretrained': {
+       'fct': smp.Unet, 'params': {
+           'encoder_name':'resnext50_32x4d',
+           'encoder_depth':5,
+       }},
+   'fpn_pretrained': {
+       'fct': smp.FPN, 'params': {
+           'encoder_name':'resnext50_32x4d',
+       }},
+   'pspnet_pretrained': {
+       'fct': smp.PSPNet, 'params': {
+           'encoder_name':"resnext50_32x4d",
+       }},
+   'deeplabv3+_pretrained': {
+       'fct': smp.DeepLabV3Plus, 'params': {
+           'encoder_name':'resnext50_32x4d',
+       }},
+   'spacenet_unet_efficientnetb5_pretrained': {
+       'fct': smp.Unet, 'params': {
+           'encoder_name':"efficientnet-b5",
+       }},
+   'spacenet_unet_senet152_pretrained': {
+       'fct': smp.Unet, 'params': {
+           'encoder_name':'senet154',
+       }},
+   'spacenet_unet_baseline_pretrained': {
+       # In the article of SpaceNet, the baseline is originaly pretrained on 'SN6 PS-RGB Imagery'.
+       'fct': smp.Unet, 'params': {
+           'encoder_name':'vgg11',
+       }},
+}
 
 def load_checkpoint(filename):
     ''' Loads checkpoint from provided path
@@ -39,6 +78,11 @@ def net(net_params, num_channels, inference=False):
     dropout = get_key_def('dropout', net_params['training'], False)
     dropout_prob = get_key_def('dropout_prob', net_params['training'], 0.5)
 
+    # TODO: find a way to maybe implement it in classification one day
+    if 'concatenate_depth' in net_params['global']:
+        # Read the concatenation point
+        conc_point = net_params['global']['concatenate_depth']
+
     if model_name == 'unetsmall':
         model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'unet':
@@ -52,8 +96,9 @@ def net(net_params, num_channels, inference=False):
         model = inception.Inception3(num_channels, num_bands)
     elif model_name == 'fcn_resnet101':
         assert num_bands == 3, msg
-        model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
-                                                  aux_loss=None)
+        model = models.segmentation.fcn_resnet101(
+            pretrained=pretrained, progress=True, num_classes=num_channels, aux_loss=None
+        )
     elif model_name == 'deeplabv3_resnet101':
         assert (num_bands == 3 or num_bands == 4), msg
         if num_bands == 3:
@@ -61,64 +106,52 @@ def net(net_params, num_channels, inference=False):
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
             classifier = list(model.classifier.children())
             model.classifier = nn.Sequential(*classifier[:-1])
-            model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
+            model.classifier.add_module(
+                    '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
+            )
         elif num_bands == 4:
             print('Finetuning pretrained deeplabv3 with 4 bands')
+            print('Testing with 4 bands, concatenating at {}.'.format(conc_point))
+
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
-            conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-            depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
-            # depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
-            conv1 = np.append(conv1, depth, axis=1)
-            conv1 = torch.from_numpy(conv1).float()
-            model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-            classifier = list(model.classifier.children())
-            model.classifier = nn.Sequential(*classifier[:-1])
-            model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
-    # elif model_name == 'pan_pretrained':
-    #     model = smp.PAN(
-    #         encoder_name='se_resnext101_32x4d',
-    #         encoder_weights="imagenet",
-    #         in_channels=num_bands,
-    #         classes=num_channels,
-    #         activation=None)
-    # elif model_name == 'unet_pretrained':
-    #     model = smp.Unet(
-    #         encoder_name="resnext101_32x4d",
-    #         encoder_weights="swsl",
-    #         encoder_depth=5,
-    #         in_channels=num_bands,
-    #         classes=num_channels,
-    #         activation=None)
-    elif model_name == 'unet_pretrained':
-        model = smp.Unet(
-            encoder_name="resnext50_32x4d",
-            encoder_weights="imagenet",
-            encoder_depth=5,
-            in_channels=num_bands,
-            classes=num_channels,
-            activation=None)
-    # elif model_name == 'fpn_pretrained':
-    #     model = smp.FPN(
-    #         encoder_name="resnext50_32x4d",
-    #         encoder_weights="imagenet",
-    #         in_channels=num_bands,
-    #         classes=num_channels,
-    #         activation=None)
-    # elif model_name == 'pspnet_pretrained': 
-    #     model = smp.PSPNet(
-    #         encoder_name="resnext50_32x4d",
-    #         encoder_weights="imagenet",
-    #         in_channels=num_bands,
-    #         classes=num_channels,
-    #         activation=None)
-    # elif model_name == 'deeplabv3+_pretrained':
-    #     model = smp.DeepLabV3Plus(
-    #         encoder_name="resnext50_32x4d",
-    #         encoder_weights="imagenet",
-    #         in_channels=num_bands,
-    #         classes=num_channels,
-    #         activation=None)
-    
+
+            if conc_point=='baseline':
+                conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
+                depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
+                conv1 = np.append(conv1, depth, axis=1)
+                conv1 = torch.from_numpy(conv1).float()
+                model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
+                classifier = list(model.classifier.children())
+                model.classifier = nn.Sequential(*classifier[:-1])
+                model.classifier.add_module(
+                    '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
+                )
+            else:
+                classifier = list(model.classifier.children())
+                model.classifier = nn.Sequential(*classifier[:-1])
+                model.classifier.add_module(
+                        '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
+                )
+                ###################
+                #conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
+                #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
+                #conv1 = np.append(conv1, depth, axis=1)
+                #conv1 = torch.from_numpy(conv1).float()
+                #model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
+                ###################
+                model = LayersEnsemble(model, conc_point=conc_point)
+
+    elif model_name in lm_smp.keys():
+        lsmp = lm_smp[model_name]
+        # TODO: add possibility of our own weights
+        lsmp['params']['encoder_weights'] = "imagenet" if 'pretrained' in model_name.split("_") else None
+        lsmp['params']['in_channels'] = num_bands
+        lsmp['params']['classes'] = num_channels
+        lsmp['params']['activation'] = None
+
+        model = lsmp['fct'](**lsmp['params'])
+
+
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
 
@@ -130,8 +163,10 @@ def net(net_params, num_channels, inference=False):
         radius_channel = get_key_def('coordconv_radius_channel', net_params['global'], False)
         scale = get_key_def('coordconv_scale', net_params['global'], 1.0)
         # note: this operation will not attempt to preserve already-loaded model parameters!
-        model = coordconv.swap_coordconv_layers(model, centered=centered, normalized=normalized, noise=noise,
-                                                radius_channel=radius_channel, scale=scale)
+        model = coordconv.swap_coordconv_layers(
+            model, centered=centered, normalized=normalized, noise=noise,
+            radius_channel=radius_channel, scale=scale
+        )
 
     if inference:
         state_dict_path = net_params['inference']['state_dict_path']

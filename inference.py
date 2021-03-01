@@ -26,12 +26,13 @@ from utils.readers import read_parameters, image_reader_as_array
 from utils.CreateDataset import MetaSegmentationDataset
 from utils.verifications import add_background_to_num_class
 from utils.visualization import vis, vis_from_batch
-from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics 
+from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
 
 try:
     import boto3
 except ModuleNotFoundError:
     pass
+
 colors = {0: [0, 0, 0],  # Background
           1: [27, 120, 55],  # Vegetation
           2: [116, 173, 209], # Hydro
@@ -44,15 +45,15 @@ def segmentation_with_smoothing(raster, clip_gpkg, model, sample_size, overlap, 
     model.eval()
     img_array, input_image, dataset_nodata = image_reader_as_array(input_image=raster,
                                                                    clip_gpkg=clip_gpkg)
-    metadata = add_metadata_from_raster_to_sample(img_array, 
-                                                    input_image, 
-                                                    meta_map=None, 
+    metadata = add_metadata_from_raster_to_sample(img_array,
+                                                    input_image,
+                                                    meta_map=None,
                                                     raster_info=None)
     h, w, bands = img_array.shape
     assert num_bands <= bands, f"Num of specified bands is not compatible with image shape {img_array.shape}"
     if num_bands < bands:
        img_array = img_array[:, :, :num_bands]
-    
+
     padding = int(round(sample_size * (1 - 1.0/overlap)))
     padded_img = pad(img_array, padding=padding, fill=0)
     WINDOW_SPLINE_2D = _window_2D(window_size=sample_size, power=1)
@@ -65,14 +66,38 @@ def segmentation_with_smoothing(raster, clip_gpkg, model, sample_size, overlap, 
             for col in _tqdm:
                 sample = {'sat_img': None, 'metadata': None}
                 sample['metadata'] = metadata
-                totensor_transform = augmentation.compose_transforms(params, dataset="tst", type='totensor')
+                totensor_transform = augmentation.compose_transforms(
+                    params, dataset="tst", type='totensor'
+                )
                 sub_images = padded_img[row:row+sample_size, col:col+sample_size, :]
                 sample['sat_img'] = sub_images
                 sample = totensor_transform(sample)
                 inputs = sample['sat_img'].unsqueeze_(0)
                 inputs = inputs.to(device)
+
+                if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
+                    ############################
+                    # Test Implementation of the NIR
+                    ############################
+                    # Init NIR   TODO: make a proper way to read the NIR channel 
+                    #                  and put an option to be able to give the idex of the NIR channel
+                    # Extract the NIR channel -> [batch size, H, W] since it's only one channel
+                    inputs_NIR = inputs[:,-1,...]
+                    # add a channel to get the good size -> [:, 1, :, :]
+                    inputs_NIR.unsqueeze_(1)
+                    # take out the NIR channel and take only the RGB for the inputs
+                    inputs = inputs[:,:-1, ...]
+                    # Suggestion of implementation
+                    #inputs_NIR = data['NIR'].to(device)
+                    inputs = [inputs, inputs_NIR]
+                    #outputs = model(inputs, inputs_NIR)
+                    ############################
+                    # End of the test implementation module
+                    ############################
+
                 outputs = model(inputs)
-                # torchvision models give output in 'out' key. May cause problems in future versions of torchvision.
+                # torchvision models give output in 'out' key.
+                # May cause problems in future versions of torchvision.
                 if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
                     outputs = outputs['out']
                 outputs = F.softmax(outputs, dim=1).squeeze(dim=0).cpu().numpy()
@@ -88,13 +113,13 @@ def segmentation(raster, clip_gpkg, model, sample_size, num_bands, device):
     model.eval()
     img_array, input_image, dataset_nodata = image_reader_as_array(input_image=raster,
                                                                    clip_gpkg=clip_gpkg)
-    metadata = add_metadata_from_raster_to_sample(img_array, 
-                                                    input_image, 
-                                                    meta_map=None, 
+    metadata = add_metadata_from_raster_to_sample(img_array,
+                                                    input_image,
+                                                    meta_map=None,
                                                     raster_info=None)
     h, w, bands = img_array.shape
     assert num_bands <= bands, f"Num of specified bands is not compatible with image shape {img_array.shape}"
-    if num_bands < bands: 
+    if num_bands < bands:
        img_array = img_array[:, :, :num_bands]
     h_ = sample_size * math.ceil(h / sample_size)
     w_ = sample_size * math.ceil(w / sample_size)
@@ -108,7 +133,7 @@ def segmentation(raster, clip_gpkg, model, sample_size, num_bands, device):
                 sub_images = img_array[row:row + sample_size, column:column + sample_size, :]
                 sub_images_row = sub_images.shape[0]
                 sub_images_col = sub_images.shape[1]
-                
+
                 if sub_images_row < sample_size or sub_images_col < sample_size:
                     padding = pad_diff(actual_height=sub_images_row,
                                         actual_width=sub_images_col,
@@ -118,6 +143,27 @@ def segmentation(raster, clip_gpkg, model, sample_size, num_bands, device):
                 sample = totensor_transform(sample)
                 inputs = sample['sat_img'].unsqueeze_(0)
                 inputs = inputs.to(device)
+
+                if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
+                    ############################
+                    # Test Implementation of the NIR
+                    ############################
+                    # Init NIR   TODO: make a proper way to read the NIR channel 
+                    #                  and put an option to be able to give the idex of the NIR channel
+                    # Extract the NIR channel -> [batch size, H, W] since it's only one channel
+                    inputs_NIR = inputs[:,-1,...]
+                    # add a channel to get the good size -> [:, 1, :, :]
+                    inputs_NIR.unsqueeze_(1)
+                    # take out the NIR channel and take only the RGB for the inputs
+                    inputs = inputs[:,:-1, ...]
+                    # Suggestion of implementation
+                    #inputs_NIR = data['NIR'].to(device)
+                    inputs = [inputs, inputs_NIR]
+                    #outputs = model(inputs, inputs_NIR)
+                    ############################
+                    # End of the test implementation module
+                    ############################
+
                 outputs = model(inputs)
                 # torchvision models give output in 'out' key. May cause problems in future versions of torchvision.
                 if isinstance(outputs, OrderedDict) and 'out' in outputs.keys():
@@ -219,7 +265,7 @@ def main(params: dict):
     bucket = None
     bucket_file_cache = []
     bucket_name = get_key_def('bucket_name', params['global'])
-    
+
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
     lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
@@ -231,13 +277,14 @@ def main(params: dict):
 
     # CONFIGURE MODEL
     model, state_dict_path, model_name = net(params, num_channels=num_classes_corrected, inference=True)
+
     try:
         model.to(device)
     except RuntimeError:
         print(f"Unable to use device. Trying device 0")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
-    
+
     # mlflow tracking path + parameters logging
     set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
     set_experiment('gdl-benchmarking/' + working_folder.name)
@@ -248,7 +295,8 @@ def main(params: dict):
     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
 
     if task == 'classification':
-        classifier(params, list_img, model, device, working_folder)  # FIXME: why don't we load from checkpoint in classification?
+        # FIXME: why don't we load from checkpoint in classification?
+        classifier(params, list_img, model, device, working_folder)
 
     elif task == 'segmentation':
         # TODO: Add verifications?
@@ -261,7 +309,7 @@ def main(params: dict):
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
             for info in _tqdm:
                 img_name = Path(info['tif']).name
-                local_gpkg = info['gpkg']
+                local_gpkg = info['gpkg'] if 'gpkg' in info.keys() else None
                 if local_gpkg:
                     local_gpkg = Path(local_gpkg)
                 if bucket:
@@ -276,13 +324,15 @@ def main(params: dict):
                 else:  # FIXME: else statement should support img['meta'] integration as well.
                     local_img = Path(info['tif'])
                     inference_image = working_folder.joinpath(f"{img_name.split('.')[0]}_inference.tif")
-                    print(inference_image)                    
+                    print(inference_image)
                 assert local_img.is_file(), f"Could not locate raster file at {local_img}"
                 with rasterio.open(local_img, 'r') as raster:
                     inf_meta= raster.meta
                     if prediction_with_smoothing:
                         print('Smoothening Predictions with 2D interpolation')
-                        pred = segmentation_with_smoothing(raster, local_gpkg, model, chunk_size, overlap, num_bands, device)
+                        pred = segmentation_with_smoothing(
+                            raster, local_gpkg, model, chunk_size, overlap, num_bands, device
+                        )
                     else:
                         pred = segmentation(raster, local_gpkg, model, chunk_size, num_bands, device)
                     if local_gpkg:
@@ -300,7 +350,7 @@ def main(params: dict):
                             log_metrics(pixelMetrics.update(pixelMetrics.precision))
                             log_metrics(pixelMetrics.update(pixelMetrics.recall))
                             log_metrics(pixelMetrics.update(pixelMetrics.matthews))
-                        
+
                         label_classes = np.unique(label)
                         assert len(colors) >= len(label_classes), f'Not enough colors and class names for number of classes in output'
                         # FIXME: color mapping scheme is hardcoded for now because of memory constraint; To be fixed.
@@ -308,17 +358,17 @@ def main(params: dict):
                         pred_rgb = ind2rgb(pred, colors)
                         Image.fromarray((label_rgb).astype(np.uint8), mode='RGB').save(os.path.join(working_folder, 'label_rgb_' + inference_image.stem + '.png'))
                         Image.fromarray((pred_rgb).astype(np.uint8), mode='RGB').save(os.path.join(working_folder, 'pred_rgb_' + inference_image.stem + '.png'))
-                        del label_rgb, pred_rgb                         
-                    pred = pred[np.newaxis, :, :]       
+                        del label_rgb, pred_rgb
+                    pred = pred[np.newaxis, :, :]
                     inf_meta.update({"driver": "GTiff",
                                      "height": pred.shape[1],
                                      "width": pred.shape[2],
                                      "count": pred.shape[0],
                                      "dtype": 'uint8'})
-                    
+
                     with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
                         dest.write(pred)
-        log_artifact(working_folder)   
+        log_artifact(working_folder)
     time_elapsed = time.time() - since
     print('Inference and Benchmarking completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 

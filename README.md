@@ -475,6 +475,67 @@ The `vis_batch_range` parameter plays a central role in visualization. First num
 - if in inference, `vis()` will print all unique values in each heatmap array. If there are only a few values, it gives a hint on usefulness of heatmap.
 - if in inference, `vis()` will check number of predicted classes in output array. If only one predicted class, a warning is sent.
 
+### Training and Inference for Segmentation on RGB-NIR images
+For the majorities of the YAML file will be the same as before for RGB images, this section will present the modifications to do to be able the use a model that use RGBN images. For more informations on the implementation, see the article [Transfer Learning from RGB to Multi-band Imagery](https://www.azavea.com/blog/2019/08/30/transfer-learning-from-rgb-to-multi-band-imagery/) frome [Azavea](https://www.azavea.com/).
+
+Here some specifications on this fonctionnality:
+- At the moment this fonctionnality is only available for the [Deeplabv3 (backbone: resnet101)](https://arxiv.org/abs/1706.05587)
+- You may need to reduce the size of the `batch_size` to fit everything in the memory.
+
+To launch the training and the inference program, the commands are the same as normal, only the YAML need to change:
+```bash
+python train_segmentation.py path/to/config/file/config.yaml
+python inference.py path/to/config/file/config.yaml
+```
+
+Details on parameters used by this module:
+```yaml
+
+# Global parameters
+global:
+  samples_size: 256
+  num_classes: 4 
+  data_path: /home/cauthier/data/ # TODO: put it in the git ignor
+  number_of_bands: 4
+  # Model must be in the follow list:
+  # unet, unetsmall, checkpointed_unet, ternausnet,
+  # fcn_resnet101, deeplabv3_resnet101
+  model_name: deeplabv3_resnet101
+  bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
+  task: segmentation  # Task to perform. Either segmentation or classification
+  num_gpus: 2
+  BGR_to_RGB: True
+  scale_data: [0,1]
+  aux_vector_file:
+  aux_vector_attrib:
+  aux_vector_ids:
+  aux_vector_dist_maps:
+  aux_vector_dist_log:
+  aux_vector_scale:
+  debug_mode: True
+  coordconv_convert: False
+  coordvonc_scale:
+  
+  # Module to include the NIR
+  modalities: RGBN
+  concatenate_depth: 'layer4'
+```
+
+The rest of the YAML file will be the same as present bellow.
+
+The major changes are the `modalities`, `number_of_bands` and `concatenate_depth` parameters. If the model select is not **DeeplavV3** but the `nuber_of_band = 4` and the `modalities = RGBN`, the model will train with the basic architecture but the input will be an image with 4 dimmensions. 
+
+Since we have the concatenation point for the NIR band only for the **DeeplabV3**, the `concatenate_depth` parameter option are:
+- conv1
+- maxpool
+- layer2
+- layer3
+- layer4
+
+**Illustration of the principale will fellow soon**
+
+
+
 # Classification Task
 The classification task allows images to be recognized as a whole rather than identifying the class of each pixel individually as is done in semantic segmentation.
 

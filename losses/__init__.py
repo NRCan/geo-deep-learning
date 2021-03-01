@@ -25,9 +25,6 @@ class MultiClassCriterion(nn.Module):
             self.criterion = DiceLoss(**kwargs)
         elif loss_type == 'BF1':
             self.criterion = BoundaryLoss(**kwargs)
-        elif loss_type == 'Triplet':
-            lst = [LovaszSoftmax(**kwargs), DiceLoss(**kwargs), BoundaryLoss(**kwargs)]
-            self.criterion = lst
         elif loss_type == 'Duo':
             lst = [LovaszSoftmax(**kwargs), BoundaryLoss(**kwargs)]
             self.criterion = lst

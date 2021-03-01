@@ -50,7 +50,7 @@ def image_reader_as_array(input_image,
     else:
         np_array = input_image.read()
 
-    np_array = np.moveaxis(np_array, 0, -1)  # send channels last
+    np_array = np.moveaxis(np_array, 0, -1) # send channels last
     assert np_array.dtype in ['uint8', 'uint16'], f"Invalid datatype {np_array.dtype}. " \
                                                   f"Only uint8 and uint16 are supported in current version"
 
@@ -70,7 +70,7 @@ def image_reader_as_array(input_image,
                                       target_ids=aux_vector_ids,
                                       merge_all=False)
         if aux_vector_dist_maps:
-            import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
+            # import cv2 as cv  # opencv becomes a project dependency only if we need to compute distance maps here
             vec_tensor = vec_tensor.astype(np.float32)
             for vec_band_idx in range(vec_tensor.shape[2]):
                 mask = vec_tensor[:, :, vec_band_idx]
@@ -79,8 +79,11 @@ def image_reader_as_array(input_image,
                 mask = morphology.binary_dilation(mask, kernel)  # make points and linestring easier to work with
                 # display_resize = cv.resize(np.where(mask, np.uint8(0), np.uint8(255)), (1000, 1000))
                 # cv.imshow("mask", display_resize)
-                dmap = cv.distanceTransform(np.where(mask, np.uint8(0), np.uint8(255)), cv.DIST_L2,
-                                            cv.DIST_MASK_PRECISE)
+                dmap = cv.distanceTransform(
+                    np.where(mask, np.uint8(0), np.uint8(255)),
+                    cv.DIST_L2,
+                    cv.DIST_MASK_PRECISE
+                )
                 if aux_vector_dist_log:
                     dmap = np.log(dmap + 1)
                 # display_resize = cv.resize(cv.normalize(dmap, None, 0, 1, cv.NORM_MINMAX, dtype=cv.CV_32F), (1000, 1000))
@@ -102,5 +105,3 @@ def image_reader_as_array(input_image,
         np_array = np.concatenate([np_array, vec_tensor], axis=2)
 
     return np_array, input_image, dataset_nodata
-
-

@@ -65,7 +65,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
     model.load_state_dict(checkpoint['model'], strict=False)
     print(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-        optimizer.load_state_dict(checkpoint['optimizer'])
+        optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
     return model, optimizer
 
 
@@ -156,6 +156,7 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
             if delete:
                 del config[key]
     return val
+
 
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     """
@@ -261,8 +262,7 @@ def ind2rgb(arr, color):
     :param arr: (numpy array) index image to be color mapped
     :param color: (dict of RGB color values) for each class
     :return: (numpy_array) RGB image
-    """ 
-    
+    """
     h, w = arr.shape
     rgb = np.empty((h, w, 3), dtype=np.uint8)
     for cl in color:
@@ -323,7 +323,6 @@ def read_csv(csv_file_name):
     - attribute_name
     - dataset (trn or tst)
     """
-
     list_values = []
     with open(csv_file_name, 'r') as f:
         reader = csv.reader(f)
