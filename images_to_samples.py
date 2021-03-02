@@ -284,8 +284,41 @@ def samples_preparation(in_img_array,
 def main(params):
     """
     Training and validation datasets preparation.
-    :param params: (dict) Parameters found in the yaml config file.
 
+    Process
+    -------
+    1. Read csv file and validate existence of all input files and GeoPackages.
+
+    2. Do the following verifications:
+        1. Assert number of bands found in raster is equal to desired number
+           of bands.
+        2. Check that `num_classes` is equal to number of classes detected in
+           the specified attribute for each GeoPackage.
+           Warning: this validation will not succeed if a Geopackage
+                    contains only a subset of `num_classes` (e.g. 3 of 4).
+        3. Assert Coordinate reference system between raster and gpkg match.
+
+    3. Read csv file and for each line in the file, do the following:
+        1. Read input image as array with utils.readers.image_reader_as_array().
+            - If gpkg's extent is smaller than raster's extent,
+              raster is clipped to gpkg's extent.
+            - If gpkg's extent is bigger than raster's extent,
+              gpkg is clipped to raster's extent.
+        2. Convert GeoPackage vector information into the "label" raster with
+           utils.utils.vector_to_raster(). The pixel value is determined by the
+           attribute in the csv file.
+        3. Create a new raster called "label" with the same properties as the
+           input image.
+        4. Read metadata and add to input as new bands (*more details to come*).
+        5. Crop the arrays in smaller samples of the size `samples_size` of
+           `your_conf.yaml`. Visual representation of this is provided at
+            https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f
+        6. Write samples from input image and label into the "val", "trn" or
+           "tst" hdf5 file, depending on the value contained in the csv file.
+            Refer to samples_preparation().
+
+    -------
+    :param params: (dict) Parameters found in the yaml config file.
     """
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     bucket_file_cache = []

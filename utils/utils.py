@@ -48,7 +48,7 @@ class Interpolate(torch.nn.Module):
 def load_from_checkpoint(checkpoint, model, optimizer=None):
     """Load weights from a previous checkpoint
     Args:
-        checkpoint: (dict) checkpoint as loaded in model_choice.py
+        checkpoint: (dict) checkpoint
         model: model to replace
         optimizer: optimiser to be used
     """

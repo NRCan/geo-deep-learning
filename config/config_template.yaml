@@ -1,26 +1,28 @@
 # Deep learning configuration file ------------------------------------------------
+# This config is to use massachusetts_buildings image out of the box.
+# For that, unzip the file data/massachusetts_buildings.zip befor running images_to_samples.py or other command.
 # Five sections :
 #   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
 #   2) Data analysis parameters
-#   4) Sampling parameters
-#   5) Training parameters
-#   6) Inference parameters
-#   7) Visualization parameters
+#   3) Sampling parameters
+#   4) Training parameters
+#   5) Inference parameters
+#   6) Visualization parameters
 
 # Global parameters
 global:
   samples_size: 512
-  num_classes: 5
-  data_path: path/to/data
-  number_of_bands: 4
-  # Model available: unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet50, deeplabv3_resnet101
+  num_classes: 1
+  data_path: ./data  # path/to/data
+  number_of_bands: 3
+  # See models/README.md for all the available models.
   model_name: unet
-  mlflow_uri: path/to/mlflow_tracking_uri  # Default to ./mlruns
+  mlflow_uri: ./mlruns  # path/to/mlflow_tracking_uri
   mlflow_experiment_name: gdl-training
   mlflow_run_name: gdl  # also used for naming of preprocessing directories
-  bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
+  bucket_name:  # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
-  num_gpus: 1
+  num_gpus: 0  # If 0, will run on CPU
   max_used_ram: 2000  # maximum used GPU memory (MB) in order to use it (only if num_gpus > 0)
   max_used_perc: 15  # maximum utilization rate (percent) of the GPU in order to use it (only if num_gpus > 0)
   BGR_to_RGB: True
@@ -41,7 +43,7 @@ global:
 data_analysis:
   create_csv: False
   optimal_parameters_search : False
-  sampling_method: # class_proportion or min_annotated_percent
+  sampling_method:  # class_proportion or min_annotated_percent
     'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
     'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:
     # keys (numerical values in 'string' format) represent class id
@@ -49,7 +51,7 @@ data_analysis:
 
 # Sample parameters; used in images_to_samples.py -------------------
 sample:
-  prep_csv_file: /path/to/csv/file.csv
+  prep_csv_file: .data/images_to_samples_ci_csv.csv  # /path/to/csv/images.csv
   val_percent: 20 # Percentage of validation samples created from train set (0 - 100)
   overlap: 5 # (int) Percentage of overlap between 2 chunks.
   sampling_method: # class_proportion or min_annotated_percent
@@ -62,17 +64,16 @@ sample:
 
 # Training parameters; used in train_segmentation.py ----------------------
 training:
-  state_dict_path: path/to/pretrained/file/checkpoint.pth.tar    # optional
-  num_trn_samples: 4960
-  num_val_samples: 2208
-  num_tst_samples: 1000
+  state_dict_path: # optional: path/to/pretrained/file/checkpoint.pth.tar
+  num_trn_samples:
+  num_val_samples:
+  num_tst_samples:
   batch_size: 4
   num_epochs: 50
-  target_size: 128
-  # Loss function available: CrossEntropy, Lovasz, Focal, OhemCrossEntropy 
-  #                          (*Lovasz for segmentation tasks only)
+  target_size: 256
+  # See losses/README.md for all Loss function available.
   loss_fn: Lovasz
-  # Optimizer available: adam. sgd, adabound
+  # See utils/README.md for all Optimizer available.
   optimizer: adabound
   learning_rate: 0.0001
   weight_decay: 0
@@ -87,7 +88,7 @@ training:
   batch_metrics:
   # Ignore index (default -> None): the target value that is ignored and
   #                                  does not contribute to the input gradient.
-  ignore_index: 255 
+  ignore_index: 255
   # Normalization: parameters for finetuning.
   # for esample
   #    -> mean: [0.485, 0.456, 0.406]
@@ -95,7 +96,6 @@ training:
   normalization:
     mean:
     std:
-        
   # For each augmentation parameters, if not specified,
   # the part of the augmentation will not be performed.
   augmentation:
@@ -116,14 +116,12 @@ training:
 
 # Inference parameters; used in inference.py --------
 inference:
-  img_dir_or_csv_file: /path/to/csv/containing/images/list.csv
-  state_dict_path: /path/to/model/weights/for/inference/checkpoint.pth.tar
+  img_dir_or_csv_file: # /path/to/csv/containing/images/list.csv
+  state_dict_path: # optional: /path/to/model/weights/for/inference/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   overlap: 10 # (int) Percentage of overlap between 2 chunks. Default: 10
   heatmaps: True
-
-
-# Visualization parameters
+  # Visualization parameters
   smooth_prediction: True
   overlap: 2 # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
 
@@ -141,4 +139,3 @@ visualization:
   grid: True
   heatmaps: True
   colormap_file: ./data/colormap.csv
-
