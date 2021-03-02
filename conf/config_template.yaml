@@ -20,7 +20,9 @@ global:
   mlflow_run_name: gdl  # also used for naming of preprocessing directories
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
-  num_gpus: 2
+  num_gpus: 1
+  max_used_ram: 2000  # maximum used GPU memory (MB) in order to use it (only if num_gpus > 0)
+  max_used_perc: 15  # maximum utilization rate (percent) of the GPU in order to use it (only if num_gpus > 0)
   BGR_to_RGB: True
   scale_data: [0,1]
   aux_vector_file:
@@ -32,8 +34,7 @@ global:
   debug_mode: True
   coordconv_convert: False
   coordvonc_scale:
-  max_used_ram: 2000
-  max_used_perc: 15
+  gdl_git_reference: https://github.com/NRCan/geo-deep-learning/tree/v.1.2.0  # git tag or commit hash of the version of gdl used
 
 
 # Data analysis parameters; used in data_analysis.py ------------------
@@ -49,8 +50,8 @@ data_analysis:
 # Sample parameters; used in images_to_samples.py -------------------
 sample:
   prep_csv_file: /path/to/csv/file.csv
-  val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
-  overlap: 25 # (int) Percentage of overlap between 2 chunks.
+  val_percent: 20 # Percentage of validation samples created from train set (0 - 100)
+  overlap: 5 # (int) Percentage of overlap between 2 chunks.
   sampling_method: # class_proportion or min_annotated_percent
     'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
     'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:
@@ -65,8 +66,8 @@ training:
   num_trn_samples: 4960
   num_val_samples: 2208
   num_tst_samples: 1000
-  batch_size: 32
-  num_epochs: 100
+  batch_size: 4
+  num_epochs: 50
   target_size: 128
   # Loss function available: CrossEntropy, Lovasz, Focal, OhemCrossEntropy 
   #                          (*Lovasz for segmentation tasks only)

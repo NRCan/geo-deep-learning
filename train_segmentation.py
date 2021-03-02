@@ -494,8 +494,8 @@ def main(params, config_path):
     num_devices = params['global']['num_gpus']
     assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    max_used_ram = get_key_def('max_used_ram', params['global'], 2000)
-    max_used_perc = get_key_def('max_used_perc', params['global'], 15)
+    max_used_ram = get_key_def('max_used_ram', params['global'], 2000, expected_type=int)
+    max_used_perc = get_key_def('max_used_perc', params['global'], 15, expected_type=int)
     get_key_def('debug_mode', params['global'], False)
     lst_device_ids = get_device_ids(
         num_devices, max_used_ram=max_used_ram, max_used_perc=max_used_perc, debug=debug) \
@@ -548,7 +548,11 @@ def main(params, config_path):
 
     criterion = criterion.to(device)
 
-    filename = output_path.joinpath('checkpoint.pth.tar')
+    gdl_git_ref = get_key_def('gdl_git_reference', params['global'], None)
+    if gdl_git_ref is not None:
+        filename = output_path.joinpath(f'checkpoint_{Path(gdl_git_ref).name}.pth.tar')
+    else:
+        filename = output_path.joinpath('checkpoint.pth.tar')
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
@@ -617,7 +621,10 @@ def main(params, config_path):
             if epoch == 0:
                 log_artifact(filename)
             if bucket_name:
-                bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
+                if gdl_git_ref is not None:
+                    bucket_filename = bucket_output_path.joinpath(f'checkpoint_{Path(gdl_git_ref).name}.pth.tar')
+                else:
+                    bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
 
             # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
@@ -664,7 +671,10 @@ def main(params, config_path):
         tst_log.add_values(tst_report, params['training']['num_epochs'])
 
         if bucket_name:
-            bucket_filename = bucket_output_path.joinpath('last_epoch.pth.tar')
+            if gdl_git_ref is not None:
+                bucket_filename = bucket_output_path.joinpath(f'last_epoch_{Path(gdl_git_ref).name}.pth.tar')
+            else:
+                bucket_filename = bucket_output_path.joinpath('last_epoch.pth.tar')
             bucket.upload_file("output.txt", bucket_output_path.joinpath(f"Logs/{now}_output.txt"))
             bucket.upload_file(filename, bucket_filename)
 
