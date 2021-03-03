@@ -90,11 +90,12 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
                      "height": out_img.shape[1],
                      "width": out_img.shape[2],
                      "transform": out_transform})
-    out_tif = Path(raster.name).parent / f"{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
-    dest = rasterio.open(out_tif, "w", **out_meta)
-    if debug:
-        print(f"DEBUG: writing clipped raster to {out_tif}")
-        dest.write(out_img)
+
+    out_tif = f"{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
+    with rasterio.open(out_tif, "w", **out_meta) as dest:
+        if debug:
+            print(f"DEBUG: writing clipped raster to {out_tif}")
+            dest.write(out_img)
 
     return out_img, dest
 
@@ -180,4 +181,4 @@ def get_key_recursive(key, config):
     if isinstance(val, (dict, collections.OrderedDict)):
         assert len(key) > 1, "missing keys to index metadata subdictionaries"
         return get_key_recursive(key[1:], val)
-    return val
+    return int(val)

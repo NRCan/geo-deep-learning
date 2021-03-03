@@ -227,14 +227,16 @@ def samples_preparation(in_img_array,
                 data_row = data.shape[0]
                 data_col = data.shape[1]
                 if data_row < sample_size or data_col < sample_size:
-                    padding = pad_diff(data_row, data_col, sample_size)  # array, actual height, actual width, desired size
+                    padding = pad_diff(data_row, data_col, sample_size,
+                                       sample_size)  # array, actual height, actual width, desired size
                     data = pad(data, padding, fill=np.nan)  # don't fill with 0 if possible. Creates false min value when scaling.
 
                 target_row = target.shape[0]
                 target_col = target.shape[1]
                 if target_row < sample_size or target_col < sample_size:
-                    padding = pad_diff(target_row, target_col, sample_size)  # array, actual height, actual width, desired size
-                    target = pad(target, padding, fill=dontcare)
+                    padding = pad_diff(target_row, target_col, sample_size,
+                                       sample_size)  # array, actual height, actual width, desired size
+                    target = pad(target, padding, fill=0)
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
 

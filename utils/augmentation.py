@@ -88,7 +88,8 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
                                        std=params['training']['normalization']['std']))
 
-        lst_trans.append(ToTensorTarget()) # Send channels first, convert numpy array to torch tensor
+        lst_trans.append(ToTensorTarget(
+            num_classes=params['global']['num_classes']))  # Send channels first, convert numpy array to torch tensor
 
     return transforms.Compose(lst_trans)
 
@@ -355,13 +356,19 @@ class BgrToRgb(object):
 
 class ToTensorTarget(object):
     """Convert ndarrays in sample to Tensors."""
+
+    def __init__(self, num_classes):
+        self.num_classes = num_classes
+
     def __call__(self, sample):
         sat_img = np.nan_to_num(sample['sat_img'], copy=False)
         sat_img = np.float32(np.transpose(sat_img, (2, 0, 1)))
         sat_img = torch.from_numpy(sat_img)
 
         map_img = None
-        if 'map_img' in sample.keys():  # This can also be used in inference.
-            map_img = np.int64(sample['map_img'])
-            map_img = torch.from_numpy(map_img)
+        if 'map_img' in sample.keys():
+            if sample['map_img'] is not None:  # This can also be used in inference.
+                map_img = np.int64(sample['map_img'])
+                map_img[map_img > self.num_classes] = 0
+                map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}

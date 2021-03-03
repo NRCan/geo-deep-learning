@@ -157,7 +157,6 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
                 del config[key]
     return val
 
-
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     """
     scale data values from original range to specified range
@@ -231,10 +230,10 @@ def pad(img, padding, fill=0):
     return img
 
 
-def pad_diff(actual_height, actual_width, desired_shape):
+def pad_diff(actual_height, actual_width, desired_height, desired_width):
     """ Pads img_arr width or height < samples_size with zeros """
-    h_diff = desired_shape - actual_height
-    w_diff = desired_shape - actual_width
+    h_diff = desired_height - actual_height
+    w_diff = desired_width - actual_width
     padding = (0, 0, w_diff, h_diff)  # left, top, right, bottom
     return padding
 
@@ -257,6 +256,7 @@ def BGR_to_RGB(array):
     array[:, :, :3] = RGB_channels
     return array
 
+
 def ind2rgb(arr, color):
     """
     :param arr: (numpy array) index image to be color mapped
@@ -269,6 +269,7 @@ def ind2rgb(arr, color):
         for ch in range(3):
           rgb[..., ch][arr == cl] = (color[cl][ch])
     return rgb
+
 
 def list_input_images(img_dir_or_csv: str,
                       bucket_name: str = None,
@@ -382,6 +383,8 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
 
 #### Image Patches Smoothing Functions ####
 """ Adapted from : https://github.com/Vooban/Smoothly-Blend-Image-Patches  """
+
+
 def _spline_window(window_size, power=2):
     """
     Squared spline (power=2) window function:
@@ -416,9 +419,5 @@ def _window_2D(window_size, power=2):
         wind = _spline_window(window_size, power)
         wind = np.expand_dims(np.expand_dims(wind, 1), -1)
         wind = wind * wind.transpose(1, 0, 2)
-        # wind = wind.squeeze()
-        # plt.imshow(wind[:, :, 0], cmap="viridis")
-        # plt.title("2D Windowing Function for a Smooth Blending of Overlapping Patches")
-        # plt.show()
         cached_2d_windows[key] = wind
     return wind
