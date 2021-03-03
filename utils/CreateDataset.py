@@ -37,6 +37,8 @@ def create_files_and_datasets(params, samples_folder):
         try:
             hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+            hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+            SegmentationDataset.append_to_dataset(hdf5_file["params"], repr(params))
         except AttributeError as e:
             warnings.warn(f'{e}. Update h5py to version 2.10 or higher')
             raise
@@ -145,6 +147,19 @@ class SegmentationDataset(Dataset):
                 f"Class ids for label before and after augmentations don't match. "
         sample['index'] = index
         return sample
+
+    @staticmethod
+    def append_to_dataset(dataset, sample):
+        """
+        Append a new sample to a provided dataset. The dataset has to be expanded before we can add value to it.
+        :param dataset:
+        :param sample: data to append
+        :return: Index of the newly added sample.
+        """
+        old_size = dataset.shape[0]  # this function always appends samples on the first axis
+        dataset.resize(old_size + 1, axis=0)
+        dataset[old_size, ...] = sample
+        return old_size
 
 
 class MetaSegmentationDataset(SegmentationDataset):

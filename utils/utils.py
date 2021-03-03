@@ -1,5 +1,6 @@
 import csv
 import numbers
+import subprocess
 from pathlib import Path
 from typing import Sequence, List
 
@@ -422,3 +423,20 @@ def _window_2D(window_size, power=2):
         # plt.show()
         cached_2d_windows[key] = wind
     return wind
+
+def get_git_hash():
+    """
+    Get git hash during execution of python script
+    @return: (str) hash code for current version of geo-deep-learning. If necessary, the code associated to this hash can be
+    found with the following url: https://github.com/<owner>/<project>/commit/<hash>, aka
+    https://github.com/NRCan/geo-deep-learning/commit/<hash>
+    """
+    command = f'git rev-parse --short HEAD'
+    subproc = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    git_hash = str(subproc.stdout, "utf-8").replace("\n", "")
+    # when code not executed from git repo, subprocess outputs return code #128. This has been tested.
+    # Reference: https://stackoverflow.com/questions/58575970/subprocess-call-with-exit-status-128
+    if subproc.returncode == 128:
+        warnings.warn(f'No git repo associated to this code.')
+        return None
+    return git_hash

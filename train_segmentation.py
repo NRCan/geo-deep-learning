@@ -23,7 +23,7 @@ from utils import augmentation as aug, CreateDataset
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, get_git_hash
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
 from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact
@@ -402,6 +402,7 @@ def main(params, config_path):
     :param params: (dict) Parameters found in the yaml config file.
     :param config_path: (str) Path to the yaml config file.
     """
+    params['global']['git_hash'] = get_git_hash()
     debug = get_key_def('debug_mode', params['global'], False)
     if debug:
         warnings.warn(f'Debug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.')
@@ -532,7 +533,7 @@ def main(params, config_path):
             # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
             torch.save({'epoch': epoch,
-                        'arch': model_name,
+                        'params': params,
                         'model': state_dict,
                         'best_loss': best_loss,
                         'optimizer': optimizer.state_dict()}, filename)

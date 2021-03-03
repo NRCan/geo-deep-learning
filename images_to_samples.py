@@ -1,6 +1,5 @@
 import argparse
 import datetime
-import os
 import numpy as np
 np.random.seed(1234)  # Set random seed for reproducibility
 import warnings
@@ -11,13 +10,12 @@ from pathlib import Path
 from tqdm import tqdm
 from collections import OrderedDict
 
-from utils.CreateDataset import create_files_and_datasets
-from utils.utils import get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample
+from utils.CreateDataset import create_files_and_datasets, SegmentationDataset
+from utils.utils import get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash
 from utils.geoutils import vector_to_raster
 from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import validate_num_classes, assert_num_bands, assert_crs_match, \
     validate_features_from_gpkg
-from rasterio.features import is_valid_geom
 
 try:
     import boto3
@@ -52,19 +50,6 @@ def mask_image(arrayA, arrayB):
     else:
         ma_array = arrayB * mask
     return ma_array
-
-
-def append_to_dataset(dataset, sample):
-    """
-    Append a new sample to a provided dataset. The dataset has to be expanded before we can add value to it.
-    :param dataset:
-    :param sample: data to append
-    :return: Index of the newly added sample.
-    """
-    old_size = dataset.shape[0]  # this function always appends samples on the first axis
-    dataset.resize(old_size + 1, axis=0)
-    dataset[old_size, ...] = sample
-    return old_size
 
 
 def validate_class_prop_dict(actual_classes_dict, config_dict):
@@ -144,10 +129,10 @@ def add_to_datasets(dataset,
         else:
             val = True
             samples_file = val_sample_file
-    append_to_dataset(samples_file["sat_img"], data)
-    append_to_dataset(samples_file["map_img"], target)
-    append_to_dataset(samples_file["sample_metadata"], repr(sample_metadata))
-    append_to_dataset(samples_file["meta_idx"], metadata_idx)
+    SegmentationDataset.append_to_dataset(samples_file["sat_img"], data)
+    SegmentationDataset.append_to_dataset(samples_file["map_img"], target)
+    SegmentationDataset.append_to_dataset(samples_file["sample_metadata"], repr(sample_metadata))
+    SegmentationDataset.append_to_dataset(samples_file["meta_idx"], metadata_idx)
 
     # adds pixel count to pixel_classes dict for each class in the image
     for key, value in enumerate(np.bincount(target.clip(min=0).flatten())):
@@ -199,7 +184,7 @@ def samples_preparation(in_img_array,
     h, w, num_bands = in_img_array.shape
     if dataset == 'trn':
         idx_samples = samples_count['trn']
-        append_to_dataset(val_sample_file["metadata"], repr(image_metadata))
+        SegmentationDataset.append_to_dataset(val_sample_file["metadata"], repr(image_metadata))
     elif dataset == 'tst':
         idx_samples = samples_count['tst']
     else:
@@ -208,7 +193,7 @@ def samples_preparation(in_img_array,
     idx_samples_v = samples_count['val']
 
     # Adds raster metadata to the dataset. All samples created by tiling below will point to that metadata by index
-    metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
+    metadata_idx = SegmentationDataset.append_to_dataset(samples_file["metadata"], repr(image_metadata))
 
     if overlap > 25:
          warnings.warn("high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
@@ -319,6 +304,7 @@ def main(params):
     -------
     :param params: (dict) Parameters found in the yaml config file.
     """
+    params['global']['git_hash'] = get_git_hash()
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     bucket_file_cache = []
 
