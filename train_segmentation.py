@@ -82,6 +82,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
                                        geom_transform=aug.compose_transforms(params, subset, type='geometric',
                                                                              ignore_index=dontcare_val),
                                        totensor_transform=aug.compose_transforms(params, subset, type='totensor'),
+                                       params=params,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 

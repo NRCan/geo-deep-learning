@@ -10,8 +10,22 @@ import models.coordconv
 from utils.utils import get_key_def
 from utils.geoutils import get_key_recursive
 
-from rasterio.crs import CRS  # don't delete these two imports!
+# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
+from rasterio.crs import CRS
 from affine import Affine
+
+
+def append_to_dataset(dataset, sample):
+    """
+    Append a new sample to a provided dataset. The dataset has to be expanded before we can add value to it.
+    :param dataset:
+    :param sample: data to append
+    :return: Index of the newly added sample.
+    """
+    old_size = dataset.shape[0]  # this function always appends samples on the first axis
+    dataset.resize(old_size + 1, axis=0)
+    dataset[old_size, ...] = sample
+    return old_size
 
 
 def create_files_and_datasets(params, samples_folder):
@@ -57,6 +71,7 @@ class SegmentationDataset(Dataset):
                  radiom_transform=None,
                  geom_transform=None,
                  totensor_transform=None,
+                 params=None,
                  debug=False):
         # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.work_folder = work_folder
@@ -83,6 +98,29 @@ class SegmentationDataset(Dataset):
                 self.metadata.append(metadata)
             if self.max_sample_count is None:
                 self.max_sample_count = hdf5_file["sat_img"].shape[0]
+            
+
+            # load yaml used to generate samples
+            hdf5_params = hdf5_file['params'][0, 0]
+            if isinstance(hdf5_params, str):
+                if "ordereddict" in hdf5_params:
+                    hdf5_params = hdf5_params.replace("ordereddict", "collections.OrderedDict")
+                if hdf5_params.startswith("collections.OrderedDict"):
+                    hdf5_params = eval(hdf5_params)
+
+                    # check match between current yaml and sample yaml for crucial parameters
+                    for section in ['global', 'sample']:
+                        for key in params[section].keys():
+                            if hdf5_params[section][key] != params[section][key]:
+                                warnings.warn(f"YAML value mismatch:  \n"
+                                              f"(Current yaml) \"{params[section][key]}\" for \"{key}\" in \""
+                                              f"{section}\" section\n"
+                                              f"(HDF5s yaml) \"{hdf5_params[section][key]}\" for \"{key}\" in \""
+                                              f"{section}\" section\n"
+                                              f"Problems may occur.")
+                else:
+                    warnings.warn(f'Could not validate parameter match between yaml contained in hdf5 files '
+                                  f'and current yaml')
 
     def __len__(self):
         return self.max_sample_count
@@ -147,19 +185,6 @@ class SegmentationDataset(Dataset):
                 f"Class ids for label before and after augmentations don't match. "
         sample['index'] = index
         return sample
-
-    @staticmethod
-    def append_to_dataset(dataset, sample):
-        """
-        Append a new sample to a provided dataset. The dataset has to be expanded before we can add value to it.
-        :param dataset:
-        :param sample: data to append
-        :return: Index of the newly added sample.
-        """
-        old_size = dataset.shape[0]  # this function always appends samples on the first axis
-        dataset.resize(old_size + 1, axis=0)
-        dataset[old_size, ...] = sample
-        return old_size
 
 
 class MetaSegmentationDataset(SegmentationDataset):
