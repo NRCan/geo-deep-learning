@@ -440,3 +440,18 @@ def get_git_hash():
         warnings.warn(f'No git repo associated to this code.')
         return None
     return git_hash
+
+
+def ordereddict_eval(str_to_eval: str):
+    """
+    Small utility to successfully evaluate an ordereddict object that was converted to str by repr() function.
+    @param str_to_eval: (str) string to prepared for import with eval()
+    """
+    # Replaces "ordereddict" string to "Collections.OrderedDict"
+    if isinstance(str_to_eval, str) and "ordereddict" in str_to_eval:
+            str_to_eval = str_to_eval.replace("ordereddict", "collections.OrderedDict")
+            return eval(str_to_eval)
+    else:
+        warnings.warn(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
+        return str_to_eval
+

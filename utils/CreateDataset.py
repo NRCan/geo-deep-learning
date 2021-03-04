@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 import numpy as np
 
 import models.coordconv
-from utils.utils import get_key_def
+from utils.utils import get_key_def, ordereddict_eval
 from utils.geoutils import get_key_recursive
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
@@ -90,34 +90,23 @@ class SegmentationDataset(Dataset):
                 metadata = hdf5_file["metadata"][i, ...]
                 if isinstance(metadata, np.ndarray) and len(metadata) == 1:
                     metadata = metadata[0]
-                if isinstance(metadata, str):
-                    if "ordereddict" in metadata:
-                        metadata = metadata.replace("ordereddict", "collections.OrderedDict")
-                    if metadata.startswith("collections.OrderedDict"):
-                        metadata = eval(metadata)
+                    metadata = ordereddict_eval(metadata)
                 self.metadata.append(metadata)
             if self.max_sample_count is None:
                 self.max_sample_count = hdf5_file["sat_img"].shape[0]
-            
 
             # load yaml used to generate samples
             hdf5_params = hdf5_file['params'][0, 0]
-            if isinstance(hdf5_params, str):
-                if "ordereddict" in hdf5_params:
-                    hdf5_params = hdf5_params.replace("ordereddict", "collections.OrderedDict")
-                if hdf5_params.startswith("collections.OrderedDict"):
-                    hdf5_params = eval(hdf5_params)
+            hdf5_params = ordereddict_eval(hdf5_params)
 
-                    # check match between current yaml and sample yaml for crucial parameters
-                    for section in ['global', 'sample']:
-                        for key in params[section].keys():
-                            if hdf5_params[section][key] != params[section][key]:
-                                warnings.warn(f"YAML value mismatch:  \n"
-                                              f"(Current yaml) \"{params[section][key]}\" for \"{key}\" in \""
-                                              f"{section}\" section\n"
-                                              f"(HDF5s yaml) \"{hdf5_params[section][key]}\" for \"{key}\" in \""
-                                              f"{section}\" section\n"
-                                              f"Problems may occur.")
+            # check match between current yaml and sample yaml for crucial parameters
+            for sect in ['global', 'sample']:
+                for key in params[sect].keys():
+                    if hdf5_params[sect][key] != params[sect][key]:
+                        warnings.warn(f"YAML value mismatch:  \n"
+                                      f"(Current yaml) \"{params[sect][key]}\" for \"{key}\" in \" {sect}\" sect\n"
+                                      f"(HDF5s yaml) \"{hdf5_params[sect][key]}\" for \"{key}\" in {sect}\" sect\n"
+                                      f"Problems may occur.")
                 else:
                     warnings.warn(f'Could not validate parameter match between yaml contained in hdf5 files '
                                   f'and current yaml')
