@@ -29,7 +29,6 @@ def create_csv():
     data_path = params['global']['data_path']
     Path.mkdir(Path(data_path), exist_ok=True)
     num_classes = params['global']['num_classes']
-    hide_classes = get_key_def('hide_classes', params['global'], default=[], expected_type=List)
     data_prep_csv = read_csv(prep_csv_path)
 
     csv_prop_data = params['global']['data_path'] + '/prop_data.csv'
