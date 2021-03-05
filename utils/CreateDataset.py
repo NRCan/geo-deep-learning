@@ -141,18 +141,6 @@ class SegmentationDataset(Dataset):
             metadata.update(sample_metadata)
             # where bandwise array has no data values, set as np.nan
             # sat_img[sat_img == metadata['nodata']] = np.nan # TODO: problem with lack of dynamic range. See: https://rasterio.readthedocs.io/en/latest/topics/masks.html
-
-        ######################  SINGLE-CLASS MODELS TEST  #######################
-
-        # Loop through classes that should be hidden (i.e. converted to background)
-        # FIXME hardcoded to keep only class 4 (buildings)
-        for lbl_class in [1, 2, 3]:  
-            # overwrite with background value (0)
-            map_img[map_img == lbl_class] = 0
-        map_img[map_img == 4] = 1
-
-
-        ######################  END  #######################
         
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
                   "hdf5_path": self.hdf5_path}
