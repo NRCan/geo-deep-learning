@@ -42,7 +42,7 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
                 lst_trans.append(RadiometricTrim(random_range=random_radiom_trim_range))
 
             if noise:
-                raise NotImplementedError
+                lst_trans.append(AddGaussianNoise(std=noise))
 
         elif type == 'geometric':
             geom_scale_range = get_key_def('geom_scale_range', params['training']['augmentation'], None)
@@ -365,3 +365,16 @@ class ToTensorTarget(object):
             map_img = np.int64(sample['map_img'])
             map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
+
+
+class AddGaussianNoise(object):
+    def __init__(self, mean=0., std=1.):
+        self.std = std
+        self.mean = mean
+
+    def __call__(self, sample):
+        sample['sat_img'] = sample['sat_img'] + np.random.randn(*sample['sat_img'].shape) * self.std + self.mean
+        return sample
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
