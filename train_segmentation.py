@@ -479,7 +479,6 @@ def main(params, config_path):
     trn_log = InformationLogger('trn')
     val_log = InformationLogger('val')
     tst_log = InformationLogger('tst')
-
     filename = output_path.joinpath('checkpoint.pth.tar')
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
