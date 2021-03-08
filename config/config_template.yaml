@@ -106,7 +106,7 @@ training:
     #   both left and right sides of the raster's histogram.
     random_radiom_trim_range: [0.1, 2.0]
     brightness_contrast_range: # Not yet implemented
-    noise:  # Standard deviation of Gaussian Noise, or None to ignore noise augmentation
+    noise:  # Standard deviation of Gaussian Noise (optional)
 
 
 # Inference parameters; used in inference.py --------
