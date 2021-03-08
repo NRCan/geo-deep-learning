@@ -1,17 +1,32 @@
 import collections
 import os
 import warnings
+from typing import List
 
 import h5py
 from torch.utils.data import Dataset
 import numpy as np
 
 import models.coordconv
-from utils.utils import get_key_def
+from utils.utils import get_key_def, ordereddict_eval
 from utils.geoutils import get_key_recursive
 
-from rasterio.crs import CRS  # don't delete these two imports!
+# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
+from rasterio.crs import CRS
 from affine import Affine
+
+
+def append_to_dataset(dataset, sample):
+    """
+    Append a new sample to a provided dataset. The dataset has to be expanded before we can add value to it.
+    :param dataset:
+    :param sample: data to append
+    :return: Index of the newly added sample.
+    """
+    old_size = dataset.shape[0]  # this function always appends samples on the first axis
+    dataset.resize(old_size + 1, axis=0)
+    dataset[old_size, ...] = sample
+    return old_size
 
 
 def create_files_and_datasets(params, samples_folder):
@@ -37,6 +52,8 @@ def create_files_and_datasets(params, samples_folder):
         try:
             hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+            hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+            append_to_dataset(hdf5_file["params"], repr(params))
         except AttributeError as e:
             warnings.warn(f'{e}. Update h5py to version 2.10 or higher')
             raise
@@ -55,6 +72,7 @@ class SegmentationDataset(Dataset):
                  radiom_transform=None,
                  geom_transform=None,
                  totensor_transform=None,
+                 params=None,
                  debug=False):
         # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.work_folder = work_folder
@@ -73,14 +91,17 @@ class SegmentationDataset(Dataset):
                 metadata = hdf5_file["metadata"][i, ...]
                 if isinstance(metadata, np.ndarray) and len(metadata) == 1:
                     metadata = metadata[0]
-                if isinstance(metadata, str):
-                    if "ordereddict" in metadata:
-                        metadata = metadata.replace("ordereddict", "collections.OrderedDict")
-                    if metadata.startswith("collections.OrderedDict"):
-                        metadata = eval(metadata)
+                    metadata = ordereddict_eval(metadata)
                 self.metadata.append(metadata)
             if self.max_sample_count is None:
                 self.max_sample_count = hdf5_file["sat_img"].shape[0]
+
+            # load yaml used to generate samples
+            hdf5_params = hdf5_file['params'][0, 0]
+            hdf5_params = ordereddict_eval(hdf5_params)
+
+            # check match between current yaml and sample yaml for crucial parameters
+            yaml_mismatch_keys = self.compare_config_yamls(hdf5_params, params)
 
     def __len__(self):
         return self.max_sample_count
@@ -112,6 +133,7 @@ class SegmentationDataset(Dataset):
             metadata.update(sample_metadata)
             # where bandwise array has no data values, set as np.nan
             # sat_img[sat_img == metadata['nodata']] = np.nan # TODO: problem with lack of dynamic range. See: https://rasterio.readthedocs.io/en/latest/topics/masks.html
+        
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
                   "hdf5_path": self.hdf5_path}
 
@@ -132,6 +154,30 @@ class SegmentationDataset(Dataset):
                 f"Class ids for label before and after augmentations don't match. "
         sample['index'] = index
         return sample
+
+    @staticmethod
+    def compare_config_yamls(yaml1: dict, yaml2: dict) -> List:
+        """
+        Checks if values for same keys or subkeys (max depth of 2) of two dictionaries match.
+        @param yaml1: (dict) first dict to evaluate
+        @param yaml2: (dict) second dict to evaluate
+        @return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
+        """
+        for section, params in yaml1.items():  # loop through main sections of config yaml ('global', 'sample', etc.)
+            for param, val in params.items():  # loop through parameters of each section
+                val2 = yaml2[section][param]
+                if isinstance(val, dict):  # if value is a dict, loop again to fetch end val (only recursive twice)
+                    for subparam, subval in val.items():
+                        # if value doesn't match between yamls, emit warning
+                        subval2 = yaml2[section][param][subparam]
+                        if subval != subval2:
+                            warnings.warn(f"YAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
+                                          f"Current yaml value: \"{subval2}\"\nHDF5s yaml value: \"{subval}\"\n"
+                                          f"Problems may occur.")
+                elif val != val2:
+                    warnings.warn(f"YAML value mismatch: section \"{section}\", key \"{param}\"\n"
+                                  f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val}\"\n"
+                                  f"Problems may occur.")
 
 
 class MetaSegmentationDataset(SegmentationDataset):
