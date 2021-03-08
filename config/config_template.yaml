@@ -36,7 +36,6 @@ global:
   debug_mode: True
   coordconv_convert: False
   coordvonc_scale:
-  gdl_git_reference: https://github.com/NRCan/geo-deep-learning/tree/v.1.2.0  # git tag or commit hash of the version of gdl used
 
 
 # Data analysis parameters; used in data_analysis.py ------------------
@@ -68,8 +67,8 @@ training:
   num_trn_samples:
   num_val_samples:
   num_tst_samples:
-  batch_size: 4
-  num_epochs: 50
+  batch_size: 2
+  num_epochs: 1
   target_size: 256
   # See losses/README.md for all Loss function available.
   loss_fn: Lovasz

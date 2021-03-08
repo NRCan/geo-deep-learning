@@ -5,6 +5,8 @@ np.random.seed(1234)  # Set random seed for reproducibility
 import warnings
 import rasterio
 import time
+import shutil
+import uuid
 
 from pathlib import Path
 from tqdm import tqdm
@@ -347,7 +349,11 @@ def main(params):
         samples_folder = data_path.joinpath(sample_path_name)
 
     if samples_folder.is_dir():
-        raise FileExistsError(f'Data path exists: {samples_folder}. Remove it or use a different run_name.')
+        if debug:
+            # Move existing data folder with a random suffix.
+            shutil.move(samples_folder, f'{str(samples_folder)}_{uuid.uuid4().hex[0:6]}')
+        else:
+            raise FileExistsError(f'Data path exists: {samples_folder}. Remove it or use a different run_name.')
     else:
         tqdm.write(f'Writing samples to {samples_folder}')
     Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
