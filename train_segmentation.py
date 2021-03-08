@@ -480,7 +480,7 @@ def main(params, config_path):
     val_log = InformationLogger('val')
     tst_log = InformationLogger('tst')
 
-    filename = output_path.joinpath(f'checkpoint_{params["global"]["git_hash"][0:8]}.pth.tar')
+    filename = output_path.joinpath('checkpoint.pth.tar')
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
@@ -549,8 +549,7 @@ def main(params, config_path):
             if epoch == 0:
                 log_artifact(filename)
             if bucket_name:
-                bucket_filename = bucket_output_path.joinpath(
-                    f'checkpoint_{params["global"]["git_hash"][0:8]}.pth.tar')
+                bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
 
             # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
@@ -597,7 +596,7 @@ def main(params, config_path):
         tst_log.add_values(tst_report, params['training']['num_epochs'])
 
         if bucket_name:
-            bucket_filename = bucket_output_path.joinpath(f'last_epoch_{params["global"]["git_hash"][0:8]}.pth.tar')
+            bucket_filename = bucket_output_path.joinpath('last_epoch.pth.tar')
             bucket.upload_file("output.txt", bucket_output_path.joinpath(f"Logs/{now}_output.txt"))
             bucket.upload_file(filename, bucket_filename)
 
