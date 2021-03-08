@@ -368,6 +368,7 @@ class ToTensorTarget(object):
 
 
 class AddGaussianNoise(object):
+    """Add Gaussian noise to data."""
     def __init__(self, mean=0., std=1.):
         self.std = std
         self.mean = mean
