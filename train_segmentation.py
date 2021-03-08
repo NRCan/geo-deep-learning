@@ -19,7 +19,7 @@ except ModuleNotFoundError:
 from torch.utils.data import DataLoader
 from PIL import Image
 from sklearn.utils import compute_sample_weight
-from utils import augmentation as aug, CreateDataset
+from utils import augmentation as aug, create_dataset
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint
@@ -68,9 +68,9 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     meta_map = get_key_def("meta_map", params["global"], {})
     num_bands = get_key_def("number_of_bands", params["global"], {})
     if not meta_map:
-        dataset_constr = CreateDataset.SegmentationDataset
+        dataset_constr = create_dataset.SegmentationDataset
     else:
-        dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
+        dataset_constr = functools.partial(create_dataset.MetaSegmentationDataset, meta_map=meta_map)
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
@@ -599,8 +599,7 @@ def main(params, config_path):
 if __name__ == '__main__':
     print(f'Start\n')
     parser = argparse.ArgumentParser(description='Training execution')
-    parser.add_argument('param_file', metavar='DIR',
-                        help='Path to training parameters stored in yaml')
+    parser.add_argument('param_file', help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     config_path = Path(args.param_file)
     params = read_parameters(args.param_file)

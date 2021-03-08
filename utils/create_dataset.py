@@ -1,6 +1,7 @@
 import collections
 import os
 import warnings
+from typing import List
 
 import h5py
 from torch.utils.data import Dataset
@@ -52,7 +53,7 @@ def create_files_and_datasets(params, samples_folder):
             hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            SegmentationDataset.append_to_dataset(hdf5_file["params"], repr(params))
+            append_to_dataset(hdf5_file["params"], repr(params))
         except AttributeError as e:
             warnings.warn(f'{e}. Update h5py to version 2.10 or higher')
             raise
@@ -100,16 +101,7 @@ class SegmentationDataset(Dataset):
             hdf5_params = ordereddict_eval(hdf5_params)
 
             # check match between current yaml and sample yaml for crucial parameters
-            for sect in ['global', 'sample']:
-                for key in params[sect].keys():
-                    if hdf5_params[sect][key] != params[sect][key]:
-                        warnings.warn(f"YAML value mismatch:  \n"
-                                      f"(Current yaml) \"{params[sect][key]}\" for \"{key}\" in \" {sect}\" sect\n"
-                                      f"(HDF5s yaml) \"{hdf5_params[sect][key]}\" for \"{key}\" in {sect}\" sect\n"
-                                      f"Problems may occur.")
-                else:
-                    warnings.warn(f'Could not validate parameter match between yaml contained in hdf5 files '
-                                  f'and current yaml')
+            yaml_mismatch_keys = self.compare_config_yamls(hdf5_params, params)
 
     def __len__(self):
         return self.max_sample_count
@@ -162,6 +154,30 @@ class SegmentationDataset(Dataset):
                 f"Class ids for label before and after augmentations don't match. "
         sample['index'] = index
         return sample
+
+    @staticmethod
+    def compare_config_yamls(yaml1: dict, yaml2: dict) -> List:
+        """
+        Checks if values for same keys or subkeys (max depth of 2) of two dictionaries match.
+        @param yaml1: (dict) first dict to evaluate
+        @param yaml2: (dict) second dict to evaluate
+        @return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
+        """
+        for section, params in yaml1.items():  # loop through main sections of config yaml ('global', 'sample', etc.)
+            for param, val in params.items():  # loop through parameters of each section
+                val2 = yaml2[section][param]
+                if isinstance(val, dict):  # if value is a dict, loop again to fetch end val (only recursive twice)
+                    for subparam, subval in val.items():
+                        # if value doesn't match between yamls, emit warning
+                        subval2 = yaml2[section][param][subparam]
+                        if subval != subval2:
+                            warnings.warn(f"YAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
+                                          f"Current yaml value: \"{subval2}\"\nHDF5s yaml value: \"{subval}\"\n"
+                                          f"Problems may occur.")
+                elif val != val2:
+                    warnings.warn(f"YAML value mismatch: section \"{section}\", key \"{param}\"\n"
+                                  f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val}\"\n"
+                                  f"Problems may occur.")
 
 
 class MetaSegmentationDataset(SegmentationDataset):

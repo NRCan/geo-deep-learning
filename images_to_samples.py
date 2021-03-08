@@ -10,7 +10,7 @@ from pathlib import Path
 from tqdm import tqdm
 from collections import OrderedDict
 
-from utils.CreateDataset import create_files_and_datasets, append_to_dataset
+from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.utils import get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash
 from utils.geoutils import vector_to_raster
 from utils.readers import read_parameters, image_reader_as_array
