@@ -20,12 +20,10 @@ from utils.metrics import ComputePixelMetrics
 from models.model_choice import net
 from utils import augmentation
 from utils.geoutils import vector_to_raster
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, \
+from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
 list_input_images, pad, pad_diff, ind2rgb, add_metadata_from_raster_to_sample, _window_2D
 from utils.readers import read_parameters, image_reader_as_array
-from utils.CreateDataset import MetaSegmentationDataset
 from utils.verifications import add_background_to_num_class
-from utils.visualization import vis, vis_from_batch
 from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
 
 try:
@@ -309,7 +307,7 @@ def main(params: dict):
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
             for info in _tqdm:
                 img_name = Path(info['tif']).name
-                local_gpkg = info['gpkg']
+                local_gpkg = info['gpkg'] if 'gpkg' in info.keys() else None
                 if local_gpkg:
                     local_gpkg = Path(local_gpkg)
                 if bucket:

@@ -6,7 +6,7 @@ import rasterio
 from rasterio.features import is_valid_geom
 from tqdm import tqdm
 
-from utils.CreateDataset import MetaSegmentationDataset
+from utils.create_dataset import MetaSegmentationDataset
 from utils.geoutils import lst_ids, get_key_recursive
 
 

@@ -19,11 +19,11 @@ except ModuleNotFoundError:
 from torch.utils.data import DataLoader
 from PIL import Image
 from sklearn.utils import compute_sample_weight
-from utils import augmentation as aug, CreateDataset
+from utils import augmentation as aug, create_dataset
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, get_git_hash
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
 from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact
@@ -68,9 +68,9 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     meta_map = get_key_def("meta_map", params["global"], {})
     num_bands = get_key_def("number_of_bands", params["global"], {})
     if not meta_map:
-        dataset_constr = CreateDataset.SegmentationDataset
+        dataset_constr = create_dataset.SegmentationDataset
     else:
-        dataset_constr = functools.partial(CreateDataset.MetaSegmentationDataset, meta_map=meta_map)
+        dataset_constr = functools.partial(create_dataset.MetaSegmentationDataset, meta_map=meta_map)
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
@@ -82,6 +82,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
                                        geom_transform=aug.compose_transforms(params, subset, type='geometric',
                                                                              ignore_index=dontcare_val),
                                        totensor_transform=aug.compose_transforms(params, subset, type='totensor'),
+                                       params=params,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
@@ -402,6 +403,7 @@ def main(params, config_path):
     :param params: (dict) Parameters found in the yaml config file.
     :param config_path: (str) Path to the yaml config file.
     """
+    params['global']['git_hash'] = get_git_hash()
     debug = get_key_def('debug_mode', params['global'], False)
     if debug:
         warnings.warn(f'Debug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.')
@@ -532,7 +534,7 @@ def main(params, config_path):
             # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
             torch.save({'epoch': epoch,
-                        'arch': model_name,
+                        'params': params,
                         'model': state_dict,
                         'best_loss': best_loss,
                         'optimizer': optimizer.state_dict()}, filename)
@@ -597,8 +599,7 @@ def main(params, config_path):
 if __name__ == '__main__':
     print(f'Start\n')
     parser = argparse.ArgumentParser(description='Training execution')
-    parser.add_argument('param_file', metavar='DIR',
-                        help='Path to training parameters stored in yaml')
+    parser.add_argument('param_file', help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     config_path = Path(args.param_file)
     params = read_parameters(args.param_file)

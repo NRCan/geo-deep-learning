@@ -1,6 +1,5 @@
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
-import os
 import argparse
 from pathlib import Path
 import csv
@@ -8,13 +7,10 @@ import time
 import h5py
 import datetime
 import warnings
-import functools
 
 from tqdm import tqdm
 from collections import OrderedDict
 import shutil
-import numpy as np
-
 
 try:
     from pynvml import *
@@ -28,7 +24,6 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from PIL import Image
 
-from utils import augmentation as aug, CreateDataset
 from utils.optimizer import create_optimizer
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict
@@ -36,7 +31,6 @@ from models.model_choice import net, load_checkpoint
 from losses import MultiClassCriterion
 from utils.utils import load_from_checkpoint, list_s3_subfolders, get_device_ids, gpu_stats, \
     get_key_def
-from utils.visualization import vis, vis_from_batch
 from utils.readers import read_parameters
 
 try:
