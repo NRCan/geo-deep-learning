@@ -21,10 +21,10 @@ before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
   - unzip ./data/classification_data.zip -d ./data
 script:
-  - python images_to_samples.py ./conf/travis_CI/config_ci_segmentation_local.yaml
-  - python train_segmentation.py ./conf/travis_CI/config_ci_segmentation_local.yaml
-  - python inference.py ./conf/travis_CI/config_ci_segmentation_local.yaml
-  - python train_classification.py ./conf/travis_CI/config_ci_classification_local.yaml
-  - python inference.py ./conf/travis_CI/config_ci_classification_local.yaml
+  - python images_to_samples.py ./config/travis_CI/config_ci_segmentation_local.yaml
+  - python train_segmentation.py ./config/travis_CI/config_ci_segmentation_local.yaml
+  - python inference.py ./config/travis_CI/config_ci_segmentation_local.yaml
+  - python train_classification.py ./config/travis_CI/config_ci_classification_local.yaml
+  - python inference.py ./config/travis_CI/config_ci_classification_local.yaml
   # FIXME: run with data_analysis module. Other features such as those from v.1.1.0 could also be tested here. To be discussed.
   
