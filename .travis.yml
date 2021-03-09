@@ -18,8 +18,7 @@ install:
   - conda install pillow=6.2.1 ruamel_yaml h5py>=2.10 scikit-image scikit-learn rasterio tqdm geopandas
   - conda install fiona
   - conda install mlflow -c conda-forge
-  - pip install segmentation-models-pytorch==0.1.2
-  - pip install ttach==0.0.3
+  - pip install git+https://github.com/qubvel/segmentation_models.pytorch==0.1.2
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
   - unzip ./data/classification_data.zip -d ./data
