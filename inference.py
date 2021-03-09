@@ -82,6 +82,25 @@ def segmentation(img_array, input_image, label_arr, num_classes, gpkg_name, mode
                 sample = totensor_transform(sample)
                 inputs = sample['sat_img'].unsqueeze_(0)
                 inputs = inputs.to(device)
+                if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
+                    ############################
+                    # Test Implementation of the NIR
+                    ############################
+                    # Init NIR   TODO: make a proper way to read the NIR channel
+                    #                  and put an option to be able to give the idex of the NIR channel
+                    # Extract the NIR channel -> [batch size, H, W] since it's only one channel
+                    inputs_NIR = inputs[:, -1, ...]
+                    # add a channel to get the good size -> [:, 1, :, :]
+                    inputs_NIR.unsqueeze_(1)
+                    # take out the NIR channel and take only the RGB for the inputs
+                    inputs = inputs[:, :-1, ...]
+                    # Suggestion of implementation
+                    # inputs_NIR = data['NIR'].to(device)
+                    inputs = [inputs, inputs_NIR]
+                    # outputs = model(inputs, inputs_NIR)
+                    ############################
+                    # End of the test implementation module
+                    ############################
                 output_lst = []
                 for transformer in transforms:
                     # augment inputs
@@ -131,6 +150,7 @@ def segmentation(img_array, input_image, label_arr, num_classes, gpkg_name, mode
         gdf = gpd.GeoDataFrame(feature, crs=input_image.crs)
         gdf.to_crs(crs="EPSG:4326", inplace=True)
     return pred_img, gdf
+
 
 def classifier(params, img_list, model, device, working_folder):
     """
@@ -267,12 +287,8 @@ def main(params: dict):
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
             for info in _tqdm:
                 img_name = Path(info['tif']).name
-                local_gpkg = info['gpkg'] if 'gpkg' in info.keys() else None
-                if local_gpkg:
-                    local_gpkg = Path(local_gpkg)
-                    gpkg_name = Path(local_gpkg).stem
-                else:
-                    gpkg_name = None
+                local_gpkg = Path(info['gpkg']) if 'gpkg' in info.keys() else None
+                gpkg_name = local_gpkg.stem if local_gpkg else None
                 if bucket:
                     local_img = f"Images/{img_name}"
                     bucket.download_file(info['tif'], local_img)
@@ -347,10 +363,12 @@ if __name__ == '__main__':
         image = args.input[1]
 
         checkpoint = load_checkpoint(model)
-        params = checkpoint['params']
-
-        params['inference']['state_dict_path'] = args.input[0]
-        params['inference']['img_dir_or_csv_file'] = args.input[1]
+        if 'params' not in checkpoint.keys():
+            raise KeyError('No parameters found in checkpoint. Use GDL version 1.3 or more.')
+        else:
+            params = checkpoint['params']
+            params['inference']['state_dict_path'] = args.input[0]
+            params['inference']['img_dir_or_csv_file'] = args.input[1]
 
         del checkpoint
     else:
