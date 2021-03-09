@@ -115,9 +115,6 @@ class ComputePixelMetrics():
         for i in range(self.num_classes):
             c_label = self.label == i
             c_pred = self.pred == i
-            # if c_label.sum() == 0 and c_pred.sum() == 0:
-            #     classes.append(np.nan)
-            # else:
             m = metric_func(c_label, c_pred)
             classes.append(m)
             metric[metric_func.__name__ + '_' + str(i)] = classes[i]
