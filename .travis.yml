@@ -12,19 +12,22 @@ install:
   - conda config --prepend channels pytorch
   - conda update -q conda
   - conda info -a
-  - conda create -n ci_env python=3.7 pytorch-cpu torchvision-cpu pillow=6.2.1 torchvision ruamel_yaml h5py>=2.10 scikit-image scikit-learn rasterio tqdm matplotlib geopandas
+  - conda create -n ci_env python=3.7
   - source activate ci_env
+  - conda install pytorch==1.4.0 torchvision==0.5.0 cpuonly -c pytorch
+  - conda install pillow=6.2.1 ruamel_yaml h5py>=2.10 scikit-image scikit-learn rasterio tqdm geopandas
   - conda install fiona
   - conda install mlflow -c conda-forge
-  - pip install git+https://github.com/qubvel/segmentation_models.pytorch
+  - pip install segmentation-models-pytorch==0.1.2
+  - pip install ttach==0.0.3
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
   - unzip ./data/classification_data.zip -d ./data
 script:
-  - python images_to_samples.py ./conf/travis_CI/config_ci_segmentation_local.yaml
-  - python train_segmentation.py ./conf/travis_CI/config_ci_segmentation_local.yaml
-  - python inference.py ./conf/travis_CI/config_ci_segmentation_local.yaml
-  - python train_classification.py ./conf/travis_CI/config_ci_classification_local.yaml
-  - python inference.py ./conf/travis_CI/config_ci_classification_local.yaml
+  - python images_to_samples.py ./config/travis_CI/config_ci_segmentation_local.yaml
+  - python train_segmentation.py ./config/travis_CI/config_ci_segmentation_local.yaml
+  - python inference.py ./config/travis_CI/config_ci_segmentation_local.yaml
+  - python train_classification.py ./config/travis_CI/config_ci_classification_local.yaml
+  - python inference.py ./config/travis_CI/config_ci_classification_local.yaml
   # FIXME: run with data_analysis module. Other features such as those from v.1.1.0 could also be tested here. To be discussed.
   

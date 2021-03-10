@@ -424,8 +424,7 @@ def main(params, config_path):
     samples_folder = data_path.joinpath(samples_folder_name)
     batch_size = params['training']['batch_size']
     num_devices = params['global']['num_gpus']
-    # assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
-    # # list of GPU devices that are available and unused. If no GPUs, returns empty list
+    # list of GPU devices that are available and unused. If no GPUs, returns empty list
     lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')

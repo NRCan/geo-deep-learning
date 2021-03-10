@@ -1,6 +1,7 @@
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
+import os
 from pathlib import Path
 import csv
 import time
@@ -196,44 +197,6 @@ def get_num_samples(samples_path, params):
     return num_samples
 
 
-def set_hyperparameters(params, num_classes, model, checkpoint):
-    """
-    Function to set hyperparameters based on values provided in yaml config file.
-    Will also set model to GPU, if available.
-    If none provided, default functions values may be used.
-    :param params: (dict) Parameters found in the yaml config file
-    :param num_classes: (int) number of classes for current task
-    :param model: Model loaded from model_choice.py
-    :param checkpoint: (dict) state dict as loaded by model_choice.py
-    :return: model, criterion, optimizer, lr_scheduler, num_gpus
-    """
-    # set mandatory hyperparameters values with those in config file if they exist
-    lr = get_key_def('learning_rate', params['training'], None, "missing mandatory learning rate parameter")
-    weight_decay = get_key_def('weight_decay', params['training'], None, "missing mandatory weight decay parameter")
-    step_size = get_key_def('step_size', params['training'], None, "missing mandatory step size parameter")
-    gamma = get_key_def('gamma', params['training'], None, "missing mandatory gamma parameter")
-
-    # optional hyperparameters. Set to None if not in config file
-    class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
-    if params['training']['class_weights']:
-        verify_weights(num_classes, class_weights)
-    ignore_index = get_key_def('ignore_index', params['training'], -1)
-
-    # Loss function
-    criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'], ignore_index=ignore_index, weight=class_weights)
-
-    # Optimizer
-    opt_fn = params['training']['optimizer']
-    optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
-
-    if checkpoint:
-        tqdm.write(f'Loading checkpoint...')
-        model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer)
-
-    return model, criterion, optimizer, lr_scheduler
-
-
 def main(params, config_path):
     """
     Function to train and validate a models for semantic segmentation or classification.
@@ -251,9 +214,6 @@ def main(params, config_path):
     batch_size = params['training']['batch_size']
     assert task == 'classification', f"The task should be classification. The provided value is {task}"
 
-    # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    model, checkpoint, model_name = net(params, num_classes)  # pretrained could become a yaml parameter.
-    tqdm.write(f'Instantiated {model_name} model with {num_classes} output channels.\n')
     bucket_name = params['global']['bucket_name']
     data_path = params['global']['data_path']
 
@@ -286,48 +246,19 @@ def main(params, config_path):
     tst_log = InformationLogger('tst')
 
     num_devices = params['global']['num_gpus']
-    assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
     lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-    print(f"Number of cuda devices requested: {params['global']['num_gpus']}. Cuda devices available: {lst_device_ids}\n")
-    if num_devices == 1:
-        print(f"Using Cuda device {lst_device_ids[0]}\n")
-    elif num_devices > 1:
-        # TODO: why are we showing indices [1:-1] for lst_device_ids?
-        print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n")
-        try:
-            # TODO: For HPC when device 0 not available.
-            # Error: Invalid device id (in torch/cuda/__init__.py).
-
-            # DataParallel adds prefix 'module.' to state_dict keys.
-            model = nn.DataParallel(model, device_ids=lst_device_ids)
-        except AssertionError:
-            warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
-            device = torch.device('cuda:0')
-            lst_device_ids = range(len(lst_device_ids))
-            model = nn.DataParallel(model,
-                                    device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-
-    else:
-        warnings.warn(f"No Cuda device available. This process will only run on CPU\n")
 
     tqdm.write(f'Creating dataloaders from data in {Path(data_path)}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_classif_dataloader(data_path=data_path,
                                                                                batch_size=batch_size,
                                                                                num_devices=num_devices,)
 
-    tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
-    model, criterion, optimizer, lr_scheduler = set_hyperparameters(params, num_classes, model, checkpoint)
-
-    criterion = criterion.to(device)
-    try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
-        model.to(device)
-    except RuntimeError:
-        warnings.warn(f"Unable to use device. Trying device 0...\n")
-        device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-        model.to(device)
+    # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
+    model, model_name, criterion, optimizer, lr_scheduler = net(params, num_classes)  # pretrained could become a yaml parameter.
+    tqdm.write(f'Instantiated {model_name} model with {num_classes} output channels.\n')
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
