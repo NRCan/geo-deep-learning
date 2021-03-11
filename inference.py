@@ -347,7 +347,7 @@ def main(params: dict):
 
 if __name__ == '__main__':
     print('\n\nStart:\n\n')
-    parser = argparse.ArgumentParser(usage="%(prog)s [-h] [YAML] [-i MODEL IMAGE] ",
+    parser = argparse.ArgumentParser(usage="%(prog)s [-h] [-p YAML] [-i MODEL IMAGE] ",
                                      description='Inference and Benchmark on images using trained model')
 
     parser.add_argument('-p', '--param', metavar='yaml_file', nargs=1,
@@ -357,7 +357,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.param:
-        params = read_parameters(args.param_file)
+        params = read_parameters(args.param[0])
     elif args.input:
         model = Path(args.input[0])
         image = args.input[1]

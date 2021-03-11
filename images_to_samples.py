@@ -236,7 +236,7 @@ def samples_preparation(in_img_array,
                 if target_row < sample_size or target_col < sample_size:
                     padding = pad_diff(target_row, target_col, sample_size,
                                        sample_size)  # array, actual height, actual width, desired size
-                    target = pad(target, padding, fill=0)
+                    target = pad(target, padding, fill=dontcare)
                 u, count = np.unique(target, return_counts=True)
                 target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
 
