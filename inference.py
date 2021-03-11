@@ -336,7 +336,7 @@ def main(params: dict):
                         dest.write(pred)
         if len(gdf_) >= 1:
             assert len(gdf_) == len(gpkg_name_), 'benchmarking unable to complete'
-            all_gdf = pd.concat(gdf_)
+            all_gdf = pd.concat(gdf_)  # Concatenate all geo data frame into one geo data frame
             all_gdf.reset_index(drop=True, inplace=True)
             gdf_x = gpd.GeoDataFrame(all_gdf)
             gdf_x.to_file(working_folder.joinpath("benchmark.gpkg"), driver="GPKG", index=False)
