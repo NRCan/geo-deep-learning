@@ -299,7 +299,7 @@ training:
 
   - **`brightness_contrast_range` :** # Not yet implemented
 
-  - **`noise` :** # Not yet implemented
+  - **`noise` :** # Standard deviation of Gaussian Noise (optional)
 
 
 #### Running [train_segmentation.py](../train_segmentation.py)
