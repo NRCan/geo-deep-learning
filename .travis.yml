@@ -15,7 +15,8 @@ install:
   - conda create -n ci_env python=3.7
   - source activate ci_env
   - conda install pytorch==1.4.0 torchvision==0.5.0 cpuonly -c pytorch
-  - conda install pillow=6.2.1 ruamel_yaml h5py>=2.10 scikit-image scikit-learn rasterio tqdm geopandas
+  - conda install pillow=6.2.1 ruamel_yaml h5py>=2.10 scikit-image scikit-learn rasterio tqdm
+  - conda install geopandas -c conda-forge
   - conda install fiona
   - conda install mlflow -c conda-forge
   - pip install segmentation-models-pytorch==0.1.2
