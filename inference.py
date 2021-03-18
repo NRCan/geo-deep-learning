@@ -287,7 +287,7 @@ def main(params: dict):
         with tqdm(list_img, desc='image list', position=0) as _tqdm:
             for info in _tqdm:
                 img_name = Path(info['tif']).name
-                local_gpkg = Path(info['gpkg']) if 'gpkg' in info.keys() else None
+                local_gpkg = Path(info['gpkg']) if 'gpkg' in info.keys() and info['gpkg'] else None
                 gpkg_name = local_gpkg.stem if local_gpkg else None
                 if bucket:
                     local_img = f"Images/{img_name}"
