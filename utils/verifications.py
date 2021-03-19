@@ -10,6 +10,9 @@ from tqdm import tqdm
 from utils.create_dataset import MetaSegmentationDataset
 from utils.geoutils import lst_ids, get_key_recursive
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attribute_name: str, ignore_index: int):
     """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
@@ -31,7 +34,7 @@ def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attrib
     detected_classes = len(distinct_att) - len([ignore_index]) if ignore_index in distinct_att else len(distinct_att)
 
     if detected_classes != num_classes:
-        warnings.warn('The number of classes in the yaml.config {} is different than the number of classes in '
+        logging.warning('The number of classes in the yaml.config {} is different than the number of classes in '
                          'the file {} {}'.format(num_classes, vector_file, str(list(distinct_att))))
 
     return distinct_att
