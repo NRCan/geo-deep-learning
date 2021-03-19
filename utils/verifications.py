@@ -3,6 +3,7 @@ from typing import Union
 
 import fiona
 import rasterio
+import warnings
 from rasterio.features import is_valid_geom
 from tqdm import tqdm
 
@@ -30,7 +31,7 @@ def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attrib
     detected_classes = len(distinct_att) - len([ignore_index]) if ignore_index in distinct_att else len(distinct_att)
 
     if detected_classes != num_classes:
-        raise ValueError('The number of classes in the yaml.config {} is different than the number of classes in '
+        warnings.warn('The number of classes in the yaml.config {} is different than the number of classes in '
                          'the file {} {}'.format(num_classes, vector_file, str(list(distinct_att))))
 
     return distinct_att

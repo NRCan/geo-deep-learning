@@ -121,13 +121,13 @@ def add_to_datasets(dataset,
                     metadata_idx,
                     dict_classes):
     """ Add sample to Hdf5 (trn, val or tst) and computes pixel classes(%). """
-    val = False
+    to_val_set = False
     if dataset == 'trn':
         random_val = np.random.randint(1, 100)
         if random_val > val_percent:
             pass
         else:
-            val = True
+            to_val_set = True
             samples_file = val_sample_file
     append_to_dataset(samples_file["sat_img"], data)
     append_to_dataset(samples_file["map_img"], target)
@@ -135,14 +135,15 @@ def add_to_datasets(dataset,
     append_to_dataset(samples_file["meta_idx"], metadata_idx)
 
     # adds pixel count to pixel_classes dict for each class in the image
-    for key, value in enumerate(np.bincount(target.clip(min=0).flatten())):
-        cls_keys = dict_classes.keys()
-        if key in cls_keys:
-            dict_classes[key] += value
-        elif key not in cls_keys and value > 0:
-            raise ValueError(f"A class value was written ({key}) that was not defined in the classes ({cls_keys}).")
+    class_vals, counts = np.unique(target, return_counts=True)
+    for i in range(len(class_vals)):
+        class_val = class_vals[i]
+        count = counts[i]
+        dict_classes[class_val] += count
+        if i not in dict_classes.keys():
+            raise ValueError(f'Sample contains value "{class_val}" not defined in the classes ({dict_classes.keys()}).')
 
-    return val
+    return to_val_set
 
 
 def samples_preparation(in_img_array,
@@ -156,8 +157,8 @@ def samples_preparation(in_img_array,
                         val_sample_file,
                         dataset,
                         pixel_classes,
+                        dontcare,
                         image_metadata=None,
-                        dontcare=0,
                         min_annot_perc=None,
                         class_prop=None):
     """
@@ -220,8 +221,9 @@ def samples_preparation(in_img_array,
                 if target_row < sample_size or target_col < sample_size:
                     padding = pad_diff(target_row, target_col, sample_size)  # array, actual height, actual width, desired size
                     target = pad(target, padding, fill=dontcare)
-                u, count = np.unique(target, return_counts=True)
-                target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
+                backgr_ct = np.sum(target == 0)
+                backgr_ct += np.sum(target == dontcare)
+                target_background_percent = round(backgr_ct / target.size * 100, 1)
 
                 sample_metadata = {'sample_indices': (row, column)}
 
@@ -245,7 +247,7 @@ def samples_preparation(in_img_array,
                 else:
                     excl_samples += 1
 
-                target_class_num = np.max(u)
+                target_class_num = np.max(target)
                 if num_classes < target_class_num:
                     num_classes = target_class_num
 
@@ -355,7 +357,15 @@ def main(params):
     tqdm.write(f'\nSuccessfully read csv file: {Path(csv_file).stem}\n'
                f'Number of rows: {len(list_data_prep)}\n'
                f'Copying first entry:\n{list_data_prep[0]}\n')
-    ignore_index = get_key_def('ignore_index', params['training'], -1)
+
+    # Set dontcare (aka ignore_index) value
+    dontcare = get_key_def("ignore_index", params["training"], -1)  # TODO: deduplicate with train_segmentation, l300
+    if dontcare == 0:
+        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
+                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
+                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
+        dontcare = -1
+
     meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
 
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
@@ -364,7 +374,7 @@ def main(params):
         assert_num_bands(info['tif'], num_bands, meta_map)
         if info['gpkg'] not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'],
-                                                ignore_index)
+                                                dontcare)
             assert_crs_match(info['tif'], info['gpkg'])
             valid_gpkg_set.add(info['gpkg'])
 
@@ -380,14 +390,6 @@ def main(params):
     class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
 
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
-
-    # Set dontcare (aka ignore_index) value
-    dontcare = get_key_def("ignore_index", params["training"], -1)  # TODO: deduplicate with train_segmentation, l300
-    if dontcare == 0:
-        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
-                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
-        params["training"]["ignore_index"] = -1
 
     # creates pixel_classes dict and keys
     pixel_classes = {key: 0 for key in gpkg_classes}
@@ -494,8 +496,8 @@ def main(params):
                                                                      val_sample_file=val_file,
                                                                      dataset=info['dataset'],
                                                                      pixel_classes=pixel_classes,
-                                                                     image_metadata=metadata,
                                                                      dontcare=dontcare,
+                                                                     image_metadata=metadata,
                                                                      min_annot_perc=min_annot_perc,
                                                                      class_prop=class_prop)
 
