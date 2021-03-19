@@ -41,11 +41,11 @@ def validate_num_classes(vector_file: Union[str, Path],
         unique_att_vals.remove(ignore_index)
 
     # FIXME: This function should read list of gpkg. Checks should be done after for loop goes through all gpkg files.
-    if not set(target_ids).issubset(unique_att_vals):
+    if target_ids and not set(target_ids).issubset(unique_att_vals):
         logging.warning(f'\nFailed scan of vector file: {vector_file}\n'
                         f'\tExpected to find all target ids {target_ids}. \n'
                         f'\tFound {unique_att_vals} for attribute "{attribute_name}"')
-    elif unique_att_vals != num_classes:
+    elif not target_ids and unique_att_vals != num_classes:
         logging.warning(f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
 
     return unique_att_vals
