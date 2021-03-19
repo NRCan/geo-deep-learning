@@ -1,5 +1,8 @@
 import argparse
 import datetime
+import logging
+from typing import List
+
 import numpy as np
 np.random.seed(1234)  # Set random seed for reproducibility
 import warnings
@@ -20,9 +23,10 @@ from utils.verifications import validate_num_classes, assert_num_bands, assert_c
 try:
     import boto3
 except ModuleNotFoundError:
-    warnings.warn("The boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
+    logging.warning("The boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
     pass
 
+logging.getLogger(__name__)
 
 def mask_image(arrayA, arrayB):
     """Function to mask values of arrayB, based on 0 values from arrayA.
@@ -65,9 +69,10 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
 
     """
     # Validation of class proportion parameters (assert types).
-    if not isinstance(config_dict, dict):
-        warnings.warn(f"Class_proportion parameter should be a dictionary. Got type {type(config_dict)}. "
-                      f"Ignore if parameter was omitted)")
+    if not config_dict:
+        return None
+    elif not isinstance(config_dict, dict):
+        logging.warning(f"Class_proportion parameter should be a dictionary. Got type {type(config_dict)}")
         return None
 
     for key, value in config_dict.items():
@@ -83,7 +88,7 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
         if int(key) in actual_classes_dict.keys():
             actual_classes_dict[int(key)] = value
         else:
-            warnings.warn(f"Class {key} not found in provided vector data.")
+            logging.warning(f"Class {key} not found in provided vector data.")
 
     return actual_classes_dict.copy()
 
@@ -197,7 +202,7 @@ def samples_preparation(in_img_array,
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
 
     if overlap > 25:
-         warnings.warn("high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
+         logging.warning("high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
     excl_samples = 0
@@ -254,10 +259,10 @@ def samples_preparation(in_img_array,
                     num_classes = target_class_num
 
                 final_dataset = 'val' if val else dataset
-                _tqdm.set_postfix(Dataset=final_dataset,
-                                  Excld_samples=excl_samples,
-                                  Added_samples=f'{added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}',
-                                  Target_annot_perc=100 - target_background_percent)
+                logging.debug(f'Dset={final_dataset}, '
+                              f'Added samps={added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}, '
+                              f'Excld samps={excl_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}, ' 
+                              f'Target annot perc={100 - target_background_percent:.1f}')
 
     assert added_samples > 0, "No sample added for current raster. Problems may occur with use of metadata"
     if dataset == 'tst':
@@ -308,6 +313,10 @@ def main(params):
     -------
     :param params: (dict) Parameters found in the yaml config file.
     """
+    import logging.config
+    log_config_path = Path('utils/logging.conf').absolute()
+    logging.config.fileConfig(log_config_path)  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
+
     params['global']['git_hash'] = get_git_hash()
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     bucket_file_cache = []
@@ -326,7 +335,7 @@ def main(params):
     num_bands = params['global']['number_of_bands']
     debug = get_key_def('debug_mode', params['global'], False)
     if debug:
-        warnings.warn(f'Debug mode activate. Execution may take longer...')
+        logging.warning(f'Debug mode activate. Execution may take longer...')
 
     final_samples_folder = None
 
@@ -349,23 +358,23 @@ def main(params):
         samples_folder = data_path.joinpath(sample_path_name)
 
     if samples_folder.is_dir():
-        warnings.warn(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')
+        logging.warning(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')
         samples_folder = Path(str(samples_folder) + '_' + now)
     else:
-        tqdm.write(f'Writing samples to {samples_folder}')
+        logging.info(f'Writing samples to {samples_folder}')
     Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
-    tqdm.write(f'Samples will be written to {samples_folder}\n\n')
+    logging.info(f'Samples will be written to {samples_folder}\n\n')
 
-    tqdm.write(f'\nSuccessfully read csv file: {Path(csv_file).stem}\n'
-               f'Number of rows: {len(list_data_prep)}\n'
-               f'Copying first entry:\n{list_data_prep[0]}\n')
+    logging.info(f'\n\tSuccessfully read csv file: {Path(csv_file).stem}\n'
+                 f'\tNumber of rows: {len(list_data_prep)}\n'
+                 f'\tCopying first entry:\n{list_data_prep[0]}\n')
 
     # Set dontcare (aka ignore_index) value
     dontcare = get_key_def("ignore_index", params["training"], -1)  # TODO: deduplicate with train_segmentation, l300
     if dontcare == 0:
-        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
-                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
+        logging.warning("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
+                        " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
+                        " will be remapped to -1 while loading the dataset, and inside the config from now on.")
         dontcare = -1
 
     meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
@@ -432,11 +441,15 @@ def main(params):
                         aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
                     # 2. Burn vector file in a raster file
+                    target_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
+                    for item in target_ids:
+                        assert isinstance(item, int), f'Target id "{item}" in target_ids is {type(item)}, expected int.'
                     np_label_raster = vector_to_raster(vector_file=info['gpkg'],
                                                        input_image=raster,
                                                        out_shape=np_input_image.shape[:2],
                                                        attribute_name=info['attribute_name'],
-                                                       fill=background_val)  # background value in rasterized vector.
+                                                       fill=background_val,
+                                                       target_ids=target_ids)  # background value in rasterized vector.
 
                     if dataset_nodata is not None:
                         # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
@@ -449,7 +462,7 @@ def main(params):
                                      "height": np_image_debug.shape[1],
                                      "width": np_image_debug.shape[2]})
                     out_tif = samples_folder / f"np_input_image_{_tqdm.n}.tif"
-                    print(f"DEBUG: writing clipped raster to {out_tif}")
+                    logging.debug(f"Writing clipped raster to {out_tif}")
                     with rasterio.open(out_tif, "w", **out_meta) as dest:
                         dest.write(np_image_debug)
 
@@ -460,7 +473,7 @@ def main(params):
                                      "width": np_label_debug.shape[2],
                                      'count': 1})
                     out_tif = samples_folder / f"np_label_rasterized_{_tqdm.n}.tif"
-                    print(f"DEBUG: writing final rasterized gpkg to {out_tif}")
+                    logging.debug(f"Writing final rasterized gpkg to {out_tif}")
                     with rasterio.open(out_tif, "w", **out_meta) as dest:
                         dest.write(np_label_debug)
 
@@ -506,8 +519,8 @@ def main(params):
                 _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
                 out_file.flush()
             except OSError as e:
-                warnings.warn(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
-                              f'{Path(info["gpkg"]).stem} (gpkg). Error: "{e}"')
+                logging.warning(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
+                                f'{Path(info["gpkg"]).stem} (gpkg). Error: "{e}"')
                 continue
 
     trn_hdf5.close()
@@ -522,17 +535,17 @@ def main(params):
     # prints the proportion of pixels of each class for the samples created
     for i in pixel_classes:
         prop = round((pixel_classes[i] / pixel_total) * 100, 1) if pixel_total > 0 else 0
-        print('Pixels from class', i, ':', prop, '%')
+        logging.info(f'Pixels from class {i}: {prop} %')
 
-    print("Number of samples created: ", number_samples)
+    logging.info("Number of samples created: ", number_samples)
 
     if bucket_name and final_samples_folder:
-        print('Transfering Samples to the bucket')
+        logging.info('Transfering Samples to the bucket')
         bucket.upload_file(samples_folder + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
         bucket.upload_file(samples_folder + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
         bucket.upload_file(samples_folder + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
 
-    print("End of process")
+    logging.info("End of process")
 
 
 if __name__ == '__main__':
@@ -542,6 +555,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     params = read_parameters(args.ParamFile)
     start_time = time.time()
-    tqdm.write(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
+    print(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
     main(params)
     print("Elapsed time:{}".format(time.time() - start_time))

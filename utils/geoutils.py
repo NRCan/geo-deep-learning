@@ -22,16 +22,16 @@ def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
     '''
     lst_vector_tuple = {}
     for vector in list_vector:
-        id = get_key_recursive(attr_name, vector) if attr_name is not None else None
-        if target_ids is None or id in target_ids:
-            if id not in lst_vector_tuple:
-                lst_vector_tuple[id] = []
+        att_val = int(get_key_recursive(attr_name, vector)) if attr_name is not None else None
+        if target_ids is None or att_val in target_ids:
+            if att_val not in lst_vector_tuple:
+                lst_vector_tuple[att_val] = []
             if merge_all:
                 # here, we assume that the id can be cast to int!
-                lst_vector_tuple[id].append((vector['geometry'], int(id) if id is not None else 0))
+                lst_vector_tuple[att_val].append((vector['geometry'], int(att_val) if att_val is not None else 0))
             else:
                 # if not merging layers, just use '1' as the value for each target
-                lst_vector_tuple[id].append((vector['geometry'], 1))
+                lst_vector_tuple[att_val].append((vector['geometry'], 1))
     return lst_vector_tuple
 
 
