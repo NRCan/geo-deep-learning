@@ -313,9 +313,6 @@ def main(params):
     -------
     :param params: (dict) Parameters found in the yaml config file.
     """
-    import logging.config
-    log_config_path = Path('utils/logging.conf').absolute()
-    logging.config.fileConfig(log_config_path)  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
 
     params['global']['git_hash'] = get_git_hash()
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -334,12 +331,18 @@ def main(params):
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
     num_bands = params['global']['number_of_bands']
     debug = get_key_def('debug_mode', params['global'], False)
-    if debug:
-        logging.warning(f'Debug mode activate. Execution may take longer...')
 
     final_samples_folder = None
 
     sample_path_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
+
+    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
+    log_config_path = Path('utils/logging.conf').absolute()
+    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'logs/{sample_path_name}.log',
+                                                         'logfilename_debug': f'logs/{sample_path_name}_debug.log'})
+
+    if debug:
+        logging.warning(f'Debug mode activate. Execution may take longer...')
 
     # AWS
     if bucket_name:
@@ -422,115 +425,116 @@ def main(params):
     pixel_classes[dontcare] = 0
 
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
-    with tqdm(list_data_prep, position=0, leave=False, desc=f'Preparing samples') as _tqdm:
-        for info in _tqdm:
-            _tqdm.set_postfix(
-                OrderedDict(tif=f'{Path(info["tif"]).stem}', sample_size=params['global']['samples_size']))
-            try:
-                if bucket_name:
-                    bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
-                    info['tif'] = "Images/" + info['tif'].split('/')[-1]
-                    if info['gpkg'] not in bucket_file_cache:
-                        bucket_file_cache.append(info['gpkg'])
-                        bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
-                    info['gpkg'] = info['gpkg'].split('/')[-1]
-                    if info['meta']:
-                        if info['meta'] not in bucket_file_cache:
-                            bucket_file_cache.append(info['meta'])
-                            bucket.download_file(info['meta'], info['meta'].split('/')[-1])
-                        info['meta'] = info['meta'].split('/')[-1]
+    logging.info(f"Preparing samples \n\tSamples_size: {samples_size} \n\tOverlap: {overlap} "
+                 f"\n\tValidation set: {val_percent} % of created training samples")
+    for info in tqdm(list_data_prep, position=0, leave=False):
+        try:
+            if bucket_name:
+                bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
+                info['tif'] = "Images/" + info['tif'].split('/')[-1]
+                if info['gpkg'] not in bucket_file_cache:
+                    bucket_file_cache.append(info['gpkg'])
+                    bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
+                info['gpkg'] = info['gpkg'].split('/')[-1]
+                if info['meta']:
+                    if info['meta'] not in bucket_file_cache:
+                        bucket_file_cache.append(info['meta'])
+                        bucket.download_file(info['meta'], info['meta'].split('/')[-1])
+                    info['meta'] = info['meta'].split('/')[-1]
 
-                with rasterio.open(info['tif'], 'r') as raster:
-                    # 1. Read the input raster image
-                    np_input_image, raster, dataset_nodata = image_reader_as_array(
-                        input_image=raster,
-                        clip_gpkg=info['gpkg'],
-                        aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
-                        aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
-                        aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
-                        aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
-                        aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
-                        aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
+            logging.info(f"\nReading as array: {info['tif']}")
+            with rasterio.open(info['tif'], 'r') as raster:
+                # 1. Read the input raster image
+                np_input_image, raster, dataset_nodata = image_reader_as_array(
+                    input_image=raster,
+                    clip_gpkg=info['gpkg'],
+                    aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
+                    aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                    aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                    aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                    aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
+                    aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
-                    # 2. Burn vector file in a raster file
-                    np_label_raster = vector_to_raster(vector_file=info['gpkg'],
-                                                       input_image=raster,
-                                                       out_shape=np_input_image.shape[:2],
-                                                       attribute_name=info['attribute_name'],
-                                                       fill=background_val,
-                                                       target_ids=targ_ids)  # background value in rasterized vector.
+                # 2. Burn vector file in a raster file
+                logging.info(f"\nRasterizing vector file (attribute: {info['attribute_name']}): {info['gpkg']}")
+                np_label_raster = vector_to_raster(vector_file=info['gpkg'],
+                                                   input_image=raster,
+                                                   out_shape=np_input_image.shape[:2],
+                                                   attribute_name=info['attribute_name'],
+                                                   fill=background_val,
+                                                   target_ids=targ_ids)  # background value in rasterized vector.
 
-                    if dataset_nodata is not None:
-                        # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
-                        np_label_raster[dataset_nodata] = dontcare
+                if dataset_nodata is not None:
+                    # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
+                    np_label_raster[dataset_nodata] = dontcare
 
-                if debug:
-                    out_meta = raster.meta.copy()
-                    np_image_debug = np_input_image.transpose(2, 0, 1).astype(out_meta['dtype'])
-                    out_meta.update({"driver": "GTiff",
-                                     "height": np_image_debug.shape[1],
-                                     "width": np_image_debug.shape[2]})
-                    out_tif = samples_folder / f"np_input_image_{_tqdm.n}.tif"
-                    logging.debug(f"Writing clipped raster to {out_tif}")
-                    with rasterio.open(out_tif, "w", **out_meta) as dest:
-                        dest.write(np_image_debug)
+            if debug:
+                out_meta = raster.meta.copy()
+                np_image_debug = np_input_image.transpose(2, 0, 1).astype(out_meta['dtype'])
+                out_meta.update({"driver": "GTiff",
+                                 "height": np_image_debug.shape[1],
+                                 "width": np_image_debug.shape[2]})
+                out_tif = samples_folder / f"{Path(info['tif']).stem}_clipped.tif"
+                logging.debug(f"Writing clipped raster to {out_tif}")
+                with rasterio.open(out_tif, "w", **out_meta) as dest:
+                    dest.write(np_image_debug)
 
-                    out_meta = raster.meta.copy()
-                    np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(out_meta['dtype'])
-                    out_meta.update({"driver": "GTiff",
-                                     "height": np_label_debug.shape[1],
-                                     "width": np_label_debug.shape[2],
-                                     'count': 1})
-                    out_tif = samples_folder / f"np_label_rasterized_{_tqdm.n}.tif"
-                    logging.debug(f"Writing final rasterized gpkg to {out_tif}")
-                    with rasterio.open(out_tif, "w", **out_meta) as dest:
-                        dest.write(np_label_debug)
+                out_meta = raster.meta.copy()
+                np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(out_meta['dtype'])
+                out_meta.update({"driver": "GTiff",
+                                 "height": np_label_debug.shape[1],
+                                 "width": np_label_debug.shape[2],
+                                 'count': 1})
+                out_tif = samples_folder / f"{Path(info['gpkg']).stem}_clipped.tif"
+                logging.debug(f"Writing final rasterized gpkg to {out_tif}")
+                with rasterio.open(out_tif, "w", **out_meta) as dest:
+                    dest.write(np_label_debug)
 
-                # Mask the zeros from input image into label raster.
-                if params['sample']['mask_reference']:
-                    np_label_raster = mask_image(np_input_image, np_label_raster)
+            # Mask the zeros from input image into label raster.
+            if params['sample']['mask_reference']:
+                np_label_raster = mask_image(np_input_image, np_label_raster)
 
-                if info['dataset'] == 'trn':
-                    out_file = trn_hdf5
-                elif info['dataset'] == 'tst':
-                    out_file = tst_hdf5
-                else:
-                    raise ValueError(f"Dataset value must be trn or tst. Provided value is {info['dataset']}")
-                val_file = val_hdf5
+            if info['dataset'] == 'trn':
+                out_file = trn_hdf5
+            elif info['dataset'] == 'tst':
+                out_file = tst_hdf5
+            else:
+                raise ValueError(f"Dataset value must be trn or tst. Provided value is {info['dataset']}")
+            val_file = val_hdf5
 
-                metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
-                                                              raster_handle=raster,
-                                                              meta_map=meta_map,
-                                                              raster_info=info)
-                # Save label's per class pixel count to image metadata
-                metadata['source_label_bincount'] = {class_num: count for class_num, count in
-                                                          enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
-                                                     if count > 0}  # TODO: add this to add_metadata_from[...] function?
+            metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
+                                                          raster_handle=raster,
+                                                          meta_map=meta_map,
+                                                          raster_info=info)
+            # Save label's per class pixel count to image metadata
+            metadata['source_label_bincount'] = {class_num: count for class_num, count in
+                                                      enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
+                                                 if count > 0}  # TODO: add this to add_metadata_from[...] function?
 
-                np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
-                # 3. Prepare samples!
-                number_samples, number_classes = samples_preparation(in_img_array=np_input_image,
-                                                                     label_array=np_label_raster,
-                                                                     sample_size=samples_size,
-                                                                     overlap=overlap,
-                                                                     samples_count=number_samples,
-                                                                     num_classes=number_classes,
-                                                                     samples_file=out_file,
-                                                                     val_percent=val_percent,
-                                                                     val_sample_file=val_file,
-                                                                     dataset=info['dataset'],
-                                                                     pixel_classes=pixel_classes,
-                                                                     dontcare=dontcare,
-                                                                     image_metadata=metadata,
-                                                                     min_annot_perc=min_annot_perc,
-                                                                     class_prop=class_prop)
+            np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
+            # 3. Prepare samples!
+            number_samples, number_classes = samples_preparation(in_img_array=np_input_image,
+                                                                 label_array=np_label_raster,
+                                                                 sample_size=samples_size,
+                                                                 overlap=overlap,
+                                                                 samples_count=number_samples,
+                                                                 num_classes=number_classes,
+                                                                 samples_file=out_file,
+                                                                 val_percent=val_percent,
+                                                                 val_sample_file=val_file,
+                                                                 dataset=info['dataset'],
+                                                                 pixel_classes=pixel_classes,
+                                                                 dontcare=dontcare,
+                                                                 image_metadata=metadata,
+                                                                 min_annot_perc=min_annot_perc,
+                                                                 class_prop=class_prop)
 
-                _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
-                out_file.flush()
-            except OSError as e:
-                logging.warning(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
-                                f'{Path(info["gpkg"]).stem} (gpkg). Error: "{e}"')
-                continue
+            logging.info(f'Number of samples={number_samples}')
+            out_file.flush()
+        except OSError as e:
+            logging.warning(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
+                            f'{Path(info["gpkg"]).stem} (gpkg). Error: "{e}"')
+            continue
 
     trn_hdf5.close()
     val_hdf5.close()
