@@ -311,6 +311,7 @@ def main(params):
     -------
     :param params: (dict) Parameters found in the yaml config file.
     """
+    start_time = time.time()
 
     params['global']['git_hash'] = get_git_hash()
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -556,7 +557,7 @@ def main(params):
         bucket.upload_file(samples_folder + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
         bucket.upload_file(samples_folder + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
 
-    logging.info("End of process")
+    logging.info(f"End of process. Elapsed time:{(time.time() - start_time)}")
 
 
 if __name__ == '__main__':
@@ -565,7 +566,5 @@ if __name__ == '__main__':
                         help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     params = read_parameters(args.ParamFile)
-    start_time = time.time()
     print(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
     main(params)
-    print("Elapsed time:{}".format(time.time() - start_time))
