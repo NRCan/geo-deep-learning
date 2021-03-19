@@ -377,13 +377,25 @@ def main(params):
 
     meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
 
+    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
+    targ_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
+    # Assert that all items in target_ids are integers
+    for item in targ_ids:
+        assert isinstance(item, int), f'Target id "{item}" in target_ids is {type(item)}, expected int.'
+    assert len(targ_ids) == num_classes, f'Yaml parameters mismatch. \n' \
+                                         f'Got target_ids {targ_ids} (sample sect) with length {len(targ_ids)}. ' \
+                                         f'Expected match with num_classes {num_classes} (global sect))'
+
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
     for info in tqdm(list_data_prep, position=0):
         assert_num_bands(info['tif'], num_bands, meta_map)
         if info['gpkg'] not in valid_gpkg_set:
-            gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'],
-                                                dontcare)
+            gpkg_classes = validate_num_classes(info['gpkg'],
+                                                num_classes,
+                                                info['attribute_name'],
+                                                dontcare,
+                                                target_ids=targ_ids)
             assert_crs_match(info['tif'], info['gpkg'])
             valid_gpkg_set.add(info['gpkg'])
 
@@ -439,15 +451,12 @@ def main(params):
                         aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
                     # 2. Burn vector file in a raster file
-                    target_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
-                    for item in target_ids:
-                        assert isinstance(item, int), f'Target id "{item}" in target_ids is {type(item)}, expected int.'
                     np_label_raster = vector_to_raster(vector_file=info['gpkg'],
                                                        input_image=raster,
                                                        out_shape=np_input_image.shape[:2],
                                                        attribute_name=info['attribute_name'],
                                                        fill=background_val,
-                                                       target_ids=target_ids)  # background value in rasterized vector.
+                                                       target_ids=targ_ids)  # background value in rasterized vector.
 
                     if dataset_nodata is not None:
                         # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)

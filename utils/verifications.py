@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Union
+from typing import Union, List
 
 import fiona
 import rasterio
@@ -14,30 +14,41 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attribute_name: str, ignore_index: int):
+def validate_num_classes(vector_file: Union[str, Path],
+                         num_classes: int,
+                         attribute_name: str,
+                         ignore_index: int,
+                         target_ids: List):
     """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
     FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
     Args:
-        vector_file: full file path of the vector image
-        num_classes: number of classes set in config_template.yaml
-        attribute_name: name of the value field representing the required classes in the vector image file
-        ignore_index: (int) target value that is ignored during training and does not contribute to the input gradient
+        @param vector_file: full file path of the vector image
+        @param num_classes: number of classes set in config_template.yaml
+        @param attribute_name: name of the value field representing the required classes in the vector image file
+        @param ignore_index: (int) target value that is ignored during training and does not contribute to
+                             the input gradient
+        @param target_ids: list of identifiers to burn from the vector file (None = use all)
     Return:
         List of unique attribute values found in gpkg vector file
     """
-    distinct_att = set()
+    unique_att_vals = set()
     with fiona.open(vector_file, 'r') as src:
         for feature in tqdm(src, leave=False, position=1, desc=f'Scanning features'):
             # Use property of set to store unique values
-            distinct_att.add(get_key_recursive(attribute_name, feature))
+            unique_att_vals.add(int(get_key_recursive(attribute_name, feature)))
 
-    detected_classes = len(distinct_att) - len([ignore_index]) if ignore_index in distinct_att else len(distinct_att)
+    if ignore_index in unique_att_vals:
+        unique_att_vals.remove(ignore_index)
 
-    if detected_classes != num_classes:
-        logging.warning('The number of classes in the yaml.config {} is different than the number of classes in '
-                         'the file {} {}'.format(num_classes, vector_file, str(list(distinct_att))))
+    # FIXME: This function should read list of gpkg. Checks should be done after for loop goes through all gpkg files.
+    if not set(target_ids).issubset(unique_att_vals):
+        logging.warning(f'\nFailed scan of vector file: {vector_file}\n'
+                        f'\tExpected to find all target ids {target_ids}. \n'
+                        f'\tFound {unique_att_vals} for attribute "{attribute_name}"')
+    elif unique_att_vals != num_classes:
+        logging.warning(f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
 
-    return distinct_att
+    return unique_att_vals
 
 
 def add_background_to_num_class(task: str, num_classes: int):
