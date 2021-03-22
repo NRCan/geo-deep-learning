@@ -11,13 +11,9 @@ from torch import nn
 import numpy as np
 import scipy.signal
 import warnings
-import matplotlib
-import matplotlib.pyplot as plt
 import collections
 
 from utils.readers import read_parameters
-
-# matplotlib.use('Agg')
 
 try:
     from ruamel_yaml import YAML
@@ -105,8 +101,8 @@ def get_device_ids(number_requested, max_used_ram=2000, max_used_perc=15, debug=
                 if len(lst_free_devices) == number_requested:
                     break
             if len(lst_free_devices) < number_requested:
-                warnings.warn(f"You requested {number_requested} devices. {device_count} devices are available on this computer and "
-                              f"other processes are using {device_count-len(lst_free_devices)} device(s).")
+                logging.warning(f"You requested {number_requested} devices. {device_count} devices are available and "
+                                f"other processes are using {device_count-len(lst_free_devices)} device(s).")
     except NameError as error:
         raise NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
     except NVMLError as error:

@@ -5,7 +5,6 @@ from typing import List
 
 import numpy as np
 np.random.seed(1234)  # Set random seed for reproducibility
-import warnings
 import rasterio
 import time
 

@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import Union, List
 
 import fiona
-import warnings
 import rasterio
 from rasterio.features import is_valid_geom
 from tqdm import tqdm

@@ -1,4 +1,5 @@
 import collections
+import logging
 import os
 import warnings
 from typing import List
@@ -14,6 +15,8 @@ from utils.geoutils import get_key_recursive
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
 from affine import Affine
+
+logging.getLogger(__name__)
 
 
 def append_to_dataset(dataset, sample):
@@ -55,7 +58,7 @@ def create_files_and_datasets(params, samples_folder):
             hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             append_to_dataset(hdf5_file["params"], repr(params))
         except AttributeError as e:
-            warnings.warn(f'{e}. Update h5py to version 2.10 or higher')
+            logging.warning(f'{e}. Update h5py to version 2.10 or higher')
             raise
         hdf5_files.append(hdf5_file)
     return hdf5_files

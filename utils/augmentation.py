@@ -4,7 +4,6 @@
 # Scaling process is done in images_to_samples.py l.215
 import logging
 import numbers
-import warnings
 from typing import Sequence
 
 import torch
