@@ -18,8 +18,8 @@ global:
   # See models/README.md for all the available models.
   model_name: unet
   mlflow_uri: ./mlruns  # path/to/mlflow_tracking_uri
-  mlflow_experiment_name: gdl-training
-  mlflow_run_name: gdl  # also used for naming of preprocessing directories
+  mlflow_experiment_name: gdl-training  # also used for naming of preprocessing directories
+  mlflow_run_name: gdl
   bucket_name:  # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 0  # If 0, will run on CPU

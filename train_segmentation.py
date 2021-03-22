@@ -420,9 +420,10 @@ def main(params, config_path):
     overlap = params["sample"]["overlap"]
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], 0, expected_type=int)
     num_bands = params['global']['number_of_bands']
+    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training')
     run_name = get_key_def('mlflow_run_name', params['global'], default='gdl')
     samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
-                           f'_{run_name}')
+                           f'_{experiment_name}')
     samples_folder = data_path.joinpath(samples_folder_name)
     batch_size = params['training']['batch_size']
     num_devices = params['global']['num_gpus']
