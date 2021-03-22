@@ -257,7 +257,8 @@ def main(params, config_path):
                                                                                num_devices=num_devices,)
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    model, model_name, criterion, optimizer, lr_scheduler = net(params, num_classes)  # pretrained could become a yaml parameter.
+    model, model_name, criterion, optimizer, lr_scheduler = net(params,
+                                                                num_classes)  # pretrained could become a yaml parameter.
     tqdm.write(f'Instantiated {model_name} model with {num_classes} output channels.\n')
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')

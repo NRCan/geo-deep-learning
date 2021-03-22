@@ -35,7 +35,7 @@ precision= true positives /
 recall= true positives /
         true positives + false negatives
 ```
-
+<!--
 classes = A and B evaluating for class A 
 where,
 
@@ -62,6 +62,7 @@ _Note:_ This metric is very susceptible to imbalanced datasets and may give an o
 acc= TP + TN /
      TP + TN + FP + FN 
 ```
+-->
 ## Comparing common pixel based metrics
 | Accuracy   | IoU  | Dice Coefficient  |
 |---|---|---|

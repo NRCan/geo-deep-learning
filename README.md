@@ -98,7 +98,9 @@ python images_to_samples.py path/to/yaml_files/your_config.yaml
 # Training the neural network
 python train_segmentation.py path/to/yaml_files/your_config.yaml
 # Inference on the new data
-python inference.py path/to/yaml_files/your_config.yaml
+python inference.py --param path/to/yaml_files/your_config.yaml
+or 
+python inference.py --input path/to/your_checkpoint.pth.tar /path/to/images/
 ```
 > If you only want to use the `inference.py` you dont have to fill all the `yaml` file, only fill the inference section.
 
