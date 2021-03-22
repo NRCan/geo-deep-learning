@@ -1,6 +1,10 @@
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+logging.getLogger(__name__)
 
 
 class BoundaryLoss(nn.Module):
@@ -34,9 +38,9 @@ class BoundaryLoss(nn.Module):
         pred = torch.softmax(pred, dim=1)
 
         # one-hot vector of ground truth
-        # print(gt.shape)
+        # logging.info(gt.shape)
         # zo = F.one_hot(gt, c)
-        # print(zo.shape)
+        # logging.info(zo.shape)
         one_hot_gt = F.one_hot(gt, c).permute(0, 3, 1, 2).squeeze(dim=-1).contiguous().float()
 
         # boundary map
@@ -85,7 +89,7 @@ if __name__ == "__main__":
     img = torch.randn(8, 3, 224, 224).to(device)
     gt = torch.randint(0, 10, (8, 224, 224)).to(device)
 
-    print(img.shape, gt.shape)
+    logging.info(img.shape, gt.shape)
 
     model = segmentation.fcn_resnet50(num_classes=10).to(device)
 

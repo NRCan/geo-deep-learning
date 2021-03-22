@@ -28,6 +28,7 @@ except ModuleNotFoundError:
 
 logging.getLogger(__name__)
 
+
 def mask_image(arrayA, arrayB):
     """Function to mask values of arrayB, based on 0 values from arrayA.
 
@@ -264,7 +265,8 @@ def samples_preparation(in_img_array,
                               f'Excld samps={excl_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}, ' 
                               f'Target annot perc={100 - target_background_percent:.1f}')
 
-    assert added_samples > 0, "No sample added for current raster. Problems may occur with use of metadata"
+    if added_samples == 0:
+        logging.warning(f"No sample added for current raster. Problems may occur with use of metadata")
     if dataset == 'tst':
         samples_count['tst'] = idx_samples
     else:
@@ -314,12 +316,11 @@ def main(params):
     :param params: (dict) Parameters found in the yaml config file.
     """
     start_time = time.time()
-
     params['global']['git_hash'] = get_git_hash()
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     bucket_file_cache = []
 
-    assert params['global']['task'] == 'segmentation', f"images_to_samples.py isn't necessary when performing classification tasks"
+    assert params['global']['task'] == 'segmentation', f"images_to_samples.py isn't necessary for classification tasks"
 
     # SET BASIC VARIABLES AND PATHS. CREATE OUTPUT FOLDERS.
     bucket_name = get_key_def('bucket_name', params['global'])
@@ -334,16 +335,7 @@ def main(params):
     debug = get_key_def('debug_mode', params['global'], False)
 
     final_samples_folder = None
-
-    sample_path_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
-
-    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
-    log_config_path = Path('utils/logging.conf').absolute()
-    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'logs/{sample_path_name}.log',
-                                                         'logfilename_debug': f'logs/{sample_path_name}_debug.log'})
-
-    if debug:
-        logging.warning(f'Debug mode activate. Execution may take longer...')
+    smpl_pth_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
 
     # AWS
     if bucket_name:
@@ -351,23 +343,25 @@ def main(params):
         bucket = s3.Bucket(bucket_name)
         bucket.download_file(csv_file, 'samples_prep.csv')
         list_data_prep = read_csv('samples_prep.csv')
-        if data_path:
-            final_samples_folder = data_path.joinpath("samples")
-        else:
-            final_samples_folder = "samples"
-        samples_folder = sample_path_name
-
     else:
         list_data_prep = read_csv(csv_file)
-        samples_folder = data_path.joinpath(sample_path_name)
 
-    if samples_folder.is_dir():
-        logging.warning(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')
-        samples_folder = Path(str(samples_folder) + '_' + now)
-    else:
-        logging.info(f'Writing samples to {samples_folder}')
-    Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
-    logging.info(f'Samples will be written to {samples_folder}\n\n')
+    smpls_dir = data_path.joinpath(smpl_pth_name)
+    if smpls_dir.is_dir():
+        smpls_dir = Path(str(smpls_dir) + '_' + now)
+
+    Path.mkdir(smpls_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
+
+    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
+    log_config_path = Path('utils/logging.conf').absolute()
+    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{smpls_dir}/{smpl_pth_name}.log',
+                                                         'logfilename_debug': f'{smpls_dir}/{smpl_pth_name}_debug.log'})
+
+    if debug:
+        logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
+                        f'cause delays in execution.')
+
+    logging.info(f'Samples will be written to {smpls_dir}\n\n')
 
     logging.info(f'\n\tSuccessfully read csv file: {Path(csv_file).stem}\n'
                  f'\tNumber of rows: {len(list_data_prep)}\n'
@@ -416,7 +410,7 @@ def main(params):
 
     class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
 
-    trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
+    trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, smpls_dir)
 
     # creates pixel_classes dict and keys
     pixel_classes = {key: 0 for key in gpkg_classes}
@@ -475,7 +469,7 @@ def main(params):
                 out_meta.update({"driver": "GTiff",
                                  "height": np_image_debug.shape[1],
                                  "width": np_image_debug.shape[2]})
-                out_tif = samples_folder / f"{Path(info['tif']).stem}_clipped.tif"
+                out_tif = smpls_dir / f"{Path(info['tif']).stem}_clipped.tif"
                 logging.debug(f"Writing clipped raster to {out_tif}")
                 with rasterio.open(out_tif, "w", **out_meta) as dest:
                     dest.write(np_image_debug)
@@ -486,7 +480,7 @@ def main(params):
                                  "height": np_label_debug.shape[1],
                                  "width": np_label_debug.shape[2],
                                  'count': 1})
-                out_tif = samples_folder / f"{Path(info['gpkg']).stem}_clipped.tif"
+                out_tif = smpls_dir / f"{Path(info['gpkg']).stem}_clipped.tif"
                 logging.debug(f"Writing final rasterized gpkg to {out_tif}")
                 with rasterio.open(out_tif, "w", **out_meta) as dest:
                     dest.write(np_label_debug)
@@ -509,7 +503,7 @@ def main(params):
                                                           raster_info=info)
             # Save label's per class pixel count to image metadata
             metadata['source_label_bincount'] = {class_num: count for class_num, count in
-                                                      enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
+                                                 enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
                                                  if count > 0}  # TODO: add this to add_metadata_from[...] function?
 
             np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
@@ -555,9 +549,9 @@ def main(params):
 
     if bucket_name and final_samples_folder:
         logging.info('Transfering Samples to the bucket')
-        bucket.upload_file(samples_folder + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
-        bucket.upload_file(samples_folder + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
-        bucket.upload_file(samples_folder + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
+        bucket.upload_file(smpls_dir + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
+        bucket.upload_file(smpls_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
+        bucket.upload_file(smpls_dir + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
 
     logging.info(f"End of process. Elapsed time:{(time.time() - start_time)}")
 

@@ -2,6 +2,7 @@
 #          Therefore, implementing radiometric
 # augmentations (ex.: changing hue, saturation, brightness, contrast) may give undesired results.
 # Scaling process is done in images_to_samples.py l.215
+import logging
 import numbers
 import warnings
 from typing import Sequence
@@ -15,6 +16,8 @@ from skimage import transform, exposure
 from torchvision import transforms
 
 from utils.utils import get_key_def, pad, minmax_scale, BGR_to_RGB
+
+logging.getLogger(__name__)
 
 
 def compose_transforms(params, dataset, type='', ignore_index=None):
@@ -171,12 +174,12 @@ class Scale(object):
             orig_range = (np.iinfo(dtype).min, np.iinfo(dtype).max)
         elif min_val >= 0 and max_val <= 255:
             orig_range = (0, 255)
-            warnings.warn(f"Values in input image of shape {raster.shape} "
+            logging.warning(f"Values in input image of shape {raster.shape} "
                           f"range from {min_val} to {max_val}."
                           f"Image will be considered 8 bit for scaling.")
         elif min_val >= 0 and max_val <= 65535:
             orig_range = (0, 65535)
-            warnings.warn(f"Values in input image of shape {raster.shape} "
+            logging.warning(f"Values in input image of shape {raster.shape} "
                           f"range from {min_val} to {max_val}."
                           f"Image will be considered 16 bit for scaling.")
         else:

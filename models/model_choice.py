@@ -1,6 +1,7 @@
+import logging
 from pathlib import Path
 import numpy as np
-import warnings
+import logging
 import torch
 import torch.nn as nn
 import segmentation_models_pytorch as smp
@@ -14,6 +15,8 @@ from losses import MultiClassCriterion
 import torch.optim as optim
 from models import TernausNet, unet, checkpointed_unet, inception, coordconv
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
+
+logging.getLogger(__name__)
 
 lm_smp = {
     'pan_pretrained': {
@@ -58,7 +61,7 @@ def load_checkpoint(filename):
     :return: (dict) checkpoint ready to be loaded into model instance
     '''
     try:
-        print(f"=> loading model '{filename}'\n")
+        logging.info(f"=> loading model '{filename}'\n")
         # For loading external models with different structure in state dict. May cause problems when trying to load optimizer
         checkpoint = torch.load(filename, map_location='cpu')
         if 'model' not in checkpoint.keys():
@@ -78,7 +81,7 @@ def verify_weights(num_classes, weights):
         weights: weights defined in the configuration file
     """
     if num_classes == 1 and len(weights) == 2:
-        warnings.warn("got two class weights for single class defined in configuration file; will assume index 0 = background")
+        logging.warning("got two class weights for single class defined in configuration file; will assume index 0 = background")
     elif num_classes != len(weights):
         raise ValueError('The number of class weights in the configuration file is different than the number of classes')
 
@@ -134,7 +137,7 @@ def net(net_params, num_channels, inference=False):
     num_devices = net_params['global']['num_gpus']
 
     if dontcare_val == 0:
-        warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
+        logging.warning("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
                       " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
                       " will be remapped to -1 while loading the dataset, and inside the config from now on.")
         net_params["training"]["ignore_index"] = -1
@@ -162,14 +165,14 @@ def net(net_params, num_channels, inference=False):
     elif model_name == 'deeplabv3_resnet101':
         assert (num_bands == 3 or num_bands == 4), msg
         if num_bands == 3:
-            print('Finetuning pretrained deeplabv3 with 3 bands')
+            logging.info('Finetuning pretrained deeplabv3 with 3 bands')
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
             classifier = list(model.classifier.children())
             model.classifier = nn.Sequential(*classifier[:-1])
             model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
         elif num_bands == 4:
-            print('Finetuning pretrained deeplabv3 with 4 bands')
-            print('Testing with 4 bands, concatenating at {}.'.format(conc_point))
+            logging.info('Finetuning pretrained deeplabv3 with 4 bands')
+            logging.info('Testing with 4 bands, concatenating at {}.'.format(conc_point))
 
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
 
@@ -243,27 +246,27 @@ def net(net_params, num_channels, inference=False):
         lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
         num_devices = len(lst_device_ids) if lst_device_ids else 0
         device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-        print(f"Number of cuda devices requested: {net_params['global']['num_gpus']}. Cuda devices available: {lst_device_ids}\n")
+        logging.info(f"Number of cuda devices requested: {net_params['global']['num_gpus']}. Cuda devices available: {lst_device_ids}\n")
         if num_devices == 1:
-            print(f"Using Cuda device {lst_device_ids[0]}\n")
+            logging.info(f"Using Cuda device {lst_device_ids[0]}\n")
         elif num_devices > 1:
-            print(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
+            logging.info(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
             try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
                 model = nn.DataParallel(model,
                                         device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
             except AssertionError:
-                warnings.warn(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
+                logging.warning(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
                 device = torch.device('cuda:0')
                 lst_device_ids = range(len(lst_device_ids))
                 model = nn.DataParallel(model,
                                         device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         else:
-            warnings.warn(f"No Cuda device available. This process will only run on CPU\n")
+            logging.warning(f"No Cuda device available. This process will only run on CPU\n")
         tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
         try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
             model.to(device)
         except RuntimeError:
-            warnings.warn(f"Unable to use device. Trying device 0...\n")
+            logging.warning(f"Unable to use device. Trying device 0...\n")
             device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
             model.to(device)
 

@@ -1,3 +1,4 @@
+import logging
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
@@ -64,7 +65,7 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     assert len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
     num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=params)
     assert num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size, f"Number of samples in .hdf5 files is less than batch size"
-    print(f"Number of samples : {num_samples}\n")
+    logging.info(f"Number of samples : {num_samples}\n")
     meta_map = get_key_def("meta_map", params["global"], {})
     num_bands = get_key_def("number_of_bands", params["global"], {})
     if not meta_map:
@@ -149,7 +150,7 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
     :return:
     """
     vis_path = output_path.joinpath(f'visualization')
-    tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
+    logging.info(f'Visualization figures will be saved to {vis_path}\n')
     min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     model.eval()
@@ -170,7 +171,7 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                                    labels=labels,
                                    dataset=dataset,
                                    ep_num=ep_num)
-    tqdm.write(f'Saved visualization figures.\n')
+    logging.info(f'Saved visualization figures.\n')
 
 
 def train(train_loader,
@@ -242,7 +243,7 @@ def train(train_loader,
                 if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0:
-                        tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
+                        logging.info(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
                     vis_from_batch(params, inputs, outputs,
                                    batch_index=batch_index,
                                    vis_path=vis_path,
@@ -270,7 +271,7 @@ def train(train_loader,
 
     scheduler.step()
     if train_metrics["loss"].avg is not None:
-        print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
+        logging.info(f'Training Loss: {train_metrics["loss"].avg:.4f}')
     return train_metrics
 
 
@@ -326,7 +327,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
                     if batch_index in range(min_vis_batch, max_vis_batch, increment):
                         vis_path = progress_log.parent.joinpath('visualization')
                         if ep_idx == 0 and batch_index == min_vis_batch:
-                            tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
+                            logging.info(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
                                        f'images will be saved to {vis_path}\n')
                         vis_from_batch(params, inputs, outputs,
                                        batch_index=batch_index,
@@ -363,12 +364,12 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
                     _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
                                                   gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
 
-    print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
+    logging.info(f"{dataset} Loss: {eval_metrics['loss'].avg}")
     if batch_metrics is not None:
-        print(f"{dataset} precision: {eval_metrics['precision'].avg}")
-        print(f"{dataset} recall: {eval_metrics['recall'].avg}")
-        print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
-        print(f"{dataset} iou: {eval_metrics['iou'].avg}")
+        logging.info(f"{dataset} precision: {eval_metrics['precision'].avg}")
+        logging.info(f"{dataset} recall: {eval_metrics['recall'].avg}")
+        logging.info(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
+        logging.info(f"{dataset} iou: {eval_metrics['iou'].avg}")
 
     return eval_metrics
 
@@ -405,9 +406,6 @@ def main(params, config_path):
     """
     params['global']['git_hash'] = get_git_hash()
     debug = get_key_def('debug_mode', params['global'], False)
-    if debug:
-        warnings.warn(f'Debug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.')
-
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     num_classes = params['global']['num_classes']
     task = params['global']['task']
@@ -424,19 +422,38 @@ def main(params, config_path):
     samples_folder = data_path.joinpath(samples_folder_name)
     batch_size = params['training']['batch_size']
     num_devices = params['global']['num_gpus']
+
+    model_id = config_path.stem
+    output_path = samples_folder.joinpath('model') / model_id
+    if output_path.is_dir():
+        model_id = f"{model_id}_{now}"
+        output_path = samples_folder.joinpath('model') / model_id
+    output_path.mkdir(parents=True, exist_ok=False)
+    shutil.copy(str(config_path), str(output_path))  # copy yaml to output path where model will be saved
+
+    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
+    log_config_path = Path('utils/logging.conf').absolute()
+    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{output_path}/{model_id}.log',
+                                                         'logfilename_debug': f'{output_path}/{model_id}_debug.log'})
+
+    logging.info(f'Model and log files will be saved to: {output_path}\n\n')
+    if debug:
+        logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
+                        f'cause delays in execution.')
+
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
     lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
 
-    tqdm.write(f'Creating dataloaders from data in {samples_folder}...\n')
+    logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
                                                                        num_devices=num_devices,
                                                                        params=params)
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model, model_name, criterion, optimizer, lr_scheduler = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
-    tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
+    logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
     bucket_name = get_key_def('bucket_name', params['global'])
 
     # mlflow tracking path + parameters logging
@@ -445,14 +462,6 @@ def main(params, config_path):
     log_params(params['training'])
     log_params(params['global'])
     log_params(params['sample'])
-
-    modelname = config_path.stem
-    output_path = samples_folder.joinpath('model') / modelname
-    if output_path.is_dir():
-        output_path = output_path.joinpath(f"_{now}")
-    output_path.mkdir(parents=True, exist_ok=False)
-    shutil.copy(str(config_path), str(output_path))
-    tqdm.write(f'Model and log files will be saved to: {output_path}\n\n')
 
     if bucket_name:
         from utils.aws import download_s3_files
@@ -476,13 +485,16 @@ def main(params, config_path):
     # VISUALIZATION: generate pngs of inputs, labels and outputs
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
     if vis_batch_range is not None:
-        # Make sure user-provided range is a tuple with 3 integers (start, finish, increment). Check once for all visualization tasks.
-        assert isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int) for x in vis_batch_range)
+        # Make sure user-provided range is a tuple with 3 integers (start, finish, increment).
+        # Check once for all visualization tasks.
+        assert isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int)
+                                                                                       for x in vis_batch_range)
         vis_at_init_dataset = get_key_def('vis_at_init_dataset', params['visualization'], 'val')
 
         # Visualization at initialization. Visualize batch range before first eopch.
         if get_key_def('vis_at_init', params['visualization'], False):
-            tqdm.write(f'Visualizing initialized model on batch range {vis_batch_range} from {vis_at_init_dataset} dataset...\n')
+            logging.info(f'Visualizing initialized model on batch range {vis_batch_range} '
+                         f'from {vis_at_init_dataset} dataset...\n')
             vis_from_dataloader(params=params,
                                 eval_loader=val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader,
                                 model=model,
@@ -493,7 +505,7 @@ def main(params, config_path):
                                 vis_batch_range=vis_batch_range)
 
     for epoch in range(0, params['training']['num_epochs']):
-        print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
+        logging.info(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
 
         trn_report = train(train_loader=trn_dataloader,
                            model=model,
@@ -528,7 +540,7 @@ def main(params, config_path):
             val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         if val_loss < best_loss:
-            tqdm.write("save checkpoint\n")
+            logging.info("save checkpoint\n")
             best_loss = val_loss
             # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
@@ -543,14 +555,14 @@ def main(params, config_path):
                 bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
 
-            # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
+            # VISUALIZATION: generate pngs of img samples, labels and outputs as alternative to follow training
             vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
             ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4)
             vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if last_vis_epoch == 0:
-                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
-                               f'batches in range {vis_batch_range}')
+                    logging.info(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
+                                 f'batches in range {vis_batch_range}')
                 vis_from_dataloader(params=params,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
                                     model=model,
@@ -565,7 +577,7 @@ def main(params, config_path):
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
 
         cur_elapsed = time.time() - since
-        print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
+        logging.info(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
     if int(params['training']['num_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
@@ -592,7 +604,7 @@ def main(params, config_path):
             bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
-    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    logging.info('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
 if __name__ == '__main__':

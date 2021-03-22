@@ -1,3 +1,5 @@
+import logging
+
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
@@ -39,6 +41,8 @@ try:
 except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
+
+logging.getLogger(__name__)
 
 
 def verify_weights(num_classes, weights):
@@ -264,7 +268,7 @@ def main(params, config_path):
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
     for epoch in range(0, params['training']['num_epochs']):
-        print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
+        logging.info(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
 
         trn_report = train(train_loader=trn_dataloader,
                            model=model,
@@ -315,7 +319,7 @@ def main(params, config_path):
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
 
         cur_elapsed = time.time() - since
-        print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
+        logging.info(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
     if int(params['training']['num_epochs']) > 0:  # if num_epochs is set to 0, model is loaded to evaluate on test set
@@ -341,7 +345,7 @@ def main(params, config_path):
             bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
-    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    logging.info('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
 def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, ep_idx, progress_log, device, debug=False):
@@ -390,7 +394,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             optimizer.step()
 
     scheduler.step()
-    print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
+    logging.info(f'Training Loss: {train_metrics["loss"].avg:.4f}')
     return train_metrics
 
 
@@ -449,11 +453,11 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
                     _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
                                                   gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
 
-    print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
+    logging.info(f"{dataset} Loss: {eval_metrics['loss'].avg}")
     if batch_metrics is not None:
-        print(f"{dataset} precision: {eval_metrics['precision'].avg}")
-        print(f"{dataset} recall: {eval_metrics['recall'].avg}")
-        print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
+        logging.info(f"{dataset} precision: {eval_metrics['precision'].avg}")
+        logging.info(f"{dataset} recall: {eval_metrics['recall'].avg}")
+        logging.info(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
 
     return eval_metrics
 

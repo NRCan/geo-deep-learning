@@ -1,4 +1,5 @@
 import collections
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +9,8 @@ import fiona
 import rasterio
 from rasterio.features import is_valid_geom
 from rasterio.mask import mask
+
+logger = logging.getLogger(__name__)
 
 
 def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
@@ -94,7 +97,7 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     out_tif = f"{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
     with rasterio.open(out_tif, "w", **out_meta) as dest:
         if debug:
-            print(f"DEBUG: writing clipped raster to {out_tif}")
+            logging.debug(f"writing clipped raster to {out_tif}")
             dest.write(out_img)
 
     return out_img, dest
@@ -125,7 +128,10 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
     lst_vector_tuple = lst_ids(list_vector=lst_vector, attr_name=attribute_name, target_ids=target_ids,
                                merge_all=merge_all)
 
-    if merge_all:
+    if not lst_vector_tuple:  # if no vectors found, return None and prevent error in rasterize function below.
+        logging.warning()
+        return None
+    elif merge_all:
         return rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
                                            fill=fill,
                                            out_shape=out_shape,

@@ -1,3 +1,5 @@
+import logging
+
 import torch
 import torch.nn.functional as F
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
@@ -33,6 +35,8 @@ try:
     import boto3
 except ModuleNotFoundError:
     pass
+
+logging.getLogger(__name__)
 
 
 @torch.no_grad()
@@ -204,10 +208,10 @@ def classifier(params, img_list, model, device, working_folder):
         top5_loc = []
         for i in top5:
             top5_loc.append(np.where(outputs.cpu().numpy()[0] == i)[0][0])
-        print(f"Image {img_name} classified as {classes[0][predicted]}")
-        print('Top 5 classes:')
+        logging.info(f"Image {img_name} classified as {classes[0][predicted]}")
+        logging.info('Top 5 classes:')
         for i in range(0, 5):
-            print(f"\t{classes[0][top5_loc[i]]} : {top5[i]}")
+            logging.info(f"\t{classes[0][top5_loc[i]]} : {top5[i]}")
         classified_results = np.append(classified_results, [np.append([image['tif'], classes[0][predicted]],
                                                                       outputs.cpu().numpy()[0])], axis=0)
     csv_results = 'classification_results.csv'
@@ -236,7 +240,7 @@ def main(params: dict):
     working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
     num_devices = params['global']['num_gpus'] if params['global']['num_gpus'] else 0
     Path.mkdir(working_folder, parents=True, exist_ok=True)
-    print(f'Inferences will be saved to: {working_folder}\n\n')
+    logging.info(f'Inferences will be saved to: {working_folder}\n\n')
 
     bucket = None
     bucket_file_cache = []
@@ -247,7 +251,7 @@ def main(params: dict):
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
 
     if lst_device_ids:
-        print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using {lst_device_ids[0]}\n\n")
+        logging.info(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using {lst_device_ids[0]}\n\n")
     else:
         warnings.warn(f"No Cuda device available. This process will only run on CPU")
 
@@ -256,7 +260,7 @@ def main(params: dict):
     try:
         model.to(device)
     except RuntimeError:
-        print(f"Unable to use device. Trying device 0")
+        logging.info(f"Unable to use device. Trying device 0")
         device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
 
@@ -342,7 +346,7 @@ def main(params: dict):
             gdf_x.to_file(working_folder.joinpath("benchmark.gpkg"), driver="GPKG", index=False)
         # log_artifact(working_folder)
     time_elapsed = time.time() - since
-    print('Inference and Benchmarking completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    logging.info('Inference and Benchmarking completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
 if __name__ == '__main__':

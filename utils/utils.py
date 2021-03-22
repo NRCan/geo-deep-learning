@@ -1,4 +1,5 @@
 import csv
+import logging
 import numbers
 import subprocess
 from pathlib import Path
@@ -34,6 +35,8 @@ except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
 
+logging.getLogger(__name__)
+
 
 class Interpolate(torch.nn.Module):
     def __init__(self, mode, scale_factor):
@@ -65,7 +68,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
         checkpoint['model'] = new_state_dict['model']
 
     model.load_state_dict(checkpoint['model'], strict=False)
-    print(f"=> loaded model\n")
+    logging.info(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
         optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
     return model, optimizer
@@ -96,7 +99,7 @@ def get_device_ids(number_requested, max_used_ram=2000, max_used_perc=15, debug=
             for i in range(device_count):
                 res, mem = gpu_stats(i)
                 if debug:
-                    print(f'GPU RAM used: {round(mem.used/(1024**2), 1)} | GPU % used: {res.gpu}')
+                    logging.info(f'GPU RAM used: {round(mem.used/(1024**2), 1)} | GPU % used: {res.gpu}')
                 if round(mem.used/(1024**2), 1) <  max_used_ram and res.gpu < max_used_perc:
                     lst_free_devices.append(i)
                 if len(lst_free_devices) == number_requested:

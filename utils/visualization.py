@@ -1,3 +1,4 @@
+import logging
 import math
 import re
 import warnings
@@ -12,6 +13,8 @@ import csv
 
 from utils.utils import unscale, unnormalize, get_key_def
 from utils.geoutils import create_new_raster_from_base
+
+logging.getLogger(__name__)
 
 
 def grid_vis(input_, output, heatmaps_dict, label=None, heatmaps=True):
@@ -193,8 +196,8 @@ def heatmaps_to_dict(output, classes=[], inference=False, debug=False):
         perclass_output = output[:, :, i]
         if inference:  # Don't color heatmap if in inference
             if debug:
-                print(f'Heatmap class: {classes[i]}\n')
-                print(f'List of unique values in heatmap: {np.unique(np.uint8(perclass_output * 255))}\n')
+                logging.info(f'Heatmap class: {classes[i]}\n')
+                logging.info(f'List of unique values in heatmap: {np.unique(np.uint8(perclass_output * 255))}\n')
             perclass_output_PIL = Image.fromarray(np.uint8(perclass_output*255))
         else:  # https://stackoverflow.com/questions/10965417/how-to-convert-numpy-array-to-pil-image-applying-matplotlib-colormap
             perclass_output_PIL = Image.fromarray(np.uint8(cm.get_cmap('inferno')(perclass_output) * 255))
