@@ -88,7 +88,7 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
             lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
                                        std=params['training']['normalization']['std']))
 
-        lst_trans.append(ToTensorTarget()) # Send channels first, convert numpy array to torch tensor
+        lst_trans.append(ToTensorTarget())  # Send channels first, convert numpy array to torch tensor
 
     return transforms.Compose(lst_trans)
 
@@ -361,14 +361,16 @@ class ToTensorTarget(object):
         sat_img = torch.from_numpy(sat_img)
 
         map_img = None
-        if 'map_img' in sample.keys():  # This can also be used in inference.
-            map_img = np.int64(sample['map_img'])
-            map_img = torch.from_numpy(map_img)
+        if 'map_img' in sample.keys():
+            if sample['map_img'] is not None:  # This can also be used in inference.
+                map_img = np.int64(sample['map_img'])
+                map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
 
 
 class AddGaussianNoise(object):
     """Add Gaussian noise to data."""
+
     def __init__(self, mean=0., std=1.):
         self.std = std
         self.mean = mean

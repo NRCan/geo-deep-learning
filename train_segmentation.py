@@ -426,7 +426,6 @@ def main(params, config_path):
     samples_folder = data_path.joinpath(samples_folder_name)
     batch_size = params['training']['batch_size']
     num_devices = params['global']['num_gpus']
-    # assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
     # # list of GPU devices that are available and unused. If no GPUs, returns empty list
     max_used_ram = get_key_def('max_used_ram', params['global'], 2000, expected_type=int)
     max_used_perc = get_key_def('max_used_perc', params['global'], 15, expected_type=int)
