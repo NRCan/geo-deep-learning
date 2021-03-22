@@ -32,7 +32,7 @@ The final step in the process is to assign every pixel in the original image a v
 ## **Requirement**
 This project comprises a set of commands to be run at a shell command prompt.  Examples used here are for a bash shell in an Ubuntu GNU/Linux environment.
 
-- [Python 3.6](https://www.python.org/downloads/release/python-360/), see the full list of dependencies in [requirements.txt](requirements.txt)
+- [Python 3.7.6](https://www.python.org/downloads/release/python-376/), see the full list of dependencies in [environment.yml](environment.yml)
 - [mlflow](https://mlflow.org/)
 - [minicanda](https://docs.conda.io/en/latest/miniconda.html) (highly recommended)
 - nvidia GPU (highly recommended)
@@ -43,13 +43,20 @@ This project comprises a set of commands to be run at a shell command prompt.  E
 Those step are for your a workstation on Ubuntu 18.04 using miniconda.
 Set and activate your python environment with the following commands:  
 ```shell
-conda create -n gpu_ENV python=3.6 -c pytorch pytorch torchvision
-conda activate gpu_ENV
-conda install --override-channels -c main -c conda-forge ruamel_yaml h5py fiona rasterio geopandas scikit-image scikit-learn tqdm
+conda env create -f environment.yml
+conda activate geo_deep_env
 conda install -c fastai nvidia-ml-py3
-conda install mlflow segmentation-models-pytorch
 ```
-> For Windows OS:
+##### For Docker
+Move to the geo deep learning directory and use either of the following commands:
+```shell
+docker build .
+or
+docker-compose build
+```
+
+##### For Windows OS:
+> - You will have to convert the environment.yml file to requirements.txt, most packages need pip install.
 > - Install rasterio, fiona and gdal first, before installing the rest. We've experienced some [installation issues](https://github.com/conda-forge/gdal-feedstock/issues/213), with those libraries.
 > - Mlflow should be installed using pip rather than conda, as mentionned [here](https://github.com/mlflow/mlflow/issues/1951)  
 
