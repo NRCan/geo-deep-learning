@@ -145,9 +145,8 @@ def add_to_datasets(dataset,
         class_val = class_vals[i]
         count = counts[i]
         dict_classes[class_val] += count
-        if i not in dict_classes.keys():
+        if class_val not in dict_classes.keys():
             raise ValueError(f'Sample contains value "{class_val}" not defined in the classes ({dict_classes.keys()}).')
-
     return to_val_set
 
 
@@ -379,11 +378,12 @@ def main(params):
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     targ_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
     # Assert that all items in target_ids are integers
-    for item in targ_ids:
-        assert isinstance(item, int), f'Target id "{item}" in target_ids is {type(item)}, expected int.'
-    assert len(targ_ids) == num_classes, f'Yaml parameters mismatch. \n' \
-                                         f'Got target_ids {targ_ids} (sample sect) with length {len(targ_ids)}. ' \
-                                         f'Expected match with num_classes {num_classes} (global sect))'
+    if targ_ids:
+        for item in targ_ids:
+            assert isinstance(item, int), f'Target id "{item}" in target_ids is {type(item)}, expected int.'
+        assert len(targ_ids) == num_classes, f'Yaml parameters mismatch. \n' \
+                                             f'Got target_ids {targ_ids} (sample sect) with length {len(targ_ids)}. ' \
+                                             f'Expected match with num_classes {num_classes} (global sect))'
 
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()

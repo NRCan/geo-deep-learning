@@ -13,6 +13,10 @@ import scipy.signal
 import warnings
 import collections
 
+# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
+from rasterio.crs import CRS
+from affine import Affine
+
 from utils.readers import read_parameters
 
 try:
@@ -340,8 +344,8 @@ def read_csv(csv_file_name):
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
         list_values = sorted(list_values, key=lambda k: k['dataset'])
-    except TypeError:
-        list_values
+    except TypeError as e:
+        logging.error(str(e))
     return list_values
 
 
@@ -437,7 +441,7 @@ def get_git_hash():
     # when code not executed from git repo, subprocess outputs return code #128. This has been tested.
     # Reference: https://stackoverflow.com/questions/58575970/subprocess-call-with-exit-status-128
     if subproc.returncode == 128:
-        warnings.warn(f'No git repo associated to this code.')
+        logging.warning(f'No git repo associated to this code.')
         return None
     return git_hash
 
@@ -450,7 +454,8 @@ def ordereddict_eval(str_to_eval: str):
     # Replaces "ordereddict" string to "Collections.OrderedDict"
     if isinstance(str_to_eval, str) and "ordereddict" in str_to_eval:
         str_to_eval = str_to_eval.replace("ordereddict", "collections.OrderedDict")
+    try:
         return eval(str_to_eval)
-    else:
-        warnings.warn(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
-        return str_to_eval
+    except Exception as e:
+        logging.error(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
+        logging.error(str(e))

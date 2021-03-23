@@ -14,6 +14,9 @@ import csv
 from utils.utils import unscale, unnormalize, get_key_def
 from utils.geoutils import create_new_raster_from_base
 
+import matplotlib
+matplotlib.use('Agg')
+
 logging.getLogger(__name__)
 
 
@@ -119,7 +122,7 @@ def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', 
         if label is not None:
             label_copy = label.cpu().numpy().copy()
             if ignore_index < 0:
-                warnings.warn('Choose 255 as ignore_index to visualize. Problems may occur otherwise...')
+                logging.warning('Choose 255 as ignore_index to visualize. Problems may occur otherwise...')
                 new_ignore_index = 255
                 # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
                 label_copy[label_copy == ignore_index] = new_ignore_index
