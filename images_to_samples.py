@@ -5,6 +5,8 @@ np.random.seed(1234)  # Set random seed for reproducibility
 import warnings
 import rasterio
 import time
+import shutil
+import uuid
 
 from pathlib import Path
 from tqdm import tqdm
@@ -31,9 +33,10 @@ def mask_image(arrayA, arrayB):
     >>> x2 = np.array([1.5, 1.2, 1.6, 1.2, 11., 1.1, 25.9, 0.1], dtype=np.float32).reshape(2,2,2)
     >>> mask_image(x1, x2)
     array([[[ 0. ,  0. ],
-        [ 1.6,  1.2]],
-        [[11. ,  1.1],
-        [25.9,  0.1]]], dtype=float32)
+            [ 1.6,  1.2]],
+    <BLANKLINE>
+           [[ 0. ,  0. ],
+            [25.9,  0.1]]], dtype=float32)
     """
 
     # Handle arrayA of shapes (h,w,c) and (h,w)
@@ -328,7 +331,9 @@ def main(params):
 
     final_samples_folder = None
 
-    sample_path_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
+    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training')
+    sample_path_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
+                        f'{num_bands}bands_{experiment_name}')
 
     # AWS
     if bucket_name:
@@ -347,8 +352,11 @@ def main(params):
         samples_folder = data_path.joinpath(sample_path_name)
 
     if samples_folder.is_dir():
-        warnings.warn(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')
-        samples_folder = Path(str(samples_folder) + '_' + now)
+        if debug:
+            # Move existing data folder with a random suffix.
+            shutil.move(samples_folder, f'{str(samples_folder)}_{uuid.uuid4().hex[0:6]}')
+        else:
+            raise FileExistsError(f'Data path exists: {samples_folder}. Remove it or use a different experiment_name.')
     else:
         tqdm.write(f'Writing samples to {samples_folder}')
     Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?

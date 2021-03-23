@@ -74,7 +74,7 @@ training:
 
 inference:
   img_dir_or_csv_file: ./data/inference_sem_seg_ci_csv.csv
-  state_dict_path: ./data/samples256_overlap33_min-annot3_3bands/model/config_ci_segmentation_local/checkpoint.pth.tar
+  state_dict_path: ./data/samples256_overlap33_min-annot3_3bands_gdl-training/model/config_ci_segmentation_local/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   smooth_prediction: False
   overlap: 2 # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.

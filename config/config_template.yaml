@@ -18,9 +18,13 @@ global:
   # See models/README.md for all the available models.
   model_name: unet
   mlflow_uri: ./mlruns  # path/to/mlflow_tracking_uri
-  bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
+  mlflow_experiment_name: gdl-training  # also used for naming of preprocessing directories
+  mlflow_run_name: gdl
+  bucket_name:  # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
-  num_gpus: 0 # If 0, will run on CPU
+  num_gpus: 0  # If 0, will run on CPU
+  max_used_ram: 2000  # maximum currently used GPU memory (MB) to consider it available (only if num_gpus > 0)
+  max_used_perc: 15  # maximum utilization rate (percent) of the GPU to consider it available (only if num_gpus > 0)
   BGR_to_RGB: True
   scale_data: [0,1]
   aux_vector_file:
@@ -47,8 +51,8 @@ data_analysis:
 # Sample parameters; used in images_to_samples.py -------------------
 sample:
   prep_csv_file: .data/images_to_samples_ci_csv.csv  # /path/to/csv/images.csv
-  val_percent: 30 # Percentage of validation samples created from train set (0 - 100)
-  overlap: 25 # (int) Percentage of overlap between 2 chunks.
+  val_percent: 20 # Percentage of validation samples created from train set (0 - 100)
+  overlap: 5 # (int) Percentage of overlap between 2 chunks.
   sampling_method: # class_proportion or min_annotated_percent
     'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
     'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:
