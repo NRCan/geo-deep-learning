@@ -352,8 +352,13 @@ def main(params):
 
     smpls_dir = data_path.joinpath(smpl_pth_name)
     if smpls_dir.is_dir():
-        smpls_dir = Path(str(smpls_dir) + '_' + now)
-
+        if debug:
+            # Move existing data folder with a random suffix.
+            new_dir = Path(f'{str(smpls_dir)}_{uuid.uuid4().hex[0:6]}')
+            shutil.move(smpls_dir, new_dir)
+            smpls_dir = new_dir
+        else:  # TODO: what if we want to append samples to existing hdf5?
+            raise FileExistsError(f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.')
     Path.mkdir(smpls_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
 
     import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
@@ -365,18 +370,11 @@ def main(params):
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
 
-    if smpls_dir.is_dir():
-        if debug:
-            # Move existing data folder with a random suffix.
-            shutil.move(smpls_dir, f'{str(smpls_dir)}_{uuid.uuid4().hex[0:6]}')
-        else:  # TODO: what if we want to append samples to existing hdf5?
-            raise FileExistsError(f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.')
-    tqdm.write(f'Samples will be written to {smpls_dir}\n\n')
-    logging.info(f'Samples will be written to {smpls_dir}\n\n')
-
     logging.info(f'\n\tSuccessfully read csv file: {Path(csv_file).stem}\n'
                  f'\tNumber of rows: {len(list_data_prep)}\n'
                  f'\tCopying first entry:\n{list_data_prep[0]}\n')
+
+    logging.info(f'Samples will be written to {smpls_dir}\n\n')
 
     # Set dontcare (aka ignore_index) value
     dontcare = get_key_def("ignore_index", params["training"], -1)  # TODO: deduplicate with train_segmentation, l300
