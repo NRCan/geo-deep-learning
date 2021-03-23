@@ -7,6 +7,8 @@ import numpy as np
 np.random.seed(1234)  # Set random seed for reproducibility
 import rasterio
 import time
+import shutil
+import uuid
 
 from pathlib import Path
 from tqdm import tqdm
@@ -35,9 +37,10 @@ def mask_image(arrayA, arrayB):
     >>> x2 = np.array([1.5, 1.2, 1.6, 1.2, 11., 1.1, 25.9, 0.1], dtype=np.float32).reshape(2,2,2)
     >>> mask_image(x1, x2)
     array([[[ 0. ,  0. ],
-        [ 1.6,  1.2]],
-        [[11. ,  1.1],
-        [25.9,  0.1]]], dtype=float32)
+            [ 1.6,  1.2]],
+    <BLANKLINE>
+           [[ 0. ,  0. ],
+            [25.9,  0.1]]], dtype=float32)
     """
 
     # Handle arrayA of shapes (h,w,c) and (h,w)
@@ -333,7 +336,10 @@ def main(params):
     debug = get_key_def('debug_mode', params['global'], False)
 
     final_samples_folder = None
-    smpl_pth_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
+
+    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training')
+    smpl_pth_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
+                        f'{num_bands}bands_{experiment_name}')
 
     # AWS
     if bucket_name:
@@ -359,6 +365,13 @@ def main(params):
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
 
+    if smpls_dir.is_dir():
+        if debug:
+            # Move existing data folder with a random suffix.
+            shutil.move(smpls_dir, f'{str(smpls_dir)}_{uuid.uuid4().hex[0:6]}')
+        else:  # TODO: what if we want to append samples to existing hdf5?
+            raise FileExistsError(f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.')
+    tqdm.write(f'Samples will be written to {smpls_dir}\n\n')
     logging.info(f'Samples will be written to {smpls_dir}\n\n')
 
     logging.info(f'\n\tSuccessfully read csv file: {Path(csv_file).stem}\n'

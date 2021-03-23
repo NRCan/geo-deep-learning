@@ -42,9 +42,13 @@ global:
   number_of_bands: 4
   model_name: unet
   mlflow_uri: path/to/mlflow_tracking_uri
+  mlflow_experiment_name: gdl-training
+  mlflow_run_name: gdl
   bucket_name:
   task: segmentation
   num_gpus: 2
+  max_used_ram: 2000
+  max_used_perc: 15
   BGR_to_RGB: True
   scale_data: [0,1]
   aux_vector_file:
@@ -69,11 +73,19 @@ global:
 
 - **`mlflow_uri` :** Path where *mlflow* will store all the informations about the runs. By default the path is `./mlruns`.
 
+- **`mlflow_experiment_name` :** Experiment name in *mlflow*.
+
+- **`mlflow_run_name` :** Run name in *mlflow* and preprocessing identification tag.
+
 - **`bucket_name` (Optional) :** Name of the S3 bucket where the data is stored. Leave blank if using local files.
 
 - **`task` :** Task to perform, either segmentation or classification, but classification is no longer supported.
 
 - **`num_gpus` :** Number of **GPUs** that you want to use, `0` will use the **CPU**.
+
+- **`max_used_ram` :** Maximum used **GPUs** memory (MB) in order to use it.
+
+- **`max_used_perc` :** Maximum utilization rate (percent) of the **GPUs** in order to use it.
 
 - **`BGR_to_RGB` :**  [True/False] If set to True this parameter changes the band order of images from BGR to RGB.
 
