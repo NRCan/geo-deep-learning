@@ -83,9 +83,9 @@ global:
 
 - **`num_gpus` :** Number of **GPUs** that you want to use, `0` will use the **CPU**.
 
-- **`max_used_ram` :** Maximum used **GPUs** memory (MB) in order to use it.
+- **`max_used_ram` :** Maximum currently used **GPUs** memory (MB) to consider it available.
 
-- **`max_used_perc` :** Maximum utilization rate (percent) of the **GPUs** in order to use it.
+- **`max_used_perc` :** Maximum utilization rate (percent) of the **GPUs** to consider it available.
 
 - **`BGR_to_RGB` :**  [True/False] If set to True this parameter changes the band order of images from BGR to RGB.
 

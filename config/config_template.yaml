@@ -23,8 +23,8 @@ global:
   bucket_name:  # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 0  # If 0, will run on CPU
-  max_used_ram: 2000  # maximum used GPU memory (MB) in order to use it (only if num_gpus > 0)
-  max_used_perc: 15  # maximum utilization rate (percent) of the GPU in order to use it (only if num_gpus > 0)
+  max_used_ram: 2000  # maximum currently used GPU memory (MB) to consider it available (only if num_gpus > 0)
+  max_used_perc: 15  # maximum utilization rate (percent) of the GPU to consider it available (only if num_gpus > 0)
   BGR_to_RGB: True
   scale_data: [0,1]
   aux_vector_file:
