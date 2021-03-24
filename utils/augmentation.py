@@ -19,17 +19,16 @@ from utils.utils import get_key_def, pad, minmax_scale, BGR_to_RGB
 logging.getLogger(__name__)
 
 
-def compose_transforms(params, dataset, type='', ignore_index=None):
+def compose_transforms(params, dataset, input_space=False, scale=None, type='', ignore_index=None):
     """
     Function to compose the transformations to be applied on every batches.
+    :param input_space: (bool) if True, flip BGR channels to RGB
     :param params: (dict) Parameters found in the yaml config file
     :param dataset: (str) One of 'trn', 'val', 'tst'
     :param type: (str) One of 'geometric', 'radiometric'
     :return: (obj) PyTorch's compose object of the transformations to be applied.
     """
     lst_trans = []
-    input_space = get_key_def('BGR_to_RGB', params['global'], False)
-    scale = get_key_def('scale_data', params['global'], None)
     norm_mean = get_key_def('mean', params['training']['normalization'])
     norm_std = get_key_def('std', params['training']['normalization'])
     random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['training']['augmentation'], None)
@@ -57,7 +56,7 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
                 lst_trans.append(GeometricScale(range=geom_scale_range))
 
             if hflip:
-                lst_trans.append(HorizontalFlip(prob=params['training']['augmentation']['hflip_prob']))
+                lst_trans.append(HorizontalFlip(prob=hflip))
 
             if rotate_limit and rotate_prob:
                 lst_trans.append(
@@ -101,7 +100,7 @@ class RadiometricTrim(object):
     Ex.: Values below the 1.7th and above the 98.3th percentile will be trimmed if random value is 1.7"""
     def __init__(self, random_range):
         """
-        @param random_range: numbers.Number (float or int) or Sequence (list or tuple) with length of 2
+        :param random_range: numbers.Number (float or int) or Sequence (list or tuple) with length of 2
         """
         random_range = self.input_checker(random_range)
         self.range = random_range

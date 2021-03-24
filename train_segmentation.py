@@ -1,13 +1,16 @@
 import logging
+from typing import List
+
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
 from pathlib import Path
 import time
 import h5py
-import datetime
+from datetime import datetime
 import warnings
 import functools
+
 from tqdm import tqdm
 from collections import OrderedDict
 import shutil
@@ -49,25 +52,36 @@ def loader(path):
     return img
 
 
-def create_dataloader(samples_folder, batch_size, num_devices, params):
+def create_dataloader(samples_folder,
+                      batch_size,
+                      devices_dict,
+                      sample_size,
+                      dontcare_val,
+                      debug,
+                      meta_map,
+                      num_bands,
+                      BGR_to_RGB,
+                      scale,
+                      params):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param samples_folder: path to folder containting .hdf5 files if task is segmentation
     :param batch_size: (int) batch size
-    :param num_devices: (int) number of GPUs used
+    :param devices_dict: (dict) dictionary where each key contains an available GPU with its ram info stored as value
+    :param sample_size: (int) size of hdf5 samples (used to evaluate eval batch-size)
+    :param dontcare_val: (int) value in label to be ignored during loss calculation
+    :param meta_map:
+    :param num_bands: (int) number of bands in imagery
+    :param BGR_to_RGB: (bool) if True, BGR channels will be flipped to RGB
+    :param scale: (List) imagery data will be scaled to this min and max value (ex.: 0 to 1)
     :param params: (dict) Parameters found in the yaml config file.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
-    debug = get_key_def('debug_mode', params['global'], False)
-    dontcare_val = get_key_def("ignore_index", params["training"], -1)
-
     assert samples_folder.is_dir(), f'Could not locate: {samples_folder}'
     assert len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
-    num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=params)
+    num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=params, dontcare=dontcare_val)
     assert num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size, f"Number of samples in .hdf5 files is less than batch size"
     logging.info(f"Number of samples : {num_samples}\n")
-    meta_map = get_key_def("meta_map", params["global"], {})
-    num_bands = get_key_def("number_of_bands", params["global"], {})
     if not meta_map:
         dataset_constr = create_dataset.SegmentationDataset
     else:
@@ -79,40 +93,61 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
         datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare_val,
-                                       radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
-                                       geom_transform=aug.compose_transforms(params, subset, type='geometric',
+                                       radiom_transform=aug.compose_transforms(params=params,
+                                                                               dataset=subset,
+                                                                               type='radiometric'),
+                                       geom_transform=aug.compose_transforms(params=params,
+                                                                             dataset=subset,
+                                                                             type='geometric',
                                                                              ignore_index=dontcare_val),
-                                       totensor_transform=aug.compose_transforms(params, subset, type='totensor'),
+                                       totensor_transform=aug.compose_transforms(params=params,
+                                                                                 dataset=subset,
+                                                                                 input_space=BGR_to_RGB,
+                                                                                 scale=scale,
+                                                                                 type='totensor'),
                                        params=params,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
-    num_workers = num_devices * 4 if num_devices > 1 else 4
+    num_workers = len(devices_dict.keys()) * 4 if len(devices_dict.keys()) > 1 else 4
 
     samples_weight = torch.from_numpy(samples_weight)
     sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
                                                              len(samples_weight))
-
+    eval_batch_size = batch_size
+    if devices_dict:
+        # get max ram for smallest gpu
+        smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in devices_dict.items())
+        # rule of thumb to determine eval batch size based on approximate max pixels a gpu can handle during evaluation
+        max_pix_per_mb_gpu = 150  # TODO: this value may need to be finetuned
+        pix_per_mb_gpu = (batch_size / len(devices_dict.keys()) * sample_size ** 2) / smallest_gpu_ram
+        if pix_per_mb_gpu >= max_pix_per_mb_gpu:
+            eval_batch_size = int(round(smallest_gpu_ram * max_pix_per_mb_gpu / sample_size**2, len(devices_dict.keys())))
+            eval_batch_size = 1 if eval_batch_size < 1 else eval_batch_size
+            logging.warning(f'Validation and test batch size downgraded from {batch_size} to {eval_batch_size} '
+                            f'based on max ram of smallest GPU available')
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler,
                                 drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=1, num_workers=num_workers, shuffle=False,
+    val_dataloader = DataLoader(val_dataset, batch_size=eval_batch_size, num_workers=num_workers, shuffle=False,
                                 drop_last=True)
-    tst_dataloader = DataLoader(tst_dataset, batch_size=1, num_workers=num_workers, shuffle=False,
+    tst_dataloader = DataLoader(tst_dataset, batch_size=eval_batch_size, num_workers=num_workers, shuffle=False,
                                 drop_last=True) if num_samples['tst'] > 0 else None
 
     return trn_dataloader, val_dataloader, tst_dataloader
 
 
-def get_num_samples(samples_path, params):
+def get_num_samples(samples_path, params, dontcare):
     """
     Function to retrieve number of samples, either from config file or directly from hdf5 file.
     :param samples_path: (str) Path to samples folder
     :param params: (dict) Parameters found in the yaml config file.
+    :param dontcare:
     :return: (dict) number of samples for trn, val and tst.
     """
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
     weights = []
+    samples_weight = None
     for i in ['trn', 'val', 'tst']:
         if get_key_def(f"num_{i}_samples", params['training'], None) is not None:
             num_samples[i] = params['training'][f"num_{i}_samples"]
@@ -125,13 +160,15 @@ def get_num_samples(samples_path, params):
         else:
             with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), "r") as hdf5_file:
                 num_samples[i] = len(hdf5_file['map_img'])
-                if i == 'trn':
-                    for x in range(num_samples[i]):
-                        label = hdf5_file['map_img'][x]
-                        label = np.where(label == 255, 0, label)
-                        unique_labels = np.unique(label)
-                        weights.append(''.join([str(int(i)) for i in unique_labels]))
-                        samples_weight = compute_sample_weight('balanced', weights)
+
+        with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), "r") as hdf5_file:
+            if i == 'trn':
+                for x in range(num_samples[i]):
+                    label = hdf5_file['map_img'][x]
+                    label = np.where(label == dontcare, 0, label)
+                    unique_labels = np.unique(label)
+                    weights.append(''.join([str(int(i)) for i in unique_labels]))
+                    samples_weight = compute_sample_weight('balanced', weights)
 
     return num_samples, samples_weight
 
@@ -158,8 +195,15 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
         for batch_index, data in enumerate(_tqdm):
             if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
                 with torch.no_grad():
-                    inputs = data['sat_img'].to(device)
-                    labels = data['map_img'].to(device)
+                    try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
+                        inputs = data['sat_img'].to(device)
+                        labels = data['map_img'].to(device)
+                    except RuntimeError as e:
+                        logging.error(e)
+                        logging.warning(f'Unable to use device {device}. Trying "cuda:0"')
+                        device = torch.device('cuda:0')
+                        inputs = data['sat_img'].to(device)
+                        labels = data['map_img'].to(device)
 
                     outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
@@ -183,7 +227,8 @@ def train(train_loader,
           batch_size,
           ep_idx,
           progress_log,
-          vis_params,
+          vis_at_train,
+          vis_batch_range,
           device,
           debug=False
           ):
@@ -198,23 +243,28 @@ def train(train_loader,
     :param batch_size: number of samples to process simultaneously
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
-    :param vis_params: (dict) Parameters found in the yaml config file. Named vis_params because they are only used for
-                        visualization functions.
+    :param vis_batch_range: range of batches to perform visualization on. see README.md for more info.
+    :param vis_at_train: (bool) if True, will perform visualization at train time, as long as vis_batch_range is valid
     :param device: device used by pytorch (cpu ou cuda)
     :param debug: (bool) Debug mode
     :return: Updated training loss
     """
     model.train()
     train_metrics = create_metrics_dict(num_classes)
-    vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
-    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
 
     with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
             progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
-            inputs = data['sat_img'].to(device)
-            labels = data['map_img'].to(device)
+            try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
+                inputs = data['sat_img'].to(device)
+                labels = data['map_img'].to(device)
+            except RuntimeError as e:
+                logging.error(e)
+                logging.warning(f'Unable to use device {device}. Trying "cuda:0"')
+                device = torch.device('cuda:0')
+                inputs = data['sat_img'].to(device)
+                labels = data['map_img'].to(device)
 
             if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
                 ############################
@@ -275,7 +325,19 @@ def train(train_loader,
     return train_metrics
 
 
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
+def evaluation(eval_loader,
+               model,
+               criterion,
+               num_classes,
+               batch_size,
+               ep_idx,
+               progress_log,
+               vis_batch_range,
+               vis_at_eval,
+               batch_metrics=None,
+               dataset='val',
+               device=None,
+               debug=False):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -285,23 +347,32 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
     :param batch_size: number of samples to process simultaneously
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
+    :param vis_batch_range: range of batches to perform visualization on. see README.md for more info.
+    :param vis_at_eval: (bool) if True, will perform visualization at eval time, as long as vis_batch_range is valid
     :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
     :param dataset: (str) 'val or 'tst'
     :param device: device used by pytorch (cpu ou cuda)
+    :param debug: if True, debug functions will be performed
     :return: (dict) eval_metrics
     """
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
-    vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
-    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
 
     with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
         for batch_index, data in enumerate(_tqdm):
             progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
             with torch.no_grad():
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
+                try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
+                except RuntimeError as e:
+                    logging.error(e)
+                    logging.warning(f'Unable to use device {device}. Trying "cuda:0"')
+                    device = torch.device('cuda:0')
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
+
                 labels_flatten = flatten_labels(labels)
 
                 if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
@@ -404,68 +475,142 @@ def main(params, config_path):
     :param params: (dict) Parameters found in the yaml config file.
     :param config_path: (str) Path to the yaml config file.
     """
-    params['global']['git_hash'] = get_git_hash()
-    debug = get_key_def('debug_mode', params['global'], False)
-    now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    num_classes = params['global']['num_classes']
-    task = params['global']['task']
-    assert task == 'segmentation', f"The task should be segmentation. The provided value is {task}"
-    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-    data_path = Path(params['global']['data_path'])
+    # MANDATORY PARAMETERS
+    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
+    num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
+    batch_size = get_key_def('batch_size', params['training'], expected_type=int)
+    num_epochs = get_key_def('num_epochs', params['training'], expected_type=int)
+    model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
+    BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
+
+    # OPTIONAL PARAMETERS
+    # basics
+    debug = get_key_def('debug_mode', params['global'], default=False, expected_type=bool)
+    task = get_key_def('task', params['global'], default='segmentation', expected_type=str)
+    assert task == 'segmentation', f"The task should be segmentation. The provided value is {task}"
+    dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
+    batch_metrics = get_key_def('batch_metrics', params['training'], default=1, expected_type=int)
+    meta_map = get_key_def("meta_map", params["global"], default={})
+    bucket_name = get_key_def('bucket_name', params['global'])  # AWS
+    scale = get_key_def('scale_data', params['global'], default=None, expected_type=List)
+
+    # model params
+    loss_fn = get_key_def('loss_fn', params['training'], default='CrossEntropy', expected_type=str)
+    optimizer = get_key_def('optimizer', params['training'], default='adam', expected_type=str)
+    pretrained = get_key_def('pretrained', params['training'], default=True, expected_type=bool)
+    train_state_dict_path = get_key_def('state_dict_path', params['training'], default=None, expected_type=str)
+    dropout_prob = get_key_def('dropout_prob', params['training'], default=None, expected_type=float)
+    # Read the concatenation point
+    # TODO: find a way to maybe implement it in classification one day
+    conc_point = get_key_def('concatenate_depth', params['global'], None)
+
+    # gpu parameters
+    num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
+    max_used_ram = get_key_def('max_used_ram', params['global'], default=2000, expected_type=int)
+    max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
+
+    # mlflow logging
+    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
+    assert Path(mlflow_uri).is_dir(), f'Couldn\'t find the mlflow uri directory "{mlflow_uri}"'
+    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
+    run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
+
+    # parameters to find hdf5 samples
+    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
+    samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
+    overlap = get_key_def("overlap", params["sample"], default=5, expected_type=int)
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
+                                 expected_type=int)
     assert data_path.is_dir(), f'Could not locate data path {data_path}'
-    samples_size = params["global"]["samples_size"]
-    overlap = params["sample"]["overlap"]
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], 0, expected_type=int)
-    num_bands = params['global']['number_of_bands']
-    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training')
-    run_name = get_key_def('mlflow_run_name', params['global'], default='gdl')
     samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
                            f'_{experiment_name}')
     samples_folder = data_path.joinpath(samples_folder_name)
-    batch_size = params['training']['batch_size']
-    num_devices = params['global']['num_gpus']
 
+    # visualization parameters
+    vis_at_train = get_key_def('vis_at_train', params['visualization'], default=False)
+    vis_at_eval = get_key_def('vis_at_evaluation', params['visualization'], default=False)
+    vis_batch_range = get_key_def('vis_batch_range', params['visualization'], default=None)
+    vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], default=False)
+    ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], default=1, expected_type=int)
+    vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
+
+    # coordconv parameters
+    coordconv_params = {}
+    for param, val in params['global'].items():
+        if 'coordconv' in param:
+            coordconv_params[param] = val
+
+    # add git hash from current commit to parameters if available. Parameters will be saved to model's .pth.tar
+    params['global']['git_hash'] = get_git_hash()
+
+    # automatic model naming with unique id for each training
     model_id = config_path.stem
     output_path = samples_folder.joinpath('model') / model_id
     if output_path.is_dir():
-        model_id = f"{model_id}_{now}"
-        output_path = samples_folder.joinpath('model') / model_id
+        last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+        archive_output_path = samples_folder.joinpath('model') / f"{model_id}_{last_mod_time_suffix}"
+        shutil.move(output_path, archive_output_path)
     output_path.mkdir(parents=True, exist_ok=False)
     shutil.copy(str(config_path), str(output_path))  # copy yaml to output path where model will be saved
 
     import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     log_config_path = Path('utils/logging.conf').absolute()
-    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{output_path}/{model_id}.log',
-                                                         'logfilename_debug': f'{output_path}/{model_id}_debug.log'})
+    logfile = f'{output_path}/{model_id}.log'
+    logfile_debug = f'{output_path}/{model_id}_debug.log'
+    logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile, 'logfilename_debug': logfile_debug})
 
+    # now that we know where logs will be saved, we can start logging!
     logging.info(f'Model and log files will be saved to: {output_path}\n\n')
     if debug:
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
+    if dontcare_val < 0 and vis_batch_range:
+        logging.warning(f'Visualization: expected positive value for ignore_index, got {dontcare_val}.'
+                        f'Will be overridden to 255 during visualization only. Problems may occur.')
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    max_used_ram = get_key_def('max_used_ram', params['global'], 2000, expected_type=int)
-    max_used_perc = get_key_def('max_used_perc', params['global'], 15, expected_type=int)
-    lst_device_ids = get_device_ids(
-        num_devices, max_used_ram=max_used_ram, max_used_perc=max_used_perc, debug=debug) \
-        if torch.cuda.is_available() else []
-    num_devices = len(lst_device_ids) if lst_device_ids else 0
-    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+    gpu_devices_dict = get_device_ids(num_devices,
+                                      max_used_ram_perc=max_used_ram,
+                                      max_used_perc=max_used_perc,
+                                      debug=debug)
+    num_devices = len(gpu_devices_dict.keys())
+    device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
 
     logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
-                                                                       num_devices=num_devices,
+                                                                       devices_dict=gpu_devices_dict,
+                                                                       sample_size=samples_size,
+                                                                       dontcare_val=dontcare_val,
+                                                                       debug=debug,
+                                                                       meta_map=meta_map,
+                                                                       num_bands=num_bands,
+                                                                       BGR_to_RGB=BGR_to_RGB,
+                                                                       scale=scale,
                                                                        params=params)
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    model, model_name, criterion, optimizer, lr_scheduler = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
+    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
+    model, model_name, criterion, optimizer, lr_scheduler = net(model_name=model_name,
+                                                                num_bands=num_bands,
+                                                                num_channels=num_classes_corrected,
+                                                                dontcare_val=dontcare_val,
+                                                                num_devices=num_devices,
+                                                                train_state_dict_path=train_state_dict_path,
+                                                                pretrained=pretrained,
+                                                                dropout_prob=dropout_prob,
+                                                                loss_fn=loss_fn,
+                                                                optimizer=optimizer,
+                                                                net_params=params,
+                                                                conc_point=conc_point,
+                                                                coordconv_params=coordconv_params)
+
     logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
-    bucket_name = get_key_def('bucket_name', params['global'])
 
     # mlflow tracking path + parameters logging
-    set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
-    set_experiment(get_key_def('mlflow_experiment_name', params['global'], default='gdl-training'))
+    set_tracking_uri(mlflow_uri)
+    set_experiment(experiment_name)
     start_run(run_name=run_name)
     log_params(params['training'])
     log_params(params['global'])
@@ -491,7 +636,6 @@ def main(params, config_path):
     filename = output_path.joinpath('checkpoint.pth.tar')
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
-    vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment).
         # Check once for all visualization tasks.
@@ -512,8 +656,8 @@ def main(params, config_path):
                                 device=device,
                                 vis_batch_range=vis_batch_range)
 
-    for epoch in range(0, params['training']['num_epochs']):
-        logging.info(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
+    for epoch in range(0, num_epochs):
+        logging.info(f'\nEpoch {epoch}/{num_epochs - 1}\n{"-" * 20}')
 
         trn_report = train(train_loader=trn_dataloader,
                            model=model,
@@ -524,7 +668,8 @@ def main(params, config_path):
                            batch_size=batch_size,
                            ep_idx=epoch,
                            progress_log=progress_log,
-                           vis_params=params,
+                           vis_batch_range=vis_batch_range,
+                           vis_at_train=vis_at_train,
                            device=device,
                            debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
@@ -536,13 +681,14 @@ def main(params, config_path):
                                 batch_size=batch_size,
                                 ep_idx=epoch,
                                 progress_log=progress_log,
-                                vis_params=params,
-                                batch_metrics=params['training']['batch_metrics'],
+                                vis_batch_range=vis_batch_range,
+                                vis_at_eval=vis_at_eval,
+                                batch_metrics=batch_metrics,
                                 dataset='val',
                                 device=device,
                                 debug=debug)
         val_loss = val_report['loss'].avg
-        if params['training']['batch_metrics'] is not None:
+        if batch_metrics is not None:
             val_log.add_values(val_report, epoch)
         else:
             val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
@@ -557,16 +703,13 @@ def main(params, config_path):
                         'model': state_dict,
                         'best_loss': best_loss,
                         'optimizer': optimizer.state_dict()}, filename)
-            if epoch == 0:
-                log_artifact(filename)
+            # if epoch == 0:
+            #     log_artifact(filename)
             if bucket_name:
                 bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
 
             # VISUALIZATION: generate pngs of img samples, labels and outputs as alternative to follow training
-            vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
-            ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4)
-            vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if last_vis_epoch == 0:
                     logging.info(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
@@ -598,13 +741,14 @@ def main(params, config_path):
                                 criterion=criterion,
                                 num_classes=num_classes_corrected,
                                 batch_size=batch_size,
-                                ep_idx=params['training']['num_epochs'],
+                                ep_idx=num_epochs,
                                 progress_log=progress_log,
-                                vis_params=params,
-                                batch_metrics=params['training']['batch_metrics'],
+                                vis_batch_range=vis_batch_range,
+                                vis_at_eval=vis_at_eval,
+                                batch_metrics=batch_metrics,
                                 dataset='tst',
                                 device=device)
-        tst_log.add_values(tst_report, params['training']['num_epochs'])
+        tst_log.add_values(tst_report, num_epochs)
 
         if bucket_name:
             bucket_filename = bucket_output_path.joinpath('last_epoch.pth.tar')
@@ -613,6 +757,8 @@ def main(params, config_path):
 
     time_elapsed = time.time() - since
     logging.info('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    log_artifact(logfile)
+    log_artifact(logfile_debug)
 
 
 if __name__ == '__main__':
@@ -625,7 +771,7 @@ if __name__ == '__main__':
 
     # Limit of the NIR implementation TODO: Update after each version
     modalities = None if 'modalities' not in params['global'] else params['global']['modalities']
-    if 'deeplabv3' not in params['global']['model_name'] and modalities is 'RGBN':
+    if 'deeplabv3' not in params['global']['model_name'] and modalities == 'RGBN':
         print(
             '\n The NIR modality will only be concatenate at the begining,' /
             ' the implementation of the concatenation point is only available' /

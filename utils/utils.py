@@ -85,28 +85,33 @@ def list_s3_subfolders(bucket, data_path):
     return list_classes
 
 
-def get_device_ids(number_requested, max_used_ram=2000, max_used_perc=15, debug=False):
+def get_device_ids(number_requested, max_used_ram_perc=25, max_used_perc=15, debug=False):
     """
     Function to check which GPU devices are available and unused.
     :param number_requested: (int) Number of devices requested.
     :return: (list) Unused GPU devices.
     """
-    lst_free_devices = []
+    lst_free_devices = {}
+    if not torch.cuda.is_available():
+        logging.warning(f'Requested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
+        return lst_free_devices
     try:
         nvmlInit()
         if number_requested > 0:
             device_count = nvmlDeviceGetCount()
             for i in range(device_count):
                 res, mem = gpu_stats(i)
+                used_ram = mem.used / (1024 ** 2)
+                max_ram = mem.total / (1024 ** 2)
                 if debug:
-                    logging.info(f'GPU RAM used: {round(mem.used/(1024**2), 1)} | GPU % used: {res.gpu}')
-                if round(mem.used/(1024**2), 1) <  max_used_ram and res.gpu < max_used_perc:
-                    lst_free_devices.append(i)
-                if len(lst_free_devices) == number_requested:
+                    logging.info(f'GPU RAM used: {used_ram:.0f}/{max_ram:.0f} MiB\nGPU % used: {res.gpu}')
+                if used_ram/max_ram < max_used_ram_perc and res.gpu < max_used_perc:
+                    lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}
+                if len(lst_free_devices.keys()) == number_requested:
                     break
-            if len(lst_free_devices) < number_requested:
+            if len(lst_free_devices.keys()) < number_requested:
                 logging.warning(f"You requested {number_requested} devices. {device_count} devices are available and "
-                                f"other processes are using {device_count-len(lst_free_devices)} device(s).")
+                                f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
     except NameError as error:
         raise NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
     except NVMLError as error:
@@ -156,7 +161,7 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
             val = default
         else:
             val = config[key] if config[key] != 'None' else None
-            if expected_type:
+            if expected_type and val is not False:
                 assert isinstance(val, expected_type), f"{val} is of type {type(val)}, expected {expected_type}"
             if delete:
                 del config[key]
@@ -355,10 +360,10 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
                                        raster_info: dict
                                        ) -> dict:
     """
-    @param sat_img_arr: source image as array (opened with rasterio.read)
-    @param meta_map: meta map parameter from yaml (global section)
-    @param raster_info: info from raster as read with read_csv (except at inference)
-    @return: Returns a metadata dictionary populated with info from source raster, including original csv line and
+    :param sat_img_arr: source image as array (opened with rasterio.read)
+    :param meta_map: meta map parameter from yaml (global section)
+    :param raster_info: info from raster as read with read_csv (except at inference)
+    :return: Returns a metadata dictionary populated with info from source raster, including original csv line and
              histogram.
     """
     metadata_dict = {'name': raster_handle.name, 'csv_info': raster_info, 'source_raster_bincount': {}}
@@ -431,7 +436,7 @@ def _window_2D(window_size, power=2):
 def get_git_hash():
     """
     Get git hash during execution of python script
-    @return: (str) hash code for current version of geo-deep-learning. If necessary, the code associated to this hash can be
+    :return: (str) hash code for current version of geo-deep-learning. If necessary, the code associated to this hash can be
     found with the following url: https://github.com/<owner>/<project>/commit/<hash>, aka
     https://github.com/NRCan/geo-deep-learning/commit/<hash>
     """
@@ -449,7 +454,7 @@ def get_git_hash():
 def ordereddict_eval(str_to_eval: str):
     """
     Small utility to successfully evaluate an ordereddict object that was converted to str by repr() function.
-    @param str_to_eval: (str) string to prepared for import with eval()
+    :param str_to_eval: (str) string to prepared for import with eval()
     """
     # Replaces "ordereddict" string to "Collections.OrderedDict"
     if isinstance(str_to_eval, str) and "ordereddict" in str_to_eval:

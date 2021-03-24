@@ -1,5 +1,5 @@
 import argparse
-import datetime
+from datetime import datetime
 import logging
 from typing import List
 
@@ -317,31 +317,50 @@ def main(params):
     :param params: (dict) Parameters found in the yaml config file.
     """
     start_time = time.time()
-    params['global']['git_hash'] = get_git_hash()
-    now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    bucket_file_cache = []
 
-    assert params['global']['task'] == 'segmentation', f"images_to_samples.py isn't necessary for classification tasks"
+    # MANDATORY PARAMETERS
+    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
+    num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
+    csv_file = get_key_def('prep_csv_file', params['sample'], expected_type=str)
 
-    # SET BASIC VARIABLES AND PATHS. CREATE OUTPUT FOLDERS.
-    bucket_name = get_key_def('bucket_name', params['global'])
-    data_path = Path(params['global']['data_path'])
-    Path.mkdir(data_path, exist_ok=True, parents=True)
-    csv_file = params['sample']['prep_csv_file']
-    val_percent = params['sample']['val_percent']
-    samples_size = params["global"]["samples_size"]
-    overlap = params["sample"]["overlap"]
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
-    num_bands = params['global']['number_of_bands']
+    # OPTIONAL PARAMETERS
+    # basics
     debug = get_key_def('debug_mode', params['global'], False)
+    task = get_key_def('task', params['global'], 'segmentation', expected_type=str)
+    assert task == 'segmentation', f"images_to_samples.py isn't necessary for classification tasks"
+    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
+    Path.mkdir(data_path, exist_ok=True, parents=True)
+    val_percent = get_key_def('val_percent', params['sample'], default=10, expected_type=int)
 
-    final_samples_folder = None
+    # mlflow logging
+    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
+    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
 
-    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training')
-    smpl_pth_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
-                        f'{num_bands}bands_{experiment_name}')
+    # parameters to set hdf5 samples directory
+    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
+    samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
+    overlap = get_key_def("overlap", params["sample"], default=5, expected_type=int)
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
+                                 expected_type=int)
+    assert data_path.is_dir(), f'Could not locate data path {data_path}'
+    samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
+                           f'_{experiment_name}')
+
+    # other optional parameters
+    dontcare = get_key_def("ignore_index", params["training"], -1)
+    meta_map = get_key_def('meta_map', params['global'], default={})
+    metadata = None
+    targ_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
+    class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
+    mask_reference = get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
+
+    # add git hash from current commit to parameters if available. Parameters will be saved to hdf5s
+    params['global']['git_hash'] = get_git_hash()
 
     # AWS
+    final_samples_folder = None
+    bucket_name = get_key_def('bucket_name', params['global'])
+    bucket_file_cache = []
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
@@ -350,21 +369,20 @@ def main(params):
     else:
         list_data_prep = read_csv(csv_file)
 
-    smpls_dir = data_path.joinpath(smpl_pth_name)
+    smpls_dir = data_path.joinpath(samples_folder_name)
     if smpls_dir.is_dir():
         if debug:
             # Move existing data folder with a random suffix.
-            new_dir = Path(f'{str(smpls_dir)}_{uuid.uuid4().hex[0:6]}')
-            shutil.move(smpls_dir, new_dir)
-            smpls_dir = new_dir
-        else:  # TODO: what if we want to append samples to existing hdf5?
+            last_mod_time_suffix = datetime.fromtimestamp(smpls_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+            shutil.move(smpls_dir, data_path.joinpath(f'{str(smpls_dir)}_{last_mod_time_suffix}'))
+        else:
             raise FileExistsError(f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.')
     Path.mkdir(smpls_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
 
     import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     log_config_path = Path('utils/logging.conf').absolute()
-    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{smpls_dir}/{smpl_pth_name}.log',
-                                                         'logfilename_debug': f'{smpls_dir}/{smpl_pth_name}_debug.log'})
+    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{smpls_dir}/{samples_folder_name}.log',
+                                                         'logfilename_debug': f'{smpls_dir}/{samples_folder_name}_debug.log'})
 
     if debug:
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
@@ -377,17 +395,12 @@ def main(params):
     logging.info(f'Samples will be written to {smpls_dir}\n\n')
 
     # Set dontcare (aka ignore_index) value
-    dontcare = get_key_def("ignore_index", params["training"], -1)  # TODO: deduplicate with train_segmentation, l300
     if dontcare == 0:
         logging.warning("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
                         " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
                         " will be remapped to -1 while loading the dataset, and inside the config from now on.")
         dontcare = -1
 
-    meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
-
-    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
-    targ_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
     # Assert that all items in target_ids are integers
     if targ_ids:
         for item in targ_ids:
@@ -418,9 +431,11 @@ def main(params):
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 
-    class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
-
-    trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, smpls_dir)
+    trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
+                                                             number_of_bands=num_bands,
+                                                             meta_map=meta_map,
+                                                             samples_folder=smpls_dir,
+                                                             params=params)
 
     # creates pixel_classes dict and keys
     pixel_classes = {key: 0 for key in gpkg_classes}
@@ -496,7 +511,7 @@ def main(params):
                     dest.write(np_label_debug)
 
             # Mask the zeros from input image into label raster.
-            if params['sample']['mask_reference']:
+            if mask_reference:
                 np_label_raster = mask_image(np_input_image, np_label_raster)
 
             if info['dataset'] == 'trn':
@@ -557,7 +572,7 @@ def main(params):
 
     logging.info("Number of samples created: ", number_samples)
 
-    if bucket_name and final_samples_folder:
+    if bucket_name and final_samples_folder:  # FIXME: final_samples_folder always None in current implementation
         logging.info('Transfering Samples to the bucket')
         bucket.upload_file(smpls_dir + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
         bucket.upload_file(smpls_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')

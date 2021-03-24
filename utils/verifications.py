@@ -21,12 +21,12 @@ def validate_num_classes(vector_file: Union[str, Path],
     """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
     FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
     Args:
-        @param vector_file: full file path of the vector image
-        @param num_classes: number of classes set in config_template.yaml
-        @param attribute_name: name of the value field representing the required classes in the vector image file
-        @param ignore_index: (int) target value that is ignored during training and does not contribute to
+        :param vector_file: full file path of the vector image
+        :param num_classes: number of classes set in config_template.yaml
+        :param attribute_name: name of the value field representing the required classes in the vector image file
+        :param ignore_index: (int) target value that is ignored during training and does not contribute to
                              the input gradient
-        @param target_ids: list of identifiers to burn from the vector file (None = use all)
+        :param target_ids: list of identifiers to burn from the vector file (None = use all)
     Return:
         List of unique attribute values found in gpkg vector file
     """

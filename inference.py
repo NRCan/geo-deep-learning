@@ -232,13 +232,22 @@ def main(params: dict):
     since = time.time()
     task = params['global']['task']
     img_dir_or_csv = params['inference']['img_dir_or_csv_file']
+    state_dict = get_key_def('state_dict_path', params['inference'], expected_type=str)
     chunk_size = get_key_def('chunk_size', params['inference'], 512)
+    model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
+    dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
     num_classes = params['global']['num_classes']
-    num_classes_corrected = add_background_to_num_class(task, num_classes)
+    num_classes_backgr = add_background_to_num_class(task, num_classes)
     num_bands = params['global']['number_of_bands']
     working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
     num_devices = params['global']['num_gpus'] if params['global']['num_gpus'] else 0
     Path.mkdir(working_folder, parents=True, exist_ok=True)
+
+    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
+    log_config_path = Path('utils/logging.conf').absolute()
+    logfile = f'{working_folder}/info.log'
+    logfile_debug = f'{working_folder}/debug.log'
+    logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile, 'logfilename_debug': logfile_debug})
     logging.info(f'Inferences will be saved to: {working_folder}\n\n')
 
     bucket = None
@@ -255,7 +264,13 @@ def main(params: dict):
         logging.warning(f"No Cuda device available. This process will only run on CPU")
 
     # CONFIGURE MODEL
-    model, state_dict_path, model_name = net(params, num_channels=num_classes_corrected, inference=True)
+    model, state_dict_path, model_name = net(model_name=model_name,
+                                             num_bands=num_bands,
+                                             num_channels=num_classes_backgr,
+                                             dontcare_val=dontcare_val,
+                                             num_devices=1,
+                                             net_params=params,
+                                             inference_state_dict=state_dict)
     try:
         model.to(device)
     except RuntimeError:
@@ -319,14 +334,14 @@ def main(params: dict):
                                                  attribute_name=info['attribute_name'],
                                                  fill=0)  # background value in rasterized vector.
 
-                    pred, gdf = segmentation(img_array, raster, label, num_classes_corrected,
+                    pred, gdf = segmentation(img_array, raster, label, num_classes_backgr,
                                              gpkg_name, model, chunk_size, num_bands, device)
                     if gdf is not None:
                         gdf_.append(gdf)
                         gpkg_name_.append(gpkg_name)
                     if local_gpkg:
                         with start_run(run_name=img_name, nested=True):
-                            pixelMetrics= ComputePixelMetrics(label, pred, num_classes_corrected)
+                            pixelMetrics= ComputePixelMetrics(label, pred, num_classes_backgr)
                             log_metrics(pixelMetrics.update(pixelMetrics.iou))
                             log_metrics(pixelMetrics.update(pixelMetrics.dice))
                     pred = pred[np.newaxis, :, :].astype(np.uint8)

@@ -86,7 +86,7 @@ def verify_weights(num_classes, weights):
         raise ValueError('The number of class weights in the configuration file is different than the number of classes')
 
 
-def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
+def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val, loss_fn, optimizer):
     """
     Function to set hyperparameters based on values provided in yaml config file.
     If none provided, default functions values may be used.
@@ -94,6 +94,9 @@ def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
     :param num_classes: (int) number of classes for current task
     :param model: initialized model
     :param checkpoint: (dict) state dict as loaded by model_choice.py
+    :param dontcare_val: value in label to ignore during loss calculation
+    :param loss_fn: loss function
+    :param optimizer: optimizer function
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
     # set mandatory hyperparameters values with those in config file if they exist
@@ -108,12 +111,12 @@ def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
         verify_weights(num_classes, class_weights)
 
     # Loss function
-    criterion = MultiClassCriterion(loss_type=params['training']['loss_fn'],
+    criterion = MultiClassCriterion(loss_type=loss_fn,
                                     ignore_index=dontcare_val,
                                     weight=class_weights)
 
     # Optimizer
-    opt_fn = params['training']['optimizer']
+    opt_fn = optimizer
     optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
@@ -124,28 +127,24 @@ def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
     return model, criterion, optimizer, lr_scheduler
 
 
-def net(net_params, num_channels, inference=False):
+def net(model_name: str,
+        num_bands: int,
+        num_channels: int,
+        dontcare_val: int,
+        num_devices: int,
+        train_state_dict_path: str = None,
+        pretrained: bool = True,
+        dropout_prob: float = False,
+        loss_fn: str = None,
+        optimizer: str = None,
+        net_params=None,
+        conc_point: str = None,
+        coordconv_params=None,
+        inference_state_dict: str = None):
     """Define the neural net"""
-    model_name = net_params['global']['model_name'].lower()
-    num_bands = int(net_params['global']['number_of_bands'])
     msg = f'Number of bands specified incompatible with this model. Requires 3 band data.'
-    train_state_dict_path = get_key_def('state_dict_path', net_params['training'], None)
-    pretrained = get_key_def('pretrained', net_params['training'], True) if not inference else False
-    dropout = get_key_def('dropout', net_params['training'], False)
-    dropout_prob = get_key_def('dropout_prob', net_params['training'], 0.5)
-    dontcare_val = get_key_def("ignore_index", net_params["training"], -1)
-    num_devices = net_params['global']['num_gpus']
-
-    if dontcare_val == 0:
-        logging.warning("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
-                      " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-                      " will be remapped to -1 while loading the dataset, and inside the config from now on.")
-        net_params["training"]["ignore_index"] = -1
-
-    # TODO: find a way to maybe implement it in classification one day
-    if 'concatenate_depth' in net_params['global']:
-        # Read the concatenation point
-        conc_point = net_params['global']['concatenate_depth']
+    pretrained = False if train_state_dict_path else pretrained
+    dropout = True if dropout_prob else False
 
     if model_name == 'unetsmall':
         model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
@@ -172,35 +171,36 @@ def net(net_params, num_channels, inference=False):
             model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
         elif num_bands == 4:
             logging.info('Finetuning pretrained deeplabv3 with 4 bands')
-            logging.info('Testing with 4 bands, concatenating at {}.'.format(conc_point))
 
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
 
-            if conc_point=='baseline':
-                conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-                depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
-                conv1 = np.append(conv1, depth, axis=1)
-                conv1 = torch.from_numpy(conv1).float()
-                model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-                classifier = list(model.classifier.children())
-                model.classifier = nn.Sequential(*classifier[:-1])
-                model.classifier.add_module(
-                    '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
-                )
-            else:
-                classifier = list(model.classifier.children())
-                model.classifier = nn.Sequential(*classifier[:-1])
-                model.classifier.add_module(
+            if conc_point:
+                logging.info('Testing with 4 bands, concatenating at {}.'.format(conc_point))
+                if conc_point == 'baseline':
+                    conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
+                    depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
+                    conv1 = np.append(conv1, depth, axis=1)
+                    conv1 = torch.from_numpy(conv1).float()
+                    model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
+                    classifier = list(model.classifier.children())
+                    model.classifier = nn.Sequential(*classifier[:-1])
+                    model.classifier.add_module(
                         '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
-                )
-                ###################
-                #conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-                #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
-                #conv1 = np.append(conv1, depth, axis=1)
-                #conv1 = torch.from_numpy(conv1).float()
-                #model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-                ###################
-                model = LayersEnsemble(model, conc_point=conc_point)
+                    )
+                else:
+                    classifier = list(model.classifier.children())
+                    model.classifier = nn.Sequential(*classifier[:-1])
+                    model.classifier.add_module(
+                            '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
+                    )
+                    ###################
+                    #conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
+                    #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
+                    #conv1 = np.append(conv1, depth, axis=1)
+                    #conv1 = torch.from_numpy(conv1).float()
+                    #model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
+                    ###################
+                    model = LayersEnsemble(model, conc_point=conc_point)
 
     elif model_name in lm_smp.keys():
         lsmp = lm_smp[model_name]
@@ -216,20 +216,20 @@ def net(net_params, num_channels, inference=False):
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
 
-    coordconv_convert = get_key_def('coordconv_convert', net_params['global'], False)
+    coordconv_convert = get_key_def('coordconv_convert', coordconv_params, False)
     if coordconv_convert:
-        centered = get_key_def('coordconv_centered', net_params['global'], True)
-        normalized = get_key_def('coordconv_normalized', net_params['global'], True)
-        noise = get_key_def('coordconv_noise', net_params['global'], None)
-        radius_channel = get_key_def('coordconv_radius_channel', net_params['global'], False)
-        scale = get_key_def('coordconv_scale', net_params['global'], 1.0)
+        centered = get_key_def('coordconv_centered', coordconv_params, True)
+        normalized = get_key_def('coordconv_normalized', coordconv_params, True)
+        noise = get_key_def('coordconv_noise', coordconv_params, None)
+        radius_channel = get_key_def('coordconv_radius_channel', coordconv_params, False)
+        scale = get_key_def('coordconv_scale', coordconv_params, 1.0)
         # note: this operation will not attempt to preserve already-loaded model parameters!
         model = coordconv.swap_coordconv_layers(model, centered=centered, normalized=normalized, noise=noise,
                                                 radius_channel=radius_channel, scale=scale)
 
-    if inference:
-        state_dict_path = net_params['inference']['state_dict_path']
-        assert Path(net_params['inference']['state_dict_path']).is_file(), f"Could not locate {net_params['inference']['state_dict_path']}"
+    if inference_state_dict:
+        state_dict_path = inference_state_dict
+        assert Path(inference_state_dict).is_file(), f"Could not locate {inference_state_dict}"
         checkpoint = load_checkpoint(state_dict_path)
 
         return model, checkpoint, model_name
@@ -246,7 +246,7 @@ def net(net_params, num_channels, inference=False):
         lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
         num_devices = len(lst_device_ids) if lst_device_ids else 0
         device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-        logging.info(f"Number of cuda devices requested: {net_params['global']['num_gpus']}. Cuda devices available: {lst_device_ids}\n")
+        logging.info(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}\n")
         if num_devices == 1:
             logging.info(f"Using Cuda device {lst_device_ids[0]}\n")
         elif num_devices > 1:
@@ -262,7 +262,7 @@ def net(net_params, num_channels, inference=False):
                                         device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         else:
             logging.warning(f"No Cuda device available. This process will only run on CPU\n")
-        tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
+        logging.info(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
         try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
             model.to(device)
         except RuntimeError:
@@ -270,7 +270,13 @@ def net(net_params, num_channels, inference=False):
             device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
             model.to(device)
 
-        model, criterion, optimizer, lr_scheduler = set_hyperparameters(net_params, num_channels, model, checkpoint, dontcare_val)
+        model, criterion, optimizer, lr_scheduler = set_hyperparameters(params=net_params,
+                                                                        num_classes=num_channels,
+                                                                        model=model,
+                                                                        checkpoint=checkpoint,
+                                                                        dontcare_val=dontcare_val,
+                                                                        loss_fn=loss_fn,
+                                                                        optimizer=optimizer)
         criterion = criterion.to(device)
 
         return model, model_name, criterion, optimizer, lr_scheduler

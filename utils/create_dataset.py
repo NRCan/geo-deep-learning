@@ -32,16 +32,16 @@ def append_to_dataset(dataset, sample):
     return old_size
 
 
-def create_files_and_datasets(params, samples_folder):
+def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: str, params):
     """
     Function to create the hdfs files (trn, val and tst).
-    :param params: (dict) Parameters found in the yaml config file.
+    :param samples_size: size of individual hdf5 samples to be created
+    :param number_of_bands: number of bands in imagery
+    :param meta_map:
     :param samples_folder: (str) Path to the output folder.
+    :param params: (dict) Parameters found in the yaml config file.
     :return: (hdf5 datasets) trn, val ant tst datasets.
     """
-    samples_size = params['global']['samples_size']
-    number_of_bands = params['global']['number_of_bands']
-    meta_map = get_key_def('meta_map', params['global'], {})
     real_num_bands = number_of_bands - MetaSegmentationDataset.get_meta_layer_count(meta_map)
     assert real_num_bands > 0, "invalid number of bands when accounting for meta layers"
     hdf5_files = []
@@ -162,9 +162,9 @@ class SegmentationDataset(Dataset):
     def compare_config_yamls(yaml1: dict, yaml2: dict) -> List:
         """
         Checks if values for same keys or subkeys (max depth of 2) of two dictionaries match.
-        @param yaml1: (dict) first dict to evaluate
-        @param yaml2: (dict) second dict to evaluate
-        @return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
+        :param yaml1: (dict) first dict to evaluate
+        :param yaml2: (dict) second dict to evaluate
+        :return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
         """
         for section, params in yaml1.items():  # loop through main sections of config yaml ('global', 'sample', etc.)
             for param, val in params.items():  # loop through parameters of each section
@@ -174,13 +174,13 @@ class SegmentationDataset(Dataset):
                         # if value doesn't match between yamls, emit warning
                         subval2 = yaml2[section][param][subparam]
                         if subval != subval2:
-                            warnings.warn(f"YAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
-                                          f"Current yaml value: \"{subval2}\"\nHDF5s yaml value: \"{subval}\"\n"
-                                          f"Problems may occur.")
+                            logging.warning(f"YAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
+                                            f"Current yaml value: \"{subval2}\"\nHDF5s yaml value: \"{subval}\"\n"
+                                            f"Problems may occur.")
                 elif val != val2:
-                    warnings.warn(f"YAML value mismatch: section \"{section}\", key \"{param}\"\n"
-                                  f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val}\"\n"
-                                  f"Problems may occur.")
+                    logging.warning(f"YAML value mismatch: section \"{section}\", key \"{param}\"\n"
+                                    f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val}\"\n"
+                                    f"Problems may occur.")
 
 
 class MetaSegmentationDataset(SegmentationDataset):
