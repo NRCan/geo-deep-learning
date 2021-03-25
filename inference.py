@@ -28,7 +28,6 @@ from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
     list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D
 from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import add_background_to_num_class
-from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
 
 try:
     import boto3
@@ -259,14 +258,20 @@ def main(params: dict):
     logging.info(f'Inferences will be saved to: {working_folder}\n\n')
 
     # mlflow logging
-    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
-    Path(mlflow_uri).mkdir(exist_ok=True)
-    set_tracking_uri(mlflow_uri)
-    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
-    set_experiment(f'{experiment_name}/{working_folder.name}')
-    run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
-    # log_params(params['global'])
-    # log_params(params['inference'])
+    mlflow_uri = get_key_def('mlflow_uri', params['global'], default=None, expected_type=str)
+    if mlflow_uri:
+        # import only if mlflow uri is set
+        from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
+        if not Path(mlflow_uri).is_dir():
+            logging.warning(f"Couldn't locate mlflow uri directory {mlflow_uri}. Directory will be created.")
+            Path(mlflow_uri).mkdir()
+        set_tracking_uri(mlflow_uri)
+        exp_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-inference', expected_type=str)
+        set_experiment(f'{exp_name}/{working_folder.name}')
+        run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
+        start_run(run_name=run_name)
+        log_params(params['global'])
+        log_params(params['inference'])
 
     # AWS
     bucket = None

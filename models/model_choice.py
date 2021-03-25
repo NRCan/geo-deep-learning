@@ -53,6 +53,11 @@ lm_smp = {
         'fct': smp.Unet, 'params': {
             'encoder_name': 'vgg11',
         }},
+    # 'manet_pretrained': {
+    #     # In the article of SpaceNet, the baseline is originaly pretrained on 'SN6 PS-RGB Imagery'.
+    #     'fct': smp.MAnet, 'params': {
+    #         'encoder_name': 'resnext50_32x4d',
+    #     }},
 }
 
 def load_checkpoint(filename):
