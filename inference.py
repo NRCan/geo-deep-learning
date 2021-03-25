@@ -228,21 +228,29 @@ def main(params: dict):
     :param params: (dict) Parameters found in the yaml config file.
 
     """
-    # SET BASIC VARIABLES AND PATHS
     since = time.time()
-    task = params['global']['task']
-    img_dir_or_csv = params['inference']['img_dir_or_csv_file']
+
+    # MANDATORY PARAMETERS
+    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str)
+    assert Path(img_dir_or_csv).exists(), f'Couldn\'t locate file or directory "{img_dir_or_csv}" ' \
+                                          f'containing imagery for inference'
     state_dict = get_key_def('state_dict_path', params['inference'], expected_type=str)
-    chunk_size = get_key_def('chunk_size', params['inference'], 512)
+    assert Path(state_dict).is_file(), f'Couldn\'t locate state_dict of model "{state_dict}" to be used for inference'
+    task = get_key_def('task', params['global'], default='segmentation', expected_type=str)
     model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
+    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
+    num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
+
+    # OPTIONAL PARAMETERS
+    chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
     dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
-    num_classes = params['global']['num_classes']
-    num_classes_backgr = add_background_to_num_class(task, num_classes)
-    num_bands = params['global']['number_of_bands']
+    num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
+
+    # SETTING OUTPUT DIRECTORY
     working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
-    num_devices = params['global']['num_gpus'] if params['global']['num_gpus'] else 0
     Path.mkdir(working_folder, parents=True, exist_ok=True)
 
+    # SETUP LOGGING
     import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     log_config_path = Path('utils/logging.conf').absolute()
     logfile = f'{working_folder}/info.log'
@@ -250,20 +258,33 @@ def main(params: dict):
     logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile, 'logfilename_debug': logfile_debug})
     logging.info(f'Inferences will be saved to: {working_folder}\n\n')
 
+    # mlflow logging
+    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
+    Path(mlflow_uri).mkdir(exist_ok=True)
+    set_tracking_uri(mlflow_uri)
+    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
+    set_experiment(f'{experiment_name}/{working_folder.name}')
+    run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
+    # log_params(params['global'])
+    # log_params(params['inference'])
+
+    # AWS
     bucket = None
     bucket_file_cache = []
     bucket_name = get_key_def('bucket_name', params['global'])
 
-    # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
-    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+    # list of GPU devices that are available and unused. If no GPUs, returns empty dict
+    devices_dict = get_device_ids(num_devices)
+    device = torch.device(f'cuda:0' if devices_dict else 'cpu')
 
-    if lst_device_ids:
-        logging.info(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using {lst_device_ids[0]}\n\n")
+    if devices_dict:
+        logging.info(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {devices_dict}. "
+                     f"Using {devices_dict[0]}\n\n")
     else:
         logging.warning(f"No Cuda device available. This process will only run on CPU")
 
     # CONFIGURE MODEL
+    num_classes_backgr = add_background_to_num_class(task, num_classes)
     model, state_dict_path, model_name = net(model_name=model_name,
                                              num_bands=num_bands,
                                              num_channels=num_classes_backgr,
@@ -275,14 +296,8 @@ def main(params: dict):
         model.to(device)
     except RuntimeError:
         logging.info(f"Unable to use device. Trying device 0")
-        device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+        device = torch.device(f'cuda:0' if torch.cuda.is_available() and devices_dict else 'cpu')
         model.to(device)
-
-    # mlflow tracking path + parameters logging
-    # set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
-    # set_experiment('gdl-benchmarking/' + working_folder.name)
-    # log_params(params['global'])
-    # log_params(params['inference'])
 
     # CREATE LIST OF INPUT IMAGES FOR INFERENCE
     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
@@ -377,10 +392,10 @@ if __name__ == '__main__':
     if args.param:
         params = read_parameters(args.param[0])
     elif args.input:
-        model = Path(args.input[0])
+        model_ckpt = Path(args.input[0])
         image = args.input[1]
 
-        checkpoint = load_checkpoint(model)
+        checkpoint = load_checkpoint(model_ckpt)
         if 'params' not in checkpoint.keys():
             raise KeyError('No parameters found in checkpoint. Use GDL version 1.3 or more.')
         else:

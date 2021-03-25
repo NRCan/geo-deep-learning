@@ -513,7 +513,7 @@ def main(params, config_path):
 
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
-    assert Path(mlflow_uri).is_dir(), f'Couldn\'t find the mlflow uri directory "{mlflow_uri}"'
+    Path(mlflow_uri).mkdir(exist_ok=True)
     experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
     run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
 
