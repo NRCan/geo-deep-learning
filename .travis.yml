@@ -11,7 +11,7 @@ install:
   - conda update -q conda
   - conda info -a
   - conda env create -f ./config/travis_CI/environment.yml
-  - conda activate ci_env
+  - source activate ci_env
 
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
