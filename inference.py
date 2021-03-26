@@ -61,7 +61,8 @@ def segmentation(img_array, input_image, label_arr, num_classes, gpkg_name, mode
 
     xres, yres = (abs(input_image.transform.a), abs(input_image.transform.e))
     h, w, bands = img_array.shape
-    assert num_bands <= bands, f"Num of specified bands is not compatible with image shape {img_array.shape}"
+    if not num_bands <= bands:
+        raise ValueError(f"Num of specified bands is not compatible with image shape {img_array.shape}")
     if num_bands < bands:
        img_array = img_array[:, :, :num_bands]
     padding = int(round(sample_size * (1 - 1.0 / 2.0)))
@@ -231,10 +232,12 @@ def main(params: dict):
 
     # MANDATORY PARAMETERS
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str)
-    assert Path(img_dir_or_csv).exists(), f'Couldn\'t locate file or directory "{img_dir_or_csv}" ' \
-                                          f'containing imagery for inference'
+    if not Path(img_dir_or_csv).exists():
+        raise FileNotFoundError(f'Couldn\'t locate file or directory "{img_dir_or_csv}" '
+                                f'containing imagery for inference')
     state_dict = get_key_def('state_dict_path', params['inference'], expected_type=str)
-    assert Path(state_dict).is_file(), f'Couldn\'t locate state_dict of model "{state_dict}" to be used for inference'
+    if not Path(state_dict).is_file():
+        raise FileNotFoundError(f'Couldn\'t locate state_dict of model "{state_dict}" to be used for inference')
     task = get_key_def('task', params['global'], default='segmentation', expected_type=str)
     model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
@@ -249,17 +252,18 @@ def main(params: dict):
     working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
     Path.mkdir(working_folder, parents=True, exist_ok=True)
 
-    # SETUP LOGGING
-    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
-    log_config_path = Path('utils/logging.conf').absolute()
-    logfile = f'{working_folder}/info.log'
-    logfile_debug = f'{working_folder}/debug.log'
-    logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile, 'logfilename_debug': logfile_debug})
-    logging.info(f'Inferences will be saved to: {working_folder}\n\n')
 
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default=None, expected_type=str)
     if mlflow_uri:
+        # SETUP LOGGING
+        import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
+        log_config_path = Path('utils/logging.conf').absolute()
+        logfile = f'{working_folder}/info.log'
+        logfile_debug = f'{working_folder}/debug.log'
+        logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile, 'logfilename_debug': logfile_debug})
+        logging.info(f'Inferences will be saved to: {working_folder}\n\n')
+
         # import only if mlflow uri is set
         from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
         if not Path(mlflow_uri).is_dir():
@@ -279,12 +283,12 @@ def main(params: dict):
     bucket_name = get_key_def('bucket_name', params['global'])
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty dict
-    devices_dict = get_device_ids(num_devices)
-    device = torch.device(f'cuda:0' if devices_dict else 'cpu')
+    gpu_devices_dict = get_device_ids(num_devices)
+    device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
 
-    if devices_dict:
-        logging.info(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {devices_dict}. "
-                     f"Using {devices_dict[0]}\n\n")
+    if gpu_devices_dict:
+        logging.info(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {gpu_devices_dict}. "
+                     f"Using {gpu_devices_dict[0]}\n\n")
     else:
         logging.warning(f"No Cuda device available. This process will only run on CPU")
 
@@ -301,7 +305,7 @@ def main(params: dict):
         model.to(device)
     except RuntimeError:
         logging.info(f"Unable to use device. Trying device 0")
-        device = torch.device(f'cuda:0' if torch.cuda.is_available() and devices_dict else 'cpu')
+        device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
         model.to(device)
 
     # CREATE LIST OF INPUT IMAGES FOR INFERENCE
@@ -341,13 +345,15 @@ def main(params: dict):
                     Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
                     inference_image = working_folder.joinpath(local_img.parent.name,
                                                               f"{img_name.split('.')[0]}_inference.tif")
-                assert local_img.is_file(), f"Could not locate raster file at {local_img}"
+                if not local_img.is_file():
+                    raise FileNotFoundError(f"Could not locate raster file at {local_img}")
                 with rasterio.open(local_img, 'r') as raster:
                     img_array, raster, _ = image_reader_as_array(input_image=raster, clip_gpkg=local_gpkg)
                     inf_meta = raster.meta
                     label = None
                     if local_gpkg:
-                        assert local_gpkg.is_file(), f"Could not locate gkpg file at {local_gpkg}"
+                        if not local_gpkg.is_file():
+                            raise FileNotFoundError(f"Could not locate gkpg file at {local_gpkg}")
                         label = vector_to_raster(vector_file=local_gpkg,
                                                  input_image=raster,
                                                  out_shape=(inf_meta['height'], inf_meta['width']),
@@ -373,7 +379,8 @@ def main(params: dict):
                     with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
                         dest.write(pred)
         if len(gdf_) >= 1:
-            assert len(gdf_) == len(gpkg_name_), 'benchmarking unable to complete'
+            if not len(gdf_) == len(gpkg_name_):
+                raise ValueError('benchmarking unable to complete')
             all_gdf = pd.concat(gdf_)  # Concatenate all geo data frame into one geo data frame
             all_gdf.reset_index(drop=True, inplace=True)
             gdf_x = gpd.GeoDataFrame(all_gdf)

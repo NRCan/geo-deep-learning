@@ -112,6 +112,8 @@ def get_device_ids(number_requested, max_used_ram_perc=25, max_used_perc=15, deb
             if len(lst_free_devices.keys()) < number_requested:
                 logging.warning(f"You requested {number_requested} devices. {device_count} devices are available and "
                                 f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
+        else:
+            logging.warning('No gpu devices requested. Will run on cpu')
     except NameError as error:
         raise NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
     except NVMLError as error:
@@ -376,17 +378,17 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
         elif sat_img_arr.min() >= 0 and sat_img_arr.max() <= 65535:
             metadata_dict['dtype'] = "uint16"
         else:
-            raise ValueError(f"Min and max values of array ({[sat_img_arr.min(), sat_img_arr.max()]}) are not contained"
-                             f"in 8 bit nor 16 bit range. Datatype cannot be overwritten.")
+            raise NotImplementedError(f"Min and max values of array ({[sat_img_arr.min(), sat_img_arr.max()]}) "
+                                      f"are not contained in 8 bit nor 16 bit range. Datatype cannot be overwritten.")
     # Save bin count (i.e. histogram) to metadata
     assert isinstance(sat_img_arr, np.ndarray) and len(sat_img_arr.shape) == 3, f"Array should be 3-dimensional"
     for band_index in range(sat_img_arr.shape[2]):
         band = sat_img_arr[..., band_index]
         metadata_dict['source_raster_bincount'][f'band{band_index}'] = {count for count in np.bincount(band.flatten())}
-    if meta_map:
-        assert raster_info['meta'] is not None and isinstance(raster_info['meta'], str) \
-               and Path(raster_info['meta']).is_file(), "global configuration requested metadata mapping onto loaded " \
-                                                        "samples, but raster did not have available metadata"
+    if meta_map and Path(raster_info['meta']).is_file():
+        if not raster_info['meta'] is not None and isinstance(raster_info['meta'], str):
+            raise ValueError("global configuration requested metadata mapping onto loaded "
+                             "samples, but raster did not have available metadata")
         yaml_metadata = read_parameters(raster_info['meta'])
         metadata_dict.update(yaml_metadata)
     return metadata_dict

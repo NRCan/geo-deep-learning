@@ -50,9 +50,10 @@ def image_reader_as_array(input_image,
     else:
         np_array = input_image.read()
 
-    np_array = np.moveaxis(np_array, 0, -1) # send channels last
-    assert np_array.dtype in ['uint8', 'uint16'], f"Invalid datatype {np_array.dtype}. " \
-                                                  f"Only uint8 and uint16 are supported in current version"
+    np_array = np.moveaxis(np_array, 0, -1)  # send channels last
+    if np_array.dtype not in ['uint8', 'uint16']:
+        raise NotImplementedError(f"Invalid datatype {np_array.dtype}. "
+                                  f"Only uint8 and uint16 are supported in current version")
 
     dataset_nodata = None
     if input_image.nodata is not None:

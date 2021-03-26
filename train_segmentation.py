@@ -54,7 +54,7 @@ def loader(path):
 
 def create_dataloader(samples_folder,
                       batch_size,
-                      devices_dict,
+                      gpu_devices_dict,
                       sample_size,
                       dontcare_val,
                       debug,
@@ -67,7 +67,7 @@ def create_dataloader(samples_folder,
     Function to create dataloader objects for training, validation and test datasets.
     :param samples_folder: path to folder containting .hdf5 files if task is segmentation
     :param batch_size: (int) batch size
-    :param devices_dict: (dict) dictionary where each key contains an available GPU with its ram info stored as value
+    :param gpu_devices_dict: (dict) dictionary where each key contains an available GPU with its ram info stored as value
     :param sample_size: (int) size of hdf5 samples (used to evaluate eval batch-size)
     :param dontcare_val: (int) value in label to be ignored during loss calculation
     :param meta_map:
@@ -77,10 +77,13 @@ def create_dataloader(samples_folder,
     :param params: (dict) Parameters found in the yaml config file.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
-    assert samples_folder.is_dir(), f'Could not locate: {samples_folder}'
-    assert len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1, f"Couldn't locate .hdf5 files in {samples_folder}"
+    if not samples_folder.is_dir():
+        raise FileNotFoundError(f'Could not locate: {samples_folder}')
+    if not len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1:
+        raise FileNotFoundError(f"Couldn't locate .hdf5 files in {samples_folder}")
     num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=params, dontcare=dontcare_val)
-    assert num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size, f"Number of samples in .hdf5 files is less than batch size"
+    if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
+        raise ValueError(f"Number of samples in .hdf5 files is less than batch size")
     logging.info(f"Number of samples : {num_samples}\n")
     if not meta_map:
         dataset_constr = create_dataset.SegmentationDataset
@@ -110,20 +113,20 @@ def create_dataloader(samples_folder,
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
-    num_workers = len(devices_dict.keys()) * 4 if len(devices_dict.keys()) > 1 else 4
+    num_workers = len(gpu_devices_dict.keys()) * 4 if len(gpu_devices_dict.keys()) > 1 else 4
 
     samples_weight = torch.from_numpy(samples_weight)
     sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
                                                              len(samples_weight))
     eval_batch_size = batch_size
-    if devices_dict:
+    if gpu_devices_dict:
         # get max ram for smallest gpu
-        smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in devices_dict.items())
+        smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
         # rule of thumb to determine eval batch size based on approximate max pixels a gpu can handle during evaluation
         max_pix_per_mb_gpu = 150  # TODO: this value may need to be finetuned
-        pix_per_mb_gpu = (batch_size / len(devices_dict.keys()) * sample_size ** 2) / smallest_gpu_ram
+        pix_per_mb_gpu = (batch_size / len(gpu_devices_dict.keys()) * sample_size ** 2) / smallest_gpu_ram
         if pix_per_mb_gpu >= max_pix_per_mb_gpu:
-            eval_batch_size = int(round(smallest_gpu_ram * max_pix_per_mb_gpu / sample_size**2, len(devices_dict.keys())))
+            eval_batch_size = int(round(smallest_gpu_ram * max_pix_per_mb_gpu / sample_size**2, len(gpu_devices_dict.keys())))
             eval_batch_size = 1 if eval_batch_size < 1 else eval_batch_size
             logging.warning(f'Validation and test batch size downgraded from {batch_size} to {eval_batch_size} '
                             f'based on max ram of smallest GPU available')
@@ -415,8 +418,9 @@ def evaluation(eval_loader,
 
                 if (dataset == 'val') and (batch_metrics is not None):
                     # Compute metrics every n batches. Time consuming.
-                    assert batch_metrics <= len(_tqdm), f"Batch_metrics ({batch_metrics} is smaller than batch size " \
-                        f"{len(_tqdm)}. Metrics in validation loop won't be computed"
+                    if not batch_metrics <= len(_tqdm):
+                        logging.error(f"Batch_metrics ({batch_metrics}) is smaller than batch size "
+                                      f"{len(_tqdm)}. Metrics in validation loop won't be computed")
                     if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
                         a, segmentation = torch.max(outputs_flatten, dim=1)
                         eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
@@ -489,10 +493,13 @@ def main(params, config_path):
     # basics
     debug = get_key_def('debug_mode', params['global'], default=False, expected_type=bool)
     task = get_key_def('task', params['global'], default='segmentation', expected_type=str)
-    assert task == 'segmentation', f"The task should be segmentation. The provided value is {task}"
+    if not task == 'segmentation':
+        raise ValueError(f"The task should be segmentation. The provided value is {task}")
     dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
     batch_metrics = get_key_def('batch_metrics', params['training'], default=1, expected_type=int)
     meta_map = get_key_def("meta_map", params["global"], default={})
+    if not Path(meta_map).is_file():
+        raise FileNotFoundError(f'Couldn\'t locate {meta_map}')
     bucket_name = get_key_def('bucket_name', params['global'])  # AWS
     scale = get_key_def('scale_data', params['global'], default=None, expected_type=List)
 
@@ -501,6 +508,8 @@ def main(params, config_path):
     optimizer = get_key_def('optimizer', params['training'], default='adam', expected_type=str)
     pretrained = get_key_def('pretrained', params['training'], default=True, expected_type=bool)
     train_state_dict_path = get_key_def('state_dict_path', params['training'], default=None, expected_type=str)
+    if train_state_dict_path and not Path(train_state_dict_path).is_file():
+        raise FileNotFoundError(f'Could not locate pretrained checkpoint for training: {train_state_dict_path}')
     dropout_prob = get_key_def('dropout_prob', params['training'], default=None, expected_type=float)
     # Read the concatenation point
     # TODO: find a way to maybe implement it in classification one day
@@ -508,6 +517,8 @@ def main(params, config_path):
 
     # gpu parameters
     num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
+    if num_devices and not num_devices >= 0:
+        raise ValueError("missing mandatory num gpus parameter")
     max_used_ram = get_key_def('max_used_ram', params['global'], default=2000, expected_type=int)
     max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
 
@@ -523,7 +534,8 @@ def main(params, config_path):
     overlap = get_key_def("overlap", params["sample"], default=5, expected_type=int)
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
                                  expected_type=int)
-    assert data_path.is_dir(), f'Could not locate data path {data_path}'
+    if not data_path.is_dir():
+        raise FileNotFoundError(f'Could not locate data path {data_path}')
     samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
                            f'_{experiment_name}')
     samples_folder = data_path.joinpath(samples_folder_name)
@@ -581,7 +593,7 @@ def main(params, config_path):
     logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
-                                                                       devices_dict=gpu_devices_dict,
+                                                                       gpu_devices_dict=gpu_devices_dict,
                                                                        sample_size=samples_size,
                                                                        dontcare_val=dontcare_val,
                                                                        debug=debug,
@@ -639,8 +651,10 @@ def main(params, config_path):
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment).
         # Check once for all visualization tasks.
-        assert isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int)
-                                                                                       for x in vis_batch_range)
+        if not isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int)
+                                                                                       for x in vis_batch_range):
+            raise ValueError(f'Vis_batch_range expects three integers in a list: start batch, end batch, increment.'
+                             f'Got {vis_batch_range}')
         vis_at_init_dataset = get_key_def('vis_at_init_dataset', params['visualization'], 'val')
 
         # Visualization at initialization. Visualize batch range before first eopch.

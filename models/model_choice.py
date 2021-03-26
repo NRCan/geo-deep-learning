@@ -156,18 +156,21 @@ def net(model_name: str,
     elif model_name == 'unet':
         model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'ternausnet':
-        assert num_bands == 3, msg
+        if not num_bands == 3:
+            raise NotImplementedError(msg)
         model = TernausNet.ternausnet(num_channels)
     elif model_name == 'checkpointed_unet':
         model = checkpointed_unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'inception':
         model = inception.Inception3(num_channels, num_bands)
     elif model_name == 'fcn_resnet101':
-        assert num_bands == 3, msg
+        if not num_bands == 3:
+            raise NotImplementedError(msg)
         model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
                                                   aux_loss=None)
     elif model_name == 'deeplabv3_resnet101':
-        assert (num_bands == 3 or num_bands == 4), msg
+        if not (num_bands == 3 or num_bands == 4):
+            raise NotImplementedError(msg)
         if num_bands == 3:
             logging.info('Finetuning pretrained deeplabv3 with 3 bands')
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
@@ -234,7 +237,6 @@ def net(model_name: str,
 
     if inference_state_dict:
         state_dict_path = inference_state_dict
-        assert Path(inference_state_dict).is_file(), f"Could not locate {inference_state_dict}"
         checkpoint = load_checkpoint(state_dict_path)
 
         return model, checkpoint, model_name
@@ -242,29 +244,28 @@ def net(model_name: str,
     else:
 
         if train_state_dict_path is not None:
-            assert Path(train_state_dict_path).is_file(), f'Could not locate checkpoint at {train_state_dict_path}'
             checkpoint = load_checkpoint(train_state_dict_path)
         else:
             checkpoint = None
-        assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
         # list of GPU devices that are available and unused. If no GPUs, returns empty list
-        lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
-        num_devices = len(lst_device_ids) if lst_device_ids else 0
-        device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-        logging.info(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}\n")
+        gpu_devices_dict = get_device_ids(num_devices)
+        num_devices = len(gpu_devices_dict.keys())
+        device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
+        logging.info(f"Number of cuda devices requested: {num_devices}. "
+                     f"Cuda devices available: {list(gpu_devices_dict.keys())}\n")
         if num_devices == 1:
-            logging.info(f"Using Cuda device {lst_device_ids[0]}\n")
+            logging.info(f"Using Cuda device {gpu_devices_dict[0]}\n")
         elif num_devices > 1:
-            logging.info(f"Using data parallel on devices: {str(lst_device_ids)[1:-1]}. Main device: {lst_device_ids[0]}\n") # TODO: why are we showing indices [1:-1] for lst_device_ids?
+            logging.info(f"Using data parallel on devices: {list(gpu_devices_dict.keys())[1:]}. "
+                         f"Main device: {gpu_devices_dict[0]}")
             try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
-                model = nn.DataParallel(model,
-                                        device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
-            except AssertionError:
-                logging.warning(f"Unable to use devices {lst_device_ids}. Trying devices {list(range(len(lst_device_ids)))}")
+                # DataParallel adds prefix 'module.' to state_dict keys
+                model = nn.DataParallel(model, device_ids=list(gpu_devices_dict.keys()))
+            except RuntimeError:
+                logging.warning(f"Unable to use devices {gpu_devices_dict}. "
+                                f"Trying devices {list(range(len(gpu_devices_dict.keys())))}")
                 device = torch.device('cuda:0')
-                lst_device_ids = range(len(lst_device_ids))
-                model = nn.DataParallel(model,
-                                        device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
+                model = nn.DataParallel(model, device_ids=list(range(len(gpu_devices_dict.keys()))))
         else:
             logging.warning(f"No Cuda device available. This process will only run on CPU\n")
         logging.info(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
@@ -272,7 +273,7 @@ def net(model_name: str,
             model.to(device)
         except RuntimeError:
             logging.warning(f"Unable to use device. Trying device 0...\n")
-            device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+            device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
             model.to(device)
 
         model, criterion, optimizer, lr_scheduler = set_hyperparameters(params=net_params,

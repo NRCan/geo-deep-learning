@@ -70,7 +70,7 @@ def add_background_to_num_class(task: str, num_classes: int):
         raise NotImplementedError(f'Task should be either classification or segmentation. Got "{task}"')
 
 
-def assert_num_bands(raster_path: Union[str, Path], num_bands: int, meta_map):
+def validate_raster(raster_path: Union[str, Path], num_bands: int, meta_map):
     """
     Assert number of bands found in raster is equal to desired number of bands
     :param raster_path: (str or Path) path to raster file
@@ -81,10 +81,15 @@ def assert_num_bands(raster_path: Union[str, Path], num_bands: int, meta_map):
     #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
     with rasterio.open(raster_path, 'r') as raster:
         input_band_count = raster.meta['count'] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
+        if not raster.meta['dtype'] in ['uint8', 'uint16']:
+            raise NotImplementedError(f"Invalid datatype {raster.meta['dtype']}. "
+                                      f"Only uint8 and uint16 are supported in current version")
 
-    assert input_band_count == num_bands, f"The number of bands in the input image ({input_band_count}) " \
-                                          f"and the parameter 'number_of_bands' in the yaml file ({num_bands}) " \
-                                          f"should be identical"
+
+    if not input_band_count == num_bands:
+        raise ValueError(f"The number of bands in the input image ({input_band_count}) "
+                         f"and the parameter 'number_of_bands' in the yaml file ({num_bands}) "
+                         f"should be identical")
 
 
 def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path]):
@@ -99,9 +104,10 @@ def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path])
     with rasterio.open(raster_path, 'r') as raster:
         raster_crs = raster.crs
 
-    assert gpkg_crs == raster_crs, f"CRS mismatch: \n" \
-                                   f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n" \
-                                   f"GPKG file \"{gpkg_path}\" has {src.crs} CRS."
+    if not gpkg_crs == raster_crs:
+        logging.warning(f"CRS mismatch: \n"
+                        f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n"
+                        f"GPKG file \"{gpkg_path}\" has {src.crs} CRS.")
 
 
 def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):

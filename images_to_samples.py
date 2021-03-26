@@ -18,7 +18,7 @@ from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.utils import get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash
 from utils.geoutils import vector_to_raster
 from utils.readers import read_parameters, image_reader_as_array
-from utils.verifications import validate_num_classes, assert_num_bands, assert_crs_match, \
+from utils.verifications import validate_num_classes, validate_raster, assert_crs_match, \
     validate_features_from_gpkg
 
 try:
@@ -79,12 +79,14 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
         return None
 
     for key, value in config_dict.items():
+        if not isinstance(key, str):
+            raise TypeError(f"Class should be a string. Got {key} of type {type(key)}")
         try:
-            assert isinstance(key, str)
             int(key)
-        except (ValueError, AssertionError):
-            f"Class should be a string castable as an integer. Got {key} of type {type(key)}"
-        assert isinstance(value, int), f"Class value should be an integer, got {value} of type {type(value)}"
+        except ValueError:
+            raise ValueError('Class should be castable to an integer')
+        if not isinstance(value, int):
+            raise ValueError(f"Class value should be an integer, got {value} of type {type(value)}")
 
     # Populate actual classes dictionary with values from config
     for key, value in config_dict.items():
@@ -149,7 +151,7 @@ def add_to_datasets(dataset,
         count = counts[i]
         dict_classes[class_val] += count
         if class_val not in dict_classes.keys():
-            raise ValueError(f'Sample contains value "{class_val}" not defined in the classes ({dict_classes.keys()}).')
+            logging.error(f'Sample contains value "{class_val}" not defined in the classes ({dict_classes.keys()}).')
     return to_val_set
 
 
@@ -327,7 +329,10 @@ def main(params):
     # basics
     debug = get_key_def('debug_mode', params['global'], False)
     task = get_key_def('task', params['global'], 'segmentation', expected_type=str)
-    assert task == 'segmentation', f"images_to_samples.py isn't necessary for classification tasks"
+    if task == 'classification':
+        raise ValueError(f"Got task {task}. Expected 'segmentation'.")
+    elif not task == 'segmentation':
+        raise ValueError(f"images_to_samples.py isn't necessary for classification tasks")
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
     Path.mkdir(data_path, exist_ok=True, parents=True)
     val_percent = get_key_def('val_percent', params['sample'], default=10, expected_type=int)
@@ -342,7 +347,8 @@ def main(params):
     overlap = get_key_def("overlap", params["sample"], default=5, expected_type=int)
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
                                  expected_type=int)
-    assert data_path.is_dir(), f'Could not locate data path {data_path}'
+    if not data_path.is_dir():
+        raise FileNotFoundError(f'Could not locate data path {data_path}')
     samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
                            f'_{experiment_name}')
 
@@ -404,15 +410,17 @@ def main(params):
     # Assert that all items in target_ids are integers
     if targ_ids:
         for item in targ_ids:
-            assert isinstance(item, int), f'Target id "{item}" in target_ids is {type(item)}, expected int.'
-        assert len(targ_ids) == num_classes, f'Yaml parameters mismatch. \n' \
-                                             f'Got target_ids {targ_ids} (sample sect) with length {len(targ_ids)}. ' \
-                                             f'Expected match with num_classes {num_classes} (global sect))'
+            if not isinstance(item, int):
+                raise ValueError(f'Target id "{item}" in target_ids is {type(item)}, expected int.')
+        if not len(targ_ids) == num_classes:
+            raise ValueError(f'Yaml parameters mismatch. \n'
+                             f'Got target_ids {targ_ids} (sample sect) with length {len(targ_ids)}. '
+                             f'Expected match with num_classes {num_classes} (global sect))')
 
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
     for info in tqdm(list_data_prep, position=0):
-        assert_num_bands(info['tif'], num_bands, meta_map)
+        validate_raster(info['tif'], num_bands, meta_map)
         if info['gpkg'] not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(info['gpkg'],
                                                 num_classes,
@@ -425,8 +433,10 @@ def main(params):
     if debug:
         # VALIDATION (debug only): Checking validity of features in vector files
         for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
-            invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])  # TODO: test this with invalid features.
-            assert not invalid_features, f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'"
+            # TODO: make unit to test this with invalid features.
+            invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])
+            if invalid_features:
+                logging.critical(f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'")
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
