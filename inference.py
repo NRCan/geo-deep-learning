@@ -232,13 +232,15 @@ def main(params: dict):
 
     # MANDATORY PARAMETERS
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str)
-    if not Path(img_dir_or_csv).exists():
-        raise FileNotFoundError(f'Couldn\'t locate file or directory "{img_dir_or_csv}" '
+    if not (Path(img_dir_or_csv).is_dir() or Path(img_dir_or_csv).suffix == '.csv'):
+        raise FileNotFoundError(f'Couldn\'t locate .csv file or directory "{img_dir_or_csv}" '
                                 f'containing imagery for inference')
     state_dict = get_key_def('state_dict_path', params['inference'], expected_type=str)
     if not Path(state_dict).is_file():
         raise FileNotFoundError(f'Couldn\'t locate state_dict of model "{state_dict}" to be used for inference')
-    task = get_key_def('task', params['global'], default='segmentation', expected_type=str)
+    task = get_key_def('task', params['global'], expected_type=str)
+    if task not in ['classification', 'segmentation']:
+        raise ValueError(f'Task should be either "classification" or "segmentation". Got {task}')
     model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)

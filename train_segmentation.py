@@ -497,8 +497,8 @@ def main(params, config_path):
         raise ValueError(f"The task should be segmentation. The provided value is {task}")
     dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
     batch_metrics = get_key_def('batch_metrics', params['training'], default=1, expected_type=int)
-    meta_map = get_key_def("meta_map", params["global"], default={})
-    if not Path(meta_map).is_file():
+    meta_map = get_key_def("meta_map", params["global"], default=None)
+    if meta_map and not Path(meta_map).is_file():
         raise FileNotFoundError(f'Couldn\'t locate {meta_map}')
     bucket_name = get_key_def('bucket_name', params['global'])  # AWS
     scale = get_key_def('scale_data', params['global'], default=None, expected_type=List)
