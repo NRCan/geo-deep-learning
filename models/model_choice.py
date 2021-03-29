@@ -206,14 +206,14 @@ def net(model_name: str,
                         '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
                 )
                 ###################
-                #conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-                #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
-                #conv1 = np.append(conv1, depth, axis=1)
-                #conv1 = torch.from_numpy(conv1).float()
-                #model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
+                conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
+                depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
+                conv1 = np.append(conv1, depth, axis=1)
+                conv1 = torch.from_numpy(conv1).float()
+                model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
                 ###################
-                conc_point = 'conv1' if not conc_point else conc_point
-                model = LayersEnsemble(model, conc_point=conc_point)
+                #conc_point = 'conv1' if not conc_point else conc_point
+                #model = LayersEnsemble(model, conc_point=conc_point)
 
         logging.info(f'Finetuning pretrained deeplabv3 with {num_bands} input channels (imagery bands). '
                      f'Concatenation point: "{conc_point}"')
