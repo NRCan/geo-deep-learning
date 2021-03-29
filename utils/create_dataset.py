@@ -106,7 +106,7 @@ class SegmentationDataset(Dataset):
             if dataset_type == 'trn' and isinstance(hdf5_params, dict) and isinstance(metadata, dict):
                 # check match between current yaml and sample yaml for crucial parameters
                 try:
-                    yaml_mismatch_keys = self.compare_config_yamls(hdf5_params, params)
+                    self.compare_config_yamls(hdf5_params, params)
                 except TypeError:
                     logging.exception("Couldn't compare current yaml with hdf5 yaml")
 
@@ -157,8 +157,9 @@ class SegmentationDataset(Dataset):
             if self.dontcare is not None:
                 initial_class_ids.add(self.dontcare)
             final_class_ids = set(np.unique(sample['map_img'].numpy()))
-            assert final_class_ids.issubset(initial_class_ids), \
-                f"Class ids for label before and after augmentations don't match. "
+            if not final_class_ids.issubset(initial_class_ids):
+                logging.debug(f"WARNING: Class ids for label before and after augmentations don't match. "
+                              f"Ignore if overwritting ignore_index in ToTensorTarget")
         sample['index'] = index
         return sample
 

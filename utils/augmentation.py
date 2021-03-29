@@ -386,7 +386,7 @@ class ToTensorTarget(object):
             if sample['map_img'] is not None:  # This can also be used in inference.
                 map_img = np.int64(sample['map_img'])
                 if self.dontcare2backgr:
-                    map_img[map_img == self.dontcare] = 0
+                    map_img[map_img == self.dontcare_val] = 0
                 map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
 

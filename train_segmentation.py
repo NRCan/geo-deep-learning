@@ -26,7 +26,7 @@ from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
-from models.model_choice import net, load_checkpoint
+from models.model_choice import net, load_checkpoint, verify_weights
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, get_git_hash
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
@@ -61,7 +61,7 @@ def create_dataloader(samples_folder: Path,
                       num_bands: int,
                       BGR_to_RGB: bool,
                       scale: Sequence,
-                      params: Union[OrderedDict, dict],
+                      params: dict,
                       dontcare2backgr: bool = False,
                       debug: bool = False):
     """
@@ -128,7 +128,7 @@ def create_dataloader(samples_folder: Path,
         # get max ram for smallest gpu
         smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
         # rule of thumb to determine eval batch size based on approximate max pixels a gpu can handle during evaluation
-        max_pix_per_mb_gpu = 150  # TODO: this value may need to be finetuned
+        max_pix_per_mb_gpu = 180  # TODO: this value may need to be finetuned
         pix_per_mb_gpu = (batch_size / len(gpu_devices_dict.keys()) * sample_size ** 2) / smallest_gpu_ram
         if pix_per_mb_gpu >= max_pix_per_mb_gpu:
             eval_batch_size = int(round(smallest_gpu_ram * max_pix_per_mb_gpu / sample_size**2, len(gpu_devices_dict.keys())))
@@ -507,6 +507,9 @@ def main(params, config_path):
 
     # model params
     loss_fn = get_key_def('loss_fn', params['training'], default='CrossEntropy', expected_type=str)
+    class_weights = get_key_def('class_weights', params['training'], default=None, expected_type=Sequence)
+    if class_weights:
+        verify_weights(num_classes, class_weights)
     optimizer = get_key_def('optimizer', params['training'], default='adam', expected_type=str)
     pretrained = get_key_def('pretrained', params['training'], default=True, expected_type=bool)
     train_state_dict_path = get_key_def('state_dict_path', params['training'], default=None, expected_type=str)
@@ -597,6 +600,8 @@ def main(params, config_path):
 
     # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
     dontcare2backgr = True if loss_fn not in ['Lovasz', 'CrossEntropy', 'OhemCrossEntropy'] else False
+    logging.warning(f'Dontcare is not implemented for loss function "{loss_fn}". '
+                    f'Dontcare values ({dontcare_val}) in label will be replaced with background value (0)')
 
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
@@ -621,6 +626,7 @@ def main(params, config_path):
                                                                 pretrained=pretrained,
                                                                 dropout_prob=dropout_prob,
                                                                 loss_fn=loss_fn,
+                                                                class_weights=class_weights,
                                                                 optimizer=optimizer,
                                                                 net_params=params,
                                                                 conc_point=conc_point,

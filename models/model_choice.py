@@ -1,5 +1,7 @@
 import logging
 from pathlib import Path
+from typing import Sequence
+
 import numpy as np
 import logging
 import torch
@@ -91,7 +93,14 @@ def verify_weights(num_classes, weights):
         raise ValueError('The number of class weights in the configuration file is different than the number of classes')
 
 
-def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val, loss_fn, optimizer):
+def set_hyperparameters(params,
+                        num_classes,
+                        model,
+                        checkpoint,
+                        dontcare_val,
+                        loss_fn,
+                        optimizer,
+                        class_weights = None):
     """
     Function to set hyperparameters based on values provided in yaml config file.
     If none provided, default functions values may be used.
@@ -110,10 +119,7 @@ def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val, lo
     step_size = get_key_def('step_size', params['training'], None, "missing mandatory step size parameter")
     gamma = get_key_def('gamma', params['training'], None, "missing mandatory gamma parameter")
 
-    # optional hyperparameters. Set to None if not in config file
-    class_weights = torch.tensor(params['training']['class_weights']) if params['training']['class_weights'] else None
-    if params['training']['class_weights']:
-        verify_weights(num_classes, class_weights)
+    class_weights = torch.tensor(class_weights) if class_weights else None
 
     # Loss function
     criterion = MultiClassCriterion(loss_type=loss_fn,
@@ -142,6 +148,7 @@ def net(model_name: str,
         dropout_prob: float = False,
         loss_fn: str = None,
         optimizer: str = None,
+        class_weights: Sequence = None,
         net_params=None,
         conc_point: str = None,
         coordconv_params=None,
@@ -172,43 +179,44 @@ def net(model_name: str,
         if not (num_bands == 3 or num_bands == 4):
             raise NotImplementedError(msg)
         if num_bands == 3:
-            logging.info('Finetuning pretrained deeplabv3 with 3 bands')
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
             classifier = list(model.classifier.children())
             model.classifier = nn.Sequential(*classifier[:-1])
             model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
         elif num_bands == 4:
-            logging.info('Finetuning pretrained deeplabv3 with 4 bands')
 
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
 
-            if conc_point:
+            if conc_point == 'baseline':
                 logging.info('Testing with 4 bands, concatenating at {}.'.format(conc_point))
-                if conc_point == 'baseline':
-                    conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-                    depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
-                    conv1 = np.append(conv1, depth, axis=1)
-                    conv1 = torch.from_numpy(conv1).float()
-                    model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-                    classifier = list(model.classifier.children())
-                    model.classifier = nn.Sequential(*classifier[:-1])
-                    model.classifier.add_module(
+                conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
+                depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
+                conv1 = np.append(conv1, depth, axis=1)
+                conv1 = torch.from_numpy(conv1).float()
+                model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
+                classifier = list(model.classifier.children())
+                model.classifier = nn.Sequential(*classifier[:-1])
+                model.classifier.add_module(
+                    '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
+                )
+            else:
+                classifier = list(model.classifier.children())
+                model.classifier = nn.Sequential(*classifier[:-1])
+                model.classifier.add_module(
                         '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
-                    )
-                else:
-                    classifier = list(model.classifier.children())
-                    model.classifier = nn.Sequential(*classifier[:-1])
-                    model.classifier.add_module(
-                            '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
-                    )
-                    ###################
-                    #conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-                    #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
-                    #conv1 = np.append(conv1, depth, axis=1)
-                    #conv1 = torch.from_numpy(conv1).float()
-                    #model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-                    ###################
-                    model = LayersEnsemble(model, conc_point=conc_point)
+                )
+                ###################
+                #conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
+                #depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
+                #conv1 = np.append(conv1, depth, axis=1)
+                #conv1 = torch.from_numpy(conv1).float()
+                #model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
+                ###################
+                conc_point = 'conv1' if not conc_point else conc_point
+                model = LayersEnsemble(model, conc_point=conc_point)
+
+        logging.info(f'Finetuning pretrained deeplabv3 with {num_bands} input channels (imagery bands). '
+                     f'Concatenation point: "{conc_point}"')
 
     elif model_name in lm_smp.keys():
         lsmp = lm_smp[model_name]
@@ -282,7 +290,8 @@ def net(model_name: str,
                                                                         checkpoint=checkpoint,
                                                                         dontcare_val=dontcare_val,
                                                                         loss_fn=loss_fn,
-                                                                        optimizer=optimizer)
+                                                                        optimizer=optimizer,
+                                                                        class_weights=class_weights)
         criterion = criterion.to(device)
 
         return model, model_name, criterion, optimizer, lr_scheduler
