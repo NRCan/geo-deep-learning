@@ -351,8 +351,8 @@ def read_csv(csv_file_name):
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
         list_values = sorted(list_values, key=lambda k: k['dataset'])
-    except TypeError as e:
-        logging.error(str(e))
+    except TypeError:
+        logging.exception('Unable to sort csv rows')
     return list_values
 
 
@@ -464,5 +464,5 @@ def ordereddict_eval(str_to_eval: str):
     try:
         return eval(str_to_eval)
     except Exception as e:
-        logging.error(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
-        logging.error(str(e))
+        logging.exception(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
+        return str_to_eval

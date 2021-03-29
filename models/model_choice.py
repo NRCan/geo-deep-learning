@@ -250,29 +250,29 @@ def net(model_name: str,
         # list of GPU devices that are available and unused. If no GPUs, returns empty list
         gpu_devices_dict = get_device_ids(num_devices)
         num_devices = len(gpu_devices_dict.keys())
-        device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
+        device = torch.device(f'cuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
         logging.info(f"Number of cuda devices requested: {num_devices}. "
                      f"Cuda devices available: {list(gpu_devices_dict.keys())}\n")
         if num_devices == 1:
-            logging.info(f"Using Cuda device {gpu_devices_dict[0]}\n")
+            logging.info(f"Using Cuda device 'cuda:0'")
         elif num_devices > 1:
             logging.info(f"Using data parallel on devices: {list(gpu_devices_dict.keys())[1:]}. "
-                         f"Main device: {gpu_devices_dict[0]}")
+                         f"Main device: 'cuda:0'")
             try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
                 # DataParallel adds prefix 'module.' to state_dict keys
                 model = nn.DataParallel(model, device_ids=list(gpu_devices_dict.keys()))
-            except RuntimeError:
+            except AssertionError:
                 logging.warning(f"Unable to use devices {gpu_devices_dict}. "
                                 f"Trying devices {list(range(len(gpu_devices_dict.keys())))}")
-                device = torch.device('cuda:0')
+                device = torch.device(f'cuda:0')
                 model = nn.DataParallel(model, device_ids=list(range(len(gpu_devices_dict.keys()))))
         else:
             logging.warning(f"No Cuda device available. This process will only run on CPU\n")
         logging.info(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
         try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
             model.to(device)
-        except RuntimeError:
-            logging.warning(f"Unable to use device. Trying device 0...\n")
+        except AssertionError:
+            logging.exception(f"Unable to use device. Trying device 0...\n")
             device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
             model.to(device)
 

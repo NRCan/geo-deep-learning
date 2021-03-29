@@ -80,7 +80,7 @@ def segmentation(img_array, input_image, label_arr, num_classes, gpkg_name, mode
         with tqdm(X_points, position=2, leave=False, desc='Inferring columns') as _tqdm:
             for col in _tqdm:
                 sample['metadata'] = metadata
-                totensor_transform = augmentation.compose_transforms(params, dataset="tst", type='totensor')
+                totensor_transform = augmentation.compose_transforms(params, dataset="tst", aug_type='totensor')
                 sample['sat_img'] = img_array[row:row + sample_size, col:col + sample_size, :]
                 sample = totensor_transform(sample)
                 inputs = sample['sat_img'].unsqueeze_(0)

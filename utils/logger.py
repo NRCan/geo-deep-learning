@@ -1,5 +1,8 @@
+import logging
 import os
-from mlflow import log_metric
+from mlflow import log_metric, exceptions
+
+logger = logging.getLogger(__name__)
 
 
 def tsv_line(*args):
@@ -26,7 +29,10 @@ class InformationLogger(object):
             if name in ignore:
                 continue
             else:
-                log_metric(key=f"{self.mode}_{composite_name}", value=value.avg, step=epoch)
+                try:
+                    log_metric(key=f"{self.mode}_{composite_name}", value=value.avg, step=epoch)
+                except exceptions.MlflowException:
+                    logging.exception(f'Unable to log {value.avg}')
 
 
 def save_logs_to_bucket(bucket, bucket_output_path, output_path, now, batch_metrics=None):

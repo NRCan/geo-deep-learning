@@ -49,8 +49,8 @@ def lovasz_softmax_flat(prb, lbl, ignore_index, only_present):
         cnt += 1
     try:
         return total_loss / cnt
-    except Exception as e:
-        logging.warning(str(e))
+    except Exception:
+        logging.exception('Problem with lovasz_softmax_flat loss calculation')
 
 
 class LovaszSoftmax(nn.Module):
@@ -79,7 +79,7 @@ class LovaszSoftmax(nn.Module):
             try:
                 total_loss += lovasz_softmax_flat(prb, lbl, self.ignore_index, self.only_present)
             except TypeError as e:
-                logging.warning(str(e))
+                logging.exception('Problem with LovaszSoftmax loss calculation')
                 try:
                     lbl_np = lbl.cpu().numpy()
                     prb_np = prb.cpu().numpy()
@@ -87,5 +87,5 @@ class LovaszSoftmax(nn.Module):
                                   f'\n\tLabel unique values and count: {np.unique(lbl_np, return_counts=True)}'
                                   f'\n\tPrediction unique values and count: {np.unique(prb_np, return_counts=True)}')
                 except:
-                    pass
+                    logging.exception('Problem with logging label and prediction for debugging LovaszSoftmax')
         return total_loss / batch_size

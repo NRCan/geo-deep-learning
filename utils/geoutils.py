@@ -80,11 +80,7 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     coords = getFeatures(geo)
 
     # clip the raster with the polygon
-    try:
-        out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
-    except ValueError as e:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
-        # TODO: warning or exception? if warning, except must be set in images_to_samples
-        raise
+    out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
 
     out_meta = raster.meta.copy()
     out_meta.update({"driver": "GTiff",

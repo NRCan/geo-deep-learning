@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 from ruamel_yaml import YAML
 from tqdm import tqdm
@@ -5,6 +7,8 @@ from pathlib import Path
 from skimage import morphology
 
 from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
+
+logger = logging.getLogger(__name__)
 
 
 def read_parameters(param_file):
@@ -46,7 +50,11 @@ def image_reader_as_array(input_image,
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
     if clip_gpkg:
-        np_array, input_image = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
+        try:
+            np_array, input_image = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
+        except ValueError:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
+            logging.exception(f'Problem clipping raster with geopackage {clip_gpkg}')
+            np_array = input_image.read()
     else:
         np_array = input_image.read()
 

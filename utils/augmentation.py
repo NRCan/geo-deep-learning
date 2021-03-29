@@ -19,13 +19,24 @@ from utils.utils import get_key_def, pad, minmax_scale, BGR_to_RGB
 logging.getLogger(__name__)
 
 
-def compose_transforms(params, dataset, input_space=False, scale=None, type='', ignore_index=None):
+def compose_transforms(params,
+                       dataset,
+                       input_space: bool = False,
+                       scale: Sequence = None,
+                       aug_type: str = '',
+                       dontcare=None,
+                       dontcare2backgr: bool = False):
     """
     Function to compose the transformations to be applied on every batches.
     :param input_space: (bool) if True, flip BGR channels to RGB
     :param params: (dict) Parameters found in the yaml config file
     :param dataset: (str) One of 'trn', 'val', 'tst'
-    :param type: (str) One of 'geometric', 'radiometric'
+    :param aug_type: (str) One of 'geometric', 'radiometric'
+    :param dontcare: (int) Value that will be ignored during loss calculation. Used here to pad label
+                         if rotation or crop augmentation
+    :param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
+                            before training
+
     :return: (obj) PyTorch's compose object of the transformations to be applied.
     """
     lst_trans = []
@@ -35,7 +46,7 @@ def compose_transforms(params, dataset, input_space=False, scale=None, type='', 
 
     if dataset == 'trn':
 
-        if type == 'radiometric':
+        if aug_type == 'radiometric':
             noise = get_key_def('noise', params['training']['augmentation'], None)
 
             if random_radiom_trim_range:  # Contrast stretching
@@ -45,7 +56,7 @@ def compose_transforms(params, dataset, input_space=False, scale=None, type='', 
             if noise:
                 lst_trans.append(AddGaussianNoise(std=noise))
 
-        elif type == 'geometric':
+        elif aug_type == 'geometric':
             geom_scale_range = get_key_def('geom_scale_range', params['training']['augmentation'], None)
             hflip = get_key_def('hflip_prob', params['training']['augmentation'], None)
             rotate_prob = get_key_def('rotate_prob', params['training']['augmentation'], None)
@@ -61,14 +72,14 @@ def compose_transforms(params, dataset, input_space=False, scale=None, type='', 
             if rotate_limit and rotate_prob:
                 lst_trans.append(
                     RandomRotationTarget(
-                        limit=rotate_limit, prob=rotate_prob, ignore_index=ignore_index
+                    limit=rotate_limit, prob=rotate_prob, ignore_index=dontcare
                     )
                 )
 
             if crop_size:
-                lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=ignore_index))
+                lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=dontcare))
 
-    if type == 'totensor':
+    if aug_type == 'totensor':
         # Contrast stretching at eval. Use mean of provided range
         if not dataset == 'trn' and random_radiom_trim_range:
             # Assert range is number or 2 element sequence
@@ -89,7 +100,8 @@ def compose_transforms(params, dataset, input_space=False, scale=None, type='', 
             lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
                                        std=params['training']['normalization']['std']))
 
-        lst_trans.append(ToTensorTarget())  # Send channels first, convert numpy array to torch tensor
+        # Send channels first, convert numpy array to torch tensor
+        lst_trans.append(ToTensorTarget(dontcare2backgr=dontcare2backgr, dontcare_val=dontcare))
 
     return transforms.Compose(lst_trans)
 
@@ -356,6 +368,14 @@ class BgrToRgb(object):
 
 class ToTensorTarget(object):
     """Convert ndarrays in sample to Tensors."""
+    def __init__(self, dontcare2backgr: bool = False, dontcare_val: int = None):
+        """
+        @param dontcare2backgr: if True, dontcare value in label will be replaced by background value (i.e. 0)
+        @param dontcare_val: if dontcare2back is True, this value will be replaced by 0 in label.
+        """
+        self.dontcare2backgr = dontcare2backgr
+        self.dontcare_val = dontcare_val
+
     def __call__(self, sample):
         sat_img = np.nan_to_num(sample['sat_img'], copy=False)
         sat_img = np.float32(np.transpose(sat_img, (2, 0, 1)))
@@ -365,6 +385,8 @@ class ToTensorTarget(object):
         if 'map_img' in sample.keys():
             if sample['map_img'] is not None:  # This can also be used in inference.
                 map_img = np.int64(sample['map_img'])
+                if self.dontcare2backgr:
+                    map_img[map_img == self.dontcare] = 0
                 map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
 

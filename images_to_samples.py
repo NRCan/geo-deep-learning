@@ -561,9 +561,9 @@ def main(params):
 
             logging.info(f'Number of samples={number_samples}')
             out_file.flush()
-        except OSError as e:
-            logging.warning(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
-                            f'{Path(info["gpkg"]).stem} (gpkg). Error: "{e}"')
+        except OSError:
+            logging.exception(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
+                              f'{Path(info["gpkg"]).stem} (gpkg).')
             continue
 
     trn_hdf5.close()

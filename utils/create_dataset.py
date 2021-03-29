@@ -57,8 +57,8 @@ def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map,
             hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             append_to_dataset(hdf5_file["params"], repr(params))
-        except AttributeError as e:
-            logging.warning(f'{e}. Update h5py to version 2.10 or higher')
+        except AttributeError:
+            logging.exception(f'Update h5py to version 2.10 or higher')
             raise
         hdf5_files.append(hdf5_file)
     return hdf5_files
@@ -103,8 +103,12 @@ class SegmentationDataset(Dataset):
             hdf5_params = hdf5_file['params'][0, 0]
             hdf5_params = ordereddict_eval(hdf5_params)
 
-            # check match between current yaml and sample yaml for crucial parameters
-            yaml_mismatch_keys = self.compare_config_yamls(hdf5_params, params)
+            if dataset_type == 'trn' and isinstance(hdf5_params, dict) and isinstance(metadata, dict):
+                # check match between current yaml and sample yaml for crucial parameters
+                try:
+                    yaml_mismatch_keys = self.compare_config_yamls(hdf5_params, params)
+                except TypeError:
+                    logging.exception("Couldn't compare current yaml with hdf5 yaml")
 
     def __len__(self):
         return self.max_sample_count
@@ -166,6 +170,10 @@ class SegmentationDataset(Dataset):
         :param yaml2: (dict) second dict to evaluate
         :return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
         """
+        if not (isinstance(yaml1, dict) or isinstance(yaml2, dict)):
+            raise TypeError(f"Expected both yamls to be dictionaries. \n"
+                            f"Yaml1's type is  {type(yaml1)}\n"
+                            f"Yaml2's type is  {type(yaml2)}")
         for section, params in yaml1.items():  # loop through main sections of config yaml ('global', 'sample', etc.)
             for param, val in params.items():  # loop through parameters of each section
                 val2 = yaml2[section][param]

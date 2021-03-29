@@ -1,5 +1,5 @@
 import logging
-from typing import List
+from typing import List, Sequence
 
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
@@ -52,17 +52,18 @@ def loader(path):
     return img
 
 
-def create_dataloader(samples_folder,
-                      batch_size,
-                      gpu_devices_dict,
-                      sample_size,
-                      dontcare_val,
-                      debug,
+def create_dataloader(samples_folder: Path,
+                      batch_size: int,
+                      gpu_devices_dict: dict,
+                      sample_size: int,
+                      dontcare_val: int,
                       meta_map,
-                      num_bands,
-                      BGR_to_RGB,
-                      scale,
-                      params):
+                      num_bands: int,
+                      BGR_to_RGB: bool,
+                      scale: Sequence,
+                      params: Union[OrderedDict, dict],
+                      dontcare2backgr: bool = False,
+                      debug: bool = False):
     """
     Function to create dataloader objects for training, validation and test datasets.
     :param samples_folder: path to folder containting .hdf5 files if task is segmentation
@@ -70,11 +71,13 @@ def create_dataloader(samples_folder,
     :param gpu_devices_dict: (dict) dictionary where each key contains an available GPU with its ram info stored as value
     :param sample_size: (int) size of hdf5 samples (used to evaluate eval batch-size)
     :param dontcare_val: (int) value in label to be ignored during loss calculation
-    :param meta_map:
+    :param meta_map: metadata mapping object
     :param num_bands: (int) number of bands in imagery
     :param BGR_to_RGB: (bool) if True, BGR channels will be flipped to RGB
     :param scale: (List) imagery data will be scaled to this min and max value (ex.: 0 to 1)
     :param params: (dict) Parameters found in the yaml config file.
+    :param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
+                            before training
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
     if not samples_folder.is_dir():
@@ -98,16 +101,18 @@ def create_dataloader(samples_folder,
                                        dontcare=dontcare_val,
                                        radiom_transform=aug.compose_transforms(params=params,
                                                                                dataset=subset,
-                                                                               type='radiometric'),
+                                                                               aug_type='radiometric'),
                                        geom_transform=aug.compose_transforms(params=params,
                                                                              dataset=subset,
-                                                                             type='geometric',
-                                                                             ignore_index=dontcare_val),
+                                                                             aug_type='geometric',
+                                                                             dontcare=dontcare_val),
                                        totensor_transform=aug.compose_transforms(params=params,
                                                                                  dataset=subset,
                                                                                  input_space=BGR_to_RGB,
                                                                                  scale=scale,
-                                                                                 type='totensor'),
+                                                                                 dontcare2backgr=dontcare2backgr,
+                                                                                 dontcare=dontcare_val,
+                                                                                 aug_type='totensor'),
                                        params=params,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
@@ -201,9 +206,8 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                     try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
                         inputs = data['sat_img'].to(device)
                         labels = data['map_img'].to(device)
-                    except RuntimeError as e:
-                        logging.error(e)
-                        logging.warning(f'Unable to use device {device}. Trying "cuda:0"')
+                    except RuntimeError:
+                        logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
                         device = torch.device('cuda:0')
                         inputs = data['sat_img'].to(device)
                         labels = data['map_img'].to(device)
@@ -262,9 +266,8 @@ def train(train_loader,
             try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
                 inputs = data['sat_img'].to(device)
                 labels = data['map_img'].to(device)
-            except RuntimeError as e:
-                logging.error(e)
-                logging.warning(f'Unable to use device {device}. Trying "cuda:0"')
+            except RuntimeError:
+                logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
                 device = torch.device('cuda:0')
                 inputs = data['sat_img'].to(device)
                 labels = data['map_img'].to(device)
@@ -369,9 +372,8 @@ def evaluation(eval_loader,
                 try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
                     inputs = data['sat_img'].to(device)
                     labels = data['map_img'].to(device)
-                except RuntimeError as e:
-                    logging.error(e)
-                    logging.warning(f'Unable to use device {device}. Trying "cuda:0"')
+                except RuntimeError:
+                    logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
                     device = torch.device('cuda:0')
                     inputs = data['sat_img'].to(device)
                     labels = data['map_img'].to(device)
@@ -496,7 +498,7 @@ def main(params, config_path):
     if not task == 'segmentation':
         raise ValueError(f"The task should be segmentation. The provided value is {task}")
     dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
-    batch_metrics = get_key_def('batch_metrics', params['training'], default=1, expected_type=int)
+    batch_metrics = get_key_def('batch_metrics', params['training'], default=None, expected_type=int)
     meta_map = get_key_def("meta_map", params["global"], default=None)
     if meta_map and not Path(meta_map).is_file():
         raise FileNotFoundError(f'Couldn\'t locate {meta_map}')
@@ -587,21 +589,27 @@ def main(params, config_path):
                                       max_used_ram_perc=max_used_ram,
                                       max_used_perc=max_used_perc,
                                       debug=debug)
+    logging.info(f'GPUs devices available: {gpu_devices_dict}')
     num_devices = len(gpu_devices_dict.keys())
-    device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
+    device = torch.device(f'cuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
 
     logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
+
+    # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
+    dontcare2backgr = True if loss_fn not in ['Lovasz', 'CrossEntropy', 'OhemCrossEntropy'] else False
+
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
                                                                        gpu_devices_dict=gpu_devices_dict,
                                                                        sample_size=samples_size,
                                                                        dontcare_val=dontcare_val,
-                                                                       debug=debug,
                                                                        meta_map=meta_map,
                                                                        num_bands=num_bands,
                                                                        BGR_to_RGB=BGR_to_RGB,
                                                                        scale=scale,
-                                                                       params=params)
+                                                                       params=params,
+                                                                       dontcare2backgr=dontcare2backgr,
+                                                                       debug=debug)
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
     model, model_name, criterion, optimizer, lr_scheduler = net(model_name=model_name,
