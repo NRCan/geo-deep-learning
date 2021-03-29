@@ -9,6 +9,7 @@ import csv
 import time
 import argparse
 import heapq
+import fiona  # keep this import. it sets GDAL_DATA to right value
 import rasterio
 from PIL import Image
 import torchvision
