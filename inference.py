@@ -257,9 +257,9 @@ def main(params: dict):
 
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default=None, expected_type=str)
+    # SETUP LOGGING
+    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     if mlflow_uri:
-        # SETUP LOGGING
-        import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
         log_config_path = Path('utils/logging.conf').absolute()
         logfile = f'{working_folder}/info.log'
         logfile_debug = f'{working_folder}/debug.log'
@@ -278,6 +278,8 @@ def main(params: dict):
         start_run(run_name=run_name)
         log_params(params['global'])
         log_params(params['inference'])
+    else:
+        logging.basicConfig(level=logging.DEBUG)
 
     # AWS
     bucket = None

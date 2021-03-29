@@ -32,15 +32,16 @@ class BoundaryLoss(nn.Module):
             - boundary loss, averaged over mini-batch
         """
 
+        logging.debug(f'Prediction shape: {pred.shape}')
         n, c, _, _ = pred.shape
 
         # softmax so that predicted map can be distributed in [0, 1]
         pred = torch.softmax(pred, dim=1)
 
         # one-hot vector of ground truth
-        # logging.info(gt.shape)
-        # zo = F.one_hot(gt, c)
-        # logging.info(zo.shape)
+        logging.debug(f'Ground truth shape: {gt.shape}')
+        #zo = F.one_hot(gt, c)
+        #logging.debug(zo.shape)
         one_hot_gt = F.one_hot(gt, c).permute(0, 3, 1, 2).squeeze(dim=-1).contiguous().float()
 
         # boundary map
