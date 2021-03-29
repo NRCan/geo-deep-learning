@@ -60,12 +60,14 @@ def create_dataloader(samples_folder: Path,
                       gpu_devices_dict: dict,
                       sample_size: int,
                       dontcare_val: int,
+                      crop_size: int,
                       meta_map,
                       num_bands: int,
                       BGR_to_RGB: bool,
                       scale: Sequence,
                       params: dict,
                       dontcare2backgr: bool = False,
+                      calc_eval_bs: bool = False,
                       debug: bool = False):
     """
     Function to create dataloader objects for training, validation and test datasets.
@@ -108,7 +110,8 @@ def create_dataloader(samples_folder: Path,
                                        geom_transform=aug.compose_transforms(params=params,
                                                                              dataset=subset,
                                                                              aug_type='geometric',
-                                                                             dontcare=dontcare_val),
+                                                                             dontcare=dontcare_val,
+                                                                             crop_size=crop_size),
                                        totensor_transform=aug.compose_transforms(params=params,
                                                                                  dataset=subset,
                                                                                  input_space=BGR_to_RGB,
@@ -127,17 +130,11 @@ def create_dataloader(samples_folder: Path,
     sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
                                                              len(samples_weight))
     eval_batch_size = batch_size
+
     if gpu_devices_dict:
-        # get max ram for smallest gpu
-        smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
-        # rule of thumb to determine eval batch size based on approximate max pixels a gpu can handle during evaluation
-        max_pix_per_mb_gpu = 180  # TODO: this value may need to be finetuned
-        pix_per_mb_gpu = (batch_size / len(gpu_devices_dict.keys()) * sample_size ** 2) / smallest_gpu_ram
-        if pix_per_mb_gpu >= max_pix_per_mb_gpu:
-            eval_batch_size = int(round(smallest_gpu_ram * max_pix_per_mb_gpu / sample_size**2, len(gpu_devices_dict.keys())))
-            eval_batch_size = 1 if eval_batch_size < 1 else eval_batch_size
-            logging.warning(f'Validation and test batch size downgraded from {batch_size} to {eval_batch_size} '
-                            f'based on max ram of smallest GPU available')
+        max_pix_per_mb_gpu = 280  # TODO: this value may need to be finetuned
+        calc_eval_bs(gpu_devices_dict, batch_size, sample_size, max_pix_per_mb_gpu)
+
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler,
                                 drop_last=True)
     val_dataloader = DataLoader(val_dataset, batch_size=eval_batch_size, num_workers=num_workers, shuffle=False,
@@ -146,6 +143,29 @@ def create_dataloader(samples_folder: Path,
                                 drop_last=True) if num_samples['tst'] > 0 else None
 
     return trn_dataloader, val_dataloader, tst_dataloader
+
+
+def calc_eval_bs(gpu_devices_dict: dict, batch_size: int, sample_size: int, max_pix_per_mb_gpu: int = 280):
+    """
+    Calculate maximum batch size that could fit on GPU during evaluation based on thumb rule with harcoded
+    "pixels per MB of GPU RAM" as threshold. The batch size often needs to be smaller if crop is applied during training
+    @param gpu_devices_dict: dictionary containing info on GPU devices as returned by lst_device_ids (utils.py)
+    @param batch_size: batch size for training
+    @param sample_size: size of hdf5 samples
+    @return: returns a downgraded evaluation batch size if the original batch size is considered too high
+    """
+    eval_batch_size = batch_size
+    # get max ram for smallest gpu
+    smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
+    # rule of thumb to determine eval batch size based on approximate max pixels a gpu can handle during evaluation
+    pix_per_mb_gpu = (batch_size / len(gpu_devices_dict.keys()) * sample_size ** 2) / smallest_gpu_ram
+    if pix_per_mb_gpu >= max_pix_per_mb_gpu:
+        eval_batch_size = int(
+            round(smallest_gpu_ram * max_pix_per_mb_gpu / sample_size ** 2, len(gpu_devices_dict.keys())))
+        eval_batch_size = 1 if eval_batch_size < 1 else eval_batch_size
+        logging.warning(f'Validation and test batch size downgraded from {batch_size} to {eval_batch_size} '
+                        f'based on max ram of smallest GPU available')
+    return eval_batch_size
 
 
 def get_num_samples(samples_path, params, dontcare):
@@ -271,66 +291,66 @@ def train(train_loader,
     model.train()
     train_metrics = create_metrics_dict(num_classes)
 
-    with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
-        for batch_index, data in enumerate(_tqdm):
-            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
+    for batch_index, data in enumerate(tqdm(train_loader, desc=f'Iterating train batches with {device.type}')):
+        progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
-            try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
-            except RuntimeError:
-                logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-                device = torch.device('cuda:0')
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
+        try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
+            inputs = data['sat_img'].to(device)
+            labels = data['map_img'].to(device)
+        except RuntimeError:
+            logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
+            device = torch.device('cuda:0')
+            inputs = data['sat_img'].to(device)
+            labels = data['map_img'].to(device)
 
-            if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
-                ############################
-                # Test Implementation of the NIR
-                ############################
-                inputs = split_RGB_NIR(inputs)
-                ############################
-                # Test Implementation of the NIR
-                ############################
+        if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
+            ############################
+            # Test Implementation of the NIR
+            ############################
+            inputs = split_RGB_NIR(inputs)
+            ############################
+            # Test Implementation of the NIR
+            ############################
 
-            # forward
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            # added for torchvision models that output an OrderedDict with outputs in 'out' key.
-            # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
-            if isinstance(outputs, OrderedDict):
-                outputs = outputs['out']
+        # forward
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        # added for torchvision models that output an OrderedDict with outputs in 'out' key.
+        # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
+        if isinstance(outputs, OrderedDict):
+            outputs = outputs['out']
 
-            if vis_batch_range and vis_at_train:
-                min_vis_batch, max_vis_batch, increment = vis_batch_range
-                if batch_index in range(min_vis_batch, max_vis_batch, increment):
-                    vis_path = progress_log.parent.joinpath('visualization')
-                    if ep_idx == 0:
-                        logging.info(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
-                    vis_from_batch(params, inputs, outputs,
-                                   batch_index=batch_index,
-                                   vis_path=vis_path,
-                                   labels=labels,
-                                   dataset='trn',
-                                   ep_num=ep_idx+1)
+        if vis_batch_range and vis_at_train:
+            min_vis_batch, max_vis_batch, increment = vis_batch_range
+            if batch_index in range(min_vis_batch, max_vis_batch, increment):
+                vis_path = progress_log.parent.joinpath('visualization')
+                if ep_idx == 0:
+                    logging.info(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
+                vis_from_batch(params, inputs, outputs,
+                               batch_index=batch_index,
+                               vis_path=vis_path,
+                               labels=labels,
+                               dataset='trn',
+                               ep_num=ep_idx+1)
 
-            loss = criterion(outputs, labels)
+        loss = criterion(outputs, labels)
 
-            train_metrics['loss'].update(loss.item(), batch_size)
+        train_metrics['loss'].update(loss.item(), batch_size)
 
-            if device.type == 'cuda' and debug:
-                res, mem = gpu_stats(device=device.index)
-                _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
-                                              gpu_perc=f'{res.gpu} %',
-                                              gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
-                                              lr=optimizer.param_groups[0]['lr'],
-                                              img=data['sat_img'].numpy().shape,
-                                              smpl=data['map_img'].numpy().shape,
-                                              bs=batch_size,
-                                              out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
+        if device.type == 'cuda' and debug:
+            res, mem = gpu_stats(device=device.index)
+            logging.debug(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
+                                          gpu_perc=f'{res.gpu} %',
+                                          gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+                                          lr=optimizer.param_groups[0]['lr'],
+                                          img=data['sat_img'].numpy().shape,
+                                          smpl=data['map_img'].numpy().shape,
+                                          bs=batch_size,
+                                          out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy()),
+                                          gt_vals=np.unique(labels[0].detach().cpu().numpy())))
 
-            loss.backward()
-            optimizer.step()
+        loss.backward()
+        optimizer.step()
 
     scheduler.step()
     if train_metrics["loss"].avg is not None:
@@ -371,77 +391,77 @@ def evaluation(eval_loader,
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
 
-    with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
-        for batch_index, data in enumerate(_tqdm):
-            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
+    for batch_index, data in enumerate(tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} '
+                                                                                  f'batches with {device.type}')):
+        progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
-            with torch.no_grad():
-                try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-                    inputs = data['sat_img'].to(device)
-                    labels = data['map_img'].to(device)
-                except RuntimeError:
-                    logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-                    device = torch.device('cuda:0')
-                    inputs = data['sat_img'].to(device)
-                    labels = data['map_img'].to(device)
+        with torch.no_grad():
+            try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
+                inputs = data['sat_img'].to(device)
+                labels = data['map_img'].to(device)
+            except RuntimeError:
+                logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
+                device = torch.device('cuda:0')
+                inputs = data['sat_img'].to(device)
+                labels = data['map_img'].to(device)
 
-                labels_flatten = flatten_labels(labels)
+            labels_flatten = flatten_labels(labels)
 
-                if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
-                    ############################
-                    # Test Implementation of the NIR
-                    ############################
-                    inputs = split_RGB_NIR(inputs)
-                    ############################
-                    # Test Implementation of the NIR
-                    ############################
+            if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
+                ############################
+                # Test Implementation of the NIR
+                ############################
+                inputs = split_RGB_NIR(inputs)
+                ############################
+                # Test Implementation of the NIR
+                ############################
 
-                outputs = model(inputs)
-                if isinstance(outputs, OrderedDict):
-                    outputs = outputs['out']
+            outputs = model(inputs)
+            if isinstance(outputs, OrderedDict):
+                outputs = outputs['out']
 
-                if vis_batch_range and vis_at_eval:
-                    min_vis_batch, max_vis_batch, increment = vis_batch_range
-                    if batch_index in range(min_vis_batch, max_vis_batch, increment):
-                        vis_path = progress_log.parent.joinpath('visualization')
-                        if ep_idx == 0 and batch_index == min_vis_batch:
-                            logging.info(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
-                                       f'images will be saved to {vis_path}\n')
-                        vis_from_batch(params, inputs, outputs,
-                                       batch_index=batch_index,
-                                       vis_path=vis_path,
-                                       labels=labels,
-                                       dataset=dataset,
-                                       ep_num=ep_idx+1)
+            if vis_batch_range and vis_at_eval:
+                min_vis_batch, max_vis_batch, increment = vis_batch_range
+                if batch_index in range(min_vis_batch, max_vis_batch, increment):
+                    vis_path = progress_log.parent.joinpath('visualization')
+                    if ep_idx == 0 and batch_index == min_vis_batch:
+                        logging.info(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
+                                   f'images will be saved to {vis_path}\n')
+                    vis_from_batch(params, inputs, outputs,
+                                   batch_index=batch_index,
+                                   vis_path=vis_path,
+                                   labels=labels,
+                                   dataset=dataset,
+                                   ep_num=ep_idx+1)
 
-                outputs_flatten = flatten_outputs(outputs, num_classes)
+            outputs_flatten = flatten_outputs(outputs, num_classes)
 
-                loss = criterion(outputs, labels)
+            loss = criterion(outputs, labels)
 
-                eval_metrics['loss'].update(loss.item(), batch_size)
+            eval_metrics['loss'].update(loss.item(), batch_size)
 
-                if (dataset == 'val') and (batch_metrics is not None):
-                    # Compute metrics every n batches. Time consuming.
-                    if not batch_metrics <= len(_tqdm):
-                        logging.error(f"Batch_metrics ({batch_metrics}) is smaller than batch size "
-                                      f"{len(_tqdm)}. Metrics in validation loop won't be computed")
-                    if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
-                        a, segmentation = torch.max(outputs_flatten, dim=1)
-                        eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
-                        eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                             ignore_index=eval_loader.dataset.dontcare)
-                elif dataset == 'tst':
+            if (dataset == 'val') and (batch_metrics is not None):
+                # Compute metrics every n batches. Time consuming.
+                if not batch_metrics <= len(eval_loader):
+                    logging.error(f"Batch_metrics ({batch_metrics}) is smaller than batch size "
+                                  f"{len(eval_loader)}. Metrics in validation loop won't be computed")
+                if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
                     a, segmentation = torch.max(outputs_flatten, dim=1)
                     eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
                                                          ignore_index=eval_loader.dataset.dontcare)
+            elif dataset == 'tst':
+                a, segmentation = torch.max(outputs_flatten, dim=1)
+                eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
+                eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
+                                                     ignore_index=eval_loader.dataset.dontcare)
 
-                _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
+            logging.debug(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
-                if debug and device.type == 'cuda':
-                    res, mem = gpu_stats(device=device.index)
-                    _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
-                                                  gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
+            if debug and device.type == 'cuda':
+                res, mem = gpu_stats(device=device.index)
+                logging.debug(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
+                                              gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
 
     logging.info(f"{dataset} Loss: {eval_metrics['loss'].avg}")
     if batch_metrics is not None:
@@ -500,6 +520,7 @@ def main(params, config_path):
     if not task == 'segmentation':
         raise ValueError(f"The task should be segmentation. The provided value is {task}")
     dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
+    crop_size = get_key_def('target_size', params['training'], default=None, expected_type=int)
     batch_metrics = get_key_def('batch_metrics', params['training'], default=None, expected_type=int)
     meta_map = get_key_def("meta_map", params["global"], default=None)
     if meta_map and not Path(meta_map).is_file():
@@ -602,6 +623,7 @@ def main(params, config_path):
 
     # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
     dontcare2backgr = True if loss_fn not in ['Lovasz', 'CrossEntropy', 'OhemCrossEntropy'] else False
+    calc_eval_bs = True if crop_size else False
     logging.warning(f'Dontcare is not implemented for loss function "{loss_fn}". '
                     f'Dontcare values ({dontcare_val}) in label will be replaced with background value (0)')
 
@@ -610,12 +632,14 @@ def main(params, config_path):
                                                                        gpu_devices_dict=gpu_devices_dict,
                                                                        sample_size=samples_size,
                                                                        dontcare_val=dontcare_val,
+                                                                       crop_size=crop_size,
                                                                        meta_map=meta_map,
                                                                        num_bands=num_bands,
                                                                        BGR_to_RGB=BGR_to_RGB,
                                                                        scale=scale,
                                                                        params=params,
                                                                        dontcare2backgr=dontcare2backgr,
+                                                                       calc_eval_bs=calc_eval_bs,
                                                                        debug=debug)
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.

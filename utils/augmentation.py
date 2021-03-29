@@ -25,7 +25,8 @@ def compose_transforms(params,
                        scale: Sequence = None,
                        aug_type: str = '',
                        dontcare=None,
-                       dontcare2backgr: bool = False):
+                       dontcare2backgr: bool = False,
+                       crop_size:int = None):
     """
     Function to compose the transformations to be applied on every batches.
     :param input_space: (bool) if True, flip BGR channels to RGB
@@ -61,7 +62,6 @@ def compose_transforms(params,
             hflip = get_key_def('hflip_prob', params['training']['augmentation'], None)
             rotate_prob = get_key_def('rotate_prob', params['training']['augmentation'], None)
             rotate_limit = get_key_def('rotate_limit', params['training']['augmentation'], None)
-            crop_size = get_key_def('target_size', params['training'], None)
 
             if geom_scale_range:  # TODO: test this.
                 lst_trans.append(GeometricScale(range=geom_scale_range))

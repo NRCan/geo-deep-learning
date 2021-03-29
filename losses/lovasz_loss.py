@@ -81,8 +81,8 @@ class LovaszSoftmax(nn.Module):
             except TypeError as e:
                 logging.exception('Problem with LovaszSoftmax loss calculation')
                 try:
-                    lbl_np = lbl.cpu().numpy()
-                    prb_np = prb.cpu().numpy()
+                    lbl_np = lbl.detach().cpu().numpy()
+                    prb_np = prb.detach().cpu().numpy()
                     logging.debug(f'Lovasz loss cannot be calculated. '
                                   f'\n\tLabel unique values and count: {np.unique(lbl_np, return_counts=True)}'
                                   f'\n\tPrediction unique values and count: {np.unique(prb_np, return_counts=True)}')

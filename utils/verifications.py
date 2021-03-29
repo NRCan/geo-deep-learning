@@ -82,7 +82,7 @@ def validate_raster(raster_path: Union[str, Path], num_bands: int, meta_map):
     with rasterio.open(raster_path, 'r') as raster:
         input_band_count = raster.meta['count'] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
         if not raster.meta['dtype'] in ['uint8', 'uint16']:
-            raise NotImplementedError(f"Invalid datatype {raster.meta['dtype']}. "
+            raise NotImplementedError(f"Invalid datatype {raster.meta['dtype']} for {raster.name}. "
                                       f"Only uint8 and uint16 are supported in current version")
 
 

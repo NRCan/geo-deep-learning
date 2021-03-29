@@ -126,7 +126,7 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
         logging.warning()
         return None
     elif merge_all:
-        return rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
+        np_label_raster = rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
                                            fill=fill,
                                            out_shape=out_shape,
                                            transform=input_image.transform,
@@ -137,7 +137,14 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
                                                       out_shape=out_shape,
                                                       transform=input_image.transform,
                                                       dtype=np.int16) for id in lst_vector_tuple]
-        return np.stack(burned_rasters, axis=-1)
+        np_label_raster = np.stack(burned_rasters, axis=-1)
+
+    # overwritte label values to make sure they are continuous
+    if target_ids:
+        for index, target_id in enumerate(target_ids):
+            np_label_raster[np_label_raster == target_id] = (index+1)
+
+    return np_label_raster
 
 
 def create_new_raster_from_base(input_raster, output_raster, write_array):
