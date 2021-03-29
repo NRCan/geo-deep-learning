@@ -15,6 +15,9 @@ from tqdm import tqdm
 from collections import OrderedDict
 import shutil
 import numpy as np
+
+from utils.layersmodules import split_RGB_NIR
+
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -212,6 +215,15 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                         inputs = data['sat_img'].to(device)
                         labels = data['map_img'].to(device)
 
+                    if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
+                        ############################
+                        # Test Implementation of the NIR
+                        ############################
+                        inputs = split_RGB_NIR(inputs)
+                        ############################
+                        # Test Implementation of the NIR
+                        ############################
+
                     outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
@@ -276,12 +288,7 @@ def train(train_loader,
                 ############################
                 # Test Implementation of the NIR
                 ############################
-                # TODO: remove after the merge of Remy branch with no visualization option
-                # TODO: or change it to match the reste of the implementation
-                inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
-                inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
-                inputs = inputs[:,:-1, ...] # Need to be change
-                inputs = [inputs, inputs_NIR]
+                inputs = split_RGB_NIR(inputs)
                 ############################
                 # Test Implementation of the NIR
                 ############################
@@ -384,12 +391,7 @@ def evaluation(eval_loader,
                     ############################
                     # Test Implementation of the NIR
                     ############################
-                    # TODO: remove after the merge of Remy branch with no visualization option
-                    # TODO: or change it to match the reste of the implementation
-                    inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
-                    inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
-                    inputs = inputs[:,:-1, ...] # Need to be change
-                    inputs = [inputs, inputs_NIR]
+                    inputs = split_RGB_NIR(inputs)
                     ############################
                     # Test Implementation of the NIR
                     ############################
