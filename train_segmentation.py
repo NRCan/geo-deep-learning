@@ -131,9 +131,9 @@ def create_dataloader(samples_folder: Path,
                                                              len(samples_weight))
     eval_batch_size = batch_size
 
-    if gpu_devices_dict:
+    if gpu_devices_dict and calc_eval_bs:
         max_pix_per_mb_gpu = 280  # TODO: this value may need to be finetuned
-        calc_eval_bs(gpu_devices_dict, batch_size, sample_size, max_pix_per_mb_gpu)
+        calc_eval_batchsize(gpu_devices_dict, batch_size, sample_size, max_pix_per_mb_gpu)
 
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler,
                                 drop_last=True)
@@ -145,7 +145,7 @@ def create_dataloader(samples_folder: Path,
     return trn_dataloader, val_dataloader, tst_dataloader
 
 
-def calc_eval_bs(gpu_devices_dict: dict, batch_size: int, sample_size: int, max_pix_per_mb_gpu: int = 280):
+def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: int, max_pix_per_mb_gpu: int = 280):
     """
     Calculate maximum batch size that could fit on GPU during evaluation based on thumb rule with harcoded
     "pixels per MB of GPU RAM" as threshold. The batch size often needs to be smaller if crop is applied during training
@@ -622,10 +622,13 @@ def main(params, config_path):
     logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
 
     # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
-    dontcare2backgr = True if loss_fn not in ['Lovasz', 'CrossEntropy', 'OhemCrossEntropy'] else False
+    dontcare2backgr = False
+    if loss_fn not in ['Lovasz', 'CrossEntropy', 'OhemCrossEntropy']:
+        dontcare2backgr = True
+        logging.warning(f'Dontcare is not implemented for loss function "{loss_fn}". '
+                        f'Dontcare values ({dontcare_val}) in label will be replaced with background value (0)')
+
     calc_eval_bs = True if crop_size else False
-    logging.warning(f'Dontcare is not implemented for loss function "{loss_fn}". '
-                    f'Dontcare values ({dontcare_val}) in label will be replaced with background value (0)')
 
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
