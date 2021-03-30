@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 import numpy as np
 
 import models.coordconv
-from utils.utils import get_key_def, ordereddict_eval
+from utils.utils import get_key_def, ordereddict_eval, compare_config_yamls
 from utils.geoutils import get_key_recursive
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
@@ -106,7 +106,7 @@ class SegmentationDataset(Dataset):
             if dataset_type == 'trn' and isinstance(hdf5_params, dict) and isinstance(metadata, dict):
                 # check match between current yaml and sample yaml for crucial parameters
                 try:
-                    self.compare_config_yamls(hdf5_params, params)
+                    compare_config_yamls(hdf5_params, params)
                 except TypeError:
                     logging.exception("Couldn't compare current yaml with hdf5 yaml")
 
@@ -162,34 +162,6 @@ class SegmentationDataset(Dataset):
                               f"Ignore if overwritting ignore_index in ToTensorTarget")
         sample['index'] = index
         return sample
-
-    @staticmethod
-    def compare_config_yamls(yaml1: dict, yaml2: dict) -> List:
-        """
-        Checks if values for same keys or subkeys (max depth of 2) of two dictionaries match.
-        :param yaml1: (dict) first dict to evaluate
-        :param yaml2: (dict) second dict to evaluate
-        :return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
-        """
-        if not (isinstance(yaml1, dict) or isinstance(yaml2, dict)):
-            raise TypeError(f"Expected both yamls to be dictionaries. \n"
-                            f"Yaml1's type is  {type(yaml1)}\n"
-                            f"Yaml2's type is  {type(yaml2)}")
-        for section, params in yaml1.items():  # loop through main sections of config yaml ('global', 'sample', etc.)
-            for param, val in params.items():  # loop through parameters of each section
-                val2 = yaml2[section][param]
-                if isinstance(val, dict):  # if value is a dict, loop again to fetch end val (only recursive twice)
-                    for subparam, subval in val.items():
-                        # if value doesn't match between yamls, emit warning
-                        subval2 = yaml2[section][param][subparam]
-                        if subval != subval2:
-                            logging.warning(f"YAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
-                                            f"Current yaml value: \"{subval2}\"\nHDF5s yaml value: \"{subval}\"\n"
-                                            f"Problems may occur.")
-                elif val != val2:
-                    logging.warning(f"YAML value mismatch: section \"{section}\", key \"{param}\"\n"
-                                    f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val}\"\n"
-                                    f"Problems may occur.")
 
 
 class MetaSegmentationDataset(SegmentationDataset):

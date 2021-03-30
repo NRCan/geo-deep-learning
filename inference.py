@@ -1,4 +1,5 @@
 import logging
+import warnings
 
 import torch
 import torch.nn.functional as F
@@ -26,7 +27,7 @@ from models.model_choice import net, load_checkpoint
 from utils import augmentation
 from utils.geoutils import vector_to_raster
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D
+    list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D, compare_config_yamls
 from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import add_background_to_num_class
 
@@ -247,14 +248,16 @@ def main(params: dict):
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
 
     # OPTIONAL PARAMETERS
-    chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
+    chunk_size = get_key_def('chunk_size', params['inference'], default=1024, expected_type=int)
     dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
     num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
+    max_used_ram = get_key_def('max_used_ram', params['global'], default=2000, expected_type=int)
+    max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
+    debug = get_key_def('debug_mode', params['global'], default=False, expected_type=bool)
 
     # SETTING OUTPUT DIRECTORY
     working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
     Path.mkdir(working_folder, parents=True, exist_ok=True)
-
 
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default=None, expected_type=str)
@@ -265,7 +268,6 @@ def main(params: dict):
         logfile = f'{working_folder}/info.log'
         logfile_debug = f'{working_folder}/debug.log'
         logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile, 'logfilename_debug': logfile_debug})
-        logging.info(f'Inferences will be saved to: {working_folder}\n\n')
 
         # import only if mlflow uri is set
         from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
@@ -282,13 +284,22 @@ def main(params: dict):
     else:
         logging.basicConfig(level=logging.DEBUG)
 
+    logging.info(f'Inferences will be saved to: {working_folder}\n\n')
+    if not (0 <= max_used_ram <= 100):
+        logging.warning(f'Max used ram parameter should be a percentage. Got {max_used_ram}. '
+                        f'Will set default value of {15}%')
+        max_used_ram = 15
+
     # AWS
     bucket = None
     bucket_file_cache = []
     bucket_name = get_key_def('bucket_name', params['global'])
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty dict
-    gpu_devices_dict = get_device_ids(num_devices)
+    gpu_devices_dict = get_device_ids(num_devices,
+                                      max_used_ram_perc=max_used_ram,
+                                      max_used_perc=max_used_perc,
+                                      debug=debug)
     device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
 
     if gpu_devices_dict:
@@ -406,21 +417,36 @@ if __name__ == '__main__':
                         help='model_path and image_dir')
     args = parser.parse_args()
 
+    # if a yaml is inputted, get those parameters and get model state_dict to overwrite global parameters afterwards
     if args.param:
-        params = read_parameters(args.param[0])
+        input_params = read_parameters(args.param[0])
+        model_ckpt = get_key_def('state_dict_path', input_params['inference'], expected_type=str)
+        # load checkpoint
+        checkpoint = load_checkpoint(model_ckpt)
+        if 'params' not in checkpoint.keys():
+            warnings.warn('No parameters found in checkpoint. Use GDL version 1.3 or more.')
+        else:
+            params = checkpoint['params']
+            # overwrite with inputted parameters
+            compare_config_yamls(yaml1=params, yaml2=input_params, update_yaml1=True)
+        del checkpoint
+        del input_params
+
+    # elif input is a model checkpoint and an image directory, we'll rely on the yaml saved inside the model (pth.tar)
     elif args.input:
         model_ckpt = Path(args.input[0])
         image = args.input[1]
-
+        # load checkpoint
         checkpoint = load_checkpoint(model_ckpt)
         if 'params' not in checkpoint.keys():
             raise KeyError('No parameters found in checkpoint. Use GDL version 1.3 or more.')
         else:
+            # set parameters for inference from those contained in checkpoint.pth.tar 
             params = checkpoint['params']
-            params['inference']['state_dict_path'] = args.input[0]
-            params['inference']['img_dir_or_csv_file'] = args.input[1]
-
-        del checkpoint
+            del checkpoint
+        # overwrite with inputted parameters
+        params['inference']['state_dict_path'] = args.input[0]
+        params['inference']['img_dir_or_csv_file'] = args.input[1]
     else:
         print('use the help [-h] option for correct usage')
         raise SystemExit
