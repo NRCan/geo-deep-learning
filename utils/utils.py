@@ -85,10 +85,14 @@ def list_s3_subfolders(bucket, data_path):
     return list_classes
 
 
-def get_device_ids(number_requested, max_used_ram_perc=25, max_used_perc=15, debug=False):
+def get_device_ids(number_requested: int,
+                   max_used_ram_perc: int = 25,
+                   max_used_perc: int = 15):
     """
     Function to check which GPU devices are available and unused.
     :param number_requested: (int) Number of devices requested.
+    :param max_used_ram_perc: (int) If RAM usage of detected GPU exceeds this percentage, it will be ignored
+    :param max_used_perc: (int) If GPU's usage exceeds this percentage, it will be ignored
     :return: (list) Unused GPU devices.
     """
     lst_free_devices = {}
@@ -103,8 +107,7 @@ def get_device_ids(number_requested, max_used_ram_perc=25, max_used_perc=15, deb
                 res, mem = gpu_stats(i)
                 used_ram = mem.used / (1024 ** 2)
                 max_ram = mem.total / (1024 ** 2)
-                if debug:
-                    logging.info(f'GPU RAM used: {used_ram:.0f}/{max_ram:.0f} MiB\nGPU % used: {res.gpu}')
+                logging.debug(f'GPU RAM used: {used_ram:.0f}/{max_ram:.0f} MiB\nGPU % used: {res.gpu}')
                 if used_ram/max_ram*100 < max_used_ram_perc:
                     if res.gpu < max_used_perc:
                         lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}

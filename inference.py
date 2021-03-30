@@ -251,9 +251,9 @@ def main(params: dict):
     chunk_size = get_key_def('chunk_size', params['inference'], default=1024, expected_type=int)
     dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
     num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
-    max_used_ram = get_key_def('max_used_ram', params['global'], default=2000, expected_type=int)
+    default_max_used_ram = 15
+    max_used_ram = get_key_def('max_used_ram', params['global'], default=default_max_used_ram, expected_type=int)
     max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
-    debug = get_key_def('debug_mode', params['global'], default=False, expected_type=bool)
 
     # SETTING OUTPUT DIRECTORY
     working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
@@ -282,13 +282,14 @@ def main(params: dict):
         log_params(params['global'])
         log_params(params['inference'])
     else:
+        # set a console logger as default
         logging.basicConfig(level=logging.DEBUG)
 
     logging.info(f'Inferences will be saved to: {working_folder}\n\n')
     if not (0 <= max_used_ram <= 100):
         logging.warning(f'Max used ram parameter should be a percentage. Got {max_used_ram}. '
-                        f'Will set default value of {15}%')
-        max_used_ram = 15
+                        f'Will set default value of {default_max_used_ram} %')
+        max_used_ram = default_max_used_ram
 
     # AWS
     bucket = None
@@ -298,8 +299,7 @@ def main(params: dict):
     # list of GPU devices that are available and unused. If no GPUs, returns empty dict
     gpu_devices_dict = get_device_ids(num_devices,
                                       max_used_ram_perc=max_used_ram,
-                                      max_used_perc=max_used_perc,
-                                      debug=debug)
+                                      max_used_perc=max_used_perc)
     device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
 
     if gpu_devices_dict:
@@ -441,7 +441,7 @@ if __name__ == '__main__':
         if 'params' not in checkpoint.keys():
             raise KeyError('No parameters found in checkpoint. Use GDL version 1.3 or more.')
         else:
-            # set parameters for inference from those contained in checkpoint.pth.tar 
+            # set parameters for inference from those contained in checkpoint.pth.tar
             params = checkpoint['params']
             del checkpoint
         # overwrite with inputted parameters
