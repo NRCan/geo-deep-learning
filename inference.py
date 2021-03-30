@@ -250,7 +250,8 @@ def main(params: dict):
     chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
     dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
     num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
-    max_used_ram = get_key_def('max_used_ram', params['global'], default=2000, expected_type=int)
+    default_max_used_ram = 15
+    max_used_ram = get_key_def('max_used_ram', params['global'], default=default_max_used_ram, expected_type=int)
     max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
 
     # SETTING OUTPUT DIRECTORY
@@ -266,7 +267,6 @@ def main(params: dict):
         logfile = f'{working_folder}/info.log'
         logfile_debug = f'{working_folder}/debug.log'
         logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile, 'logfilename_debug': logfile_debug})
-        logging.info(f'Inferences will be saved to: {working_folder}\n\n')
 
         # import only if mlflow uri is set
         from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
@@ -281,7 +281,14 @@ def main(params: dict):
         log_params(params['global'])
         log_params(params['inference'])
     else:
+        # set a console logger as default
         logging.basicConfig(level=logging.DEBUG)
+
+    logging.info(f'Inferences will be saved to: {working_folder}\n\n')
+    if not (0 <= max_used_ram <= 100):
+        logging.warning(f'Max used ram parameter should be a percentage. Got {max_used_ram}. '
+                        f'Will set default value of {default_max_used_ram} %')
+        max_used_ram = default_max_used_ram
 
     # AWS
     bucket = None

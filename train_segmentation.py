@@ -547,7 +547,8 @@ def main(params, config_path):
     num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
     if num_devices and not num_devices >= 0:
         raise ValueError("missing mandatory num gpus parameter")
-    max_used_ram = get_key_def('max_used_ram', params['global'], default=2000, expected_type=int)
+    default_max_used_ram = 15
+    max_used_ram = get_key_def('max_used_ram', params['global'], default=default_max_used_ram, expected_type=int)
     max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
 
     # mlflow logging
@@ -602,6 +603,11 @@ def main(params, config_path):
     logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile, 'logfilename_debug': logfile_debug})
 
     # now that we know where logs will be saved, we can start logging!
+    if not (0 <= max_used_ram <= 100):
+        logging.warning(f'Max used ram parameter should be a percentage. Got {max_used_ram}. '
+                        f'Will set default value of {default_max_used_ram} %')
+        max_used_ram = default_max_used_ram
+
     logging.info(f'Model and log files will be saved to: {output_path}\n\n')
     if debug:
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
