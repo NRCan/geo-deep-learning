@@ -250,11 +250,12 @@ def main(params: dict):
     chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
     dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
     num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
+    max_used_ram = get_key_def('max_used_ram', params['global'], default=2000, expected_type=int)
+    max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
 
     # SETTING OUTPUT DIRECTORY
     working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
     Path.mkdir(working_folder, parents=True, exist_ok=True)
-
 
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default=None, expected_type=str)
@@ -288,7 +289,9 @@ def main(params: dict):
     bucket_name = get_key_def('bucket_name', params['global'])
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty dict
-    gpu_devices_dict = get_device_ids(num_devices)
+    gpu_devices_dict = get_device_ids(num_devices,
+                                      max_used_ram_perc=max_used_ram,
+                                      max_used_perc=max_used_perc)
     device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
 
     if gpu_devices_dict:

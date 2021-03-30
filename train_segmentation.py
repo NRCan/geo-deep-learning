@@ -613,8 +613,7 @@ def main(params, config_path):
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
     gpu_devices_dict = get_device_ids(num_devices,
                                       max_used_ram_perc=max_used_ram,
-                                      max_used_perc=max_used_perc,
-                                      debug=debug)
+                                      max_used_perc=max_used_perc)
     logging.info(f'GPUs devices available: {gpu_devices_dict}')
     num_devices = len(gpu_devices_dict.keys())
     device = torch.device(f'cuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
