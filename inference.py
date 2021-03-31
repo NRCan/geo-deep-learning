@@ -481,13 +481,13 @@ if __name__ == '__main__':
         model_ckpt = get_key_def('state_dict_path', input_params['inference'], expected_type=str)
         # load checkpoint
         checkpoint = load_checkpoint(model_ckpt)
-        if 'params' not in checkpoint.keys():
-            warnings.warn('No parameters found in checkpoint. Use GDL version 1.3 or more.')
-        elif 'params' in checkpoint.keys():
+        if 'params' in checkpoint.keys():
             params = checkpoint['params']
             # overwrite with inputted parameters
             compare_config_yamls(yaml1=params, yaml2=input_params, update_yaml1=True)
         else:
+            warnings.warn('No parameters found in checkpoint. Defaulting to parameters from inputted yaml.'
+                          'Use GDL version 1.3 or more.')
             params = input_params
         del checkpoint
         del input_params
