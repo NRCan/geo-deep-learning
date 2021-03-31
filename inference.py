@@ -483,10 +483,12 @@ if __name__ == '__main__':
         checkpoint = load_checkpoint(model_ckpt)
         if 'params' not in checkpoint.keys():
             warnings.warn('No parameters found in checkpoint. Use GDL version 1.3 or more.')
-        else:
+        elif 'params' in checkpoint.keys():
             params = checkpoint['params']
             # overwrite with inputted parameters
             compare_config_yamls(yaml1=params, yaml2=input_params, update_yaml1=True)
+        else:
+            params = input_params
         del checkpoint
         del input_params
 
