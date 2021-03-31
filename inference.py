@@ -282,6 +282,9 @@ def main(params: dict):
 
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default=None, expected_type=str)
+    if not Path(mlflow_uri).is_dir():
+        warnings.warn(f'Mlflow uri path is not valid: {mlflow_uri}')
+        mlflow_uri = None
     # SETUP LOGGING
     import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     if mlflow_uri:
