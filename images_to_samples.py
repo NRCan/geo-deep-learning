@@ -387,8 +387,11 @@ def main(params):
 
     import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     log_config_path = Path('utils/logging.conf').absolute()
+    console_level_logging = 'INFO' if not debug else 'DEBUG'
     logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{smpls_dir}/{samples_folder_name}.log',
-                                                         'logfilename_debug': f'{smpls_dir}/{samples_folder_name}_debug.log'})
+                                                         'logfilename_debug':
+                                                             f'{smpls_dir}/{samples_folder_name}_debug.log',
+                                                         'console_level': console_level_logging})
 
     if debug:
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '

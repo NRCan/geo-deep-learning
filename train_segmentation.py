@@ -152,7 +152,7 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     @param sample_size: size of hdf5 samples
     @return: returns a downgraded evaluation batch size if the original batch size is considered too high
     """
-    eval_batch_size = batch_size
+    eval_batch_size_rd = batch_size
     # get max ram for smallest gpu
     smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
     # rule of thumb to determine eval batch size based on approximate max pixels a gpu can handle during evaluation

@@ -43,7 +43,7 @@ except ModuleNotFoundError:
 logging.getLogger(__name__)
 
 
-def calc_eval_batchsize(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 350):
+def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 350):
     """
     Calculate maximum chunk_size that could fit on GPU during inference based on thumb rule with hardcoded
     "pixels per MB of GPU RAM" as threshold. Threshold based on inference with a large model (Deeplabv3_resnet101)
@@ -332,8 +332,10 @@ def main(params: dict):
                                       max_used_ram_perc=max_used_ram,
                                       max_used_perc=max_used_perc)
     # TODO: test this thumbrule on different GPUs
-    chunk_size = calc_eval_batchsize(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=350)
-    # chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
+    if gpu_devices_dict:
+        chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=350)
+    else:
+        chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
     device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
 
     if gpu_devices_dict:
