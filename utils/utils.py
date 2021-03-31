@@ -50,12 +50,13 @@ class Interpolate(torch.nn.Module):
         return x
 
 
-def load_from_checkpoint(checkpoint, model, optimizer=None):
+def load_from_checkpoint(checkpoint, model, optimizer=None, inference:str=''):
     """Load weights from a previous checkpoint
     Args:
         checkpoint: (dict) checkpoint
         model: model to replace
         optimizer: optimiser to be used
+        inference: (str) path to inference state_dict. If given, loading will be strict (see pytorch doc)
     """
     # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model	    model.load_state_dict(checkpoint['model'])
     # https://github.com/bearpaw/pytorch-classification/issues/27
@@ -67,7 +68,8 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
         checkpoint = {}
         checkpoint['model'] = new_state_dict['model']
 
-    model.load_state_dict(checkpoint['model'], strict=False)
+    strict_loading = False if not inference else True
+    model.load_state_dict(checkpoint['model'], strict=strict_loading)
     logging.info(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
         optimizer.load_state_dict(checkpoint['optimizer'], strict=False)

@@ -55,12 +55,15 @@ lm_smp = {
         'fct': smp.Unet, 'params': {
             'encoder_name': 'vgg11',
         }},
-    # 'manet_pretrained': {
-    #     # In the article of SpaceNet, the baseline is originaly pretrained on 'SN6 PS-RGB Imagery'.
-    #     'fct': smp.MAnet, 'params': {
-    #         'encoder_name': 'resnext50_32x4d',
-    #     }},
 }
+try:
+    lm_smp['manet_pretrained'] = {
+        # https://ieeexplore.ieee.org/abstract/document/9201310
+        'fct': smp.MAnet, 'params': {
+            'encoder_name': 'resnext50_32x4d'}}
+except AttributeError:
+    logging.exception("Couldn't load MAnet from segmentation models pytorch package. Check installed version")
+
 
 def load_checkpoint(filename):
     ''' Loads checkpoint from provided path
@@ -100,7 +103,8 @@ def set_hyperparameters(params,
                         dontcare_val,
                         loss_fn,
                         optimizer,
-                        class_weights = None):
+                        class_weights=None,
+                        inference: str = ''):
     """
     Function to set hyperparameters based on values provided in yaml config file.
     If none provided, default functions values may be used.
@@ -111,6 +115,8 @@ def set_hyperparameters(params,
     :param dontcare_val: value in label to ignore during loss calculation
     :param loss_fn: loss function
     :param optimizer: optimizer function
+    :param class_weights: class weights for loss function
+    :param inference: (str) path to inference checkpoint (used in load_from_checkpoint())
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
     # set mandatory hyperparameters values with those in config file if they exist
@@ -133,7 +139,7 @@ def set_hyperparameters(params,
 
     if checkpoint:
         tqdm.write(f'Loading checkpoint...')
-        model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer)
+        model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer, inference=inference)
 
     return model, criterion, optimizer, lr_scheduler
 
@@ -291,7 +297,8 @@ def net(model_name: str,
                                                                         dontcare_val=dontcare_val,
                                                                         loss_fn=loss_fn,
                                                                         optimizer=optimizer,
-                                                                        class_weights=class_weights)
+                                                                        class_weights=class_weights,
+                                                                        inference=inference_state_dict)
         criterion = criterion.to(device)
 
         return model, model_name, criterion, optimizer, lr_scheduler
