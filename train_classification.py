@@ -230,7 +230,6 @@ def main(params, config_path):
     batch_metrics = get_key_def('batch_metrics', params['training'], default=1, expected_type=int)
     meta_map = get_key_def("meta_map", params["global"], default={})
     bucket_name = get_key_def('bucket_name', params['global'])  # AWS
-    scale = get_key_def('scale_data', params['global'], default=None, expected_type=List)
 
     # model params
     loss_fn = get_key_def('loss_fn', params['training'], default='CrossEntropy', expected_type=str)

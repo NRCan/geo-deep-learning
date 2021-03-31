@@ -112,7 +112,7 @@ class LayersEnsemble(nn.Module):
         :param inputs: (list) List containing two Tensors
         :return: (tensor) Result
         """
-        x1, x2 = inputs
+        x1, x2 = self.split_RGB_NIR(inputs)
         # Get the input shape for the interpolation
         input_shape = x1.shape[-2:]
         # Features is a dict of tensors
@@ -134,18 +134,19 @@ class LayersEnsemble(nn.Module):
         result['out'] = x
         return result
 
-
-def split_RGB_NIR(inputs):
-    """
-    Split RGB and NIR in input imagery being fed to models for training
-    @param inputs: tensors with shape [batch_size x channel x h x w]
-    @return: two tensors, one for all but last channel with shape [batch_size x (channel-1) x h x w]
-             (ex.: RGB if RGBN imagery) and the other for NIR with shape [batch_size x 1 x h x w]
-    """
-    if inputs.shape[1] != 4:
-        logging.error(f'Expected 4 band imagery. Got input with {inputs.shape[1]} bands')
-    inputs_NIR = inputs[:, -1, ...]  # Need to be change for a more elegant way
-    inputs_NIR.unsqueeze_(1)  # add a channel to get [:, 1, :, :]
-    inputs = inputs[:, :-1, ...]  # Need to be change
-    inputs = [inputs, inputs_NIR]
-    return inputs
+    @staticmethod
+    def split_RGB_NIR(inputs):
+        """
+        Split RGB and NIR in input imagery being fed to models for training
+        @param inputs: tensors with shape [batch_size x channel x h x w]
+        @return: two tensors, one for all but last channel with shape [batch_size x (channel-1) x h x w]
+                 (ex.: RGB if RGBN imagery) and the other for NIR with shape [batch_size x 1 x h x w]
+        """
+        if inputs.shape[1] != 4:
+            logging.error(f'Expected 4 band imagery. Got input with {inputs.shape[1]} bands')
+        logging.warning(f'Will split inputs in 2 : (1) RGB bands, (2) NIR band')
+        inputs_NIR = inputs[:, -1, ...]  # Need to be change for a more elegant way
+        inputs_NIR.unsqueeze_(1)  # add a channel to get [:, 1, :, :]
+        inputs = inputs[:, :-1, ...]  # Need to be change
+        inputs = [inputs, inputs_NIR]
+        return inputs

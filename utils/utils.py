@@ -96,8 +96,11 @@ def get_device_ids(number_requested: int,
     :return: (list) Unused GPU devices.
     """
     lst_free_devices = {}
+    if not number_requested:
+        logging.warning(f'No GPUs requested. This training will run on CPU')
+        return lst_free_devices
     if not torch.cuda.is_available():
-        logging.warning(f'Requested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
+        logging.error(f'Requested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
         return lst_free_devices
     try:
         nvmlInit()
@@ -107,8 +110,9 @@ def get_device_ids(number_requested: int,
                 res, mem = gpu_stats(i)
                 used_ram = mem.used / (1024 ** 2)
                 max_ram = mem.total / (1024 ** 2)
-                logging.debug(f'GPU RAM used: {used_ram:.0f}/{max_ram:.0f} MiB\nGPU % used: {res.gpu}')
-                if used_ram/max_ram*100 < max_used_ram_perc:
+                used_ram_perc = used_ram / max_ram * 100
+                logging.debug(f'GPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
+                if used_ram_perc < max_used_ram_perc:
                     if res.gpu < max_used_perc:
                         lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}
                     else:
@@ -125,7 +129,7 @@ def get_device_ids(number_requested: int,
                 logging.warning(f"You requested {number_requested} devices. {device_count} devices are available and "
                                 f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
         else:
-            logging.warning('No gpu devices requested. Will run on cpu')
+            logging.error('No gpu devices requested. Will run on cpu')
     except NameError as error:
         raise NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
     except NVMLError as error:
@@ -364,7 +368,7 @@ def read_csv(csv_file_name):
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
         list_values = sorted(list_values, key=lambda k: k['dataset'])
     except TypeError:
-        logging.exception('Unable to sort csv rows')
+        logging.warning('Unable to sort csv rows')
     return list_values
 
 
@@ -510,13 +514,14 @@ def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -
                     if subval2 != subval1:
                         # if value doesn't match between yamls, emit warning
                         logging.warning(f"YAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
-                                        f"Current yaml value: \"{subval1}\"\nHDF5s yaml value: \"{subval2}\"\n"
-                                        f"Problems may occur.")
+                                        f"Current yaml value: \"{subval1}\"\nHDF5s yaml value: \"{subval2}\"\n")
                         if update_yaml1:  # update yaml1 with subvalue of yaml2
                             yaml1[section][param][subparam] = subval2
+                            logging.info(f'Value in yaml1 updated')
             elif val2 != val1:
                 logging.warning(f"YAML value mismatch: section \"{section}\", key \"{param}\"\n"
                                 f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val1}\"\n"
                                 f"Problems may occur.")
                 if update_yaml1:  # update yaml1 with value of yaml2
                     yaml1[section][param] = val2
+                    logging.info(f'Value in yaml1 updated')

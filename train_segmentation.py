@@ -16,8 +16,6 @@ from collections import OrderedDict
 import shutil
 import numpy as np
 
-from utils.layersmodules import split_RGB_NIR
-
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -160,12 +158,12 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     # rule of thumb to determine eval batch size based on approximate max pixels a gpu can handle during evaluation
     pix_per_mb_gpu = (batch_size / len(gpu_devices_dict.keys()) * sample_size ** 2) / smallest_gpu_ram
     if pix_per_mb_gpu >= max_pix_per_mb_gpu:
-        eval_batch_size = int(
-            round(smallest_gpu_ram * max_pix_per_mb_gpu / sample_size ** 2, len(gpu_devices_dict.keys())))
-        eval_batch_size = 1 if eval_batch_size < 1 else eval_batch_size
+        eval_batch_size = smallest_gpu_ram * max_pix_per_mb_gpu / sample_size ** 2
+        eval_batch_size_rd = int(eval_batch_size - eval_batch_size % len(gpu_devices_dict.keys()))
+        eval_batch_size_rd = 1 if eval_batch_size_rd < 1 else eval_batch_size_rd
         logging.warning(f'Validation and test batch size downgraded from {batch_size} to {eval_batch_size} '
                         f'based on max ram of smallest GPU available')
-    return eval_batch_size
+    return eval_batch_size_rd
 
 
 def get_num_samples(samples_path, params, dontcare):
@@ -204,7 +202,15 @@ def get_num_samples(samples_path, params, dontcare):
     return num_samples, samples_weight
 
 
-def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
+def vis_from_dataloader(params,
+                        eval_loader,
+                        model,
+                        ep_num,
+                        output_path,
+                        dataset='',
+                        scale=None,
+                        device=None,
+                        vis_batch_range=None):
     """
     Use a model and dataloader to provide outputs that can then be sent to vis_from_batch function to visualize performances of model, for example.
     :param params: (dict) Parameters found in the yaml config file.
@@ -235,15 +241,6 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                         inputs = data['sat_img'].to(device)
                         labels = data['map_img'].to(device)
 
-                    if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
-                        ############################
-                        # Test Implementation of the NIR
-                        ############################
-                        inputs = split_RGB_NIR(inputs)
-                        ############################
-                        # Test Implementation of the NIR
-                        ############################
-
                     outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
@@ -253,7 +250,8 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                                    vis_path=vis_path,
                                    labels=labels,
                                    dataset=dataset,
-                                   ep_num=ep_num)
+                                   ep_num=ep_num,
+                                   scale=scale)
     logging.info(f'Saved visualization figures.\n')
 
 
@@ -269,6 +267,7 @@ def train(train_loader,
           vis_at_train,
           vis_batch_range,
           device,
+          scale,
           debug=False
           ):
     """
@@ -303,15 +302,6 @@ def train(train_loader,
             inputs = data['sat_img'].to(device)
             labels = data['map_img'].to(device)
 
-        if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
-            ############################
-            # Test Implementation of the NIR
-            ############################
-            inputs = split_RGB_NIR(inputs)
-            ############################
-            # Test Implementation of the NIR
-            ############################
-
         # forward
         optimizer.zero_grad()
         outputs = model(inputs)
@@ -331,7 +321,8 @@ def train(train_loader,
                                vis_path=vis_path,
                                labels=labels,
                                dataset='trn',
-                               ep_num=ep_idx+1)
+                               ep_num=ep_idx+1,
+                               scale=scale)
 
         loss = criterion(outputs, labels)
 
@@ -367,6 +358,7 @@ def evaluation(eval_loader,
                progress_log,
                vis_batch_range,
                vis_at_eval,
+               scale,
                batch_metrics=None,
                dataset='val',
                device=None,
@@ -407,15 +399,6 @@ def evaluation(eval_loader,
 
             labels_flatten = flatten_labels(labels)
 
-            if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
-                ############################
-                # Test Implementation of the NIR
-                ############################
-                inputs = split_RGB_NIR(inputs)
-                ############################
-                # Test Implementation of the NIR
-                ############################
-
             outputs = model(inputs)
             if isinstance(outputs, OrderedDict):
                 outputs = outputs['out']
@@ -432,7 +415,8 @@ def evaluation(eval_loader,
                                    vis_path=vis_path,
                                    labels=labels,
                                    dataset=dataset,
-                                   ep_num=ep_idx+1)
+                                   ep_num=ep_idx+1,
+                                   scale=scale)
 
             outputs_flatten = flatten_outputs(outputs, num_classes)
 
@@ -526,7 +510,7 @@ def main(params, config_path):
     if meta_map and not Path(meta_map).is_file():
         raise FileNotFoundError(f'Couldn\'t locate {meta_map}')
     bucket_name = get_key_def('bucket_name', params['global'])  # AWS
-    scale = get_key_def('scale_data', params['global'], default=None, expected_type=List)
+    scale = get_key_def('scale_data', params['global'], default=[0, 1], expected_type=List)
 
     # model params
     loss_fn = get_key_def('loss_fn', params['training'], default='CrossEntropy', expected_type=str)
@@ -600,7 +584,10 @@ def main(params, config_path):
     log_config_path = Path('utils/logging.conf').absolute()
     logfile = f'{output_path}/{model_id}.log'
     logfile_debug = f'{output_path}/{model_id}_debug.log'
-    logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile, 'logfilename_debug': logfile_debug})
+    console_level_logging = 'INFO' if not debug else 'DEBUG'
+    logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile,
+                                                         'logfilename_debug': logfile_debug,
+                                                         'console_level': console_level_logging})
 
     # now that we know where logs will be saved, we can start logging!
     if not (0 <= max_used_ram <= 100):
@@ -715,6 +702,7 @@ def main(params, config_path):
                                 ep_num=0,
                                 output_path=output_path,
                                 dataset=vis_at_init_dataset,
+                                scale=scale,
                                 device=device,
                                 vis_batch_range=vis_batch_range)
 
@@ -733,6 +721,7 @@ def main(params, config_path):
                            vis_batch_range=vis_batch_range,
                            vis_at_train=vis_at_train,
                            device=device,
+                           scale=scale,
                            debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
@@ -748,6 +737,7 @@ def main(params, config_path):
                                 batch_metrics=batch_metrics,
                                 dataset='val',
                                 device=device,
+                                scale=scale,
                                 debug=debug)
         val_loss = val_report['loss'].avg
         if batch_metrics is not None:
@@ -782,6 +772,7 @@ def main(params, config_path):
                                     ep_num=epoch+1,
                                     output_path=output_path,
                                     dataset=vis_at_ckpt_dataset,
+                                    scale=scale,
                                     device=device,
                                     vis_batch_range=vis_batch_range)
                 last_vis_epoch = epoch
@@ -809,6 +800,7 @@ def main(params, config_path):
                                 vis_at_eval=vis_at_eval,
                                 batch_metrics=batch_metrics,
                                 dataset='tst',
+                                scale=scale,
                                 device=device)
         tst_log.add_values(tst_report, num_epochs)
 

@@ -57,7 +57,16 @@ def grid_vis(input_, output, heatmaps_dict, label=None, heatmaps=True):
     return plt
 
 
-def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, dataset='', ep_num=0, debug=False):
+def vis_from_batch(params,
+                   inputs,
+                   outputs,
+                   batch_index,
+                   vis_path,
+                   labels=None,
+                   dataset='',
+                   ep_num=0,
+                   scale=None,
+                   debug=False):
     """ Provide indiviual input, output and label from batch to visualization function
     :param params: (dict) Parameters found in the yaml config file.
     :param inputs: (tensor) inputs as pytorch tensors with dimensions (batch_size, channels, width, height)
@@ -82,10 +91,21 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
             label=label,
             dataset=dataset,
             ep_num=ep_num,
+            scale=scale,
             debug=debug)
 
 
-def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', ep_num=0, inference_input_path=False, debug=False):
+def vis(params,
+        input_,
+        output,
+        vis_path,
+        sample_num=0,
+        label=None,
+        dataset='',
+        ep_num=0,
+        inference_input_path=False,
+        scale=None,
+        debug=False):
     """saves input, output and label (if given) as .png in a grid or as individual pngs
     :param params: parameters from .yaml config file
     :param input_: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
@@ -99,7 +119,6 @@ def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', 
     :return: saves color images from input arrays as grid or as full scale .png
     """
     inference = True if inference_input_path else False
-    scale = get_key_def('scale_data', params['global'], None)
     colormap_file = get_key_def('colormap_file', params['visualization'], None)
     heatmaps = get_key_def('heatmaps', params['visualization'], False)
     heatmaps_inf = get_key_def('heatmaps', params['inference'], False)

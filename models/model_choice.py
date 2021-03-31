@@ -155,7 +155,7 @@ def net(model_name: str,
         inference_state_dict: str = None):
     """Define the neural net"""
     msg = f'Number of bands specified incompatible with this model. Requires 3 band data.'
-    pretrained = False if train_state_dict_path else pretrained
+    pretrained = False if train_state_dict_path or inference_state_dict else pretrained
     dropout = True if dropout_prob else False
 
     if model_name == 'unetsmall':
