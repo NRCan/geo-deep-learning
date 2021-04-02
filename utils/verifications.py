@@ -30,22 +30,38 @@ def validate_num_classes(vector_file: Union[str, Path],
     Return:
         List of unique attribute values found in gpkg vector file
     """
+    if isinstance(vector_file, str):
+        vector_file = Path(vector_file)
+    if not vector_file.is_file():
+        raise FileNotFoundError(f"Could not locate gkpg file at {vector_file}")
     unique_att_vals = set()
     with fiona.open(vector_file, 'r') as src:
         for feature in tqdm(src, leave=False, position=1, desc=f'Scanning features'):
             # Use property of set to store unique values
             unique_att_vals.add(int(get_key_recursive(attribute_name, feature)))
 
+    # if dontcare value is defined, remove from list of unique attribute values for verification purposes
     if ignore_index in unique_att_vals:
         unique_att_vals.remove(ignore_index)
 
-    # FIXME: This function should read list of gpkg. Checks should be done after for loop goes through all gpkg files.
-    if target_ids and not set(target_ids).issubset(unique_att_vals):
-        logging.warning(f'\nFailed scan of vector file: {vector_file}\n'
-                        f'\tExpected to find all target ids {target_ids}. \n'
-                        f'\tFound {unique_att_vals} for attribute "{attribute_name}"')
-    elif not target_ids and unique_att_vals != num_classes:
-        logging.warning(f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
+    # if burning a subset of gpkg's classes
+    if target_ids:
+        if not len(target_ids) == num_classes:
+            raise ValueError(f'Yaml parameters mismatch. \n'
+                             f'Got target_ids {target_ids} (sample sect) with length {len(target_ids)}. '
+                             f'Expected match with num_classes {num_classes} (global sect))')
+        # make sure target ids are a subset of all attribute values in gpkg
+        if not set(target_ids).issubset(unique_att_vals):
+            logging.warning(f'\nFailed scan of vector file: {vector_file}\n'
+                            f'\tExpected to find all target ids {target_ids}. \n'
+                            f'\tFound {unique_att_vals} for attribute "{attribute_name}"')
+    else:
+        # this can happen if gpkg doens't contain all classes, thus the warning rather than exception
+        if len(unique_att_vals) < num_classes:
+            logging.warning(f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
+        # this should not happen, thus the exception raised
+        elif len(unique_att_vals) > num_classes:
+            raise ValueError(f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
 
     return unique_att_vals
 
@@ -79,6 +95,10 @@ def validate_raster(raster_path: Union[str, Path], num_bands: int, meta_map):
     """
     # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
     #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
+    if isinstance(raster_path, str):
+        raster_path = Path(raster_path)
+    if not raster_path.is_file():
+        raise FileNotFoundError(f"Could not locate raster file at {raster_path}")
     with rasterio.open(raster_path, 'r') as raster:
         input_band_count = raster.meta['count'] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
         if not raster.meta['dtype'] in ['uint8', 'uint16']:

@@ -410,15 +410,11 @@ def main(params):
                         " will be remapped to -1 while loading the dataset, and inside the config from now on.")
         dontcare = -1
 
-    # Assert that all items in target_ids are integers
+    # Assert that all items in target_ids are integers (ex.: single-class samples from multi-class label)
     if targ_ids:
         for item in targ_ids:
             if not isinstance(item, int):
                 raise ValueError(f'Target id "{item}" in target_ids is {type(item)}, expected int.')
-        if not len(targ_ids) == num_classes:
-            raise ValueError(f'Yaml parameters mismatch. \n'
-                             f'Got target_ids {targ_ids} (sample sect) with length {len(targ_ids)}. '
-                             f'Expected match with num_classes {num_classes} (global sect))')
 
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()

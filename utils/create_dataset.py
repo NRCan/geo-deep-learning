@@ -127,17 +127,20 @@ class SegmentationDataset(Dataset):
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
             sat_img = np.float32(hdf5_file["sat_img"][index, ...])
             assert self.num_bands <= sat_img.shape[-1]
-            #if self.num_bands < sat_img.shape[-1]:  # FIXME: remove after NIR integration tests
-            #    sat_img = sat_img[:, :, :self.num_bands]
             map_img = self._remap_labels(hdf5_file["map_img"][index, ...])
             meta_idx = int(hdf5_file["meta_idx"][index])
             metadata = self.metadata[meta_idx]
-            sample_metadata = eval(hdf5_file["sample_metadata"][index, ...][0])
+            sample_metadata = hdf5_file["sample_metadata"][index, ...][0]
+            sample_metadata = eval(sample_metadata.decode('UTF-8'))
             if isinstance(metadata, np.ndarray) and len(metadata) == 1:
                 metadata = metadata[0]
-            if isinstance(metadata, str):
+            elif isinstance(metadata, bytes):
+                metadata = metadata.decode('UTF-8')
+            try:
                 metadata = eval(metadata)
-            metadata.update(sample_metadata)
+                metadata.update(sample_metadata)
+            except TypeError:
+                pass # FI
             # where bandwise array has no data values, set as np.nan
             # sat_img[sat_img == metadata['nodata']] = np.nan # TODO: problem with lack of dynamic range. See: https://rasterio.readthedocs.io/en/latest/topics/masks.html
 

@@ -33,7 +33,7 @@ from utils.geoutils import vector_to_raster
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
     list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D, compare_config_yamls
 from utils.readers import read_parameters, image_reader_as_array
-from utils.verifications import add_background_to_num_class, validate_raster
+from utils.verifications import add_background_to_num_class, validate_raster, validate_num_classes, assert_crs_match
 
 try:
     import boto3
@@ -276,6 +276,10 @@ def main(params: dict):
     scale = get_key_def('scale_data', params['global'], default=[0, 1], expected_type=List)
     debug = get_key_def('debug_mode', params['global'], default=False, expected_type=bool)
 
+    # benchmark (ie when gkpgs are inputted along with imagery)
+    dontcare = get_key_def("ignore_index", params["training"], -1)
+    targ_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
+
     # SETTING OUTPUT DIRECTORY
     working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
     Path.mkdir(working_folder, parents=True, exist_ok=True)
@@ -316,6 +320,13 @@ def main(params: dict):
     if debug:
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
+
+    # Assert that all items in target_ids are integers (ex.: to benchmark single-class model with multi-class labels)
+    if targ_ids:
+        for item in targ_ids:
+            if not isinstance(item, int):
+                raise ValueError(f'Target id "{item}" in target_ids is {type(item)}, expected int.')
+
     logging.info(f'Inferences will be saved to: {working_folder}\n\n')
     if not (0 <= max_used_ram <= 100):
         logging.warning(f'Max used ram parameter should be a percentage. Got {max_used_ram}. '
@@ -363,9 +374,22 @@ def main(params: dict):
     # CREATE LIST OF INPUT IMAGES FOR INFERENCE
     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
 
+    # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
+    valid_gpkg_set = set()
     for info in tqdm(list_img, desc='Validating imagery'):
         validate_raster(info['tif'], num_bands, meta_map)
+        if 'gpkg' in info.keys() and info['gpkg'] and info['gpkg'] not in valid_gpkg_set:
+            validate_num_classes(vector_file=info['gpkg'],
+                                 num_classes=num_classes,
+                                 attribute_name=info['attribute_name'],
+                                 ignore_index=dontcare,
+                                 target_ids=targ_ids)
+            assert_crs_match(info['tif'], info['gpkg'])
+            valid_gpkg_set.add(info['gpkg'])
+
     logging.info('Successfully validated imagery')
+    if valid_gpkg_set:
+        logging.info('Successfully validated label data for benchmarking')
 
     if task == 'classification':
         classifier(params, list_img, model, device,
@@ -400,8 +424,6 @@ def main(params: dict):
                 Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
                 inference_image = working_folder.joinpath(local_img.parent.name,
                                                           f"{img_name.split('.')[0]}_inference.tif")
-            if not local_img.is_file():
-                raise FileNotFoundError(f"Could not locate raster file at {local_img}")
             with rasterio.open(local_img, 'r') as raster:
                 logging.info(f'Reading image as array: {raster.name}')
                 img_array, raster, _ = image_reader_as_array(input_image=raster, clip_gpkg=local_gpkg)
@@ -411,14 +433,13 @@ def main(params: dict):
                 inf_meta = raster.meta
                 label = None
                 if local_gpkg:
-                    if not local_gpkg.is_file():
-                        raise FileNotFoundError(f"Could not locate gkpg file at {local_gpkg}")
                     logging.info(f'Burning label as raster: {local_gpkg}')
                     label = vector_to_raster(vector_file=local_gpkg,
                                              input_image=raster,
                                              out_shape=(inf_meta['height'], inf_meta['width']),
                                              attribute_name=info['attribute_name'],
-                                             fill=0)  # background value in rasterized vector.
+                                             fill=0,  # background value in rasterized vector.
+                                             target_ids=targ_ids)
                     if debug:
                         logging.debug(f'Unique values in loaded label as raster: {np.unique(label)}\n'
                                       f'Shape of label as raster: {label.shape}')
@@ -448,7 +469,8 @@ def main(params: dict):
                                  "height": pred.shape[1],
                                  "width": pred.shape[2],
                                  "count": pred.shape[0],
-                                 "dtype": 'uint8'})
+                                 "dtype": 'uint8',
+                                 "compress": 'lzw'})
                 logging.info(f'Successfully inferred on {img_name}\nWriting to file: {inference_image}')
                 with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
                     dest.write(pred)

@@ -476,12 +476,13 @@ def ordereddict_eval(str_to_eval: str):
     Small utility to successfully evaluate an ordereddict object that was converted to str by repr() function.
     :param str_to_eval: (str) string to prepared for import with eval()
     """
-    # Replaces "ordereddict" string to "Collections.OrderedDict"
-    if isinstance(str_to_eval, str) and "ordereddict" in str_to_eval:
-        str_to_eval = str_to_eval.replace("ordereddict", "collections.OrderedDict")
     try:
+        # Replaces "ordereddict" string to "Collections.OrderedDict"
+        if isinstance(str_to_eval, bytes):
+            str_to_eval = str_to_eval.decode('UTF-8')
+        str_to_eval = str_to_eval.replace("ordereddict", "collections.OrderedDict")
         return eval(str_to_eval)
-    except Exception as e:
+    except Exception:
         logging.exception(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
         return str_to_eval
 
