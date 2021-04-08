@@ -17,7 +17,7 @@ import pandas as pd
 import geopandas as gpd
 
 from tqdm import tqdm
-from shapely.geometry import Polygon, box
+from shapely.geometry import Polygon
 from pathlib import Path
 from utils.metrics import ComputePixelMetrics
 from models.model_choice import net, load_checkpoint
@@ -59,9 +59,15 @@ def segmentation(img_array, input_image, label_arr, num_classes, gpkg_name, mode
 
     xres, yres = (abs(input_image.transform.a), abs(input_image.transform.e))
     h, w, bands = img_array.shape
-    assert num_bands <= bands, f"Num of specified bands is not compatible with image shape {img_array.shape}"
+    # assert num_bands <= bands, f"Num of specified bands is not compatible with image shape {img_array.shape}"
     if num_bands < bands:
-       img_array = img_array[:, :, :num_bands]
+        warnings.warn(F"Num of specified bands {num_bands} is < image shape {img_array.shape}")
+        img_array = img_array[:, :, :num_bands]
+    elif num_bands > bands:
+        warnings.warn(F" Num of specified bands {num_bands} is > image shape {img_array.shape} ")
+        for i in range(num_bands - bands):
+            o_band = img_array[:, :, 0:i]
+            img_array = np.append(img_array, o_band, axis=2)
     padding = int(round(sample_size * (1 - 1.0 / 2.0)))
     step = int(sample_size / 2.0)
     img_array = pad(img_array, padding=padding, fill=np.nan)
