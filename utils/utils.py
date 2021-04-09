@@ -10,11 +10,10 @@ from torch import nn
 import numpy as np
 import scipy.signal
 import warnings
-import matplotlib
-import matplotlib.pyplot as plt
-import collections
+import requests
 
 from utils.readers import read_parameters
+from urllib.parse import urlparse
 
 # matplotlib.use('Agg')
 
@@ -273,6 +272,33 @@ def ind2rgb(arr, color):
     return rgb
 
 
+def is_url(url):
+    if urlparse(url).scheme in ('http', 'https', 's3'):
+        return True
+    else:
+        return False
+
+
+def checkpoint_url_download(url: str):
+    mime_type = ('application/tar', 'application/x-tar', 'applicaton/x-gtar',
+                 'multipart/x-tar', 'application/x-compress', 'application/x-compressed')
+    try:
+        response = requests.head(url)
+        if response.headers['content-type'] in mime_type:
+            working_folder = Path.cwd().joinpath('inference_out')
+            Path.mkdir(working_folder, parents=True, exist_ok=True)
+            checkpoint_path = working_folder.joinpath(Path(url).name)
+            r = requests.get(url)
+            checkpoint_path.write_bytes(r.content)
+            print(checkpoint_path)
+            return checkpoint_path
+        else:
+            raise SystemExit('Invalid Url, checkpoint content not detected')
+
+    except requests.exceptions.RequestException as e:
+        raise SystemExit(e)
+
+
 def list_input_images(img_dir_or_csv: str,
                       bucket_name: str = None,
                       glob_patterns: List = None):
@@ -299,15 +325,25 @@ def list_input_images(img_dir_or_csv: str,
     else:
         if img_dir_or_csv.endswith('.csv'):
             list_img = read_csv(img_dir_or_csv)
+
+        elif is_url(img_dir_or_csv):
+            list_img = []
+            img_path = Path(img_dir_or_csv)
+            img = {}
+            img['tif'] = img_path
+            list_img.append(img)
+
         else:
             img_dir = Path(img_dir_or_csv)
-            assert img_dir.is_dir(), f'Could not find directory "{img_dir_or_csv}"'
+            assert img_dir.is_dir() or img_dir.is_file(), f'Could not find directory/file "{img_dir_or_csv}"'
 
             list_img_paths = set()
-            for glob_pattern in glob_patterns:
-                assert isinstance(glob_pattern, str), f'Invalid glob pattern: "{glob_pattern}"'
-                list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
-
+            if img_dir.is_dir():
+                for glob_pattern in glob_patterns:
+                    assert isinstance(glob_pattern, str), f'Invalid glob pattern: "{glob_pattern}"'
+                    list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
+            else:
+                list_img_paths.update(img_dir)
             list_img = []
             for img_path in list_img_paths:
                 img = {}

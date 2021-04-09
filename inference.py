@@ -24,7 +24,7 @@ from models.model_choice import net, load_checkpoint
 from utils import augmentation
 from utils.geoutils import vector_to_raster
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D
+    list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D, is_url, checkpoint_url_download
 from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import add_background_to_num_class
 from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
@@ -250,7 +250,7 @@ def main(params: dict):
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
     lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
-    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+    device = torch.device(f'cuda' if torch.cuda.is_available() and lst_device_ids else 'cpu')
 
     if lst_device_ids:
         print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using {lst_device_ids[0]}\n\n")
@@ -309,7 +309,6 @@ def main(params: dict):
                     Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
                     inference_image = working_folder.joinpath(local_img.parent.name,
                                                               f"{img_name.split('.')[0]}_inference.tif")
-                assert local_img.is_file(), f"Could not locate raster file at {local_img}"
                 with rasterio.open(local_img, 'r') as raster:
                     img_array, raster, _ = image_reader_as_array(input_image=raster, clip_gpkg=local_gpkg)
                     inf_meta = raster.meta
@@ -365,10 +364,14 @@ if __name__ == '__main__':
     if args.param:
         params = read_parameters(args.param[0])
     elif args.input:
-        model = Path(args.input[0])
+        if is_url(args.input[0]):
+            url = args.input[0]
+            checkpoint_path = checkpoint_url_download(url)
+            args.input[0] = checkpoint_path
+        else:
+            checkpoint_path = Path(args.input[0])
         image = args.input[1]
-
-        checkpoint = load_checkpoint(model)
+        checkpoint = load_checkpoint(checkpoint_path)
         if 'params' not in checkpoint.keys():
             raise KeyError('No parameters found in checkpoint. Use GDL version 1.3 or more.')
         else:

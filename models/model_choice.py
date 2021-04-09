@@ -226,7 +226,6 @@ def net(net_params, num_channels, inference=False):
 
     if inference:
         state_dict_path = net_params['inference']['state_dict_path']
-        assert Path(net_params['inference']['state_dict_path']).is_file(), f"Could not locate {net_params['inference']['state_dict_path']}"
         checkpoint = load_checkpoint(state_dict_path)
 
         return model, checkpoint, model_name
