@@ -1,8 +1,11 @@
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+logging.getLogger(__name__)
 
 # Adapted from OCNet Repository (https://github.com/PkuRainBow/OCNet)
 class OhemCrossEntropy2d(nn.Module):
@@ -31,7 +34,7 @@ class OhemCrossEntropy2d(nn.Module):
         label = input_label[valid_flag]
         num_valid = valid_flag.sum()
         if self.min_kept >= num_valid:
-            print('Labels: {}'.format(num_valid))
+            logging.info('Labels: {}'.format(num_valid))
         elif num_valid > 0:
             prob = input_prob[:, valid_flag]
             pred = prob[label, np.arange(len(label), dtype=np.int32)]
@@ -43,12 +46,12 @@ class OhemCrossEntropy2d(nn.Module):
                     threshold = pred[threshold_index]
             kept_flag = pred <= threshold
             valid_inds = valid_inds[kept_flag]
-            #print('hard ratio: {} = {} / {} '.format(round(len(valid_inds)/num_valid, 4), len(valid_inds), num_valid))
+            logging.info('hard ratio: {} = {} / {} '.format(round(len(valid_inds)/num_valid, 4), len(valid_inds), num_valid))
 
         label = input_label[valid_inds].copy()
         input_label.fill(self.ignore_label)
         input_label[valid_inds] = label
-        #print(np.sum(input_label != self.ignore_label))
+        logging.info(np.sum(input_label != self.ignore_label))
         target = torch.from_numpy(input_label.reshape(target.size())).long().cuda()
 
         return self.criterion(predict, target)

@@ -1,3 +1,4 @@
+import logging
 import math
 import re
 import warnings
@@ -12,6 +13,11 @@ import csv
 
 from utils.utils import unscale, unnormalize, get_key_def
 from utils.geoutils import create_new_raster_from_base
+
+import matplotlib
+matplotlib.use('Agg')
+
+logging.getLogger(__name__)
 
 
 def grid_vis(input_, output, heatmaps_dict, label=None, heatmaps=True):
@@ -51,7 +57,16 @@ def grid_vis(input_, output, heatmaps_dict, label=None, heatmaps=True):
     return plt
 
 
-def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, dataset='', ep_num=0, debug=False):
+def vis_from_batch(params,
+                   inputs,
+                   outputs,
+                   batch_index,
+                   vis_path,
+                   labels=None,
+                   dataset='',
+                   ep_num=0,
+                   scale=None,
+                   debug=False):
     """ Provide indiviual input, output and label from batch to visualization function
     :param params: (dict) Parameters found in the yaml config file.
     :param inputs: (tensor) inputs as pytorch tensors with dimensions (batch_size, channels, width, height)
@@ -76,10 +91,21 @@ def vis_from_batch(params, inputs, outputs, batch_index, vis_path, labels=None, 
             label=label,
             dataset=dataset,
             ep_num=ep_num,
+            scale=scale,
             debug=debug)
 
 
-def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', ep_num=0, inference_input_path=False, debug=False):
+def vis(params,
+        input_,
+        output,
+        vis_path,
+        sample_num=0,
+        label=None,
+        dataset='',
+        ep_num=0,
+        inference_input_path=False,
+        scale=None,
+        debug=False):
     """saves input, output and label (if given) as .png in a grid or as individual pngs
     :param params: parameters from .yaml config file
     :param input_: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
@@ -93,7 +119,6 @@ def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', 
     :return: saves color images from input arrays as grid or as full scale .png
     """
     inference = True if inference_input_path else False
-    scale = get_key_def('scale_data', params['global'], None)
     colormap_file = get_key_def('colormap_file', params['visualization'], None)
     heatmaps = get_key_def('heatmaps', params['visualization'], False)
     heatmaps_inf = get_key_def('heatmaps', params['inference'], False)
@@ -116,7 +141,6 @@ def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', 
         if label is not None:
             label_copy = label.cpu().numpy().copy()
             if ignore_index < 0:
-                warnings.warn('Choose 255 as ignore_index to visualize. Problems may occur otherwise...')
                 new_ignore_index = 255
                 # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
                 label_copy[label_copy == ignore_index] = new_ignore_index
@@ -193,8 +217,8 @@ def heatmaps_to_dict(output, classes=[], inference=False, debug=False):
         perclass_output = output[:, :, i]
         if inference:  # Don't color heatmap if in inference
             if debug:
-                print(f'Heatmap class: {classes[i]}\n')
-                print(f'List of unique values in heatmap: {np.unique(np.uint8(perclass_output * 255))}\n')
+                logging.info(f'Heatmap class: {classes[i]}\n')
+                logging.info(f'List of unique values in heatmap: {np.unique(np.uint8(perclass_output * 255))}\n')
             perclass_output_PIL = Image.fromarray(np.uint8(perclass_output*255))
         else:  # https://stackoverflow.com/questions/10965417/how-to-convert-numpy-array-to-pil-image-applying-matplotlib-colormap
             perclass_output_PIL = Image.fromarray(np.uint8(cm.get_cmap('inferno')(perclass_output) * 255))

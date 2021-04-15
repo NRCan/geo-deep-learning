@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 from pathlib import Path
 from typing import List
@@ -16,6 +17,8 @@ from numpy import genfromtxt
 from tqdm import tqdm
 
 import images_to_samples
+
+logging.getLogger(__name__)
 
 
 def create_csv():
@@ -258,23 +261,23 @@ def parameters_search_dict(stats_dict, prop_classes, numbers_sample, source):
 def results(classes, stats_dict):
     if len(params['data_analysis']['sampling']['method']) == 1:
         if params['data_analysis']['sampling']['method'][0] == 'min_annotated_percent':
-            print(' ')
-            print('optimal minimum annotated percent :', stats_dict['map'])
+            logging.info(' ')
+            logging.info('optimal minimum annotated percent :', stats_dict['map'])
 
         elif params['data_analysis']['sampling']['method'][0] == 'class_proportion':
-            print(' ')
-            print('optimal class threshold combination :', stats_dict['combination'])
+            logging.info(' ')
+            logging.info('optimal class threshold combination :', stats_dict['combination'])
 
     elif len(params['data_analysis']['sampling']['method']) == 2:
         if params['data_analysis']['sampling']['method'][1] == 'min_annotated_percent':
-            print('optimal minimum annotated percent :', stats_dict['combination'])
+            logging.info('optimal minimum annotated percent :', stats_dict['combination'])
 
         elif params['data_analysis']['sampling']['method'][1] == 'class_proportion':
-            print('optimal class threshold combination :', stats_dict['map'])
+            logging.info('optimal class threshold combination :', stats_dict['map'])
 
     for i in classes:
-        print('Pixels from class ', i, ' : ', stats_dict['prop' + str(i)], '%')
-    print(stats_dict['trn_data'])
+        logging.info('Pixels from class ', i, ' : ', stats_dict['prop' + str(i)], '%')
+    logging.info(stats_dict['trn_data'])
 
 
 def parameters_search(sampling, sample_data, classes):
@@ -289,7 +292,7 @@ def parameters_search(sampling, sample_data, classes):
                 if minimum_annotated_percent(row[0], stats['map']):
                     sample.append(row)
             res = class_proportion_search(classes, sampling, sample)
-            print('optimal minimum annotated percent :', stats['map'])
+            logging.info('optimal minimum annotated percent :', stats['map'])
             results(classes, res)
 
     elif sampling['method'][0] == 'class_proportion':
@@ -301,7 +304,7 @@ def parameters_search(sampling, sample_data, classes):
                     sample.append(row)
             res = minimum_annotated_percent_search(classes, annotated_p, sampling, sample)
 
-            print('optimal class threshold combination :', stats['combination'])
+            logging.info('optimal class threshold combination :', stats['combination'])
             results(classes, res)
 
 
@@ -355,8 +358,8 @@ def main(params):  # TODO: test this.
             total_pixel += pixel_classes[i]
 
         for i in pixel_classes:
-            print('Pixels from class ', i, ' :', round(pixel_classes[i]/total_pixel * 100, 1), ' %')
-        print(number_samples)
+            logging.info('Pixels from class ', i, ' :', round(pixel_classes[i]/total_pixel * 100, 1), ' %')
+        logging.info(number_samples)
 
 
 if __name__ == '__main__':

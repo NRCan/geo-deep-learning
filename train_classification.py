@@ -1,3 +1,6 @@
+import logging
+from typing import List
+
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
@@ -6,7 +9,7 @@ from pathlib import Path
 import csv
 import time
 import h5py
-import datetime
+from _datetime import datetime
 import warnings
 
 from tqdm import tqdm
@@ -39,6 +42,8 @@ try:
 except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
+
+logging.getLogger(__name__)
 
 
 def verify_weights(num_classes, weights):
@@ -204,37 +209,64 @@ def main(params, config_path):
     :param config_path: (str) Path to the yaml config file.
 
     """
-    debug = get_key_def('debug_mode', params['global'], False)
+    # MANDATORY PARAMETERS
+    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
+    num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
+    batch_size = get_key_def('batch_size', params['training'], expected_type=int)
+    num_epochs = get_key_def('num_epochs', params['training'], expected_type=int)
+    model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
+    BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
+
+    # parameters to find hdf5 samples
+    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
+    assert data_path.is_dir(), f'Could not locate data path {data_path}'
+
+    # OPTIONAL PARAMETERS
+    # basics
+    debug = get_key_def('debug_mode', params['global'], default=False, expected_type=bool)
+    task = get_key_def('task', params['global'], default='classification', expected_type=str)
+    assert task == 'classification', f"The task should be classification. The provided value is {task}"
+    dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
+    batch_metrics = get_key_def('batch_metrics', params['training'], default=1, expected_type=int)
+    meta_map = get_key_def("meta_map", params["global"], default={})
+    bucket_name = get_key_def('bucket_name', params['global'])  # AWS
+
+    # model params
+    loss_fn = get_key_def('loss_fn', params['training'], default='CrossEntropy', expected_type=str)
+    optimizer = get_key_def('optimizer', params['training'], default='adam', expected_type=str)
+    pretrained = get_key_def('pretrained', params['training'], default=True, expected_type=bool)
+    train_state_dict_path = get_key_def('state_dict_path', params['training'], default=None, expected_type=str)
+    dropout_prob = get_key_def('dropout_prob', params['training'], default=None, expected_type=float)
+
+    # gpu parameters
+    num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
+    max_used_ram = get_key_def('max_used_ram', params['global'], default=2000, expected_type=int)
+    max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
+
+    # automatic model naming with unique id for each training
+    model_id = config_path.stem
+    output_path = data_path.joinpath('model') / model_id
+    if output_path.is_dir():
+        last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+        archive_output_path = data_path.joinpath('model') / f"{model_id}_{last_mod_time_suffix}"
+        shutil.move(output_path, archive_output_path)
+    output_path.mkdir(parents=True, exist_ok=False)
+    shutil.copy(str(config_path), str(output_path))  # copy yaml to output path where model will be saved
+    tqdm.write(f'Model and log files will be saved to: {output_path}\n\n')
+
     if debug:
         warnings.warn(f'Debug mode activated. Some debug functions may cause delays in execution.')
-
-    now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    num_classes = params['global']['num_classes']
-    task = params['global']['task']
-    batch_size = params['training']['batch_size']
-    assert task == 'classification', f"The task should be classification. The provided value is {task}"
-
-    bucket_name = params['global']['bucket_name']
-    data_path = params['global']['data_path']
-
-    modelname = config_path.stem
-    output_path = Path(data_path).joinpath('model') / modelname
-    if output_path.is_dir():
-        output_path = Path(str(output_path)+'_'+now)
-    output_path.mkdir(parents=True, exist_ok=False)
-    shutil.copy(str(config_path), str(output_path))
-    tqdm.write(f'Model and log files will be saved to: {output_path}\n\n')
 
     if bucket_name:
         bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
                                                                                data_path=data_path,
                                                                                output_path=output_path,
                                                                                num_classes=num_classes)
-
     elif not bucket_name:
         get_local_classes(num_classes, data_path, output_path)
 
     since = time.time()
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M")
     best_loss = 999
 
     progress_log = Path(output_path) / 'progress.log'
@@ -245,11 +277,12 @@ def main(params, config_path):
     val_log = InformationLogger('val')
     tst_log = InformationLogger('tst')
 
-    num_devices = params['global']['num_gpus']
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
-    num_devices = len(lst_device_ids) if lst_device_ids else 0
-    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+    gpu_devices_dict = get_device_ids(num_devices,
+                                      max_used_ram_perc=max_used_ram,
+                                      max_used_perc=max_used_perc)
+    num_devices = len(gpu_devices_dict.keys())
+    device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
 
     tqdm.write(f'Creating dataloaders from data in {Path(data_path)}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_classif_dataloader(data_path=data_path,
@@ -257,14 +290,23 @@ def main(params, config_path):
                                                                                num_devices=num_devices,)
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    model, model_name, criterion, optimizer, lr_scheduler = net(params,
-                                                                num_classes)  # pretrained could become a yaml parameter.
+    model, model_name, criterion, optimizer, lr_scheduler = net(model_name=model_name,
+                                                                num_bands=num_bands,
+                                                                num_channels=num_classes,
+                                                                dontcare_val=dontcare_val,
+                                                                num_devices=num_devices,
+                                                                train_state_dict_path=train_state_dict_path,
+                                                                pretrained=pretrained,
+                                                                dropout_prob=dropout_prob,
+                                                                loss_fn=loss_fn,
+                                                                optimizer=optimizer,
+                                                                net_params=params)
     tqdm.write(f'Instantiated {model_name} model with {num_classes} output channels.\n')
 
     filename = os.path.join(output_path, 'checkpoint.pth.tar')
 
     for epoch in range(0, params['training']['num_epochs']):
-        print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
+        logging.info(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
 
         trn_report = train(train_loader=trn_dataloader,
                            model=model,
@@ -302,7 +344,7 @@ def main(params, config_path):
             # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
             torch.save({'epoch': epoch,
-                        'arch': model_name,
+                        'params': params,
                         'model': state_dict,
                         'best_loss': best_loss,
                         'optimizer': optimizer.state_dict()}, filename)
@@ -312,10 +354,10 @@ def main(params, config_path):
                 bucket.upload_file(filename, bucket_filename)
 
         if bucket_name:
-            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
+            save_logs_to_bucket(bucket, bucket_output_path, output_path, batch_metrics)
 
         cur_elapsed = time.time() - since
-        print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
+        logging.info(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
     if int(params['training']['num_epochs']) > 0:  # if num_epochs is set to 0, model is loaded to evaluate on test set
@@ -328,12 +370,12 @@ def main(params, config_path):
                                 criterion=criterion,
                                 num_classes=num_classes,
                                 batch_size=batch_size,
-                                ep_idx=params['training']['num_epochs'],
+                                ep_idx=num_epochs,
                                 progress_log=progress_log,
-                                batch_metrics=params['training']['batch_metrics'],
+                                batch_metrics=batch_metrics,
                                 dataset='tst',
                                 device=device)
-        tst_log.add_values(tst_report, params['training']['num_epochs'], ignore=['iou'])
+        tst_log.add_values(tst_report, num_epochs, ignore=['iou'])
 
         if bucket_name:
             bucket_filename = os.path.join(bucket_output_path, 'last_epoch.pth.tar')
@@ -341,7 +383,7 @@ def main(params, config_path):
             bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
-    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    logging.info('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
 def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, ep_idx, progress_log, device, debug=False):
@@ -390,7 +432,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             optimizer.step()
 
     scheduler.step()
-    print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
+    logging.info(f'Training Loss: {train_metrics["loss"].avg:.4f}')
     return train_metrics
 
 
@@ -449,11 +491,11 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
                     _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
                                                   gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
 
-    print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
+    logging.info(f"{dataset} Loss: {eval_metrics['loss'].avg}")
     if batch_metrics is not None:
-        print(f"{dataset} precision: {eval_metrics['precision'].avg}")
-        print(f"{dataset} recall: {eval_metrics['recall'].avg}")
-        print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
+        logging.info(f"{dataset} precision: {eval_metrics['precision'].avg}")
+        logging.info(f"{dataset} recall: {eval_metrics['recall'].avg}")
+        logging.info(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
 
     return eval_metrics
 

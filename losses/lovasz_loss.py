@@ -1,9 +1,11 @@
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import warnings
 
+logger = logging.getLogger(__name__)
 
 def lovasz_grad(gt_sorted):
     p = len(gt_sorted)
@@ -47,8 +49,8 @@ def lovasz_softmax_flat(prb, lbl, ignore_index, only_present):
         cnt += 1
     try:
         return total_loss / cnt
-    except:
-        pass
+    except Exception:
+        logging.exception('Problem with lovasz_softmax_flat loss calculation')
 
 
 class LovaszSoftmax(nn.Module):
@@ -66,7 +68,7 @@ class LovaszSoftmax(nn.Module):
         self.only_present = only_present
         self.weight = weight
         if weight is not None:
-            warnings.warn("The Lovasz function does not take weight parameter. "
+            logging.warning("The Lovasz function does not take weight parameter. "
                              "It inherently deals with class imbalance. See: https://arxiv.org/abs/1705.08790.")
 
     def forward(self, logits, labels):
@@ -74,5 +76,16 @@ class LovaszSoftmax(nn.Module):
         total_loss = 0
         batch_size = logits.shape[0]
         for prb, lbl in zip(probas, labels):
-            total_loss += lovasz_softmax_flat(prb, lbl, self.ignore_index, self.only_present)
+            try:
+                total_loss += lovasz_softmax_flat(prb, lbl, self.ignore_index, self.only_present)
+            except TypeError as e:
+                logging.exception('Problem with LovaszSoftmax loss calculation')
+                try:
+                    lbl_np = lbl.detach().cpu().numpy()
+                    prb_np = prb.detach().cpu().numpy()
+                    logging.debug(f'Lovasz loss cannot be calculated. '
+                                  f'\n\tLabel unique values and count: {np.unique(lbl_np, return_counts=True)}'
+                                  f'\n\tPrediction unique values and count: {np.unique(prb_np, return_counts=True)}')
+                except:
+                    logging.exception('Problem with logging label and prediction for debugging LovaszSoftmax')
         return total_loss / batch_size

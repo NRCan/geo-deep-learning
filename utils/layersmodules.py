@@ -1,3 +1,5 @@
+import logging
+
 import torch
 import copy
 from torch import nn
@@ -5,8 +7,9 @@ import torchvision.models as models
 from collections import OrderedDict
 from torch.nn import functional as F
 
+logging.getLogger(__name__)
 
-nir_layers = {'conv1':1, 'maxpool':4, 'layer2':6, 'layer3':7, 'layer4':8}
+nir_layers = {'conv1': 1, 'maxpool': 4, 'layer2': 6, 'layer3': 7, 'layer4': 8}
 
 class LayersEnsemble(nn.Module):
     """
@@ -62,13 +65,13 @@ class LayersEnsemble(nn.Module):
 
         # Concatenation point output channels dimension
         if conc_point in ['conv1', 'maxpool']:
-            out_channels  = model_rgb.backbone.conv1.out_channels
+            out_channels = model_rgb.backbone.conv1.out_channels
         elif conc_point == 'layer2':
-            out_channels  = model_rgb.backbone.layer2[-1].conv3.out_channels
+            out_channels = model_rgb.backbone.layer2[-1].conv3.out_channels
         elif conc_point == 'layer3':
-            out_channels  = model_rgb.backbone.layer3[-1].conv3.out_channels
+            out_channels = model_rgb.backbone.layer3[-1].conv3.out_channels
         elif conc_point == 'layer4':
-            out_channels  = model_rgb.backbone.layer4[-1].conv3.out_channels
+            out_channels = model_rgb.backbone.layer4[-1].conv3.out_channels
         else:
             raise ValueError('The layer you want is not in the layers available!')
 
@@ -86,7 +89,7 @@ class LayersEnsemble(nn.Module):
 
         # Conv Layer to fit the size of the next layer
         self.conv1x1 = nn.Conv2d(
-                in_channels = out_channels*2, out_channels = out_channels, kernel_size=1
+                in_channels=out_channels*2, out_channels=out_channels, kernel_size=1
         )
 
         del model_nir, model_rgb, conv1_w, green_weight
@@ -109,7 +112,7 @@ class LayersEnsemble(nn.Module):
         :param inputs: (list) List containing two Tensors
         :return: (tensor) Result
         """
-        x1, x2 = inputs
+        x1, x2 = self.split_RGB_NIR(inputs)
         # Get the input shape for the interpolation
         input_shape = x1.shape[-2:]
         # Features is a dict of tensors
@@ -131,3 +134,19 @@ class LayersEnsemble(nn.Module):
         result['out'] = x
         return result
 
+    @staticmethod
+    def split_RGB_NIR(inputs):
+        """
+        Split RGB and NIR in input imagery being fed to models for training
+        @param inputs: tensors with shape [batch_size x channel x h x w]
+        @return: two tensors, one for all but last channel with shape [batch_size x (channel-1) x h x w]
+                 (ex.: RGB if RGBN imagery) and the other for NIR with shape [batch_size x 1 x h x w]
+        """
+        if inputs.shape[1] != 4:
+            logging.error(f'Expected 4 band imagery. Got input with {inputs.shape[1]} bands')
+        logging.warning(f'Will split inputs in 2 : (1) RGB bands, (2) NIR band')
+        inputs_NIR = inputs[:, -1, ...]  # Need to be change for a more elegant way
+        inputs_NIR.unsqueeze_(1)  # add a channel to get [:, 1, :, :]
+        inputs = inputs[:, :-1, ...]  # Need to be change
+        inputs = [inputs, inputs_NIR]
+        return inputs
