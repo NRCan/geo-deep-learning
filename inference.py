@@ -65,8 +65,9 @@ def segmentation(img_array, input_image, label_arr, num_classes, gpkg_name, mode
         img_array = img_array[:, :, :num_bands]
     elif num_bands > bands:
         warnings.warn(F" Num of specified bands {num_bands} is > image shape {img_array.shape} ")
-        for i in range(num_bands - bands):
-            o_band = img_array[:, :, 0:i]
+
+        for i in range(1, (num_bands - bands) + 1):
+            o_band = img_array[:, :, :i]
             img_array = np.append(img_array, o_band, axis=2)
     padding = int(round(sample_size * (1 - 1.0 / 2.0)))
     step = int(sample_size / 2.0)
