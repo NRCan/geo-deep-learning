@@ -131,7 +131,7 @@ def create_dataloader(samples_folder: Path,
 
     if gpu_devices_dict and calc_eval_bs:
         max_pix_per_mb_gpu = 280  # TODO: this value may need to be finetuned
-        calc_eval_batchsize(gpu_devices_dict, batch_size, sample_size, max_pix_per_mb_gpu)
+        eval_batch_size = calc_eval_batchsize(gpu_devices_dict, batch_size, sample_size, max_pix_per_mb_gpu)
 
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler,
                                 drop_last=True)

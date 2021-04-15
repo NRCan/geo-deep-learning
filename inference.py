@@ -480,7 +480,9 @@ def main(params: dict):
             all_gdf = pd.concat(gdf_)  # Concatenate all geo data frame into one geo data frame
             all_gdf.reset_index(drop=True, inplace=True)
             gdf_x = gpd.GeoDataFrame(all_gdf)
-            gdf_x.to_file(working_folder.joinpath("benchmark.gpkg"), driver="GPKG", index=False)
+            bench_gpkg = working_folder / "benchmark.gpkg"
+            gdf_x.to_file(bench_gpkg, driver="GPKG", index=False)
+            logging.info(f'Successfully wrote benchmark geopackage to: {bench_gpkg}')
         # log_artifact(working_folder)
     time_elapsed = time.time() - since
     logging.info('Inference and Benchmarking completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
