@@ -252,7 +252,7 @@ def main(params: dict):
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
     lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
-    device = torch.device(f'cuda' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+    device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
 
     if lst_device_ids:
         print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using {lst_device_ids[0]}\n\n")
@@ -265,7 +265,7 @@ def main(params: dict):
         model.to(device)
     except RuntimeError:
         print(f"Unable to use device. Trying device 0")
-        device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+        device = torch.device(f'cuda' if torch.cuda.is_available() and lst_device_ids else 'cpu')
         model.to(device)
 
     # mlflow tracking path + parameters logging
