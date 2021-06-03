@@ -8,11 +8,19 @@
 
 global:
   samples_size: 256
-  num_classes: 1  # will automatically create a 'background' class
+  num_classes: 1
+  # will automatically create a 'background' class
   data_path: ./data
   mlflow_uri: ./mlruns
   number_of_bands: 3
-  model_name: deeplabv3_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
+  model_name: deeplabv3_resnet101
+            # unet,
+            # unetsmall,
+            # checkpointed_unet,
+            # ternausnet,
+            # fcn_resnet101,
+            # deeplabv3_resnet101
+
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 0

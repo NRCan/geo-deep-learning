@@ -173,19 +173,7 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
     tqdm.write(f'Saved visualization figures.\n')
 
 
-def train(train_loader,
-          model,
-          criterion,
-          optimizer,
-          scheduler,
-          num_classes,
-          batch_size,
-          ep_idx,
-          progress_log,
-          vis_params,
-          device,
-          debug=False
-          ):
+def train(train_loader,model,criterion,optimizer,scheduler,num_classes,batch_size,ep_idx,progress_log,vis_params,device,debug=False):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -215,6 +203,7 @@ def train(train_loader,
             inputs = data['sat_img'].to(device)
             labels = data['map_img'].to(device)
 
+        # huh? : NIR stuff ?
             if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
                 ############################
                 # Test Implementation of the NIR
@@ -441,11 +430,13 @@ def main(params, config_path):
                                                                        batch_size=batch_size,
                                                                        num_devices=num_devices,
                                                                        params=params)
+# Init Model ___________________________________________________________________________________________________________s
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model, model_name, criterion, optimizer, lr_scheduler = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
     tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
     bucket_name = get_key_def('bucket_name', params['global'])
 
+# MLFlow________________________________________________________________________________________________________________
     # mlflow tracking path + parameters logging
     set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
     set_experiment(get_key_def('mlflow_experiment_name', params['global'], default='gdl-training'))
@@ -454,6 +445,7 @@ def main(params, config_path):
     log_params(params['global'])
     log_params(params['sample'])
 
+# Output Path __________________________________________________________________________________________________________
     modelname = config_path.stem
     output_path = samples_folder.joinpath('model') / modelname
     if output_path.is_dir():
@@ -481,6 +473,7 @@ def main(params, config_path):
     tst_log = InformationLogger('tst')
     filename = output_path.joinpath('checkpoint.pth.tar')
 
+# Visualization (input) ________________________________________________________________________________________________________
     # VISUALIZATION: generate pngs of inputs, labels and outputs
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
     if vis_batch_range is not None:
@@ -500,9 +493,12 @@ def main(params, config_path):
                                 device=device,
                                 vis_batch_range=vis_batch_range)
 
+# TRAINING _____________________________________________________________________________________________________________
+    print('Starting Training..................................')
     for epoch in range(0, params['training']['num_epochs']):
-        print(f'\nEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
+        print(f'\n\tEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
 
+        print('\t training...')
         trn_report = train(train_loader=trn_dataloader,
                            model=model,
                            criterion=criterion,
@@ -517,6 +513,7 @@ def main(params, config_path):
                            debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
+        print('\t evaluating...')
         val_report = evaluation(eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
@@ -529,6 +526,7 @@ def main(params, config_path):
                                 dataset='val',
                                 device=device,
                                 debug=debug)
+
         val_loss = val_report['loss'].avg
         if params['training']['batch_metrics'] is not None:
             val_log.add_values(val_report, epoch)
@@ -551,6 +549,7 @@ def main(params, config_path):
                 bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
 
+    # Visualization (output) ________________________________________________________________________________________________________
             # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
             vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
             ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4)
@@ -575,6 +574,7 @@ def main(params, config_path):
         cur_elapsed = time.time() - since
         print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
+# Testing ______________________________________________________________________________________________________________
     # load checkpoint model and evaluate it on test dataset.
     if int(params['training']['num_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = load_checkpoint(filename)
