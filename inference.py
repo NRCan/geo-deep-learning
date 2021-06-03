@@ -7,7 +7,8 @@ import csv
 import time
 import argparse
 import heapq
-import rasterio
+import rasterio, fiona
+
 from PIL import Image
 import torchvision
 import ttach as tta
@@ -15,8 +16,9 @@ from collections import OrderedDict, defaultdict
 import warnings
 import pandas as pd
 import geopandas as gpd
-
+from fiona.crs import to_string
 from tqdm import tqdm
+from rasterio import features
 from shapely.geometry import Polygon
 from pathlib import Path
 from utils.metrics import ComputePixelMetrics
@@ -34,6 +36,53 @@ try:
 except ModuleNotFoundError:
     pass
 
+
+def ras2vec(raster_file, output_path):
+    # Create a generic polygon schema for the output vector file
+    i = 0
+    feat_schema = {'geometry': 'Polygon',
+                   'properties': OrderedDict([('value', 'int')])
+                   }
+    class_value_domain = set()
+    out_features = []
+
+    print("   - Processing raster file: {}".format(raster_file))
+    with rasterio.open(raster_file, 'r') as src:
+        raster = src.read(1)
+    mask = raster != 0
+    # Vectorize the polygons
+    polygons = features.shapes(raster, mask, transform=src.transform)
+
+    # Create shapely polygon featyres
+    for polygon in polygons:
+        feature = {'geometry': {
+            'type': 'Polygon',
+            'coordinates': None},
+            'properties': OrderedDict([('value', 0)])}
+
+        feature['geometry']['coordinates'] = polygon[0]['coordinates']
+        value = int(polygon[1])  # Pixel value of the class (layer)
+        class_value_domain.add(value)
+        feature['properties']['value'] = value
+        i += 1
+        out_features.append(feature)
+
+    print("   - Writing output vector file: {}".format(output_path))
+    num_layers = list(class_value_domain)  # Number of unique pixel value
+    for num_layer in num_layers:
+        polygons = [feature for feature in out_features if feature['properties']['value'] == num_layer]
+        layer_name = 'vector_' + str(num_layer).rjust(3, '0')
+        print("   - Writing layer: {}".format(layer_name))
+
+        with fiona.open(output_path, 'w',
+                        crs=to_string(src.crs),
+                        layer=layer_name,
+                        schema=feat_schema,
+                        driver='GPKG') as dest:
+            for polygon in polygons:
+                dest.write(polygon)
+    print("")
+    print("Number of features written: {}".format(i))
 
 @torch.no_grad()
 def segmentation(img_array, input_image, label_arr, num_classes, gpkg_name, model, sample_size, num_bands, device):
@@ -238,6 +287,7 @@ def main(params: dict):
     task = params['global']['task']
     img_dir_or_csv = params['inference']['img_dir_or_csv_file']
     chunk_size = get_key_def('chunk_size', params['inference'], 512)
+    raster_to_vec = get_key_def('ras2vec', params['inference'], False)
     num_classes = params['global']['num_classes']
     num_classes_corrected = add_background_to_num_class(task, num_classes)
     num_bands = params['global']['number_of_bands']
@@ -341,6 +391,12 @@ def main(params: dict):
                                      "dtype": 'uint8'})
                     with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
                         dest.write(pred)
+
+                    if raster_to_vec:
+                        inference_vec = working_folder.joinpath(local_img.parent.name,
+                                                                f"{img_name.split('.')[0]}_inference.gpkg")
+                        ras2vec(inference_image, inference_vec)
+
         if len(gdf_) >= 1:
             assert len(gdf_) == len(gpkg_name_), 'benchmarking unable to complete'
             all_gdf = pd.concat(gdf_)  # Concatenate all geo data frame into one geo data frame
