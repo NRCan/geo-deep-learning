@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<head>
+<meta charset="UTF-8">
+<style>
+.r1 {color: #af00ff; text-decoration-color: #af00ff; font-weight: bold}
+.r2 {color: #ff0000; text-decoration-color: #ff0000; font-weight: bold; font-style: italic}
+.r3 {background-color: #ffffff}
+.r4 {color: #ffffff; text-decoration-color: #ffffff; background-color: #000000; font-weight: bold}
+.r5 {color: #008080; text-decoration-color: #008080; background-color: #000000; font-weight: bold}
+.r6 {color: #800000; text-decoration-color: #800000}
+.r7 {color: #008000; text-decoration-color: #008000}
+.r8 {color: #808000; text-decoration-color: #808000}
+.r9 {color: #000080; text-decoration-color: #000080}
+.r11 {color: #c0c0c0; text-decoration-color: #c0c0c0}
+.r12 {color: #ff00ff; text-decoration-color: #ff00ff}
+.r13 {color: #ff87ff; text-decoration-color: #ff87ff}
+.r14 {color: #ff87ff; text-decoration-color: #ff87ff; font-weight: bold}
+.r15 {font-style: italic}
+.r16 {color: #af00ff; text-decoration-color: #af00ff}
+.r17 {color: #ffffff; text-decoration-color: #ffffff; background-color: #008000; font-weight: bold}
+.r18 {color: #00ff00; text-decoration-color: #00ff00; background-color: #008000; font-weight: bold}
+.r19 {color: #ffffff; text-decoration-color: #ffffff; background-color: #000080; font-weight: bold}
+.r20 {color: #000080; text-decoration-color: #000080; font-weight: bold}
+.r21 {color: #ff00ff; text-decoration-color: #ff00ff; font-weight: bold}
+.r22 {color: #000000; text-decoration-color: #000000}
+.r23 {color: #008080; text-decoration-color: #008080; background-color: #000080; font-weight: bold}
+.r24 {color: #c0c0c0; text-decoration-color: #c0c0c0; background-color: #af00ff; font-weight: bold}
+.r25 {color: #008080; text-decoration-color: #008080; background-color: #af00ff; font-weight: bold}
+.r26 {color: #800080; text-decoration-color: #800080; background-color: #af00ff; font-weight: bold}
+.r27 {color: #ffffff; text-decoration-color: #ffffff; background-color: #00ffff; font-weight: bold}
+.r28 {color: #008080; text-decoration-color: #008080; background-color: #00ffff; font-weight: bold}
+.r29 {color: #800080; text-decoration-color: #800080; background-color: #00ffff; font-weight: bold}
+.r30 {color: #008080; text-decoration-color: #008080; font-weight: bold}
+.r31 {color: #c0c0c0; text-decoration-color: #c0c0c0; background-color: #008000; font-weight: bold}
+body {
+    color: #000000;
+    background-color: #ffffff;
+}
+</style>
+</head>
+<html>
+<body>
+    <code>
+        <pre style="font-family:Menlo,'DejaVu Sans Mono',consolas,'Courier New',monospace"><span class="r1">   DEBUG   =   </span><span class="r2">False</span><span class="r1">                                                                                                                                     </span>
+<span class="r3">                                                                                                                                                         </span>
+<span class="r3">                                                                                                                                                         </span>
+<span class="r4">                                                                                                                                                         </span>
+<span class="r4">                                                                         STEP </span><span class="r5">1</span><span class="r4">:                                                                         </span>
+<span class="r4">                                                                      MAKE SAMPLES                                                                       </span>
+<span class="r4">                                                                                                                                                         </span>
+<span class="r3">                                                                                                                                                         </span>
+<span class="r3">                                                                                                                                                         </span>
+<span class="r6">┌───────────────────────────────────────────────────────────── NOT, prcessing new Samples ──────────────────────────────────────────────────────────────┐</span>
+<span class="r6">│ parent dir =    ./run                                                                                                                                 │</span>
+<span class="r6">│ smples dir =    samples256_overlap33_min-annot3_3bands_pls_work                                                                                       │</span>
+<span class="r6">│ csv        =    ./data/OG_data/images_to_samples_ci_csv.csv                                                                                           │</span>
+<span class="r6">└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘</span>
+┌──────────────────────────────────────────────────────────────────── Smples output ────────────────────────────────────────────────────────────────────┐
+│ <span class="r7">trn                      </span>                          <span class="r8">tst                      </span>                          <span class="r9">val                      </span>                       │
+│ <span class="r10">├── </span><span class="r7">map_img              </span>                          <span class="r10">├── </span><span class="r8">map_img              </span>                          <span class="r10">├── </span><span class="r9">map_img              </span>                       │
+│ <span class="r10">│   ├── </span><span class="r11">12</span><span class="r7">               </span>                          <span class="r10">│   ├── </span><span class="r11">24</span><span class="r8">               </span>                          <span class="r10">│   ├── </span><span class="r11">5</span><span class="r9">                </span>                       │
+│ <span class="r10">│   └── </span><span class="r7">(12, 256, 256)   </span>                          <span class="r10">│   └── </span><span class="r8">(24, 256, 256)   </span>                          <span class="r10">│   └── </span><span class="r9">(5, 256, 256)    </span>                       │
+│ <span class="r10">└── </span><span class="r7">sat_img              </span>                          <span class="r10">└── </span><span class="r8">sat_img              </span>                          <span class="r10">└── </span><span class="r9">sat_img              </span>                       │
+│ <span class="r10">    ├── </span><span class="r11">12</span><span class="r7">               </span>                          <span class="r10">    ├── </span><span class="r11">24</span><span class="r8">               </span>                          <span class="r10">    ├── </span><span class="r11">5</span><span class="r9">                </span>                       │
+│ <span class="r10">    └── </span><span class="r7">(12, 256, 256, 3)</span>                          <span class="r10">    └── </span><span class="r8">(24, 256, 256, 3)</span>                          <span class="r10">    └── </span><span class="r9">(5, 256, 256, 3) </span>                       │
+└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+<span class="r3">                                                                                                                                                         </span>
+<span class="r3">                                                                                                                                                         </span>
+<span class="r4">                                                                                                                                                         </span>
+<span class="r4">                                                                         STEP </span><span class="r5">2</span><span class="r4">:                                                                         </span>
+<span class="r4">                                                                          TRAIN                                                                          </span>
+<span class="r4">                                                                                                                                                         </span>
+<span class="r3">                                                                                                                                                         </span>
+<span class="r3">                                                                                                                                                         </span>
+<span class="r12">╔══════════════════════════════════════════════════════════════════ pre-training info ══════════════════════════════════════════════════════════════════╗</span>
+<span class="r12">║ </span><span class="r13">┌───────────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────────┬──────────────────┐</span><span class="r12"> ║</span>
+<span class="r12">║ </span><span class="r13">│</span><span class="r14">         catagory          </span><span class="r13">│</span><span class="r14">                                                path                                                </span><span class="r13">│</span><span class="r14">     exists?      </span><span class="r13">│</span><span class="r12"> ║</span>
+<span class="r12">║ </span><span class="r13">├───────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────┤</span><span class="r12"> ║</span>
+<span class="r12">║ </span><span class="r13">│        parent dir         │                                               ./run                                                │       True       │</span><span class="r12"> ║</span>
+<span class="r12">║ </span><span class="r13">├───────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────┤</span><span class="r12"> ║</span>
+<span class="r12">║ </span><span class="r13">│        samples dir        │                          samples256_overlap33_min-annot3_3bands_pls_work                           │       True       │</span><span class="r12"> ║</span>
+<span class="r12">║ </span><span class="r13">├───────────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────┼──────────────────┤</span><span class="r12"> ║</span>
+<span class="r12">║ </span><span class="r13">│         model dir         │                                             model_None                                             │       True       │</span><span class="r12"> ║</span>
+<span class="r12">║ </span><span class="r13">└───────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────┴──────────────────┘</span><span class="r12"> ║</span>
+<span class="r12">║                                                                                                                                                       ║</span>
+<span class="r12">╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝</span>
+<span class="r15">                                                                       experiments                                                                       </span>
+<span class="r16">┌──────────────────┬──────────────┬──────────────────┬──────────────────┬─────────────────────────┬───────────────────────┬──────────────────┬──────────┐</span>
+<span class="r16">│</span><span class="r1"> exp. num.        </span><span class="r16">│</span><span class="r1"> model        </span><span class="r16">│</span><span class="r1"> optimzier        </span><span class="r16">│</span><span class="r1"> loss func        </span><span class="r16">│</span><span class="r1"> learning_rate           </span><span class="r16">│</span><span class="r1"> weight_decay          </span><span class="r16">│</span><span class="r1"> step_size        </span><span class="r16">│</span><span class="r1"> gamma    </span><span class="r16">│</span>
+<span class="r16">├──────────────────┼──────────────┼──────────────────┼──────────────────┼─────────────────────────┼───────────────────────┼──────────────────┼──────────┤</span>
+<span class="r16">│ 1                │ 0.0001       │ 0                │ 4                │ 0.9                     │                       │                  │          │</span>
+<span class="r16">└──────────────────┴──────────────┴──────────────────┴──────────────────┴─────────────────────────┴───────────────────────┴──────────────────┴──────────┘</span>
+<span class="r17">                                                                         cu</span><span class="r18">da:0</span><span class="r17">                                                                          </span>
+<span class="r19">Init Model:                                                                                                                                              </span>
+<span class="r9">        model        = </span><span class="r20">&lt;</span><span class="r21">class</span><span class="r22"> </span><span class="r7">'models.unet.UNet'</span><span class="r20">&gt;</span>
+<span class="r9">        model_name   = </span><span class="r20">&lt;</span><span class="r21">class</span><span class="r22"> </span><span class="r7">'str'</span><span class="r20">&gt;</span>
+<span class="r9">        criterion    = </span><span class="r20">&lt;</span><span class="r21">class</span><span class="r22"> </span><span class="r7">'losses.MultiClassCriterion'</span><span class="r20">&gt;</span>
+<span class="r9">        optimizer    = </span><span class="r20">&lt;</span><span class="r21">class</span><span class="r22"> </span><span class="r7">'torch.optim.adam.Adam'</span><span class="r20">&gt;</span>
+<span class="r9">        lr_scheduler = </span><span class="r20">&lt;</span><span class="r21">class</span><span class="r22"> </span><span class="r7">'torch.optim.lr_scheduler.StepLR'</span><span class="r20">&gt;</span>
+<span class="r19">                                                                                                          Instantiated unet model with </span><span class="r23">2</span><span class="r19"> output channels.</span>
+<span class="r24">Epoch </span><span class="r25">0</span><span class="r24"> </span><span class="r26">/</span><span class="r24"> </span><span class="r25">1</span><span class="r24">                                                                                                                                              </span>
+<span class="r16">   trn:</span>
+<span class="r27">      Batch </span><span class="r28">0</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r27">      Batch </span><span class="r28">1</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r27">      Batch </span><span class="r28">2</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r27">      Batch </span><span class="r28">3</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r27">      Batch </span><span class="r28">4</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r27">      Batch </span><span class="r28">5</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r16">   Training Loss: </span><span class="r30">0.5004</span>
+
+<span class="r16">   val:</span>
+<span class="r16">┌───────┬───────────┬────────────────────┬────────────────────┐</span>
+<span class="r16">│</span><span class="r1"> epoch </span><span class="r16">│</span><span class="r1"> best loss </span><span class="r16">│</span><span class="r1">     curr loss      </span><span class="r16">│</span><span class="r1">      trn loss      </span><span class="r16">│</span>
+<span class="r16">├───────┼───────────┼────────────────────┼────────────────────┤</span>
+<span class="r16">│</span><span class="r22"> 0 / 1 </span><span class="r16">│</span><span class="r6">    999    </span><span class="r16">│</span><span class="r7"> 0.5011722922325135 </span><span class="r16">│</span><span class="r8"> 0.5004162043333054 </span><span class="r16">│</span>
+<span class="r16">└───────┴───────────┴────────────────────┴────────────────────┘</span>
+<span class="r31">saving checkpoint</span>
+Current elapsed time 0m 30s
+<span class="r24">Epoch </span><span class="r25">1</span><span class="r24"> </span><span class="r26">/</span><span class="r24"> </span><span class="r25">1</span><span class="r24">                                                                                                                                              </span>
+<span class="r16">   trn:</span>
+<span class="r27">      Batch </span><span class="r28">0</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r27">      Batch </span><span class="r28">1</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r27">      Batch </span><span class="r28">2</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r27">      Batch </span><span class="r28">3</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r27">      Batch </span><span class="r28">4</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r27">      Batch </span><span class="r28">5</span><span class="r27"> </span><span class="r29">/</span><span class="r27"> </span><span class="r28">6</span><span class="r27">                                                                                                                                        </span>
+<span class="r16">   Training Loss: </span><span class="r30">0.4710</span>
+
+<span class="r16">   val:</span>
+<span class="r16">┌───────┬────────────────────┬────────────────────┬────────────────────┐</span>
+<span class="r16">│</span><span class="r1"> epoch </span><span class="r16">│</span><span class="r1">     best loss      </span><span class="r16">│</span><span class="r1">     curr loss      </span><span class="r16">│</span><span class="r1">      trn loss      </span><span class="r16">│</span>
+<span class="r16">├───────┼────────────────────┼────────────────────┼────────────────────┤</span>
+<span class="r16">│</span><span class="r22"> 0 / 1 </span><span class="r16">│</span><span class="r6">        999         </span><span class="r16">│</span><span class="r7"> 0.5011722922325135 </span><span class="r16">│</span><span class="r8"> 0.5004162043333054 </span><span class="r16">│</span>
+<span class="r16">│</span><span class="r22"> 1 / 1 </span><span class="r16">│</span><span class="r6"> 0.5011722922325135 </span><span class="r16">│</span><span class="r7"> 0.5454086065292358 </span><span class="r16">│</span><span class="r8"> 0.4709891527891159 </span><span class="r16">│</span>
+<span class="r16">└───────┴────────────────────┴────────────────────┴────────────────────┘</span>
+Current elapsed time 0m 53s
+<span class="r16">┌───────┬────────────────────┬────────────────────┬────────────────────┐</span>
+<span class="r16">│</span><span class="r1"> epoch </span><span class="r16">│</span><span class="r1">     best loss      </span><span class="r16">│</span><span class="r1">     curr loss      </span><span class="r16">│</span><span class="r1">      trn loss      </span><span class="r16">│</span>
+<span class="r16">├───────┼────────────────────┼────────────────────┼────────────────────┤</span>
+<span class="r16">│</span><span class="r22"> 0 / 1 </span><span class="r16">│</span><span class="r6">        999         </span><span class="r16">│</span><span class="r7"> 0.5011722922325135 </span><span class="r16">│</span><span class="r8"> 0.5004162043333054 </span><span class="r16">│</span>
+<span class="r16">│</span><span class="r22"> 1 / 1 </span><span class="r16">│</span><span class="r6"> 0.5011722922325135 </span><span class="r16">│</span><span class="r7"> 0.5454086065292358 </span><span class="r16">│</span><span class="r8"> 0.4709891527891159 </span><span class="r16">│</span>
+<span class="r16">└───────┴────────────────────┴────────────────────┴────────────────────┘</span>
+Training complete in 1m 7s
+</pre>
+    </code>
+</body>
+</html>

@@ -249,7 +249,7 @@ def main(params: dict):
     if lst_device_ids:
         print(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {lst_device_ids}. Using {lst_device_ids[0]}\n\n")
     else:
-        warnings.warn(f"No Cuda device available. This process will only run on CPU")
+        xxx=1 # FIXME: warnings.warn(f"No Cuda device available. This process will only run on CPU")
 
     # CONFIGURE MODEL
     model, state_dict_path, model_name = net(params, num_channels=num_classes_corrected, inference=True)

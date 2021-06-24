@@ -17,7 +17,6 @@ import collections
 from utils.readers import read_parameters
 
 # matplotlib.use('Agg')
-
 try:
     from ruamel_yaml import YAML
 except ImportError:
@@ -26,7 +25,7 @@ except ImportError:
 try:
     from pynvml import *
 except ModuleNotFoundError:
-    warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
+    xxx=1 # FIXME: warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 try:
     import boto3

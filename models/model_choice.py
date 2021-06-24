@@ -120,7 +120,7 @@ def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
 
     return model, criterion, optimizer, lr_scheduler
 
-# init model ___________________________________________________________________________________________________________
+
 def net(net_params, num_channels, inference=False):
     """Define the neural net"""
     model_name = net_params['global']['model_name'].lower()
@@ -259,7 +259,7 @@ def net(net_params, num_channels, inference=False):
                                         device_ids=lst_device_ids)  # DataParallel adds prefix 'module.' to state_dict keys
         else:
             warnings.warn(f"No Cuda device available. This process will only run on CPU\n")
-        tqdm.write(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
+        tqdm.write(f'Setting model, criterion, optimizer and learning rate sche3duler...\n')
         try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
             model.to(device)
         except RuntimeError:

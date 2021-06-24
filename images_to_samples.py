@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import numpy as np
+
 np.random.seed(1234)  # Set random seed for reproducibility
 import warnings
 import rasterio
@@ -27,7 +28,7 @@ except ModuleNotFoundError:
 
 
 def mask_image(arrayA, arrayB):
-    """Function to mask values of arrayB, based on 0 values from arrayA.
+    """Function to mask values of arrayB, bold based on 0 values from arrayA.
 
     >>> x1 = np.array([0, 2, 4, 6, 0, 3, 9, 8], dtype=np.uint8).reshape(2,2,2)
     >>> x2 = np.array([1.5, 1.2, 1.6, 1.2, 11., 1.1, 25.9, 0.1], dtype=np.float32).reshape(2,2,2)
@@ -199,7 +200,8 @@ def samples_preparation(in_img_array,
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
 
     if overlap > 25:
-         warnings.warn("high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
+        warnings.warn(
+            "high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
     excl_samples = 0
@@ -217,7 +219,8 @@ def samples_preparation(in_img_array,
                 if data_row < sample_size or data_col < sample_size:
                     padding = pad_diff(data_row, data_col, sample_size,
                                        sample_size)  # array, actual height, actual width, desired size
-                    data = pad(data, padding, fill=np.nan)  # don't fill with 0 if possible. Creates false min value when scaling.
+                    data = pad(data, padding,
+                               fill=np.nan)  # don't fill with 0 if possible. Creates false min value when scaling.
 
                 target_row = target.shape[0]
                 target_col = target.shape[1]
@@ -270,7 +273,7 @@ def samples_preparation(in_img_array,
     return samples_count, num_classes
 
 
-def main(params):
+def main(params, console):
     """
     Training and validation datasets preparation.
 
@@ -303,19 +306,22 @@ def main(params):
            `your_conf.yaml`. Visual representation of this is provided at
             https://medium.com/the-downlinq/broad-area-satellite-imagery-semantic-segmentation-basiss-4a7ea2c8466f
         6. Write samples from input image and label into the "val", "trn" or
-           "tst" hdf5 file, depending on the value contained in the csv file.
+           "tst" hdf5 file, depebold nding on the value contained in the csv file.
             Refer to samples_preparation().
 
     -------
     :param params: (dict) Parameters found in the yaml config file.
     """
+
+    start_time = time.time()
     params['global']['git_hash'] = get_git_hash()
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     bucket_file_cache = []
 
-    assert params['global']['task'] == 'segmentation', f"images_to_samples.py isn't necessary when performing classification tasks"
+    assert params['global'][
+               'task'] == 'segmentation', f"images_to_samples.py isn't necessary when performing classification tasks"
 
-    # SET BASIC VARIABLES AND PATHS. CREATE OUTPUT FOLDERS.
+# SET BASIC VARIABLES AND PATHS. CREATE OUTPUT FOLDERS
     bucket_name = get_key_def('bucket_name', params['global'])
     data_path = Path(params['global']['data_path'])
     Path.mkdir(data_path, exist_ok=True, parents=True)
@@ -326,8 +332,8 @@ def main(params):
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
     num_bands = params['global']['number_of_bands']
     debug = get_key_def('debug_mode', params['global'], False)
-    if debug:
-        warnings.warn(f'Debug mode activate. Execution may take longer...')
+    # if debug:
+    #     warnings.warn(f'Debug mode activate. Execution may take longer...')
 
     final_samples_folder = None
 
@@ -335,6 +341,7 @@ def main(params):
     sample_path_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
                         f'{num_bands}bands_{experiment_name}')
 
+# prep fo Samples folder
     # AWS
     if bucket_name:
         s3 = boto3.resource('s3')
@@ -351,20 +358,29 @@ def main(params):
         list_data_prep = read_csv(csv_file)
         samples_folder = data_path.joinpath(sample_path_name)
 
-    if samples_folder.is_dir():
+# Making Samples folder
+    if samples_folder.is_dir(): # dont write
+        console.print('NOT writing samples to:', style='bold #FFFFFF on red', justify="center")
+        console.print(samples_folder, style='bold #FFFFFF on red', justify="center")
         if debug:
             # Move existing data folder with a random suffix.
+
             shutil.move(samples_folder, f'{str(samples_folder)}_{uuid.uuid4().hex[0:6]}')
         else:
             raise FileExistsError(f'Data path exists: {samples_folder}. Remove it or use a different experiment_name.')
-    else:
+    else:   # make new folder
         tqdm.write(f'Writing samples to {samples_folder}')
+        console.print('writing samples to:', style='bold #FFFFFF on green', justify="center")
+        console.print(samples_folder, style='bold #FFFFFF on green', justify="center")
     Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
     tqdm.write(f'Samples will be written to {samples_folder}\n\n')
 
-    tqdm.write(f'\nSuccessfully read csv file: {Path(csv_file).stem}\n'
-               f'Number of rows: {len(list_data_prep)}\n'
-               f'Copying first entry:\n{list_data_prep[0]}\n')
+    console.print('CSV file =', style='green')
+    console.print('\t', Path(csv_file).stem, len(list_data_prep), style='green')
+    console.print('\t #f rows =', len(list_data_prep), '\n', style='green')
+    # tqdm.write(f'\nSuccessfully read csv file: {Path(csv_file).stem}\n'
+    #            f'Number of rows: {len(list_data_prep)}\n'
+    #            f'Copying first entry:\n{list_data_prep[0]}\n')
     ignore_index = get_key_def('ignore_index', params['training'], -1)
     meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
 
@@ -381,7 +397,8 @@ def main(params):
     if debug:
         # VALIDATION (debug only): Checking validity of features in vector files
         for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
-            invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])  # TODO: test this with invalid features.
+            invalid_features = validate_features_from_gpkg(info['gpkg'], info[
+                'attribute_name'])  # TODO: test this with invalid features.
             assert not invalid_features, f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'"
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
@@ -408,7 +425,11 @@ def main(params):
 
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
     with tqdm(list_data_prep, position=0, leave=False, desc=f'Preparing samples') as _tqdm:
-        for info in _tqdm:
+        for rowN, info in enumerate(_tqdm):
+            console.print(' ', style='bold #FFFFFF on purple', justify="center")
+            console.print('row =', rowN, style='purple', justify="center")
+            console.print(info, justify='center')
+            print("Elapsed time:{}".format(time.time() - start_time))
             _tqdm.set_postfix(
                 OrderedDict(tif=f'{Path(info["tif"]).stem}', sample_size=params['global']['samples_size']))
             try:
@@ -455,18 +476,19 @@ def main(params):
                                      "height": np_image_debug.shape[1],
                                      "width": np_image_debug.shape[2]})
                     out_tif = samples_folder / f"np_input_image_{_tqdm.n}.tif"
-                    print(f"DEBUG: writing clipped raster to {out_tif}")
+                    console.print(f"DEBUG: writing clipped raster to {out_tif}")
                     with rasterio.open(out_tif, "w", **out_meta) as dest:
                         dest.write(np_image_debug)
 
                     out_meta = raster.meta.copy()
-                    np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(out_meta['dtype'])
+                    np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(
+                        out_meta['dtype'])
                     out_meta.update({"driver": "GTiff",
                                      "height": np_label_debug.shape[1],
                                      "width": np_label_debug.shape[2],
                                      'count': 1})
                     out_tif = samples_folder / f"np_label_rasterized_{_tqdm.n}.tif"
-                    print(f"DEBUG: writing final rasterized gpkg to {out_tif}")
+                    console.print(f"DEBUG: writing final rasterized gpkg to {out_tif}")
                     with rasterio.open(out_tif, "w", **out_meta) as dest:
                         dest.write(np_label_debug)
 
@@ -488,7 +510,7 @@ def main(params):
                                                               raster_info=info)
                 # Save label's per class pixel count to image metadata
                 metadata['source_label_bincount'] = {class_num: count for class_num, count in
-                                                          enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
+                                                     enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
                                                      if count > 0}  # TODO: add this to add_metadata_from[...] function?
 
                 np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
@@ -511,7 +533,10 @@ def main(params):
 
                 _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
                 out_file.flush()
+                console.print('row', rowN, 'finished', style='bold #FFFFFF on purple', justify="center")
             except OSError as e:
+                console.print(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
+                              f'{Path(info["gpkg"]).stem} (gpkg). Error: "{e}"', style='bold #FFFFFF on red', justify="center")
                 warnings.warn(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
                               f'{Path(info["gpkg"]).stem} (gpkg). Error: "{e}"')
                 continue
@@ -519,26 +544,28 @@ def main(params):
     trn_hdf5.close()
     val_hdf5.close()
     tst_hdf5.close()
-
+    print("Elapsed time:{}".format(time.time() - start_time))
     pixel_total = 0
     # adds up the number of pixels for each class in pixel_classes dict
     for i in pixel_classes:
         pixel_total += pixel_classes[i]
-
-    # prints the proportion of pixels of each class for the samples created
+    # console.prints the proportion of pixels of each class for the samples created
     for i in pixel_classes:
         prop = round((pixel_classes[i] / pixel_total) * 100, 1) if pixel_total > 0 else 0
-        print('Pixels from class', i, ':', prop, '%')
+        console.print('Pixels from class', i, ':', prop, '%', justify='center')
 
-    print("Number of samples created: ", number_samples)
+    console.print("Number of samples created:", style='bold #FFFFFF on purple', justify="center")
+    console.print(number_samples, style='bold', justify="center")
+    console.print("% overlap = ", overlap, style='bold #FFFFFF on purple', justify="center")
+
 
     if bucket_name and final_samples_folder:
-        print('Transfering Samples to the bucket')
+        console.print('Transfering Samples to the bucket')
         bucket.upload_file(samples_folder + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
         bucket.upload_file(samples_folder + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
         bucket.upload_file(samples_folder + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
-
-    print("End of process")
+    print("Elapsed time:{}".format(time.time() - start_time))
+    console.print("End of process")
 
 
 if __name__ == '__main__':

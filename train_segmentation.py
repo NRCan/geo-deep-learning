@@ -28,6 +28,9 @@ from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
 from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact, start_run
 
+from torchsummary import summary as torch_summary
+from rich.table import Table
+import sys
 
 def flatten_labels(annotations):
     """Flatten labels"""
@@ -135,7 +138,7 @@ def get_num_samples(samples_path, params):
     return num_samples, samples_weight
 
 
-def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
+def vis_from_dataloader(console, params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
     """
     Use a model and dataloader to provide outputs that can then be sent to vis_from_batch function to visualize performances of model, for example.
     :param params: (dict) Parameters found in the yaml config file.
@@ -149,7 +152,9 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
     :return:
     """
     vis_path = output_path.joinpath(f'visualization')
-    tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
+    console.print('vis path =', style='bold #FFFFFF on purple', justify="center")
+    console.print(vis_path, style='bold #FFFFFF on purple', justify="center")
+    # tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
     min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     model.eval()
@@ -170,10 +175,10 @@ def vis_from_dataloader(params, eval_loader, model, ep_num, output_path, dataset
                                    labels=labels,
                                    dataset=dataset,
                                    ep_num=ep_num)
-    tqdm.write(f'Saved visualization figures.\n')
+    console.print(f'Saved visualization figures', style='bold #FFFFFF on purple', justify="center")
 
 
-def train(train_loader,model,criterion,optimizer,scheduler,num_classes,batch_size,ep_idx,progress_log,vis_params,device,debug=False):
+def train(console, train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, ep_idx, progress_log, vis_params, device, debug=False):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -195,15 +200,107 @@ def train(train_loader,model,criterion,optimizer,scheduler,num_classes,batch_siz
     train_metrics = create_metrics_dict(num_classes)
     vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
+    
+    # with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
+    for batch_index, data in enumerate(train_loader):
+        console.print(f'      Batch {batch_index} / {len(train_loader)-1}', style='bold #FFFFFF on cyan1', justify='left')
 
-    with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
-        for batch_index, data in enumerate(_tqdm):
-            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
+        progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
+        inputs = data['sat_img'].to(device)
+        labels = data['map_img'].to(device)
+
+        if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
+            ############################
+            # Test Implementation of the NIR
+            ############################
+            # TODO: remove after the merge of Remy branch with no visualization option
+            # TODO: or change it to match the reste of the implementation
+            inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
+            inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
+            inputs = inputs[:,:-1, ...] # Need to be change
+            inputs = [inputs, inputs_NIR]
+            ############################
+            # Test Implementation of the NIR
+            ############################
+
+        # forward
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        # added for torchvision models that output an OrderedDict with outputs in 'out' key.
+        # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
+        if isinstance(outputs, OrderedDict):
+            outputs = outputs['out']
+
+        if vis_batch_range and vis_at_train:
+            min_vis_batch, max_vis_batch, increment = vis_batch_range
+            if batch_index in range(min_vis_batch, max_vis_batch, increment):
+                vis_path = progress_log.parent.joinpath('visualization')
+                if ep_idx == 0:
+                    tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
+                vis_from_batch(vis_params, inputs, outputs,
+                               batch_index=batch_index,
+                               vis_path=vis_path,
+                               labels=labels,
+                               dataset='trn',
+                               ep_num=ep_idx+1)
+
+        loss = criterion(outputs, labels)
+
+        train_metrics['loss'].update(loss.item(), batch_size)
+
+        if device.type == 'cuda' and debug:
+            res, mem = gpu_stats(device=device.index)
+            # _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
+            #                               gpu_perc=f'{res.gpu} %',
+            #                               gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+            #                               lr=optimizer.param_groups[0]['lr'],
+            #                               img=data['sat_img'].numpy().shape,
+            #                               smpl=data['map_img'].numpy().shape,
+            #                               bs=batch_size,
+            #                               out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
+
+        loss.backward()
+        optimizer.step()
+
+    scheduler.step()
+    if train_metrics["loss"].avg is not None:
+        console.print(f'   Training Loss: {train_metrics["loss"].avg:.4f}\n', style='purple')
+    return train_metrics
+
+
+def evaluation(console, eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
+    """
+    Evaluate the model and return the updated metrics
+    :param eval_loader: data loader
+    :param model: model to evaluate
+    :param criterion: loss criterion
+    :param num_classes: number of classes
+    :param batch_size: number of samples to process simultaneously
+    :param ep_idx: epoch index (for hypertrainer log)
+    :param progress_log: progress log file (for hypertrainer log)
+    :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
+    :param dataset: (str) 'val or 'tst'
+    :param device: device used by pytorch (cpu ou cuda)
+    :return: (dict) eval_metrics
+
+    """
+    model.eval()
+    eval_metrics = create_metrics_dict(num_classes)
+    vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
+    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
+
+    # with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
+    for batch_index, data in enumerate(eval_loader):
+        console.print(f'      Batch {batch_index} / {len(eval_loader)-1}', style='bold #FFFFFF on cyan1', justify='left')
+
+        progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
+
+        with torch.no_grad():
             inputs = data['sat_img'].to(device)
             labels = data['map_img'].to(device)
+            labels_flatten = flatten_labels(labels)
 
-        # huh? : NIR stuff ?
             if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
                 ############################
                 # Test Implementation of the NIR
@@ -218,151 +315,63 @@ def train(train_loader,model,criterion,optimizer,scheduler,num_classes,batch_siz
                 # Test Implementation of the NIR
                 ############################
 
-            # forward
-            optimizer.zero_grad()
             outputs = model(inputs)
-            # added for torchvision models that output an OrderedDict with outputs in 'out' key.
-            # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
             if isinstance(outputs, OrderedDict):
                 outputs = outputs['out']
 
-            if vis_batch_range and vis_at_train:
+            if vis_batch_range and vis_at_eval:
                 min_vis_batch, max_vis_batch, increment = vis_batch_range
                 if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
-                    if ep_idx == 0:
-                        tqdm.write(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
-                    vis_from_batch(params, inputs, outputs,
+                    if ep_idx == 0 and batch_index == min_vis_batch:
+                        tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
+                                   f'images will be saved to {vis_path}\n')
+                    vis_from_batch(vis_params, inputs, outputs,
                                    batch_index=batch_index,
                                    vis_path=vis_path,
                                    labels=labels,
-                                   dataset='trn',
+                                   dataset=dataset,
                                    ep_num=ep_idx+1)
+
+            outputs_flatten = flatten_outputs(outputs, num_classes)
 
             loss = criterion(outputs, labels)
 
-            train_metrics['loss'].update(loss.item(), batch_size)
+            eval_metrics['loss'].update(loss.item(), batch_size)
 
-            if device.type == 'cuda' and debug:
-                res, mem = gpu_stats(device=device.index)
-                _tqdm.set_postfix(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
-                                              gpu_perc=f'{res.gpu} %',
-                                              gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
-                                              lr=optimizer.param_groups[0]['lr'],
-                                              img=data['sat_img'].numpy().shape,
-                                              smpl=data['map_img'].numpy().shape,
-                                              bs=batch_size,
-                                              out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy())))
-
-            loss.backward()
-            optimizer.step()
-
-    scheduler.step()
-    if train_metrics["loss"].avg is not None:
-        print(f'Training Loss: {train_metrics["loss"].avg:.4f}')
-    return train_metrics
-
-
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
-    """
-    Evaluate the model and return the updated metrics
-    :param eval_loader: data loader
-    :param model: model to evaluate
-    :param criterion: loss criterion
-    :param num_classes: number of classes
-    :param batch_size: number of samples to process simultaneously
-    :param ep_idx: epoch index (for hypertrainer log)
-    :param progress_log: progress log file (for hypertrainer log)
-    :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
-    :param dataset: (str) 'val or 'tst'
-    :param device: device used by pytorch (cpu ou cuda)
-    :return: (dict) eval_metrics
-    """
-    eval_metrics = create_metrics_dict(num_classes)
-    model.eval()
-    vis_at_eval = get_key_def('vis_at_evaluation', vis_params['visualization'], False)
-    vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
-
-    with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
-        for batch_index, data in enumerate(_tqdm):
-            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
-
-            with torch.no_grad():
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
-                labels_flatten = flatten_labels(labels)
-
-                if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
-                    ############################
-                    # Test Implementation of the NIR
-                    ############################
-                    # TODO: remove after the merge of Remy branch with no visualization option
-                    # TODO: or change it to match the reste of the implementation
-                    inputs_NIR = inputs[:,-1,...] # Need to be change for a more elegant way
-                    inputs_NIR.unsqueeze_(1) # add a channel to get [:, 1, :, :]
-                    inputs = inputs[:,:-1, ...] # Need to be change
-                    inputs = [inputs, inputs_NIR]
-                    ############################
-                    # Test Implementation of the NIR
-                    ############################
-
-                outputs = model(inputs)
-                if isinstance(outputs, OrderedDict):
-                    outputs = outputs['out']
-
-                if vis_batch_range and vis_at_eval:
-                    min_vis_batch, max_vis_batch, increment = vis_batch_range
-                    if batch_index in range(min_vis_batch, max_vis_batch, increment):
-                        vis_path = progress_log.parent.joinpath('visualization')
-                        if ep_idx == 0 and batch_index == min_vis_batch:
-                            tqdm.write(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
-                                       f'images will be saved to {vis_path}\n')
-                        vis_from_batch(params, inputs, outputs,
-                                       batch_index=batch_index,
-                                       vis_path=vis_path,
-                                       labels=labels,
-                                       dataset=dataset,
-                                       ep_num=ep_idx+1)
-
-                outputs_flatten = flatten_outputs(outputs, num_classes)
-
-                loss = criterion(outputs, labels)
-
-                eval_metrics['loss'].update(loss.item(), batch_size)
-
-                if (dataset == 'val') and (batch_metrics is not None):
-                    # Compute metrics every n batches. Time consuming.
-                    assert batch_metrics <= len(_tqdm), f"Batch_metrics ({batch_metrics} is smaller than batch size " \
-                        f"{len(_tqdm)}. Metrics in validation loop won't be computed"
-                    if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
-                        a, segmentation = torch.max(outputs_flatten, dim=1)
-                        eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
-                        eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                             ignore_index=eval_loader.dataset.dontcare)
-                elif dataset == 'tst':
+            if (dataset == 'val') and (batch_metrics is not None):
+                # Compute metrics every n batches. Time consuming.
+                assert batch_metrics <= len(eval_loader), f"Batch_metrics ({batch_metrics} is smaller than batch size " \
+                    f"{len(eval_loader)}. Metrics in validation loop won't be computed"
+                if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
                     a, segmentation = torch.max(outputs_flatten, dim=1)
                     eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
                                                          ignore_index=eval_loader.dataset.dontcare)
+            elif dataset == 'tst':
+                a, segmentation = torch.max(outputs_flatten, dim=1)
+                eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
+                eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
+                                                     ignore_index=eval_loader.dataset.dontcare)
 
-                _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
+            # _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
+            #
+            # if debug and device.type == 'cuda':
+            #     res, mem = gpu_stats(device=device.index)
+            #     _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
+            #                                   gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
 
-                if debug and device.type == 'cuda':
-                    res, mem = gpu_stats(device=device.index)
-                    _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
-                                                  gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
-
-    print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
-    if batch_metrics is not None:
-        print(f"{dataset} precision: {eval_metrics['precision'].avg}")
-        print(f"{dataset} recall: {eval_metrics['recall'].avg}")
-        print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
-        print(f"{dataset} iou: {eval_metrics['iou'].avg}")
+    # print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
+    # if batch_metrics is not None:
+    #     print(f"{dataset} precision: {eval_metrics['precision'].avg}")
+    #     print(f"{dataset} recall: {eval_metrics['recall'].avg}")
+    #     print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
+    #     print(f"{dataset} iou: {eval_metrics['iou'].avg}")
 
     return eval_metrics
 
 
-def main(params, config_path):
+def main(params, config_path, console):
     """
     Function to train and validate a model for semantic segmentation.
 
@@ -392,10 +401,12 @@ def main(params, config_path):
     :param params: (dict) Parameters found in the yaml config file.
     :param config_path: (str) Path to the yaml config file.
     """
+
+# basic params
     params['global']['git_hash'] = get_git_hash()
     debug = get_key_def('debug_mode', params['global'], False)
-    if debug:
-        warnings.warn(f'Debug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.')
+    # if debug:
+    #     warnings.warn(f'Debug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.')
 
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
     num_classes = params['global']['num_classes']
@@ -424,20 +435,28 @@ def main(params, config_path):
         if torch.cuda.is_available() else []
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
+    console.print(device, style='bold #FFFFFF on green', justify="center")
 
+# DATALOADERS
     tqdm.write(f'Creating dataloaders from data in {samples_folder}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
                                                                        num_devices=num_devices,
                                                                        params=params)
-# Init Model ___________________________________________________________________________________________________________s
-    # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
+
+# INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model, model_name, criterion, optimizer, lr_scheduler = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
-    tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
+    console.print('Init Model:', style='bold #FFFFFF on blue', justify='left')
+    console.print('\tmodel        =', type(model), style='blue')
+    console.print('\tmodel_name   =', type(model_name), style='blue')
+    console.print('\tcriterion    =', type(criterion), style='blue')
+    console.print('\toptimizer    =', type(optimizer), style='blue')
+    console.print('\tlr_scheduler =', type(lr_scheduler), style='blue')
+    console.print(f'Instantiated {model_name} model with {num_classes_corrected} output channels.', style='bold #FFFFFF on blue', justify='right')
+    # tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
     bucket_name = get_key_def('bucket_name', params['global'])
 
-# MLFlow________________________________________________________________________________________________________________
-    # mlflow tracking path + parameters logging
+# mlflow tracking path + parameters logging
     set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
     set_experiment(get_key_def('mlflow_experiment_name', params['global'], default='gdl-training'))
     start_run(run_name=run_name)
@@ -445,9 +464,9 @@ def main(params, config_path):
     log_params(params['global'])
     log_params(params['sample'])
 
-# Output Path __________________________________________________________________________________________________________
+# init model folder
     modelname = config_path.stem
-    output_path = samples_folder.joinpath('model') / modelname
+    output_path = samples_folder.joinpath('model_' + str(params['global']['model_output_dir'])) / modelname
     if output_path.is_dir():
         output_path = output_path.joinpath(f"_{now}")
     output_path.mkdir(parents=True, exist_ok=False)
@@ -464,6 +483,7 @@ def main(params, config_path):
     best_loss = 999
     last_vis_epoch = 0
 
+# init logs
     progress_log = output_path / 'progress.log'
     if not progress_log.exists():
         progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))  # Add header
@@ -473,8 +493,7 @@ def main(params, config_path):
     tst_log = InformationLogger('tst')
     filename = output_path.joinpath('checkpoint.pth.tar')
 
-# Visualization (input) ________________________________________________________________________________________________________
-    # VISUALIZATION: generate pngs of inputs, labels and outputs
+# VISUALIZATION: generate pngs of inputs, labels and outputs
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment). Check once for all visualization tasks.
@@ -484,7 +503,8 @@ def main(params, config_path):
         # Visualization at initialization. Visualize batch range before first eopch.
         if get_key_def('vis_at_init', params['visualization'], False):
             tqdm.write(f'Visualizing initialized model on batch range {vis_batch_range} from {vis_at_init_dataset} dataset...\n')
-            vis_from_dataloader(params=params,
+            vis_from_dataloader(console,
+                                params=params,
                                 eval_loader=val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader,
                                 model=model,
                                 ep_num=0,
@@ -493,13 +513,22 @@ def main(params, config_path):
                                 device=device,
                                 vis_batch_range=vis_batch_range)
 
-# TRAINING _____________________________________________________________________________________________________________
-    print('Starting Training..................................')
-    for epoch in range(0, params['training']['num_epochs']):
-        print(f'\n\tEpoch {epoch}/{params["training"]["num_epochs"] - 1}\n{"-" * 20}')
+    experiment_table = Table(style='purple')
+    experiment_table.add_column('epoch', justify='center', style='color(0)')
+    experiment_table.add_column('best loss', justify='center', style='color(1)')
+    experiment_table.add_column('curr loss', justify='center', style='color(2)')
+    experiment_table.add_column('trn loss', justify='center', style='color(3)')
+    experiment_table.add_column('precision', justify='center', style='color(4)')
+    experiment_table.add_column('recall', justify='center', style='color(5)')
+    experiment_table.add_column('fscore', justify='center', style='color(6)')
+    experiment_table.add_column('iou', justify='center', style='color(7)')
 
-        print('\t training...')
-        trn_report = train(train_loader=trn_dataloader,
+    for epoch in range(0, params['training']['num_epochs']):
+        console.print(f'Epoch {epoch} / {params["training"]["num_epochs"] - 1}', style='bold white on purple', justify='left')
+
+        console.print('   trn:', style='purple')
+        trn_report = train(console,
+                           train_loader=trn_dataloader,
                            model=model,
                            criterion=criterion,
                            optimizer=optimizer,
@@ -513,8 +542,9 @@ def main(params, config_path):
                            debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-        print('\t evaluating...')
-        val_report = evaluation(eval_loader=val_dataloader,
+        console.print('   val:', style='purple')
+        val_report = evaluation(console,
+                                eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
                                 num_classes=num_classes_corrected,
@@ -526,15 +556,32 @@ def main(params, config_path):
                                 dataset='val',
                                 device=device,
                                 debug=debug)
-
         val_loss = val_report['loss'].avg
+        # print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
+        # if batch_metrics is not None:
+        #     print(f"{dataset} precision: {eval_metrics['precision'].avg}")
+        #     print(f"{dataset} recall: {eval_metrics['recall'].avg}")
+        #     print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
+        #     print(f"{dataset} iou: {eval_metrics['iou'].avg}")
+        experiment_table.add_row(f'{epoch} / {params["training"]["num_epochs"] - 1}',
+                                 str(best_loss),
+                                 str(val_loss),
+                                 str(trn_report['loss'].avg),
+                                 str(val_report['precision'].avg),
+                                 str(val_report['recall'].avg),
+                                 str(val_report['fscore'].avg),
+                                 str(val_report['iou'].avg))
+
+        console.print(experiment_table)
+
         if params['training']['batch_metrics'] is not None:
             val_log.add_values(val_report, epoch)
         else:
             val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         if val_loss < best_loss:
-            tqdm.write("save checkpoint\n")
+            # tqdm.write("save checkpoint\n")
+            console.print('saving checkpoint', style='bold white on green')
             best_loss = val_loss
             # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
@@ -549,7 +596,6 @@ def main(params, config_path):
                 bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
 
-    # Visualization (output) ________________________________________________________________________________________________________
             # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
             vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
             ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4)
@@ -558,7 +604,8 @@ def main(params, config_path):
                 if last_vis_epoch == 0:
                     tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
                                f'batches in range {vis_batch_range}')
-                vis_from_dataloader(params=params,
+                vis_from_dataloader(console,
+                                    params=params,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
                                     model=model,
                                     ep_num=epoch+1,
@@ -572,16 +619,16 @@ def main(params, config_path):
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
 
         cur_elapsed = time.time() - since
-        print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
+        console.print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
-# Testing ______________________________________________________________________________________________________________
-    # load checkpoint model and evaluate it on test dataset.
+# load checkpoint model and evaluate it on test dataset.
     if int(params['training']['num_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
 
     if tst_dataloader:
-        tst_report = evaluation(eval_loader=tst_dataloader,
+        tst_report = evaluation(console,
+                                eval_loader=tst_dataloader,
                                 model=model,
                                 criterion=criterion,
                                 num_classes=num_classes_corrected,
@@ -600,7 +647,8 @@ def main(params, config_path):
             bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
-    print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    console.print(experiment_table)
+    console.print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
 if __name__ == '__main__':
