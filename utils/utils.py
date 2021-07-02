@@ -11,6 +11,7 @@ import numpy as np
 import scipy.signal
 import warnings
 import requests
+import collections
 
 from utils.readers import read_parameters
 from urllib.parse import urlparse
