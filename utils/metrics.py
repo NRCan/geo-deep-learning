@@ -12,6 +12,9 @@ def create_metrics_dict(num_classes):
         metrics_dict['fscore_' + str(i)] = AverageMeter()
         metrics_dict['iou_' + str(i)] = AverageMeter()
 
+    # Add overall non-background iou metric
+    metrics_dict['iou_nonbg'] = AverageMeter()
+
     return metrics_dict
 
 
@@ -89,6 +92,18 @@ def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
         iou = (intersection + min_val) / (union + min_val)  # minimum value added to avoid Zero division
         ious.append(iou)
         metric_dict['iou_' + str(i)].update(iou.item(), batch_size)
+
+    # Add overall non-background iou metric
+    c_label = label == 1
+    c_pred = pred == 1
+    for i in range(2, num_classes):
+        c_label = np.logical_or(c_label, label == i)
+        c_pred = np.logical_or(c_pred, pred == i)
+    intersection = (c_pred & c_label).float().sum()
+    union = (c_pred | c_label).float().sum()
+    iou = (intersection + min_val) / (union + min_val)  # minimum value added to avoid Zero division
+    metric_dict['iou_nonbg'].update(iou.item(), batch_size)
+
     mean_IOU = np.nanmean(ious)
     if (not only_present) or (not np.isnan(mean_IOU)):
         metric_dict['iou'].update(mean_IOU, batch_size)
