@@ -469,7 +469,7 @@ def defaults_from_params(params, key=None):
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None,
-                                 expected_type=float)
+                                 expected_type=int)
     num_bands = params['global']['number_of_bands']
     d['samples_dir_name'] = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
                              f'{num_bands}bands_{mlflow_experiment_name }')
