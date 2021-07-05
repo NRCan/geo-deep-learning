@@ -297,7 +297,7 @@ def list_input_images(img_dir_or_csv: str,
             raise NotImplementedError(
                 'Specify a csv file containing images for inference. Directory input not implemented yet')
     else:
-        if img_dir_or_csv.endswith('.csv'):
+        if str(img_dir_or_csv).endswith('.csv'):
             list_img = read_csv(img_dir_or_csv)
         else:
             img_dir = Path(img_dir_or_csv)
@@ -455,3 +455,26 @@ def ordereddict_eval(str_to_eval: str):
     else:
         warnings.warn(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
         return str_to_eval
+
+
+def defaults_from_params(params, key=None):
+    d = {}
+    data_path = get_key_def('data_path', params['global'], '')
+    preprocessing_path = get_key_def('preprocessing_path', params['global'], '')
+    mlflow_experiment_name = get_key_def('mlflow_experiment_name', params['global'], 'gdl-training')
+    d['prep_csv_file'] = Path(preprocessing_path, mlflow_experiment_name,
+                              f"images_to_samples_{mlflow_experiment_name}.csv")
+    d['img_dir_or_csv_file'] = Path(preprocessing_path, mlflow_experiment_name,
+                                    f"inference_sem_seg_{mlflow_experiment_name}.csv")
+    samples_size = params["global"]["samples_size"]
+    overlap = params["sample"]["overlap"]
+    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None,
+                                 expected_type=float)
+    num_bands = params['global']['number_of_bands']
+    d['samples_dir_name'] = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
+                             f'{num_bands}bands_{mlflow_experiment_name }')
+    config_file_name = Path(get_key_def('config_file', params['self'], '')).stem
+    d['state_dict_path'] = Path(data_path, d['samples_dir_name'], 'model', config_file_name, 'checkpoint.pth.tar')
+    if key is None:
+        return d
+    return d[key]

@@ -13,7 +13,7 @@ from utils.optimizer import create_optimizer
 from losses import MultiClassCriterion
 import torch.optim as optim
 from models import TernausNet, unet, checkpointed_unet, inception, coordconv
-from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
+from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, defaults_from_params
 
 lm_smp = {
     'pan_pretrained': {
@@ -225,8 +225,9 @@ def net(net_params, num_channels, inference=False):
                                                 radius_channel=radius_channel, scale=scale)
 
     if inference:
-        state_dict_path = net_params['inference']['state_dict_path']
-        assert Path(net_params['inference']['state_dict_path']).is_file(), f"Could not locate {net_params['inference']['state_dict_path']}"
+        state_dict_path = get_key_def('state_dict_path', net_params['inference'],
+                                      defaults_from_params(net_params, 'state_dict_path'))
+        assert Path(state_dict_path).is_file(), f"Could not locate {state_dict_path}"
         checkpoint = load_checkpoint(state_dict_path)
 
         return model, checkpoint, model_name

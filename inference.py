@@ -24,7 +24,7 @@ from models.model_choice import net, load_checkpoint
 from utils import augmentation
 from utils.geoutils import vector_to_raster
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D
+    list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D, defaults_from_params
 from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import add_background_to_num_class
 from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
@@ -161,7 +161,8 @@ def classifier(params, img_list, model, device, working_folder):
     :param device:
     :return:
     """
-    weights_file_name = params['inference']['state_dict_path']
+    weights_file_name = get_key_def('state_dict_path', params['inference'],
+                                    defaults_from_params(params, 'state_dict_path'))
     num_classes = params['global']['num_classes']
     bucket = params['global']['bucket_name']
 
@@ -228,12 +229,18 @@ def main(params: dict):
     # SET BASIC VARIABLES AND PATHS
     since = time.time()
     task = params['global']['task']
-    img_dir_or_csv = params['inference']['img_dir_or_csv_file']
+    mlflow_experiment_name = get_key_def('mlflow_experiment_name', params['global'], 'gdl-training')
+    default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''),
+                            mlflow_experiment_name,
+                            f"inference_sem_seg_{mlflow_experiment_name}.csv")
+    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default_csv_file)
     chunk_size = get_key_def('chunk_size', params['inference'], 512)
     num_classes = params['global']['num_classes']
     num_classes_corrected = add_background_to_num_class(task, num_classes)
     num_bands = params['global']['number_of_bands']
-    working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
+    state_dict_path = get_key_def('state_dict_path', params['inference'],
+                                  defaults_from_params(params, 'state_dict_path'))
+    working_folder = Path(state_dict_path).parent.joinpath(f'inference_{num_bands}bands')
     num_devices = params['global']['num_gpus'] if params['global']['num_gpus'] else 0
     Path.mkdir(working_folder, parents=True, exist_ok=True)
     print(f'Inferences will be saved to: {working_folder}\n\n')
