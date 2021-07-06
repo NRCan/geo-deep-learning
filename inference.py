@@ -55,7 +55,7 @@ def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 
     smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
     # rule of thumb to determine max chunk size based on approximate max pixels a gpu can handle during inference
     max_chunk_size = sqrt(max_pix_per_mb_gpu * smallest_gpu_ram)
-    max_chunk_size_rd = int(max_chunk_size - (max_chunk_size % 512))
+    max_chunk_size_rd = int(max_chunk_size - (max_chunk_size % 256))
     logging.info(f'Images will be split into chunks of {max_chunk_size_rd}')
     return max_chunk_size_rd
 

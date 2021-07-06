@@ -55,6 +55,7 @@ def loader(path):
 
 def create_dataloader(samples_folder: Path,
                       batch_size: int,
+                      eval_batch_size: int,
                       gpu_devices_dict: dict,
                       sample_size: int,
                       dontcare_val: int,
@@ -127,11 +128,10 @@ def create_dataloader(samples_folder: Path,
     samples_weight = torch.from_numpy(samples_weight)
     sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
                                                              len(samples_weight))
-    eval_batch_size = batch_size
 
     if gpu_devices_dict and calc_eval_bs:
         max_pix_per_mb_gpu = 280  # TODO: this value may need to be finetuned
-        calc_eval_batchsize(gpu_devices_dict, batch_size, sample_size, max_pix_per_mb_gpu)
+        eval_batch_size = calc_eval_batchsize(gpu_devices_dict, batch_size, sample_size, max_pix_per_mb_gpu)
 
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler,
                                 drop_last=True)
@@ -150,7 +150,8 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     @param gpu_devices_dict: dictionary containing info on GPU devices as returned by lst_device_ids (utils.py)
     @param batch_size: batch size for training
     @param sample_size: size of hdf5 samples
-    @return: returns a downgraded evaluation batch size if the original batch size is considered too high
+    @return: returns a downgraded evaluation batch size if the original batch size is considered too high compared to
+    the GPU's memory
     """
     eval_batch_size_rd = batch_size
     # get max ram for smallest gpu
@@ -493,6 +494,7 @@ def main(params, config_path):
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
     batch_size = get_key_def('batch_size', params['training'], expected_type=int)
+    eval_batch_size = get_key_def('eval_batch_size', params['training'], expected_type=int, default=batch_size)
     num_epochs = get_key_def('num_epochs', params['training'], expected_type=int)
     model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
     BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
@@ -620,6 +622,7 @@ def main(params, config_path):
         logging.warning(f'Dontcare is not implemented for loss function "{loss_fn}". '
                         f'Dontcare values ({dontcare_val}) in label will be replaced with background value (0)')
 
+    # Will check if batch size needs to be a lower value only if cropping samples during training
     calc_eval_bs = True if crop_size else False
 
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
