@@ -410,7 +410,7 @@ def main(params):
                                 rst_pth, r_ = process_raster_img(img_pan, gpkg)
                                 np_label = process_vector_label(rst_pth, gpkg)
                                 if np_label is not None:
-                                    if Path(gpkg).name in tst_set:
+                                    if Path(gpkg).stem in tst_set:
                                         sample_type = 'tst'
                                         out_file = tst_hdf5
                                     else:
@@ -448,7 +448,7 @@ def main(params):
                                 rst_pth, r_ = process_raster_img(img_mul, gpkg)
                                 np_label = process_vector_label(rst_pth, gpkg)
                                 if np_label is not None:
-                                    if Path(gpkg).name in tst_set:
+                                    if Path(gpkg).stem in tst_set:
                                         sample_type = 'tst'
                                         out_file = tst_hdf5
                                     else:
@@ -491,7 +491,7 @@ def main(params):
                                     bands_gen_list.append(prep_img_gen)
 
                 if np_label is not None:
-                    if Path(gpkg).name in tst_set:
+                    if Path(gpkg).stem in tst_set:
                         sample_type = 'tst'
                         out_file = tst_hdf5
                     else:
