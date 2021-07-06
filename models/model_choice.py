@@ -120,10 +120,10 @@ def set_hyperparameters(params,
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
     # set mandatory hyperparameters values with those in config file if they exist
-    lr = get_key_def('learning_rate', params['training'], None, "missing mandatory learning rate parameter")
-    weight_decay = get_key_def('weight_decay', params['training'], None, "missing mandatory weight decay parameter")
-    step_size = get_key_def('step_size', params['training'], None, "missing mandatory step size parameter")
-    gamma = get_key_def('gamma', params['training'], None, "missing mandatory gamma parameter")
+    lr = get_key_def('learning_rate', params['training'], None)
+    weight_decay = get_key_def('weight_decay', params['training'], None)
+    step_size = get_key_def('step_size', params['training'], None)
+    gamma = get_key_def('gamma', params['training'], None)
 
     class_weights = torch.tensor(class_weights) if class_weights else None
 

@@ -627,6 +627,7 @@ def main(params, config_path):
 
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
+                                                                       eval_batch_size=eval_batch_size,
                                                                        gpu_devices_dict=gpu_devices_dict,
                                                                        sample_size=samples_size,
                                                                        dontcare_val=dontcare_val,
