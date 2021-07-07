@@ -94,11 +94,8 @@ def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
         metric_dict['iou_' + str(i)].update(iou.item(), batch_size)
 
     # Add overall non-background iou metric
-    c_label = label == 1
-    c_pred = pred == 1
-    for i in range(2, num_classes):
-        c_label = np.logical_or(c_label, label == i)
-        c_pred = np.logical_or(c_pred, pred == i)
+    c_label = (1 <= label) & (label <= num_classes - 1)
+    c_pred = (1 <= pred) & (pred <= num_classes - 1)
     intersection = (c_pred & c_label).float().sum()
     union = (c_pred | c_label).float().sum()
     iou = (intersection + min_val) / (union + min_val)  # minimum value added to avoid Zero division
