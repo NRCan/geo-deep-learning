@@ -129,16 +129,21 @@ def add_to_datasets(dataset,
                     target,
                     sample_metadata,
                     metadata_idx,
-                    dict_classes):
+                    dict_classes,
+                    stratification_bias=0,
+                    stratification_dict=None):
     """ Add sample to Hdf5 (trn, val or tst) and computes pixel classes(%). """
     to_val_set = False
     if dataset == 'trn':
         random_val = np.random.randint(1, 100)
-        if random_val > val_percent:
-            pass
+        if random_val > val_percent + stratification_bias:
+            if stratification_dict is not None:
+                stratification_dict['latest_assignment'] = 'trn'
         else:
             to_val_set = True
             samples_file = val_sample_file
+            if stratification_dict is not None:
+                stratification_dict['latest_assignment'] = 'val'
     append_to_dataset(samples_file["sat_img"], data)
     append_to_dataset(samples_file["map_img"], target)
     append_to_dataset(samples_file["sample_metadata"], repr(sample_metadata))
@@ -169,7 +174,8 @@ def samples_preparation(in_img_array,
                         dontcare,
                         image_metadata=None,
                         min_annot_perc=None,
-                        class_prop=None):
+                        class_prop=None,
+                        stratd=None):
     """
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
@@ -238,6 +244,37 @@ def samples_preparation(in_img_array,
 
                 sample_metadata = {'sample_indices': (row, column)}
 
+                # Stratification bias
+                if (stratd is not None) and (dataset == 'trn'):
+                    tile_size = target.size
+                    tile_counts = {x: y for x, y in zip(u, count)}
+                    tile_props = {x: y / tile_size for x, y in zip(u, count)}
+                    for key in tile_props.keys():
+                        if key not in stratd['trn']['total_counts']:
+                            stratd['trn']['total_counts'][key] = 0
+                        if key not in stratd['val']['total_counts']:
+                            stratd['val']['total_counts'][key] = 0
+                    if stratd['trn']['total_pixels'] == 0:
+                        stratd['trn']['total_props'] = {key: 0.0 for key in stratd['trn']['total_counts'].keys()}
+                    else:
+                        stratd['trn']['total_props'] = {key: val / stratd['trn']['total_pixels']
+                                                        for key, val in stratd['trn']['total_counts'].items()}
+                    if stratd['val']['total_pixels'] == 0:
+                        stratd['val']['total_props'] = {key: 0.0 for key in stratd['val']['total_counts'].keys()}
+                    else:
+                        stratd['val']['total_props'] = {key: val / stratd['val']['total_pixels']
+                                                        for key, val in stratd['val']['total_counts'].items()}
+                    distances_trn = {key: np.abs(val - stratd['trn']['total_props'][key])
+                                     for key, val in tile_props.items()}
+                    distances_val = {key: np.abs(val - stratd['val']['total_props'][key])
+                                     for key, val in tile_props.items()}
+                    dist_trn = np.mean(np.array(list(distances_trn.values()))**2)
+                    dist_val = np.mean(np.array(list(distances_val.values()))**2)
+                    dist = dist_val - dist_trn
+                    stratification_bias = stratd['strat_factor'] * np.sign(dist)
+                else:
+                    stratification_bias = 0.0
+
                 val = False
                 if minimum_annotated_percent(target_background_percent, min_annot_perc) and \
                         class_proportion(target, sample_size, class_prop):
@@ -249,12 +286,21 @@ def samples_preparation(in_img_array,
                                           target=target,
                                           sample_metadata=sample_metadata,
                                           metadata_idx=metadata_idx,
-                                          dict_classes=pixel_classes)
+                                          dict_classes=pixel_classes,
+                                          stratification_bias=stratification_bias,
+                                          stratification_dict=stratd)
                     if val:
                         idx_samples_v += 1
                     else:
                         idx_samples += 1
                     added_samples += 1
+
+                    # Stratification update
+                    if (stratd is not None) and (dataset == 'trn'):
+                        for key, val in tile_counts.items():
+                            stratd[stratd['latest_assignment']]['total_counts'][key] += val
+                        stratd[stratd['latest_assignment']]['total_pixels'] += tile_size
+
                 else:
                     excl_samples += 1
 
@@ -328,6 +374,7 @@ def main(params):
     # OPTIONAL PARAMETERS
     # basics
     debug = get_key_def('debug_mode', params['global'], False)
+
     task = get_key_def('task', params['global'], 'segmentation', expected_type=str)
     if task == 'classification':
         raise ValueError(f"Got task {task}. Expected 'segmentation'.")
@@ -359,6 +406,14 @@ def main(params):
     targ_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
     class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
     mask_reference = get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
+
+    if get_key_def('use_stratification', params['sample'], False) is not False:
+        stratd = {'trn': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
+                  'val': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
+                  'strat_factor': params['sample']['use_stratification']}
+    else:
+        stratd = None
+
 
     # add git hash from current commit to parameters if available. Parameters will be saved to hdf5s
     params['global']['git_hash'] = get_git_hash()
@@ -556,7 +611,8 @@ def main(params):
                                                                  dontcare=dontcare,
                                                                  image_metadata=metadata,
                                                                  min_annot_perc=min_annot_perc,
-                                                                 class_prop=class_prop)
+                                                                 class_prop=class_prop,
+                                                                 stratd=stratd)
 
             logging.info(f'Number of samples={number_samples}')
             out_file.flush()
