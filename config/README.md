@@ -174,6 +174,7 @@ In addition, [images_to_samples.py](../images_to_samples.py) will assert that al
 sample:
   prep_csv_file: path/to/images.csv
   val_percent: 5
+  use_stratification: 2
   overlap: 25
   sampling_method:
     'min_annotated_percent': 0
@@ -183,6 +184,8 @@ sample:
 - **`prep_csv_file` :** Path to your `csv` file with the information on the images.
 
 - **`val_percent` :** Percentage of validation samples created from train set (0 - 100), we recommend at least `5`, must be an integer (int).
+
+- **`use_stratification` :** Added or substracted from val_percent to stratify samples. Should be less than val_percent.
 
 - **`overlap` :** Percentage of overlap between 2 chunks, must be an integer (int).
 
