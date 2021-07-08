@@ -1,30 +1,55 @@
 import argparse
-import datetime
+from datetime import datetime
 import os
 import numpy as np
 
 np.random.seed(1234)  # Set random seed for reproducibility
 import warnings
 import rasterio
+import fiona
+import shutil
 import time
 import json
 
 from pathlib import Path
 from tqdm import tqdm
-from collections import OrderedDict, Counter
-from typing import List
+from collections import Counter
+from typing import List, Union
 
 from utils.create_dataset import create_files_and_datasets
-from utils.utils import get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample
-from utils.geoutils import vector_to_raster
-# clip_raster_with_gpkg
-from utils.readers import read_parameters, image_reader_as_array
-from utils.verifications import validate_num_classes, assert_num_bands, assert_crs_match, \
-    validate_features_from_gpkg
-from rasterio.features import is_valid_geom
+from utils.utils import get_key_def, pad, pad_diff, add_metadata_from_raster_to_sample
+from utils.geoutils import vector_to_raster, get_key_recursive
+from utils.readers import read_parameters
+from utils.verifications import assert_crs_match, validate_num_classes
 from rasterio.mask import mask
 from rasterio.windows import Window
 from rasterio.plot import reshape_as_image
+
+
+# def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attribute_name: str, ignore_index: int):
+#     """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
+#     FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
+#     Args:
+#         vector_file: full file path of the vector image
+#         num_classes: number of classes set in config_template.yaml
+#         attribute_name: name of the value field representing the required classes in the vector image file
+#         ignore_index: (int) target value that is ignored during training and does not contribute to the input gradient
+#     Return:
+#         List of unique attribute values found in gpkg vector file
+#     """
+#     distinct_att = set()
+#     with fiona.open(vector_file, 'r') as src:
+#         for feature in tqdm(src, leave=False, position=1, desc=f'Scanning features'):
+#             # Use property of set to store unique values
+#             distinct_att.add(get_key_recursive(attribute_name, feature))
+#
+#     detected_classes = len(distinct_att) - len([ignore_index]) if ignore_index in distinct_att else len(distinct_att)
+#
+#     if detected_classes != num_classes:
+#         warnings.warn('The number of classes in the yaml.config {} is different than the number of classes in '
+#                       'the file {} {}'.format(num_classes, vector_file, str(list(distinct_att))))
+#
+#     return distinct_att
 
 
 def validate_class_prop_dict(actual_classes_dict, config_dict):
@@ -150,7 +175,7 @@ def gen_img_samples(rst_pth, tile_size, dist_samples, *band_order):
                 yield window_array
 
 
-def process_vector_label(rst_pth, gpkg_pth):
+def process_vector_label(rst_pth, gpkg_pth, ids):
     if rst_pth is not None:
         with rasterio.open(rst_pth) as src:
             np_label = vector_to_raster(vector_file=gpkg_pth,
@@ -158,7 +183,7 @@ def process_vector_label(rst_pth, gpkg_pth):
                                         out_shape=(src.height, src.width),
                                         attribute_name='properties/Quatreclasses',
                                         fill=0,
-                                        target_ids=[1, '1', 2, '2', 3, '3', 4, '4'],
+                                        target_ids=ids,
                                         merge_all=True,
                                         )
         return np_label
@@ -259,8 +284,6 @@ def sample_prep(src, data, target, indices, gpkg_classes, sample_size, sample_ty
                 ):
     added_samples = 0
     excl_samples = 0
-
-    # print('gpkg_classes', gpkg_classes)
     pixel_classes = {key: 0 for key in gpkg_classes}
     background_val = 0
     pixel_classes[background_val] = 0
@@ -324,10 +347,6 @@ def sample_prep(src, data, target, indices, gpkg_classes, sample_size, sample_ty
         samples_count['trn'] = idx_samples
         samples_count['val'] = idx_samples_v
 
-    # return the appended samples count and number of classes.
-    # print('pixel_classes', pixel_classes)
-    # print(samples_count, num_classes)
-
     return samples_count, num_classes, pixel_classes
 
 
@@ -343,25 +362,25 @@ def class_pixel_ratio(pixel_classes: dict, source_data: str, file_path: str):
 
 def main(params):
     """
-    Training and validation datasets preparation.
+    Dataset preparation (trn, val, tst).
     :param params: (dict) Parameters found in the yaml config file.
 
     """
-    now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
-    bucket_file_cache = []
-
     assert params['global']['task'] == 'segmentation', \
-        f"images_to_samples.py isn't necessary when performing classification tasks"
+        f"sample_creation.py isn't necessary when performing classification tasks"
+    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
+    num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
+    debug = get_key_def('debug_mode', params['global'], False)
+    targ_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
 
     # SET BASIC VARIABLES AND PATHS. CREATE OUTPUT FOLDERS.
-    data_path = Path(params['global']['data_path'])
-    Path.mkdir(data_path, exist_ok=True, parents=True)
     val_percent = params['sample']['val_percent']
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
     dist_samples = round(samples_size * (1 - (overlap / 100)))
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
     ignore_index = get_key_def('ignore_index', params['training'], -1)
+    meta_map = get_key_def('meta_map', params['global'], default={})
 
     list_params = params['read_img']
     source_pan = get_key_def('pan', list_params['source'], default=False, expected_type=bool)
@@ -372,15 +391,30 @@ def main(params):
     in_pth = get_key_def('input_file', list_params, default='data_file.json', expected_type=str)
     gpkg_status = 'all'
 
-    sample_path_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}'
-    samples_folder = data_path.joinpath(sample_path_name)
+    data_path = Path(params['global']['data_path'])
+    Path.mkdir(data_path, exist_ok=True, parents=True)
+    if not data_path.is_dir():
+        raise FileNotFoundError(f'Could not locate data path {data_path}')
+
+    # mlflow logging
+    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
+    samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
+                           f'_{experiment_name}')
+    samples_folder = data_path.joinpath(samples_folder_name)
     if samples_folder.is_dir():
-        warnings.warn(f'Data path exists: {samples_folder}. Suffix will be added to directory name.')
-        samples_folder = Path(str(samples_folder) + '_' + now)
-    else:
-        tqdm.write(f'Writing samples to {samples_folder}')
+        if debug:
+            # Move existing data folder with a random suffix.
+            last_mod_time_suffix = datetime.fromtimestamp(samples_folder.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+            shutil.move(samples_folder, data_path.joinpath(f'{str(samples_folder)}_{last_mod_time_suffix}'))
+        else:
+            raise FileExistsError(f'Data path exists: {samples_folder}. Remove it or use a different experiment_name.')
+
     Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
-    trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
+    trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
+                                                             number_of_bands=num_bands,
+                                                             meta_map=meta_map,
+                                                             samples_folder=samples_folder,
+                                                             params=params)
 
     class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
     dontcare = get_key_def("ignore_index", params["training"], -1)
@@ -402,13 +436,14 @@ def main(params):
                     if gpkg_status == 'all':
                         if 'corr' or 'prem' in i_dict['gpkg'].keys():
                             gpkg = list(i_dict['gpkg'].values())[0]
-                            gpkg_classes = validate_num_classes(gpkg, params['global']['num_classes'],
+                            gpkg_classes = validate_num_classes(gpkg, num_classes,
                                                                 'properties/Quatreclasses',
-                                                                ignore_index)
+                                                                dontcare,
+                                                                targ_ids)
                             for img_pan in i_dict['pan_img']:
                                 assert_crs_match(img_pan, gpkg)
                                 rst_pth, r_ = process_raster_img(img_pan, gpkg)
-                                np_label = process_vector_label(rst_pth, gpkg)
+                                np_label = process_vector_label(rst_pth, gpkg, targ_ids)
                                 if np_label is not None:
                                     if Path(gpkg).stem in tst_set:
                                         sample_type = 'tst'
@@ -440,13 +475,14 @@ def main(params):
                     if gpkg_status == 'all':
                         if 'corr' or 'prem' in i_dict['gpkg'].keys():
                             gpkg = list(i_dict['gpkg'].values())[0]
-                            gpkg_classes = validate_num_classes(gpkg, params['global']['num_classes'],
+                            gpkg_classes = validate_num_classes(gpkg, num_classes,
                                                                 'properties/Quatreclasses',
-                                                                ignore_index)
+                                                                dontcare,
+                                                                targ_ids)
                             for img_mul in i_dict['mul_img']:
                                 assert_crs_match(img_mul, gpkg)
                                 rst_pth, r_ = process_raster_img(img_mul, gpkg)
-                                np_label = process_vector_label(rst_pth, gpkg)
+                                np_label = process_vector_label(rst_pth, gpkg, targ_ids)
                                 if np_label is not None:
                                     if Path(gpkg).stem in tst_set:
                                         sample_type = 'tst'
@@ -481,12 +517,13 @@ def main(params):
                             if gpkg_status == 'all':
                                 if 'corr' or 'prem' in i_dict['gpkg'].keys():
                                     gpkg = list(i_dict['gpkg'].values())[0]
-                                    gpkg_classes = validate_num_classes(gpkg, params['global']['num_classes'],
+                                    gpkg_classes = validate_num_classes(gpkg, num_classes,
                                                                         'properties/Quatreclasses',
-                                                                        ignore_index)
+                                                                        dontcare,
+                                                                        targ_ids)
                                     assert_crs_match(i_dict[f'{ib}_band'], gpkg)
                                     rst_pth, r_ = process_raster_img(i_dict[f'{ib}_band'], gpkg)
-                                    np_label = process_vector_label(rst_pth, gpkg)
+                                    np_label = process_vector_label(rst_pth, gpkg, targ_ids)
                                     prep_img_gen = gen_img_samples(rst_pth, samples_size, dist_samples)
                                     bands_gen_list.append(prep_img_gen)
 

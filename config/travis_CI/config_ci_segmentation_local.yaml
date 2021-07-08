@@ -15,7 +15,7 @@ global:
   model_name: deeplabv3_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
-  num_gpus: 0
+  num_gpus: 1
   BGR_to_RGB: True
   scale_data: [0,1]
   debug_mode: True
@@ -74,7 +74,7 @@ training:
 
 inference:
   img_dir_or_csv_file: ./data/inference_sem_seg_ci_csv.csv
-  state_dict_path: ./data/samples256_overlap33_min-annot3_3bands/model/config_ci_segmentation_local/checkpoint.pth.tar
+  state_dict_path: ./data/samples256_overlap33_min-annot3_3bands_gdl-training/model/config_ci_segmentation_local/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
   smooth_prediction: False
   overlap: 2 # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
