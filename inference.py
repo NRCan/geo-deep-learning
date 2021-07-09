@@ -1,4 +1,3 @@
-import gc
 import logging
 import warnings
 from math import sqrt
@@ -551,6 +550,12 @@ def main(params: dict):
                 logging.info(f'Successfully inferred on {img_name}\nWriting to file: {inference_image}')
                 with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
                     dest.write(pred)
+
+                if raster_to_vec:
+                    inference_vec = working_folder.joinpath(local_img.parent.name,
+                                                            f"{img_name.split('.')[0]}_inference.gpkg")
+                    ras2vec(inference_image, inference_vec)
+
         if len(gdf_) >= 1:
             if not len(gdf_) == len(gpkg_name_):
                 raise ValueError('benchmarking unable to complete')
