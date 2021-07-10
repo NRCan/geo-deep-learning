@@ -23,7 +23,7 @@
 
 global:
   data_path: ./run
-  model_output_dir:
+  model_output_dir: TEST
 
   mlflow_uri: ./mlruns
   mlflow_experiment_name: pls_work
@@ -91,10 +91,11 @@ training:
   batch_metrics: 1
   ignore_index: 255 # Specifies a target value that is ignored and does not contribute to the input gradient
   augmentation:
-    rotate_limit: 45           # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
-    rotate_prob: 0.5           # Specifies the probability for data rotation. If not specified, no rotation will be performed.
-    hflip_prob: 0.5            # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.
-    random_radiom_trim_range: [0.1, 2.0]   # Specifies the range in which a random percentile value will be chosen to trim values. This value applies to both left and right sides of the raster's histogram. If not specified, no enhancement will be performed.
+    noise:
+    rotate_limit: #45           # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
+    rotate_prob: #0.5           # Specifies the probability for data rotation. If not specified, no rotation will be performed.
+    hflip_prob: #0.5            # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.
+    random_radiom_trim_range: #[0.1, 2.0]   # Specifies the range in which a random percentile value will be chosen to trim values. This value applies to both left and right sides of the raster's histogram. If not specified, no enhancement will be performed.
   normalization:  # Normalization parameters for finetuning (Ex. mean: [0.485, 0.456, 0.406], std: std: [0.229, 0.224, 0.225])
     mean:
     std:
@@ -111,14 +112,30 @@ inference:
 # Visualization parameters
 
 visualization:
-  vis_batch_range: [0, 200, 10] #start, finish, increment
-  vis_at_checkpoint: false
+  vis: true
+  vis_batch_range: #[0, 200, 10]
+  vis_at_checkpoint: true
   vis_at_ckpt_min_ep_diff: 0
-  vis_at_ckpt_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.
-  vis_at_init: false
+  vis_at_ckpt_dataset: val
+  vis_at_init: true
   vis_at_init_dataset: val
-  vis_at_evaluation: false #val during training, tst at end of training
-  vis_at_train: false
-  grid: true
+  vis_at_evaluation: true
+  vis_at_train: true
+  grid: false
   heatmaps: true
   colormap_file: ./data/OG_data/colormap.csv
+
+#visualization:
+#  vis_batch_range: [0, 200, 10] #start, finish, increment
+#  vis_at_checkpoint: false
+#  vis_at_ckpt_min_ep_diff: 0
+#  vis_at_ckpt_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.
+#  vis_at_init: false
+#  vis_at_init_dataset: val
+#  vis_at_evaluation: false #val during training, tst at end of training
+#  vis_at_train: false
+#  grid: true
+#  heatmaps: true
+#  colormap_file: ./data/OG_data/colormap.csv
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #

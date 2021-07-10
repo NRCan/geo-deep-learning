@@ -19,18 +19,24 @@ except ModuleNotFoundError:
 from torch.utils.data import DataLoader
 from PIL import Image
 from sklearn.utils import compute_sample_weight
+
 from utils import augmentation as aug, create_dataset
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
+
 from models.model_choice import net, load_checkpoint
+
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, get_git_hash
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
+
 from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact, start_run
 
 from torchsummary import summary as torch_summary
 from rich.table import Table
 import sys
+from matplotlib import pyplot as plt
+
 
 def flatten_labels(annotations):
     """Flatten labels"""
@@ -81,9 +87,8 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
         datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare_val,
-                                       radiom_transform=aug.compose_transforms(params, subset, type='radiometric'),
-                                       geom_transform=aug.compose_transforms(params, subset, type='geometric',
-                                                                             ignore_index=dontcare_val),
+                                       radiom_transform=None,#aug.compose_transforms(params, subset, type='radiometric'), #FIXME
+                                       geom_transform=None,#aug.compose_transforms(params, subset, type='geometric', ignore_index=dontcare_val),
                                        totensor_transform=aug.compose_transforms(params, subset, type='totensor'),
                                        params=params,
                                        debug=debug))
@@ -104,6 +109,8 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
                                 drop_last=True) if num_samples['tst'] > 0 else None
 
     return trn_dataloader, val_dataloader, tst_dataloader
+
+
 
 
 def get_num_samples(samples_path, params):
@@ -178,7 +185,7 @@ def vis_from_dataloader(console, params, eval_loader, model, ep_num, output_path
     console.print(f'Saved visualization figures', style='bold #FFFFFF on purple', justify="center")
 
 
-def train(console, train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, ep_idx, progress_log, vis_params, device, debug=False):
+def train(console, trckr, train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, ep_idx, progress_log, vis_params, device, debug=False):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -203,9 +210,22 @@ def train(console, train_loader, model, criterion, optimizer, scheduler, num_cla
     
     # with tqdm(train_loader, desc=f'Iterating train batches with {device.type}') as _tqdm:
     for batch_index, data in enumerate(train_loader):
-        console.print(f'      Batch {batch_index} / {len(train_loader)-1}', style='bold #FFFFFF on cyan1', justify='left')
+        console.print(f'      Batch {batch_index} / {len(train_loader)-1}\t', style='bold #FFFFFF on cyan1', justify='left')
+        console.print(f'{len(data["index"].tolist())} Images = {data["index"].tolist()}', justify='right', style='blue')
 
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
+
+        # fig = plt.figure(str(data['index']), constrained_layout=True)
+        # gs = fig.add_gridspec(2, 2)
+        # ax1 = fig.add_subplot(gs[0, 0])
+        # ax2 = fig.add_subplot(gs[1, 0])
+        # ax3 = fig.add_subplot(gs[0, 1])
+        # ax4 = fig.add_subplot(gs[1, 1])
+        # ax1.imshow(data['sat_img'].numpy()[0, 0, ...])
+        # ax2.imshow(data['map_img'].numpy()[0, ...])
+        # ax3.imshow(data['sat_img'].numpy()[1, 0, ...])
+        # ax4.imshow(data['map_img'].numpy()[1, ...])
+        # fig.show()
 
         inputs = data['sat_img'].to(device)
         labels = data['map_img'].to(device)
@@ -293,6 +313,7 @@ def evaluation(console, eval_loader, model, criterion, num_classes, batch_size, 
     # with tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} batches with {device.type}') as _tqdm:
     for batch_index, data in enumerate(eval_loader):
         console.print(f'      Batch {batch_index} / {len(eval_loader)-1}', style='bold #FFFFFF on cyan1', justify='left')
+        console.print(f'{len(data["index"].tolist())} Images = {data["index"].tolist()}', justify='right', style='blue')
 
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
@@ -371,7 +392,7 @@ def evaluation(console, eval_loader, model, criterion, num_classes, batch_size, 
     return eval_metrics
 
 
-def main(params, config_path, console):
+def main(params, config_path, console, trckr):
     """
     Function to train and validate a model for semantic segmentation.
 
@@ -527,7 +548,7 @@ def main(params, config_path, console):
         console.print(f'Epoch {epoch} / {params["training"]["num_epochs"] - 1}', style='bold white on purple', justify='left')
 
         console.print('   trn:', style='purple')
-        trn_report = train(console,
+        trn_report = train(console, trckr,
                            train_loader=trn_dataloader,
                            model=model,
                            criterion=criterion,

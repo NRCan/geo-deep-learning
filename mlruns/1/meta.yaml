@@ -1,4 +1,0 @@
-artifact_location: ./mlruns/1
-experiment_id: '1'
-lifecycle_stage: active
-name: pls_work

@@ -13,9 +13,9 @@ print('\n\n\n')
 
 # hdf5 OPTIONS :
 
-data_location = '.\samples\\'
+data_location = '.\\run\\'
 
-experiment_dir = 'samples256_overlap20_min-annot3_3bands_pls_work'
+experiment_dir = 'samples256_overlap33_min-annot3_3bands_pls_work'
 sets_to_look_at = ['trn', 'tst', 'val']
 dataset_ims_to_show = ('map_img', 'sat_img')
 

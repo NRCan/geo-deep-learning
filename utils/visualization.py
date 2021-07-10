@@ -179,7 +179,7 @@ def vis(params, input_, output, vis_path, sample_num=0, label=None, dataset='', 
             for key in heatmaps_dict.keys():
                 heatmap = heatmaps_dict[key]['heatmap_PIL']
                 class_name = heatmaps_dict[key]['class_name']
-                heatmap.save(vis_path.joinpath(f"{dataset}_{sample_num:03d}_output_ep{ep_num:03d}_heatmap_{class_name}.png"))  # save heatmap
+                heatmap.save(vis_path.joinpath(f"{dataset}_{sample_num:03d}_output_heatmap_{class_name}_ep{ep_num:03d}.png"))  # save heatmap
 
 
 def heatmaps_to_dict(output, classes=[], inference=False, debug=False):

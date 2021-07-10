@@ -1,6 +1,11 @@
 import argparse, io, sys, os, h5py
 from pathlib import Path
 from ruamel_yaml import YAML
+import csv
+
+from PIL import Image
+import numpy as np
+
 from rich.console import Console, RenderGroup
 from rich.panel import Panel
 from rich.text import Text
@@ -8,20 +13,48 @@ from rich.table import Table
 from rich.tree import Tree
 from rich.columns import Columns
 from rich import box
-from ray import tune
-import numpy as np
+from torchsummary import summary as torch_summary
+
 # from ray import tune
 # from ray.tune import CLIReporter
 # from ray.tune.schedulers import ASHAScheduler
-from torchsummary import summary as torch_summary
+
+# from utils.tracker import Tracker
 
 from models.model_choice import net
-
 
 from images_to_samples import main as IM_TO_SAMPLES_main
 from train_segmentation import main as TRAIN_main
 
 
+def make_csv_trckr(csv_filename):
+    """
+    Open csv file and parse it, returning a list of dict.
+    - tif full path
+    - metadata yml full path (may be empty string if unavailable)
+    - gpkg full path
+    - attribute_name
+    - dataset (trn or tst)
+    """
+    list_values = []
+    with open(csv_filename, 'r') as f:
+        reader = csv.reader(f)
+        for index, row in enumerate(reader):
+            row_length = len(row) if index == 0 else row_length
+            assert len(row) == row_length, "Rows in csv should be of same length"
+            row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
+
+            list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
+            assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
+            if row[2]:
+                assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'
+                assert isinstance(row[3], str)
+    try:
+        # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
+        list_values = sorted(list_values, key=lambda k: k['dataset'])
+    except TypeError:
+        list_values
+    return list_values
 
 def read_params(param_file):
     yaml = YAML()
@@ -36,20 +69,40 @@ def write_params(param_file, data):
         yaml.dump(data, fp)
         fp.close()
 
+def save_samp_ims(data_location, experiment_dir, set):
+
+    dataset_ims_to_show = ('map_img', 'sat_img')
+
+    f = h5py.File(data_location + '\\' + experiment_dir + '\\' + set + '_samples.hdf5', 'r')
+
+    for dataset_name in dataset_ims_to_show:
+        dataset = f[dataset_name]
+        for imN in range(dataset.shape[0]):
+            print(dataset_name)
+            print(dataset[imN,...].shape[0])
+
+    sample_html = open('hello.html', 'w+')
+    sample_html.close()
+    
 
 
 if __name__ == '__main__':
-    # read in params
+# 0) read in params
     parser = argparse.ArgumentParser(description='Sample preparation')
     parser.add_argument('ParamFile', metavar='DIR',help='Path to training parameters stored in yaml')
     args = parser.parse_args()
     param_path = Path(args.ParamFile)
     print(args.ParamFile)
     params = read_params(args.ParamFile)
+
+# 1) options
 #-----------------------------------------------------------------------------------------------------------------------
-    OPTS = {'show model layers' : False,
-            'HPC' : False,
-            'output_html' : 'test.html'}
+
+    OPTS = {'HPC'               : False,
+            'show model layers' : False,
+            'vis_samples'       : True,
+            'output_html'       : 'test',
+            'out_html_dir'      : ''}
 
 
     # config =   {"l1": tune.sample_from(lambda _: 2**np.random.randint(2, 9)),
@@ -68,11 +121,13 @@ if __name__ == '__main__':
                 'bands_'+ \
                 str(params['global']['mlflow_experiment_name'])
 
+# 2) set up console
 #- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
     console = Console(record=True) # width=...
     if OPTS['HPC']:  sys.stdout = open(os.devnull, "w")
 
+# 3) run im-samp & prints
 #-----------------------------------------------------------------------------------------------------------------------
 
     console.print('   DEBUG   =  ', params['global']['debug_mode'], style='bold purple', justify='left')
@@ -93,7 +148,7 @@ if __name__ == '__main__':
     txt.append(path_name)
     txt.append('\ncsv        =\t')
     txt.append(params['sample']['prep_csv_file'])
-
+    params['sample']['prep_csv_file'] = 'C:/Users/muzwe/Documents/GitHub'
     if os.path.isdir(Path(params['global']['data_path']+'/'+path_name)):
         console.print(Panel(txt,title='NOT, prcessing new Samples', style='red'))
     else:
@@ -102,17 +157,20 @@ if __name__ == '__main__':
 
     # output data panel
     trees = []
+    num_samples = {}
     for sN, set in enumerate(['trn', 'tst', 'val']):
         trees.append(Tree(set, style='color('+str(sN+2)+')'))
-        f = h5py.File(params['global']['data_path'] + '/' + path_name + '/' + set + '_samples.hdf5', 'r')
-        for dataset_name in ('map_img', 'sat_img'):
-            dataset = f[dataset_name]
-            new = trees[sN].add(dataset_name)
-            new.add('[white]'+str(dataset.shape[0]))
-            new.add(str(dataset.shape))
+        with h5py.File(params['global']['data_path'] + '/' + path_name + '/' + set + '_samples.hdf5', 'r') as f:
+            for dataset_name in ('map_img', 'sat_img'):
+                dataset = f[dataset_name]
+                new = trees[sN].add(dataset_name)
+                new.add('[white]'+str(dataset.shape[0]))
+                new.add(str(dataset.shape))
+                num_samples[set] = dataset.shape[0]
 
     console.print(Panel(Columns((trees[0], trees[1], trees[2]), equal=True, expand=True), title='Smples output'))
 
+# 4) run training
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
     console.print(' ',justify='center',style='on #FFFFFF')
@@ -165,11 +223,28 @@ if __name__ == '__main__':
     # txt.append_text(Text('loss   = ' + str(params['training']['loss_fn']) + '\n', style='bold cyan2'))
     # txt.append_text(Text('optmzr = ' + str(params['training']['optimizer']) + '\n', style='bold cyan2'))
 
+    def list_layers(model, count):
+        modules = dict(model.named_modules())
+        keys = []
+        for key in modules:
+            if key == '':  continue
+            console.print(key, justify='right')#, style='color('+str(count)+')')
+            console.print(modules[key], justify='left')#, style='color('+str(count)+')')
+            # console.print(dict(modules[key].named_modules()), justify='center', style='color('+str(count)+')')
+            console.print(count, justify='center', style='on color('+str(count)+')')
+            list_layers(modules[key], count+1)
+            console.print(count, justify='center', style='on color('+str(count)+')')
+
+    # model layers
     if OPTS['show model layers']:
         txt.append('\n\n')
 
         model, model_name, criterion, optimizer, lr_scheduler = net(params, params['global']['num_classes']+1)
-
+        # console.print(len(dict(model.named_modules())))
+        # console.print(dict(model.named_modules()))
+        # console.print()
+        list_layers(model, 0)
+        sys.exit()
         try:
             summary = torch_summary(model, (params['global']['number_of_bands'], params['global']['samples_size'], params['global']['samples_size']))
             table = Table(title=params['global']['model_name'], expand=True)
@@ -215,15 +290,26 @@ if __name__ == '__main__':
     # if params['training']['loss_fn'] == 'Lovasz':
     #     params['training']['class_weights'] = None
 
-    TRAIN_main(params, param_path, console)
 
-    # write_params(args.ParamFile, params) # overwrite with new params # todo : write yaml to samples folder
+
+    trckr = h5py.File('output_path', 'w')
+    # for set in ['trn', 'tst', 'val']:
+    #     trckr.create_group(set)
+    trckr.create_dataset('acc')
+    trckr.create_dataset('pers')
+    trckr.create_dataset('iou')
+    trckr.create_dataset('fscore')
+
+    write_params(args.ParamFile, params)
+    TRAIN_main(params, param_path, console, trckr) # TODO: make sure model_NAME doesnt exist already
+
 
 
 #-----------------------------------------------------------------------------------------------------------------------
 
-    console.export_html(clear=False)
-    console.save_html(OPTS['output_html'])
+    # console.export_html(clear=False)
+    # console.save_html(OPTS['output_html']+'.html', clear=False)
+
 
 # #-----------------------------------------------------------------------------------------------------------------------
 #

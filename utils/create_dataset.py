@@ -15,6 +15,8 @@ from utils.geoutils import get_key_recursive
 from rasterio.crs import CRS
 from affine import Affine
 
+# from torchvision import datasets, transforms
+
 
 def append_to_dataset(dataset, sample):
     """
@@ -74,6 +76,10 @@ class SegmentationDataset(Dataset):
                  totensor_transform=None,
                  params=None,
                  debug=False):
+        # self.cifar10 = datasets.CIFAR10(root=work_folder,
+        #                         download=False,
+        #                         train=True,
+        #                         transform=transforms.ToTensor())
         # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.work_folder = work_folder
         self.max_sample_count = max_sample_count
@@ -152,7 +158,9 @@ class SegmentationDataset(Dataset):
             final_class_ids = set(np.unique(sample['map_img'].numpy()))
             assert final_class_ids.issubset(initial_class_ids), \
                 f"Class ids for label before and after augmentations don't match. "
+
         sample['index'] = index
+        # print('index ---------------------------------\n', index, '\n---------------------------------\n')
         return sample
 
     @staticmethod
