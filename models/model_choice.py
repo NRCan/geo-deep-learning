@@ -94,7 +94,8 @@ def verify_weights(num_classes, weights):
         logging.warning(
             "got two class weights for single class defined in configuration file; will assume index 0 = background")
     elif num_classes != len(weights):
-        raise ValueError('The number of class weights in the configuration file is different than the number of classes')
+        raise ValueError(f'The number of class weights{len(weights)} '
+                         f'in the configuration file is different than the number of classes{num_classes}')
 
 
 def set_hyperparameters(params,
