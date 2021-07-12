@@ -1,0 +1,31 @@
+defaults:
+  -hydra: default
+  -model: fastrcnn
+  -trainer: default_trainer
+  -training: default_training
+  -optimizer: adamw
+  -callbacks: default_callbacks
+  -scheduler: plateau
+  -sampling: tree_detedtion_sampling
+  -data: data
+  -dataset: tree_detection
+  -augmentation: default_augmentation
+  -logging: mlflow
+
+general:
+  project_name: template_project
+  workspace: your_name
+  device: cuda
+  max_epochs: 10
+  min_epochs: 1
+  save_dir: './log'
+
+inference:
+  image_path: 'image/path'
+  save_dir:
+  weights_dir: ${general.save_weights_dir}
+  weights_name:
+
+task: {segmentation, object_detection, point_cloud, super_resolution}
+mode: {sampling, train, evaluate, inference, hyperparameter_search}
+debug: False # will print the complete yaml config plus run a validation test
