@@ -493,6 +493,7 @@ def main(params, config_path):
 
     # MANDATORY PARAMETERS
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
+    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
     batch_size = get_key_def('batch_size', params['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', params['training'], expected_type=int, default=batch_size)
@@ -519,7 +520,7 @@ def main(params, config_path):
     loss_fn = get_key_def('loss_fn', params['training'], default='CrossEntropy', expected_type=str)
     class_weights = get_key_def('class_weights', params['training'], default=None, expected_type=Sequence)
     if class_weights:
-        verify_weights(num_classes, class_weights)
+        verify_weights(num_classes_corrected, class_weights)
     optimizer = get_key_def('optimizer', params['training'], default='adam', expected_type=str)
     pretrained = get_key_def('pretrained', params['training'], default=True, expected_type=bool)
     train_state_dict_path = get_key_def('state_dict_path', params['training'], default=None, expected_type=str)
@@ -642,7 +643,6 @@ def main(params, config_path):
                                                                        calc_eval_bs=calc_eval_bs,
                                                                        debug=debug)
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
     model, model_name, criterion, optimizer, lr_scheduler = net(model_name=model_name,
                                                                 num_bands=num_bands,
                                                                 num_channels=num_classes_corrected,
