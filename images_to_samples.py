@@ -27,6 +27,9 @@ except ModuleNotFoundError:
     pass
 
 
+
+
+
 def mask_image(arrayA, arrayB):
     """Function to mask values of arrayB, bold based on 0 values from arrayA.
 
@@ -569,6 +572,8 @@ def main(params, console):
 
 
 if __name__ == '__main__':
+    from rich.console import Console
+    console = Console()
     parser = argparse.ArgumentParser(description='Sample preparation')
     parser.add_argument('ParamFile', metavar='DIR',
                         help='Path to training parameters stored in yaml')
@@ -576,5 +581,5 @@ if __name__ == '__main__':
     params = read_parameters(args.ParamFile)
     start_time = time.time()
     tqdm.write(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
-    main(params)
+    main(params, console)
     print("Elapsed time:{}".format(time.time() - start_time))
