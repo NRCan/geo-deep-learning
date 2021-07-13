@@ -85,7 +85,7 @@ cd geo-deep-learning
 Prepare your data directory and add the paths to a `csv` file.
 ```shell
 # Copying the config_template and rename it at the same time
-cp config/config_template.yaml path/to/yaml_files/your_config.yaml
+cp config/old_config_template.yaml path/to/yaml_files/your_config.yaml
 # Creating the csv file
 touch path/to/images.csv  
 ```

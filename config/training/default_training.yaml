@@ -1,0 +1,7 @@
+# @package _global_
+training:
+  lr: 0.000001
+  metric: IOU_loss # name of the metric you want to manage the training
+  mode: 'min' # 'min' or 'max'
+  seed: 666
+  debug: True

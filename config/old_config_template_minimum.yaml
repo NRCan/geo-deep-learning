@@ -12,7 +12,7 @@ global:
   samples_size: 512
   num_classes: 1
   number_of_bands: 3
-  model_name: unet  # See models/README.md for all the available models.
+  model_name: unet  # See models/old_README.md for all the available models.
   BGR_to_RGB: True
 
 # Sample parameters; used in images_to_samples.py -------------------

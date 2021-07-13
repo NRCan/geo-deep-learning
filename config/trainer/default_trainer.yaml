@@ -1,0 +1,13 @@
+# @package _global_
+trainer:
+  gpus: 1
+  distributed_backend: dp
+  accumulate_grad_batches: 1
+  num_sanity_val_steps: 0
+  profiler: off # option are off, 'simple' or 'pytorch'
+  max_epochs: ${general.max_epochs}
+  min_epochs: ${general.min_epochs}
+  # log_save_interval: 100
+  gradient_clip_val: 0.5
+  weights_summary:
+  precision: 16

@@ -1,0 +1,4 @@
+# @package _global_
+dataset:
+  class_name: src.utils.dataset.BaseDataSetObjectDetection
+  classes_dict: {'background':0, 'Tree':1, 'Hedge':2}

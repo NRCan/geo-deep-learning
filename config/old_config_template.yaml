@@ -15,7 +15,7 @@ global:
   num_classes: 1
   data_path: ./data  # path/to/data
   number_of_bands: 3
-  # See models/README.md for all the available models.
+  # See models/old_README.md for all the available models.
   model_name: unet
   mlflow_uri: ./mlruns  # path/to/mlflow_tracking_uri
   mlflow_experiment_name: gdl-training  # also used for naming of preprocessing directories
@@ -71,9 +71,9 @@ training:
   eval_batch_size: 2
   num_epochs: 1
   target_size: 256
-  # See losses/README.md for all Loss function available.
+  # See losses/old_README.md for all Loss function available.
   loss_fn: Lovasz
-  # See utils/README.md for all Optimizer available.
+  # See utils/old_README.md for all Optimizer available.
   optimizer: adabound
   learning_rate: 0.0001
   weight_decay: 0

@@ -1,0 +1,5 @@
+# @package _global_
+optimizer:
+  class_name: torch.optim.Adam
+  params:
+    ls: ${training.lr}

@@ -1,0 +1,6 @@
+# hydra
+run:
+  dir: outputs/${general.project_name}_${mode}_${now:%Y_%m_%d_%H_%M_%S}
+sweep:
+  dir: outputs/
+  subdir: ${general.project_name}_${mode}_${now:%Y_%m_%d_%H_%M_%S}

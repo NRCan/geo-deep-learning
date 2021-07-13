@@ -1,0 +1,4 @@
+# @package _global_
+logging:
+  log: True
+  # TODO add more option

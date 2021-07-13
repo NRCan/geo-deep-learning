@@ -6,9 +6,9 @@ defaults:
   -optimizer: adamw
   -callbacks: default_callbacks
   -scheduler: plateau
-  -sampling: tree_detedtion_sampling
+  -sampling: default_sampling
   -data: data
-  -dataset: tree_detection
+  -dataset: NRCAN_individual_tree
   -augmentation: default_augmentation
   -logging: mlflow
 

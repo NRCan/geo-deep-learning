@@ -1,0 +1,4 @@
+# @package _global_
+data:
+  num_workers: 10
+  batch_size: 1

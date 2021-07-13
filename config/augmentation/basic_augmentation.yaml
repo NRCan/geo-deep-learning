@@ -1,0 +1,29 @@
+# @package _global_
+augmentation:
+  train:
+    augs:
+      - class_name: albumentations.Flip
+        params:
+          p: 0.6
+      - class_name: albumentations.RandomBrightnessContrast
+        params:
+          p: 0.6
+      - class_name: albumentations.pytorch.transforms.ToTensorV2
+        params:
+          p: 1.0
+
+    bbox_params:
+      format: pascal_voc
+      label_fields:
+        - labels
+
+  valid:
+    augs:
+      - class_name: abumentations.pytorch.transforms.ToTensorV2
+        params:
+          p: 1.0
+
+    bbox_params:
+      format: pascal_voc
+      label_fields:
+        - labels
