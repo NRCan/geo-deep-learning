@@ -195,7 +195,6 @@ def get_num_samples(samples_path, params, dontcare):
             if i == 'trn':
                 for x in range(num_samples[i]):
                     label = hdf5_file['map_img'][x]
-                    label = np.where(label == dontcare, 0, label)
                     unique_labels = np.unique(label)
                     weights.append(''.join([str(int(i)) for i in unique_labels]))
                     samples_weight = compute_sample_weight('balanced', weights)
