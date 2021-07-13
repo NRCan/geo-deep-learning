@@ -389,6 +389,8 @@ def main(params):
     prep_band = get_key_def('band', list_params['prep'], default=[], expected_type=list)
     tst_set = get_key_def('benchmark', list_params, default=[], expected_type=list)
     in_pth = get_key_def('input_file', list_params, default='data_file.json', expected_type=str)
+    sensor_lst = get_key_def('sensorID', list_params, default=['GeoEye1', 'QuickBird2' 'WV2', 'WV3', 'WV4'],
+                             expected_type=list)
     gpkg_status = 'all'
 
     data_path = Path(params['global']['data_path'])
@@ -430,174 +432,189 @@ def main(params):
         dict_images = json.load(fin)
 
         for i_dict in tqdm(dict_images['all_images'], desc=f'Writing samples to {samples_folder}'):
+            if i_dict['sensorID'] in sensor_lst:
 
-            if source_pan:
-                if not len(i_dict['pan_img']) == 0 and i_dict['gpkg']:
-                    if gpkg_status == 'all':
-                        if 'corr' or 'prem' in i_dict['gpkg'].keys():
-                            gpkg = list(i_dict['gpkg'].values())[0]
-                            gpkg_classes = validate_num_classes(gpkg, num_classes,
-                                                                'properties/Quatreclasses',
-                                                                dontcare,
-                                                                targ_ids)
-                            for img_pan in i_dict['pan_img']:
-                                assert_crs_match(img_pan, gpkg)
-                                rst_pth, r_ = process_raster_img(img_pan, gpkg)
-                                np_label = process_vector_label(rst_pth, gpkg, targ_ids)
-                                if np_label is not None:
-                                    if Path(gpkg).stem in tst_set:
-                                        sample_type = 'tst'
-                                        out_file = tst_hdf5
-                                    else:
-                                        sample_type = 'trn'
-                                        out_file = trn_hdf5
-                                    val_file = val_hdf5
-                                    src = r_
-                                    pan_label_gen = gen_label_samples(np_label, dist_samples, samples_size)
-                                    pan_img_gen = gen_img_samples(rst_pth, samples_size, dist_samples)
-                                else:
-                                    continue
-                for pan_img, pan_label in zip(pan_img_gen, pan_label_gen):
-                    number_samples, number_classes, class_pixels_pan = sample_prep(src, pan_img, pan_label[0],
-                                                                                   pan_label[1], gpkg_classes,
-                                                                                   samples_size, sample_type,
-                                                                                   number_samples, out_file,
-                                                                                   number_classes,
-                                                                                   val_percent, val_file,
-                                                                                   min_annot_perc,
-                                                                                   class_prop=class_prop,
-                                                                                   dontcare=dontcare)
-                    pixel_pan_counter.update(class_pixels_pan)
-
-            if source_mul:
-                if not len(i_dict['mul_img']) == 0 and i_dict['gpkg']:
-                    band_order = reorder_bands(i_dict['mul_band'], mul_band_order)
-                    if gpkg_status == 'all':
-                        if 'corr' or 'prem' in i_dict['gpkg'].keys():
-                            gpkg = list(i_dict['gpkg'].values())[0]
-                            gpkg_classes = validate_num_classes(gpkg, num_classes,
-                                                                'properties/Quatreclasses',
-                                                                dontcare,
-                                                                targ_ids)
-                            for img_mul in i_dict['mul_img']:
-                                assert_crs_match(img_mul, gpkg)
-                                rst_pth, r_ = process_raster_img(img_mul, gpkg)
-                                np_label = process_vector_label(rst_pth, gpkg, targ_ids)
-                                if np_label is not None:
-                                    if Path(gpkg).stem in tst_set:
-                                        sample_type = 'tst'
-                                        out_file = tst_hdf5
-                                    else:
-                                        sample_type = 'trn'
-                                        out_file = trn_hdf5
-                                    val_file = val_hdf5
-                                    src = r_
-
-                                    mul_label_gen = gen_label_samples(np_label, dist_samples, samples_size)
-                                    mul_img_gen = gen_img_samples(rst_pth, samples_size, dist_samples, band_order)
-                                else:
-                                    continue
-                for mul_img, mul_label in zip(mul_img_gen, mul_label_gen):
-                    number_samples, number_classes, class_pixels_mul = sample_prep(src, mul_img, mul_label[0],
-                                                                                   mul_label[1], gpkg_classes,
-                                                                                   samples_size, sample_type,
-                                                                                   number_samples, out_file,
-                                                                                   number_classes,
-                                                                                   val_percent, val_file,
-                                                                                   min_annot_perc,
-                                                                                   class_prop=class_prop,
-                                                                                   dontcare=dontcare)
-                    pixel_mul_counter.update(class_pixels_mul)
-
-            if prep_band:
-                bands_gen_list = []
-                if set(prep_band).issubset({'R', 'G', 'B', 'N'}):
-                    for ib in prep_band:
-                        if i_dict[f'{ib}_band'] and i_dict['gpkg']:
-                            if gpkg_status == 'all':
-                                if 'corr' or 'prem' in i_dict['gpkg'].keys():
-                                    gpkg = list(i_dict['gpkg'].values())[0]
-                                    gpkg_classes = validate_num_classes(gpkg, num_classes,
-                                                                        'properties/Quatreclasses',
-                                                                        dontcare,
-                                                                        targ_ids)
-                                    assert_crs_match(i_dict[f'{ib}_band'], gpkg)
-                                    rst_pth, r_ = process_raster_img(i_dict[f'{ib}_band'], gpkg)
+                if source_pan:
+                    if not len(i_dict['pan_img']) == 0 and i_dict['gpkg']:
+                        if gpkg_status == 'all':
+                            if 'corr' or 'prem' in i_dict['gpkg'].keys():
+                                gpkg = list(i_dict['gpkg'].values())[0]
+                                gpkg_classes = validate_num_classes(gpkg, num_classes,
+                                                                    'properties/Quatreclasses',
+                                                                    dontcare,
+                                                                    targ_ids)
+                                for img_pan in i_dict['pan_img']:
+                                    assert_crs_match(img_pan, gpkg)
+                                    rst_pth, r_ = process_raster_img(img_pan, gpkg)
                                     np_label = process_vector_label(rst_pth, gpkg, targ_ids)
-                                    prep_img_gen = gen_img_samples(rst_pth, samples_size, dist_samples)
-                                    bands_gen_list.append(prep_img_gen)
+                                    if np_label is not None:
+                                        if Path(gpkg).stem in tst_set:
+                                            sample_type = 'tst'
+                                            out_file = tst_hdf5
+                                        else:
+                                            sample_type = 'trn'
+                                            out_file = trn_hdf5
+                                        val_file = val_hdf5
+                                        src = r_
+                                        pan_label_gen = gen_label_samples(np_label, dist_samples, samples_size)
+                                        pan_img_gen = gen_img_samples(rst_pth, samples_size, dist_samples)
+                                    else:
+                                        continue
+                    for pan_img, pan_label in zip(pan_img_gen, pan_label_gen):
+                        number_samples, number_classes, class_pixels_pan = sample_prep(src, pan_img, pan_label[0],
+                                                                                       pan_label[1], gpkg_classes,
+                                                                                       samples_size, sample_type,
+                                                                                       number_samples, out_file,
+                                                                                       number_classes,
+                                                                                       val_percent, val_file,
+                                                                                       min_annot_perc,
+                                                                                       class_prop=class_prop,
+                                                                                       dontcare=dontcare)
+                        pixel_pan_counter.update(class_pixels_pan)
 
-                if np_label is not None:
-                    if Path(gpkg).stem in tst_set:
-                        sample_type = 'tst'
-                        out_file = tst_hdf5
-                    else:
-                        sample_type = 'trn'
-                        out_file = trn_hdf5
-                    val_file = val_hdf5
-                    src = r_
-                    prep_label_gen = gen_label_samples(np_label, dist_samples, samples_size)
-                    if len(prep_band) and len(bands_gen_list) == 1:
-                        for b1, prep_label in zip(bands_gen_list[0], prep_label_gen):
-                            prep_img = b1
-                            number_samples, number_classes, class_pixels_prep = sample_prep(src, prep_img,
-                                                                                            prep_label[0],
-                                                                                            prep_label[1], gpkg_classes,
-                                                                                            samples_size, sample_type,
-                                                                                            number_samples, out_file,
-                                                                                            number_classes,
-                                                                                            val_percent, val_file,
-                                                                                            min_annot_perc,
-                                                                                            class_prop=class_prop,
-                                                                                            dontcare=dontcare)
-                            pixel_prep_counter.update(class_pixels_prep)
+                if source_mul:
+                    if not len(i_dict['mul_img']) == 0 and i_dict['gpkg']:
+                        band_order = reorder_bands(i_dict['mul_band'], mul_band_order)
+                        if gpkg_status == 'all':
+                            if 'corr' or 'prem' in i_dict['gpkg'].keys():
+                                gpkg = list(i_dict['gpkg'].values())[0]
+                                gpkg_classes = validate_num_classes(gpkg, num_classes,
+                                                                    'properties/Quatreclasses',
+                                                                    dontcare,
+                                                                    targ_ids)
+                                for img_mul in i_dict['mul_img']:
+                                    assert_crs_match(img_mul, gpkg)
+                                    rst_pth, r_ = process_raster_img(img_mul, gpkg)
+                                    np_label = process_vector_label(rst_pth, gpkg, targ_ids)
+                                    if np_label is not None:
+                                        if Path(gpkg).stem in tst_set:
+                                            sample_type = 'tst'
+                                            out_file = tst_hdf5
+                                        else:
+                                            sample_type = 'trn'
+                                            out_file = trn_hdf5
+                                        val_file = val_hdf5
+                                        src = r_
 
-                    elif len(prep_band) and len(bands_gen_list) == 2:
-                        for b1, b2, prep_label in zip(*bands_gen_list, prep_label_gen):
-                            prep_img = np.dstack(np.array([b1, b2]))
-                            number_samples, number_classes, class_pixels_prep = sample_prep(src, prep_img,
-                                                                                            prep_label[0],
-                                                                                            prep_label[1], gpkg_classes,
-                                                                                            samples_size, sample_type,
-                                                                                            number_samples, out_file,
-                                                                                            number_classes,
-                                                                                            val_percent, val_file,
-                                                                                            min_annot_perc,
-                                                                                            class_prop=class_prop,
-                                                                                            dontcare=dontcare)
-                            pixel_prep_counter.update(class_pixels_prep)
+                                        mul_label_gen = gen_label_samples(np_label, dist_samples, samples_size)
+                                        mul_img_gen = gen_img_samples(rst_pth, samples_size, dist_samples, band_order)
+                                    else:
+                                        continue
+                    for mul_img, mul_label in zip(mul_img_gen, mul_label_gen):
+                        number_samples, number_classes, class_pixels_mul = sample_prep(src, mul_img, mul_label[0],
+                                                                                       mul_label[1], gpkg_classes,
+                                                                                       samples_size, sample_type,
+                                                                                       number_samples, out_file,
+                                                                                       number_classes,
+                                                                                       val_percent, val_file,
+                                                                                       min_annot_perc,
+                                                                                       class_prop=class_prop,
+                                                                                       dontcare=dontcare)
+                        pixel_mul_counter.update(class_pixels_mul)
 
-                    elif len(prep_band) and len(bands_gen_list) == 3:
-                        for b1, b2, b3, prep_label in zip(*bands_gen_list, prep_label_gen):
-                            prep_img = np.dstack(np.array([b1, b2, b3]))
-                            number_samples, number_classes, class_pixels_prep = sample_prep(src, prep_img,
-                                                                                            prep_label[0],
-                                                                                            prep_label[1], gpkg_classes,
-                                                                                            samples_size, sample_type,
-                                                                                            number_samples, out_file,
-                                                                                            number_classes,
-                                                                                            val_percent, val_file,
-                                                                                            min_annot_perc,
-                                                                                            class_prop=class_prop,
-                                                                                            dontcare=dontcare)
-                            pixel_prep_counter.update(class_pixels_prep)
+                if prep_band:
+                    bands_gen_list = []
+                    if set(prep_band).issubset({'R', 'G', 'B', 'N'}):
+                        for ib in prep_band:
+                            if i_dict[f'{ib}_band'] and i_dict['gpkg']:
+                                if gpkg_status == 'all':
+                                    if 'corr' or 'prem' in i_dict['gpkg'].keys():
+                                        gpkg = list(i_dict['gpkg'].values())[0]
+                                        gpkg_classes = validate_num_classes(gpkg, num_classes,
+                                                                            'properties/Quatreclasses',
+                                                                            dontcare,
+                                                                            targ_ids)
+                                        assert_crs_match(i_dict[f'{ib}_band'], gpkg)
+                                        rst_pth, r_ = process_raster_img(i_dict[f'{ib}_band'], gpkg)
+                                        np_label = process_vector_label(rst_pth, gpkg, targ_ids)
+                                        prep_img_gen = gen_img_samples(rst_pth, samples_size, dist_samples)
+                                        bands_gen_list.append(prep_img_gen)
 
-                    elif len(prep_band) and len(bands_gen_list) == 4:
-                        for b1, b2, b3, b4, prep_label in zip(*bands_gen_list, prep_label_gen):
-                            prep_img = np.dstack(np.array([b1, b2, b3, b4]))
-                            number_samples, number_classes, class_pixels_prep = sample_prep(src, prep_img,
-                                                                                            prep_label[0],
-                                                                                            prep_label[1], gpkg_classes,
-                                                                                            samples_size, sample_type,
-                                                                                            number_samples, out_file,
-                                                                                            number_classes,
-                                                                                            val_percent, val_file,
-                                                                                            min_annot_perc,
-                                                                                            class_prop=class_prop,
-                                                                                            dontcare=dontcare)
-                            pixel_prep_counter.update(class_pixels_prep)
-                    else:
-                        continue
+                    if np_label is not None:
+                        if Path(gpkg).stem in tst_set:
+                            sample_type = 'tst'
+                            out_file = tst_hdf5
+                        else:
+                            sample_type = 'trn'
+                            out_file = trn_hdf5
+                        val_file = val_hdf5
+                        src = r_
+                        prep_label_gen = gen_label_samples(np_label, dist_samples, samples_size)
+                        if len(prep_band) and len(bands_gen_list) == 1:
+                            for b1, prep_label in zip(bands_gen_list[0], prep_label_gen):
+                                prep_img = b1
+                                number_samples, number_classes, class_pixels_prep = sample_prep(src, prep_img,
+                                                                                                prep_label[0],
+                                                                                                prep_label[1],
+                                                                                                gpkg_classes,
+                                                                                                samples_size,
+                                                                                                sample_type,
+                                                                                                number_samples,
+                                                                                                out_file,
+                                                                                                number_classes,
+                                                                                                val_percent, val_file,
+                                                                                                min_annot_perc,
+                                                                                                class_prop=class_prop,
+                                                                                                dontcare=dontcare)
+                                pixel_prep_counter.update(class_pixels_prep)
+
+                        elif len(prep_band) and len(bands_gen_list) == 2:
+                            for b1, b2, prep_label in zip(*bands_gen_list, prep_label_gen):
+                                prep_img = np.dstack(np.array([b1, b2]))
+                                number_samples, number_classes, class_pixels_prep = sample_prep(src, prep_img,
+                                                                                                prep_label[0],
+                                                                                                prep_label[1],
+                                                                                                gpkg_classes,
+                                                                                                samples_size,
+                                                                                                sample_type,
+                                                                                                number_samples,
+                                                                                                out_file,
+                                                                                                number_classes,
+                                                                                                val_percent, val_file,
+                                                                                                min_annot_perc,
+                                                                                                class_prop=class_prop,
+                                                                                                dontcare=dontcare)
+                                pixel_prep_counter.update(class_pixels_prep)
+
+                        elif len(prep_band) and len(bands_gen_list) == 3:
+                            for b1, b2, b3, prep_label in zip(*bands_gen_list, prep_label_gen):
+                                prep_img = np.dstack(np.array([b1, b2, b3]))
+                                number_samples, number_classes, class_pixels_prep = sample_prep(src, prep_img,
+                                                                                                prep_label[0],
+                                                                                                prep_label[1],
+                                                                                                gpkg_classes,
+                                                                                                samples_size,
+                                                                                                sample_type,
+                                                                                                number_samples,
+                                                                                                out_file,
+                                                                                                number_classes,
+                                                                                                val_percent, val_file,
+                                                                                                min_annot_perc,
+                                                                                                class_prop=class_prop,
+                                                                                                dontcare=dontcare)
+                                pixel_prep_counter.update(class_pixels_prep)
+
+                        elif len(prep_band) and len(bands_gen_list) == 4:
+                            for b1, b2, b3, b4, prep_label in zip(*bands_gen_list, prep_label_gen):
+                                prep_img = np.dstack(np.array([b1, b2, b3, b4]))
+                                number_samples, number_classes, class_pixels_prep = sample_prep(src, prep_img,
+                                                                                                prep_label[0],
+                                                                                                prep_label[1],
+                                                                                                gpkg_classes,
+                                                                                                samples_size,
+                                                                                                sample_type,
+                                                                                                number_samples,
+                                                                                                out_file,
+                                                                                                number_classes,
+                                                                                                val_percent, val_file,
+                                                                                                min_annot_perc,
+                                                                                                class_prop=class_prop,
+                                                                                                dontcare=dontcare)
+                                pixel_prep_counter.update(class_pixels_prep)
+                        else:
+                            continue
+            else:
+                continue
     trn_hdf5.close()
     val_hdf5.close()
     tst_hdf5.close()
