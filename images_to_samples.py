@@ -248,6 +248,7 @@ def samples_preparation(in_img_array,
                 # Stratification bias
                 if (stratd is not None) and (dataset == 'trn'):
                     tile_size = target.size
+                    u, count = np.unique(target, return_counts=True)
                     tile_counts = {x: y for x, y in zip(u, count)}
                     tile_props = {x: y / tile_size for x, y in zip(u, count)}
                     for key in tile_props.keys():
