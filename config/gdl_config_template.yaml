@@ -1,5 +1,6 @@
 defaults:
   -hydra: default
+  -task: segmentation # segmentation, object_detection, point_cloud, super_resolution
   -model: fastrcnn
   -trainer: default_trainer
   -training: default_training
@@ -19,6 +20,8 @@ general:
   max_epochs: 10
   min_epochs: 1
   save_dir: './log'
+  sample_data_dir: 'img/dir'
+  save_weights_dir: './weights_saved'
 
 inference:
   image_path: 'image/path'
@@ -26,6 +29,5 @@ inference:
   weights_dir: ${general.save_weights_dir}
   weights_name:
 
-task: {segmentation, object_detection, point_cloud, super_resolution}
-mode: {sampling, train, evaluate, inference, hyperparameter_search}
+mode: {sampling, train, evaluate, inference, hyperparameters_search}
 debug: False # will print the complete yaml config plus run a validation test
