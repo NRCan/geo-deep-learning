@@ -15,7 +15,7 @@ global:
   model_name: deeplabv3_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
   bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
   task: segmentation  # Task to perform. Either segmentation or classification
-  num_gpus: 0
+  num_gpus: 1
   BGR_to_RGB: True
   scale_data: [0,1]
   debug_mode: True

@@ -8,19 +8,11 @@ install:
   - hash -r
   - conda config --set always_yes yes
   - conda config --set changeps1 no
-  # - conda config --prepend channels conda-forge
-  - conda config --prepend channels pytorch
   - conda update -q conda
   - conda info -a
-  - conda create -n ci_env python=3.7
+  - conda env create -f ./config/travis_CI/environment.yml
   - source activate ci_env
-  - conda install pytorch==1.4.0 torchvision==0.5.0 cpuonly -c pytorch
-  - conda install pillow=6.2.1 ruamel_yaml h5py>=2.10 scikit-image scikit-learn rasterio tqdm geopandas
-  - conda install fiona
-  - conda install mlflow -c conda-forge
-  - pip install --force-reinstall pyproj==2.4.0
-  - pip install segmentation-models-pytorch==0.1.2
-  - pip install ttach==0.0.3
+
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
   - unzip ./data/classification_data.zip -d ./data

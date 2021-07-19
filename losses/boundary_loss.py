@@ -1,12 +1,27 @@
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+logging.getLogger(__name__)
+
+
+def one_hot(label, n_classes, requires_grad=True):
+    """Return One Hot Label"""
+    device = label.device
+    one_hot_label = torch.eye(
+        n_classes, device=device, requires_grad=requires_grad)[label]
+    one_hot_label = one_hot_label.transpose(1, 3).transpose(2, 3)
+
+    return one_hot_label
 
 
 class BoundaryLoss(nn.Module):
     """Boundary Loss proposed in:
     Alexey Bokhovkin et al., Boundary Loss for Remote Sensing Imagery Semantic Segmentation
     https://arxiv.org/abs/1905.07852
+    From: https://github.com/yiskw713/boundary_loss_for_remote_sensing
     """
 
     def __init__(self, theta0=19, theta=19, ignore_index=None, weight=None):
@@ -16,6 +31,10 @@ class BoundaryLoss(nn.Module):
         self.theta = theta
         self.ignore_index = ignore_index
         self.weight = weight
+        if self.ignore_index:
+            logging.error(f'Ignore_index not implemented for Boundary Loss. Got ignore_index "{ignore_index}"')
+        if self.weight:
+            logging.error(f'Class weights not implemented for Boundary Loss. Got class weights "{weight}"')
 
     def forward(self, pred, gt):
         """
@@ -29,18 +48,18 @@ class BoundaryLoss(nn.Module):
         """
 
         n, c, _, _ = pred.shape
+        logging.debug(f"Prediction shape: {gt.shape}")
 
         # softmax so that predicted map can be distributed in [0, 1]
         pred = torch.softmax(pred, dim=1)
 
         # one-hot vector of ground truth
-        # print(gt.shape)
-        # zo = F.one_hot(gt, c)
-        # print(zo.shape)
-        one_hot_gt = F.one_hot(gt, c).permute(0, 3, 1, 2).squeeze(dim=-1).contiguous().float()
+        logging.debug(f"Ground truth shape: {gt.shape}")
+        one_hot_gt = one_hot(gt, c)
 
         # boundary map
-        gt_b = F.max_pool2d(1 - one_hot_gt, kernel_size=self.theta0, stride=1, padding=(self.theta0 - 1) // 2)
+        gt_b = F.max_pool2d(
+            1 - one_hot_gt, kernel_size=self.theta0, stride=1, padding=(self.theta0 - 1) // 2)
         gt_b -= 1 - one_hot_gt
 
         pred_b = F.max_pool2d(
@@ -61,13 +80,11 @@ class BoundaryLoss(nn.Module):
         pred_b_ext = pred_b_ext.view(n, c, -1)
 
         # Precision, Recall
-        eps = 1e-7
-        P = (torch.sum(pred_b * gt_b_ext, dim=2) + eps) / (torch.sum(pred_b, dim=2) + eps)
-        R = (torch.sum(pred_b_ext * gt_b, dim=2) + eps) / (torch.sum(gt_b, dim=2) + eps)
+        P = torch.sum(pred_b * gt_b_ext, dim=2) / (torch.sum(pred_b, dim=2) + 1e-7)
+        R = torch.sum(pred_b_ext * gt_b, dim=2) / (torch.sum(gt_b, dim=2) + 1e-7)
 
         # Boundary F1 Score
-
-        BF1 = (2 * P * R + eps) / (P + R + eps)
+        BF1 = 2 * P * R / (P + R + 1e-7)
 
         # summing BF1 Score for each class and average over mini-batch
         loss = torch.mean(1 - BF1)
@@ -84,8 +101,6 @@ if __name__ == "__main__":
 
     img = torch.randn(8, 3, 224, 224).to(device)
     gt = torch.randint(0, 10, (8, 224, 224)).to(device)
-
-    print(img.shape, gt.shape)
 
     model = segmentation.fcn_resnet50(num_classes=10).to(device)
 
