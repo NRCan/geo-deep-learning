@@ -31,7 +31,7 @@ from models.model_choice import net, load_checkpoint
 from utils import augmentation
 from utils.geoutils import vector_to_raster
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D, compare_config_yamls
+    list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D, defaults_from_params, compare_config_yamls
 from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import add_background_to_num_class, validate_raster, validate_num_classes, assert_crs_match
 
@@ -184,7 +184,8 @@ def classifier(params, img_list, model, device, working_folder):
     :param device:
     :return:
     """
-    weights_file_name = params['inference']['state_dict_path']
+    weights_file_name = get_key_def('state_dict_path', params['inference'],
+                                    defaults_from_params(params, 'state_dict_path'))
     num_classes = params['global']['num_classes']
     bucket = params['global']['bucket_name']
 
@@ -249,13 +250,23 @@ def main(params: dict):
 
     """
     since = time.time()
-
+    
+    # mlflow logging
+    exp_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-inference', expected_type=str)
+    mlflow_uri = get_key_def('mlflow_uri', params['global'], default=None, expected_type=str)
+    if mlflow_uri and not Path(mlflow_uri).is_dir():
+        warnings.warn(f'Mlflow uri path is not valid: {mlflow_uri}')
+        mlflow_uri = None
+    
     # MANDATORY PARAMETERS
-    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str)
+    default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''),
+                            exp_name, f"inference_sem_seg_{exp_name}.csv")
+    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default_csv_file, expected_type=str)
     if not (Path(img_dir_or_csv).is_dir() or Path(img_dir_or_csv).suffix == '.csv'):
         raise FileNotFoundError(f'Couldn\'t locate .csv file or directory "{img_dir_or_csv}" '
                                 f'containing imagery for inference')
-    state_dict = get_key_def('state_dict_path', params['inference'], expected_type=str)
+    state_dict = get_key_def('state_dict_path', params['inference'],
+                                  defaults_from_params(params, 'state_dict_path'), expected_type=str)
     if not Path(state_dict).is_file():
         raise FileNotFoundError(f'Couldn\'t locate state_dict of model "{state_dict}" to be used for inference')
     task = get_key_def('task', params['global'], expected_type=str)
@@ -284,12 +295,7 @@ def main(params: dict):
     working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
     Path.mkdir(working_folder, parents=True, exist_ok=True)
 
-    # mlflow logging
-    mlflow_uri = get_key_def('mlflow_uri', params['global'], default=None, expected_type=str)
-    if mlflow_uri and not Path(mlflow_uri).is_dir():
-        warnings.warn(f'Mlflow uri path is not valid: {mlflow_uri}')
-        mlflow_uri = None
-    # SETUP LOGGING
+    # SETUP DEFAULT LOGGING
     import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     if mlflow_uri:
         log_config_path = Path('utils/logging.conf').absolute()
@@ -306,7 +312,6 @@ def main(params: dict):
             logging.warning(f"Couldn't locate mlflow uri directory {mlflow_uri}. Directory will be created.")
             Path(mlflow_uri).mkdir()
         set_tracking_uri(mlflow_uri)
-        exp_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-inference', expected_type=str)
         set_experiment(f'{exp_name}/{working_folder.name}')
         run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
         start_run(run_name=run_name)
