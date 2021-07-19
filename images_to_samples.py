@@ -374,7 +374,7 @@ def main(params):
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
     default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''), experiment_name,
-                            f"images_to_samples_{mlflow_experiment_name}.csv")
+                            f"images_to_samples_{experiment_name}.csv")
     csv_file = get_key_def('prep_csv_file', params['sample'], default_csv_file, expected_type=str)
 
     # OPTIONAL PARAMETERS
