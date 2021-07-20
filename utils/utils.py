@@ -498,16 +498,19 @@ def defaults_from_params(params, key=None):
                                     f"inference_sem_seg_{mlflow_experiment_name}.csv")
     samples_size = params["global"]["samples_size"]
     overlap = params["sample"]["overlap"]
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None,
-                                 expected_type=int)
-    num_bands = params['global']['number_of_bands']
-    d['samples_dir_name'] = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
-                             f'{num_bands}bands_{mlflow_experiment_name }')
-    if 'self' in params.keys():
-        config_file_name = Path(get_key_def('config_file', params['self'], '')).stem
+    if params['global']['task'] == 'segmentation':
+        min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None,
+                                     expected_type=int)
+        num_bands = params['global']['number_of_bands']
+        d['samples_dir_name'] = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
+                                 f'{num_bands}bands_{mlflow_experiment_name }')
+        if 'self' in params.keys():
+            config_file_name = Path(get_key_def('config_file', params['self'], '')).stem
+        else:
+            config_file_name = Path('')
+        d['state_dict_path'] = Path(data_path, d['samples_dir_name'], 'model', config_file_name, 'checkpoint.pth.tar')
     else:
-        config_file_name = Path('')
-    d['state_dict_path'] = Path(data_path, d['samples_dir_name'], 'model', config_file_name, 'checkpoint.pth.tar')
+        logging.error("NotImplementError: This utility has only been implemented for segmentation task")
     if key is None:
         return d
     return d[key]
