@@ -519,7 +519,7 @@ if __name__ == '__main__':
             warnings.warn('No parameters found in checkpoint. Defaulting to parameters from inputted yaml.'
                           'Use GDL version 1.3 or more.')
             params = input_params
-        params['self']['config_file'] = yaml_file
+        params['self'] = {'config_file': yaml_file}
         del checkpoint
         del input_params
 
