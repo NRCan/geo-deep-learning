@@ -108,14 +108,18 @@ def trials_to_csv(trials):
         csv_str = csv_str + f'{trials.results[i]["loss"]}' + '\n'
 
     # ToDo: Customize where the csv output is
-    with open('hyperopt_results.csv', 'w') as csv_obj:
+    with open(
+            '/wshare/travail/bdgrid2/EXTRACTION/Deep_learning/orthophotos/experiments/NB/leaf_Off/assests/hyperopt/hyperopt_results.csv',
+            'w') as csv_obj:
         csv_obj.write(csv_str)
 
 
 def main(params, config_path):
     # ToDo: Customize where the trials file is
     if Path('hyperopt_trials.pkl').is_file():
-        trials = pickle.load(open("hyperopt_trials.pkl", "rb"))
+        trials = pickle.load(open(
+            "/wshare/travail/bdgrid2/EXTRACTION/Deep_learning/orthophotos/experiments/NB/leaf_Off/assests/hyperopt/hyperopt_trials.pkl",
+            "rb"))
     else:
         trials = Trials()
 
@@ -129,7 +133,10 @@ def main(params, config_path):
                     trials=trials,
                     max_evals=n + params['global']['hyperopt_delta'])
         n += params['global']['hyperopt_delta']
-        pickle.dump(trials, open("hyperopt_trials.pkl", "wb"))
+        pickle.dump(trials,
+                    open(
+                        "/wshare/travail/bdgrid2/EXTRACTION/Deep_learning/orthophotos/experiments/NB/leaf_Off/assests/hyperopt/hyperopt_trials.pkl",
+                        "wb"))
 
     # ToDo: Cleanup the output
     pprint.pprint(trials.vals)
