@@ -507,7 +507,8 @@ if __name__ == '__main__':
 
     # if a yaml is inputted, get those parameters and get model state_dict to overwrite global parameters afterwards
     if args.param:
-        input_params = read_parameters(args.param[0])
+        yaml_file = args.param[0]
+        input_params = read_parameters(yaml_file)
         model_ckpt = get_key_def('state_dict_path', input_params['inference'], expected_type=str)
         # load checkpoint
         checkpoint = load_checkpoint(model_ckpt)
@@ -519,6 +520,7 @@ if __name__ == '__main__':
             warnings.warn('No parameters found in checkpoint. Defaulting to parameters from inputted yaml.'
                           'Use GDL version 1.3 or more.')
             params = input_params
+        params['self']['config_file'] = yaml_file
         del checkpoint
         del input_params
 

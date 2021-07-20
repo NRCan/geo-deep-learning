@@ -503,7 +503,10 @@ def defaults_from_params(params, key=None):
     num_bands = params['global']['number_of_bands']
     d['samples_dir_name'] = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
                              f'{num_bands}bands_{mlflow_experiment_name }')
-    config_file_name = Path(get_key_def('config_file', params['self'], '')).stem
+    if 'self' in params.keys():
+        config_file_name = Path(get_key_def('config_file', params['self'], '')).stem
+    else:
+        config_file_name = Path('')
     d['state_dict_path'] = Path(data_path, d['samples_dir_name'], 'model', config_file_name, 'checkpoint.pth.tar')
     if key is None:
         return d
