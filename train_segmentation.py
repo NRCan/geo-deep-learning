@@ -265,10 +265,9 @@ def train(train_loader,
           batch_size,
           ep_idx,
           progress_log,
-          vis_at_train,
-          vis_batch_range,
           device,
           scale,
+          vis_params,
           debug=False
           ):
     """
@@ -282,9 +281,9 @@ def train(train_loader,
     :param batch_size: number of samples to process simultaneously
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
-    :param vis_batch_range: range of batches to perform visualization on. see README.md for more info.
-    :param vis_at_train: (bool) if True, will perform visualization at train time, as long as vis_batch_range is valid
     :param device: device used by pytorch (cpu ou cuda)
+    :param scale: Scale to which values in sat img have been redefined. Useful during visualization
+    :param vis_params: (Dict) Parameters useful during visualization
     :param debug: (bool) Debug mode
     :return: Updated training loss
     """
@@ -311,13 +310,15 @@ def train(train_loader,
         if isinstance(outputs, OrderedDict):
             outputs = outputs['out']
 
-        if vis_batch_range and vis_at_train:
-            min_vis_batch, max_vis_batch, increment = vis_batch_range
+        # vis_batch_range: range of batches to perform visualization on. see README.md for more info.
+        # vis_at_eval: (bool) if True, will perform visualization at eval time, as long as vis_batch_range is valid
+        if vis_params['vis_batch_range'] and vis_params['vis_at_train']:
+            min_vis_batch, max_vis_batch, increment = vis_params['vis_batch_range']
             if batch_index in range(min_vis_batch, max_vis_batch, increment):
                 vis_path = progress_log.parent.joinpath('visualization')
                 if ep_idx == 0:
-                    logging.info(f'Visualizing on train outputs for batches in range {vis_batch_range}. All images will be saved to {vis_path}\n')
-                vis_from_batch(params, inputs, outputs,
+                    logging.info(f'Visualizing on train outputs for batches in range {vis_params["vis_batch_range"]}. All images will be saved to {vis_path}\n')
+                vis_from_batch(vis_params, inputs, outputs,
                                batch_index=batch_index,
                                vis_path=vis_path,
                                labels=labels,
@@ -357,9 +358,8 @@ def evaluation(eval_loader,
                batch_size,
                ep_idx,
                progress_log,
-               vis_batch_range,
-               vis_at_eval,
                scale,
+               vis_params,
                batch_metrics=None,
                dataset='val',
                device=None,
@@ -373,8 +373,8 @@ def evaluation(eval_loader,
     :param batch_size: number of samples to process simultaneously
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
-    :param vis_batch_range: range of batches to perform visualization on. see README.md for more info.
-    :param vis_at_eval: (bool) if True, will perform visualization at eval time, as long as vis_batch_range is valid
+    :param scale: Scale to which values in sat img have been redefined. Useful during visualization
+    :param vis_params: (Dict) Parameters useful during visualization
     :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
     :param dataset: (str) 'val or 'tst'
     :param device: device used by pytorch (cpu ou cuda)
@@ -404,14 +404,16 @@ def evaluation(eval_loader,
             if isinstance(outputs, OrderedDict):
                 outputs = outputs['out']
 
-            if vis_batch_range and vis_at_eval:
-                min_vis_batch, max_vis_batch, increment = vis_batch_range
+            # vis_batch_range: range of batches to perform visualization on. see README.md for more info.
+            # vis_at_eval: (bool) if True, will perform visualization at eval time, as long as vis_batch_range is valid
+            if vis_params['vis_batch_range'] and vis_params['vis_at_eval']:
+                min_vis_batch, max_vis_batch, increment = vis_params['vis_batch_range']
                 if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0 and batch_index == min_vis_batch:
-                        logging.info(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
+                        logging.info(f'Visualizing on {dataset} outputs for batches in range {vis_params["vis_batch_range"]}. All '
                                    f'images will be saved to {vis_path}\n')
-                    vis_from_batch(params, inputs, outputs,
+                    vis_from_batch(vis_params, inputs, outputs,
                                    batch_index=batch_index,
                                    vis_path=vis_path,
                                    labels=labels,
@@ -562,6 +564,15 @@ def main(params, config_path):
     vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], default=False)
     ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], default=1, expected_type=int)
     vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
+    colormap_file = get_key_def('colormap_file', params['visualization'], None)
+    heatmaps = get_key_def('heatmaps', params['visualization'], False)
+    heatmaps_inf = get_key_def('heatmaps', params['inference'], False)
+    grid = get_key_def('grid', params['visualization'], False)
+    mean = get_key_def('mean', params['training']['normalization'])
+    std = get_key_def('std', params['training']['normalization'])
+    vis_params = {'colormap_file': colormap_file, 'heatmaps': heatmaps, 'heatmaps_inf': heatmaps_inf, 'grid': grid,
+                  'mean': mean, 'std': std, 'vis_batch_range': vis_batch_range, 'vis_at_train': vis_at_train,
+                  'vis_at_eval': vis_at_eval, 'ignore_index': dontcare_val}
 
     # coordconv parameters
     coordconv_params = {}
@@ -722,10 +733,9 @@ def main(params, config_path):
                            batch_size=batch_size,
                            ep_idx=epoch,
                            progress_log=progress_log,
-                           vis_batch_range=vis_batch_range,
-                           vis_at_train=vis_at_train,
                            device=device,
                            scale=scale,
+                           vis_params=vis_params,
                            debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
@@ -736,12 +746,11 @@ def main(params, config_path):
                                 batch_size=batch_size,
                                 ep_idx=epoch,
                                 progress_log=progress_log,
-                                vis_batch_range=vis_batch_range,
-                                vis_at_eval=vis_at_eval,
                                 batch_metrics=batch_metrics,
                                 dataset='val',
                                 device=device,
                                 scale=scale,
+                                vis_params=vis_params,
                                 debug=debug)
         val_loss = val_report['loss'].avg
         if batch_metrics is not None:
@@ -800,11 +809,10 @@ def main(params, config_path):
                                 batch_size=batch_size,
                                 ep_idx=num_epochs,
                                 progress_log=progress_log,
-                                vis_batch_range=vis_batch_range,
-                                vis_at_eval=vis_at_eval,
                                 batch_metrics=batch_metrics,
                                 dataset='tst',
                                 scale=scale,
+                                vis_params=vis_params,
                                 device=device)
         tst_log.add_values(tst_report, num_epochs)
 
