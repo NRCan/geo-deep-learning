@@ -11,6 +11,7 @@ from pathlib import Path
 import pickle
 from functools import partial
 import pprint
+import numpy as np
 
 import mlflow
 import torch
@@ -21,12 +22,11 @@ from utils.readers import read_parameters
 from train_segmentation import main as train_main
 
 # This is the hyperparameter space to explore
-my_space = {'target_size': hp.choice('target_size', [128, 256]),
-            'model_name': hp.choice('model_name', ['unet', 'deeplabv3+_pretrained']),
-            'permanent_water_weight': hp.uniform('permanent_water_weight', 1.0, 10.0),
-            'rivers_weight': hp.uniform('rivers_weight', 1.0, 10.0),
-            'flood_weight': hp.uniform('flood_weight', 1.0, 10.0),
-            'noise': hp.choice('noise', [0.0, 1.0])}
+my_space = {'target_size': hp.choice('target_size', [512, 896]),
+            'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3_resnet101']),
+            'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
+            'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
+            'learning_rate': hp.loguniform('learning_rate', np.log(1e-7), np.log(0.1))}
 
 
 def get_latest_mlrun(params):
@@ -62,12 +62,11 @@ def objective_with_args(hparams, params, config_path):
     """
 
     # ToDo: This is dependent on the specific structure of the GDL config file
-    params['training']['target_size'] = hparams['target_size']
     params['global']['model_name'] = hparams['model_name']
-    # ToDo: Should adjust batch size as a function of model and target size...
-    params['training']['class_weights'] = [1.0, hparams['permanent_water_weight'], hparams['rivers_weight'],
-                                           hparams['flood_weight']]
-    params['training']['augmentation']['noise'] = hparams['noise']
+    params['training']['target_size'] = hparams['target_size']
+    params['training']['loss_fn '] = hparams['loss_fn']
+    params['training']['optimizer'] = hparams['optimizer']
+    params['training']['learning_rate'] = hparams['learning_rate']
 
     try:
         mlrun = get_latest_mlrun(params)

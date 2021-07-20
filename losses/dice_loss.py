@@ -20,27 +20,47 @@ def soft_dice_score(
 
 class DiceLoss(nn.Module):
 
-    def __init__(self, smooth=1.0, eps=1e-7, ignore_index=None, weight=None):
-        """Implementation of Dice loss for image segmentation task.
-        https://github.com/qubvel/segmentation_models.pytorch
-        """
+    def __init__(self, smooth=1.0, eps=1e-7, ignore_index=None, weight=None, mode='MULTICLASS_MODE'):
         super().__init__()
         self.smooth = smooth
         self.eps = eps
         self.ignore_index = ignore_index
         self.weight = weight
+        self.mode = mode
 
     def forward(self, output, target):
         bs = target.size(0)
         num_classes = output.size(1)
         dims = (0, 2)
-        output = output.log_softmax(dim=1).exp()
+        # print(self.mode, self.ignore_index)
 
-        target = target.view(bs, -1)
-        output = output.view(bs, num_classes, -1)
+        if self.mode == 'MULTICLASS_MODE':
+            output = output.log_softmax(dim=1).exp()
+        else:
+            output = F.logsigmoid(output).exp()
+        # output = output.log_softmax(dim=1).exp()
 
-        target = F.one_hot(target, num_classes)  # N,H*W -> N,H*W, C
-        target = target.permute(0, 2, 1)  # H, C, H*W
+        if self.mode == 'BINARY_MODE':
+            target = target.view(bs, 1, -1)
+            output = output.view(bs, 1, -1)
+
+            if self.ignore_index is not None:
+                mask = target != self.ignore_index
+                output = output * mask
+                target = target * mask
+        else:
+            target = target.view(bs, -1)
+            output = output.view(bs, num_classes, -1)
+            if self.ignore_index is not None:
+                mask = target != self.ignore_index
+                output = output * mask.unsqueeze(1)
+
+                target = F.one_hot((target * mask).to(torch.long), num_classes)  # N,H*W -> N,H*W, C
+                target = target.permute(0, 2, 1) * mask.unsqueeze(1)
+
+            else:
+                target = F.one_hot(target, num_classes)  # N,H*W -> N,H*W, C
+                target = target.permute(0, 2, 1)  # H, C, H*W
 
         scores = soft_dice_score(output, target.type_as(output), smooth=self.smooth, eps=self.eps, dims=dims)
         loss = 1.0 - scores
