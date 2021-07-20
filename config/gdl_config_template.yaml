@@ -1,17 +1,17 @@
 defaults:
-  -hydra: default
-  -task: segmentation # segmentation, object_detection, point_cloud, super_resolution
-  -model: fastrcnn
-  -trainer: default_trainer
-  -training: default_training
-  -optimizer: adamw
-  -callbacks: default_callbacks
-  -scheduler: plateau
-  -sampling: default_sampling
-  -data: data
-  -dataset: NRCAN_individual_tree
-  -augmentation: default_augmentation
-  -logging: mlflow
+  - hydra: save
+  - task: segmentation
+  - model: fastrcnn
+  - trainer: default_trainer
+  - training: default_training
+  - optimizer: adamw
+  - callbacks: default_callbacks
+  - scheduler: plateau
+  - sampling: default_sampling
+  - data: data
+  - dataset: NRCAN_individual_tree
+  - augmentation: basic_augmentation
+  - logging: mlflow
 
 general:
   project_name: template_project

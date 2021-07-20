@@ -1,0 +1,2 @@
+name: segmentation
+path_task_function: train_segmentation.main

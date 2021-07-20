@@ -217,5 +217,6 @@ dependencies:
   - pip:
       - efficientnet-pytorch==0.6.3
       - pretrainedmodels==0.7.4
-      - segmentation-models-pytorch==0.1.2
+      - segmentation-models-pytorch==0.2.0
       - ttach==0.0.3
+      - hydra-core==1.1

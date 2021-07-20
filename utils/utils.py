@@ -1,6 +1,7 @@
 import csv
 import logging
 import numbers
+import importlib
 import subprocess
 from pathlib import Path
 from typing import Sequence, List
@@ -202,6 +203,7 @@ def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
         scale_img = 2.0 * (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0]) - 1.0
     return scale_img
 
+
 def unscale(img, float_range=(0, 1), orig_range=(0, 255)):
     """
     unscale data values from float range (0, 1) or (-1, 1) to original range (0, 255)
@@ -213,6 +215,7 @@ def unscale(img, float_range=(0, 1), orig_range=(0, 255)):
     f_r = float_range[1] - float_range[0]
     o_r = orig_range[1] - orig_range[0]
     return (o_r * (img - float_range[0]) / f_r) + orig_range[0]
+
 
 def pad(img, padding, fill=0):
     r"""Pad the given ndarray on all sides with specified padding mode and fill value.
@@ -338,8 +341,7 @@ def list_input_images(img_dir_or_csv: str,
 
             list_img = []
             for img_path in list_img_paths:
-                img = {}
-                img['tif'] = img_path
+                img = {'tif': img_path}
                 list_img.append(img)
             assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
     return list_img
@@ -528,3 +530,23 @@ def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -
                 if update_yaml1:  # update yaml1 with value of yaml2
                     yaml1[section][param] = val2
                     logging.info(f'Value in yaml1 updated')
+
+
+def load_obj(obj_path: str, default_obj_path: str = '') -> any:
+    """
+    Extract an object from a given path.
+
+    :param obj_path: (str) Path to an object to be extracted, including the object name.
+    :param default_obj_path: (str) Default path object.
+
+    :return: Extract object. Can be a function or a class or ...
+
+    :raise AttributeError: When the object does not have the given named attribute.
+    """
+    obj_path_list = obj_path.rsplit('.', 1)
+    obj_path = obj_path_list.pop(0) if len(obj_path_list) > 1 else default_obj_path
+    obj_name = obj_path_list[0]
+    module_obj = importlib.import_module(obj_path)
+    if not hasattr(module_obj, obj_name):
+        raise AttributeError(f"Object `{obj_name}` cannot be loaded from from `{obj_path}`.")
+    return getattr(module_obj, obj_name)
