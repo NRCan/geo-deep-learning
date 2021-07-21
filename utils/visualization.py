@@ -176,7 +176,7 @@ def vis(vis_params,
                 heatmap_name = vis_path.joinpath(f"{inference_input_path.stem}_inference_heatmap_{class_name}.tif")
                 create_new_raster_from_base(inference_input_path, heatmap_name, heatmap)
     elif vis_params['grid']:  # SAVE PIL IMAGES AS GRID
-        grid = grid_vis(input_PIL, output_argmax_PIL, heatmaps_dict, label=label_PIL, heatmaps=heatmaps)
+        grid = grid_vis(input_PIL, output_argmax_PIL, heatmaps_dict, label=label_PIL, heatmaps=vis_params['heatmaps'])
         grid.savefig(vis_path.joinpath(f'{dataset}_{sample_num:03d}_ep{ep_num:03d}.png'))
         plt.close()
     else:  # SAVE PIL IMAGES DIRECTLY TO FILE
