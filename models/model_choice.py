@@ -20,8 +20,6 @@ from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, defau
 
 logging.getLogger(__name__)
 
-logging.getLogger(__name__)
-
 lm_smp = {
     'pan_pretrained': {
         'fct': smp.PAN, 'params': {
