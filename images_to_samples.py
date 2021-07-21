@@ -1,3 +1,4 @@
+# region imports
 import argparse
 import datetime
 import numpy as np
@@ -26,8 +27,8 @@ except ModuleNotFoundError:
     warnings.warn("The boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
     pass
 
-
-
+from rich.console import Console
+# endregion
 
 
 def mask_image(arrayA, arrayB):
@@ -57,7 +58,6 @@ def mask_image(arrayA, arrayB):
     else:
         ma_array = arrayB * mask
     return ma_array
-
 
 def validate_class_prop_dict(actual_classes_dict, config_dict):
     """
@@ -94,7 +94,6 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
 
     return actual_classes_dict.copy()
 
-
 def minimum_annotated_percent(target_background_percent, min_annotated_percent):
     if not min_annotated_percent:
         return True
@@ -102,7 +101,6 @@ def minimum_annotated_percent(target_background_percent, min_annotated_percent):
         return True
 
     return False
-
 
 def class_proportion(target, sample_size: int, class_min_prop: dict):
     if not class_min_prop:
@@ -116,7 +114,6 @@ def class_proportion(target, sample_size: int, class_min_prop: dict):
         if target_prop_classwise < value:
             return False
     return True
-
 
 def add_to_datasets(dataset,
                     samples_file,
@@ -150,7 +147,6 @@ def add_to_datasets(dataset,
             raise ValueError(f"A class value was written ({key}) that was not defined in the classes ({cls_keys}).")
 
     return val
-
 
 def samples_preparation(in_img_array,
                         label_array,
@@ -276,7 +272,7 @@ def samples_preparation(in_img_array,
     return samples_count, num_classes
 
 
-def main(params, console):
+def main(params, console=None):
     """
     Training and validation datasets preparation.
 
@@ -315,6 +311,7 @@ def main(params, console):
     -------
     :param params: (dict) Parameters found in the yaml config file.
     """
+    console = Console()
 
     start_time = time.time()
     params['global']['git_hash'] = get_git_hash()
@@ -344,7 +341,7 @@ def main(params, console):
     sample_path_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
                         f'{num_bands}bands_{experiment_name}')
 
-# prep fo Samples folder
+# region prep fo Samples folder
     # AWS
     if bucket_name:
         s3 = boto3.resource('s3')
@@ -360,8 +357,9 @@ def main(params, console):
     else:
         list_data_prep = read_csv(csv_file)
         samples_folder = data_path.joinpath(sample_path_name)
+    # endregion
 
-# Making Samples folder
+# region Making Samples folder
     if samples_folder.is_dir(): # dont write
         console.print('NOT writing samples to:', style='bold #FFFFFF on red', justify="center")
         console.print(samples_folder, style='bold #FFFFFF on red', justify="center")
@@ -377,6 +375,7 @@ def main(params, console):
         console.print(samples_folder, style='bold #FFFFFF on green', justify="center")
     Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
     tqdm.write(f'Samples will be written to {samples_folder}\n\n')
+    # endregion
 
     console.print('CSV file =', style='green')
     console.print('\t', Path(csv_file).stem, len(list_data_prep), style='green')
@@ -411,21 +410,22 @@ def main(params, console):
 
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
 
-    # Set dontcare (aka ignore_index) value
+    # region Set dontcare (aka ignore_index) value
     dontcare = get_key_def("ignore_index", params["training"], -1)  # TODO: deduplicate with train_segmentation, l300
     if dontcare == 0:
         warnings.warn("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
                       " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
                       " will be remapped to -1 while loading the dataset, and inside the config from now on.")
         params["training"]["ignore_index"] = -1
+    # endregion
 
-    # creates pixel_classes dict and keys
+    # region creates pixel_classes dict and keys
     pixel_classes = {key: 0 for key in gpkg_classes}
     background_val = 0
     pixel_classes[background_val] = 0
     class_prop = validate_class_prop_dict(pixel_classes, class_prop)
     pixel_classes[dontcare] = 0
-
+    # endregion
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
     with tqdm(list_data_prep, position=0, leave=False, desc=f'Preparing samples') as _tqdm:
         for rowN, info in enumerate(_tqdm):
@@ -572,8 +572,6 @@ def main(params, console):
 
 
 if __name__ == '__main__':
-    from rich.console import Console
-    console = Console()
     parser = argparse.ArgumentParser(description='Sample preparation')
     parser.add_argument('ParamFile', metavar='DIR',
                         help='Path to training parameters stored in yaml')
@@ -581,5 +579,5 @@ if __name__ == '__main__':
     params = read_parameters(args.ParamFile)
     start_time = time.time()
     tqdm.write(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
-    main(params, console)
+    main(params)
     print("Elapsed time:{}".format(time.time() - start_time))

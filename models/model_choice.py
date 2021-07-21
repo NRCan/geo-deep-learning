@@ -12,7 +12,7 @@ from tqdm import tqdm
 from utils.optimizer import create_optimizer
 from losses import MultiClassCriterion
 import torch.optim as optim
-from models import TernausNet, unet, checkpointed_unet, inception, coordconv
+from models import TernausNet, unet, checkpointed_unet, inception, coordconv, MECnet
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
 
 lm_smp = {
@@ -123,6 +123,8 @@ def set_hyperparameters(params, num_classes, model, checkpoint, dontcare_val):
 
 def net(net_params, num_channels, inference=False):
     """Define the neural net"""
+
+# region init PARAMS
     model_name = net_params['global']['model_name'].lower()
     num_bands = int(net_params['global']['number_of_bands'])
     msg = f'Number of bands specified incompatible with this model. Requires 3 band data.'
@@ -143,18 +145,26 @@ def net(net_params, num_channels, inference=False):
     if 'concatenate_depth' in net_params['global']:
         # Read the concatenation point
         conc_point = net_params['global']['concatenate_depth']
+    # endregion
 
-    if model_name == 'unetsmall':
-        model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
+    if model_name == 'mecnet':
+        assert num_bands == 3, msg
+        model = MECnet.MECNet()# dropout, dropout_prob)
+
     elif model_name == 'unet':
         model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
+    elif model_name == 'unetsmall':
+        model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
+    elif model_name == 'checkpointed_unet':
+        model = checkpointed_unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
+
     elif model_name == 'ternausnet':
         assert num_bands == 3, msg
         model = TernausNet.ternausnet(num_channels)
-    elif model_name == 'checkpointed_unet':
-        model = checkpointed_unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
+
     elif model_name == 'inception':
         model = inception.Inception3(num_channels, num_bands)
+
     elif model_name == 'fcn_resnet101':
         assert num_bands == 3, msg
         model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
@@ -209,7 +219,6 @@ def net(net_params, num_channels, inference=False):
 
         model = lsmp['fct'](**lsmp['params'])
 
-
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
 
@@ -232,12 +241,13 @@ def net(net_params, num_channels, inference=False):
         return model, checkpoint, model_name
 
     else:
-
+        # checkpoint
         if train_state_dict_path is not None:
             assert Path(train_state_dict_path).is_file(), f'Could not locate checkpoint at {train_state_dict_path}'
             checkpoint = load_checkpoint(train_state_dict_path)
         else:
             checkpoint = None
+        # region GPU setup
         assert num_devices is not None and num_devices >= 0, "missing mandatory num gpus parameter"
         # list of GPU devices that are available and unused. If no GPUs, returns empty list
         lst_device_ids = get_device_ids(num_devices) if torch.cuda.is_available() else []
@@ -266,7 +276,7 @@ def net(net_params, num_channels, inference=False):
             warnings.warn(f"Unable to use device. Trying device 0...\n")
             device = torch.device(f'cuda:0' if torch.cuda.is_available() and lst_device_ids else 'cpu')
             model.to(device)
-
+        # endregion
         model, criterion, optimizer, lr_scheduler = set_hyperparameters(net_params, num_channels, model, checkpoint, dontcare_val)
         criterion = criterion.to(device)
 

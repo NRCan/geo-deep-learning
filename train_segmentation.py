@@ -11,6 +11,8 @@ from tqdm import tqdm
 from collections import OrderedDict
 import shutil
 import numpy as np
+
+
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -34,25 +36,18 @@ from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact, s
 
 from torchsummary import summary as torch_summary
 
+from utils.tracker import Tracking_Pane
+
 from rich.table import Table, Column
 from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn
 from rich.panel import Panel
 from rich.text import Text
-from rich import inspect
+from rich import inspect, print
 import sys
 from matplotlib import pyplot as plt
 
 
-
-class Tracking_Pane(Progress):
-    epoch_size = 0
-    batch_size = 0
-    epoch_curr = 0
-    batch_curr = 0
-    batch_info = ''
-    table = None
-
-    def get_renderables(self):
+def get_renderables(self):
         layout = Table.grid(expand=True)
         layout.add_column(justify="center")
 
@@ -151,8 +146,6 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     return trn_dataloader, val_dataloader, tst_dataloader
 
 
-
-
 def get_num_samples(samples_path, params):
     """
     Function to retrieve number of samples, either from config file or directly from hdf5 file.
@@ -248,13 +241,13 @@ def train(console, tracker, train_loader, model, criterion, optimizer, scheduler
     vis_at_train = get_key_def('vis_at_train', vis_params['visualization'], False)
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
 
-    batch_index = 0
-    for data in tracker.track(train_loader, description='trn batch', task_id=1):
-        # tracker.advance(1)
-        tracker.batch_info = f'{len(data["index"].tolist())} Images = {data["index"].tolist()}'
+
+    for batch_index, data in enumerate(tracker.track(train_loader, description='trn batch', task_id=1)):
+        # tracker.batch_info = f'{len(data["index"].tolist())} Images = {data["index"].tolist()}'
 
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
+        # region basic visuals
         # fig = plt.figure(str(data['index']), constrained_layout=True)
         # gs = fig.add_gridspec(2, 2)
         # ax1 = fig.add_subplot(gs[0, 0])
@@ -266,6 +259,7 @@ def train(console, tracker, train_loader, model, criterion, optimizer, scheduler
         # ax3.imshow(data['sat_img'].numpy()[1, 0, ...])
         # ax4.imshow(data['map_img'].numpy()[1, ...])
         # fig.show()
+        # endregion
 
         inputs = data['sat_img'].to(device)
         labels = data['map_img'].to(device)
@@ -289,8 +283,10 @@ def train(console, tracker, train_loader, model, criterion, optimizer, scheduler
         outputs = model(inputs)
         # added for torchvision models that output an OrderedDict with outputs in 'out' key.
         # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
-        if isinstance(outputs, OrderedDict):
+        if 'deeplabv3' == vis_params['global']['model_name'].lower():
             outputs = outputs['out']
+        elif 'mecnet' == vis_params['global']['model_name'].lower():
+            outputs = outputs[0]
 
         if vis_batch_range and vis_at_train:
             min_vis_batch, max_vis_batch, increment = vis_batch_range
@@ -322,7 +318,6 @@ def train(console, tracker, train_loader, model, criterion, optimizer, scheduler
 
         loss.backward()
         optimizer.step()
-        batch_index += 1
 
     scheduler.step()
     if train_metrics["loss"].avg is not None:
@@ -379,8 +374,10 @@ def evaluation(console, tracker, eval_loader, model, criterion, num_classes, bat
                 ############################
 
             outputs = model(inputs)
-            if isinstance(outputs, OrderedDict):
+            if 'deeplabv3' == vis_params['global']['model_name'].lower():
                 outputs = outputs['out']
+            elif 'mecnet' == vis_params['global']['model_name'].lower():
+                outputs = outputs[0]
 
             if vis_batch_range and vis_at_eval:
                 min_vis_batch, max_vis_batch, increment = vis_batch_range
@@ -419,10 +416,10 @@ def evaluation(console, tracker, eval_loader, model, criterion, num_classes, bat
 
             # _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
             #
-            # if debug and device.type == 'cuda':
-            #     res, mem = gpu_stats(device=device.index)
-            #     _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
-            #                                   gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
+            if debug and device.type == 'cuda':
+                res, mem = gpu_stats(device=device.index)
+                # _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
+                #                               gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
 
     # print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
     # if batch_metrics is not None:
@@ -464,7 +461,7 @@ def main(params, config_path, console, trckr):
     :param config_path: (str) Path to the yaml config file.
     """
 
-# basic params
+# region basic params
     params['global']['git_hash'] = get_git_hash()
     debug = get_key_def('debug_mode', params['global'], False)
     # if debug:
@@ -498,15 +495,16 @@ def main(params, config_path, console, trckr):
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
     console.print(device, style='bold #FFFFFF on green', justify="center")
+    # endregion
 
-# DATALOADERS
-    tqdm.write(f'Creating dataloaders from data in {samples_folder}...\n')
+# region DATALOADERS
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
                                                                        num_devices=num_devices,
                                                                        params=params)
+    # endregion
 
-# INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
+# region init MODEL & checkpoint
     model, model_name, criterion, optimizer, lr_scheduler = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
     console.print('Init Model:', style='bold #FFFFFF on blue', justify='left')
     console.print('\tmodel        =', type(model), style='blue')
@@ -517,18 +515,20 @@ def main(params, config_path, console, trckr):
     console.print(f'Instantiated {model_name} model with {num_classes_corrected} output channels.', style='bold #FFFFFF on blue', justify='right')
     # tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
     bucket_name = get_key_def('bucket_name', params['global'])
+    # endregion
 
-# mlflow tracking path + parameters logging
+# region mlflow tracking path + parameters logging
     set_tracking_uri(get_key_def('mlflow_uri', params['global'], default="./mlruns"))
     set_experiment(get_key_def('mlflow_experiment_name', params['global'], default='gdl-training'))
     start_run(run_name=run_name)
     log_params(params['training'])
     log_params(params['global'])
     log_params(params['sample'])
+    # endregion
 
-# init model folder
+# region init model folder
     modelname = config_path.stem
-    output_path = samples_folder.joinpath('model_' + str(params['global']['model_output_dir'])) / modelname
+    output_path = samples_folder.joinpath('model') / modelname
     if output_path.is_dir():
         output_path = output_path.joinpath(f"_{now}")
     output_path.mkdir(parents=True, exist_ok=False)
@@ -544,8 +544,9 @@ def main(params, config_path, console, trckr):
     since = time.time()
     best_loss = 999
     last_vis_epoch = 0
+    # endregion
 
-# init logs
+# region init loggers
     progress_log = output_path / 'progress.log'
     if not progress_log.exists():
         progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))  # Add header
@@ -554,8 +555,9 @@ def main(params, config_path, console, trckr):
     val_log = InformationLogger('val')
     tst_log = InformationLogger('tst')
     filename = output_path.joinpath('checkpoint.pth.tar')
+    # endregion
 
-# VISUALIZATION: generate pngs of inputs, labels and outputs
+# region VISUALIZATION: generate pngs of inputs, labels and outputs
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment). Check once for all visualization tasks.
@@ -574,6 +576,7 @@ def main(params, config_path, console, trckr):
                                 dataset=vis_at_init_dataset,
                                 device=device,
                                 vis_batch_range=vis_batch_range)
+    # endregion
 
     experiment_table = Table(style='purple')
     experiment_table.add_column('epoch', justify='center', style='color(0)')
@@ -585,20 +588,10 @@ def main(params, config_path, console, trckr):
     experiment_table.add_column('fscore', justify='center', style='color(6)')
     experiment_table.add_column('iou', justify='center', style='color(7)')
 
-    with Tracking_Pane(SpinnerColumn(                                                            table_column=Column(ratio=1)),
-                       TextColumn("{task.description}",                                          table_column=Column(ratio=3)),
-                       # TextColumn("[progress.percentage]{task.percentage:>3.0f}%", table_column=Column(ratio=1)),
-                       TextColumn("[bold white][progress.percentage]{task.completed} /   {task.total:>.0f}", table_column=Column(ratio=3)),
-                       BarColumn(                                                                table_column=Column(ratio=12)),
-                       TimeElapsedColumn(                                                        table_column=Column(ratio=2)),
-                       TimeRemainingColumn(                                                      table_column=Column(ratio=2)),
-                       console=console,
-                       expand=True) as tracker:
-        epoch_bar = tracker.add_task('[cyan1]epoch')
-        batch_bar = tracker.add_task('[bright_magenta]trn batch')
-        batch_bar = tracker.add_task('[magenta]val batch')
+    with Tracking_Pane(console=console) as tracker: # task_ids: [0=epoch, 1=trn batch, 2=vis batch] (ie. order they are create in utils.tracker)
+    # , other_renderables=[experiment_table]
 
-        for epoch in tracker.track(range(0, params['training']['num_epochs']), description='epoch', task_id=0):
+        for epoch in tracker.track(range(0, params['training']['num_epochs']), task_id=0):
             tracker.reset(task_id=1)
             tracker.reset(task_id=2)
             trn_report = train(console, tracker,
@@ -614,9 +607,9 @@ def main(params, config_path, console, trckr):
                                vis_params=params,
                                device=device,
                                debug=debug)
+
             trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-            console.print('   val:', style='purple')
             val_report = evaluation(console, tracker,
                                     eval_loader=val_dataloader,
                                     model=model,
@@ -631,22 +624,15 @@ def main(params, config_path, console, trckr):
                                     device=device,
                                     debug=debug)
             val_loss = val_report['loss'].avg
-            # print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
-            # if batch_metrics is not None:
-            #     print(f"{dataset} precision: {eval_metrics['precision'].avg}")
-            #     print(f"{dataset} recall: {eval_metrics['recall'].avg}")
-            #     print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
-            #     print(f"{dataset} iou: {eval_metrics['iou'].avg}")
-            experiment_table.add_row(f'{epoch} / {params["training"]["num_epochs"] - 1}',
-                                     str(best_loss),
-                                     str(val_loss),
-                                     str(trn_report['loss'].avg),
-                                     str(val_report['precision'].avg),
-                                     str(val_report['recall'].avg),
-                                     str(val_report['fscore'].avg),
-                                     str(val_report['iou'].avg))
 
-            console.print(experiment_table)
+            # experiment_table.add_row(f'{epoch} / {params["training"]["num_epochs"] - 1}',
+            #                          str(best_loss),
+            #                          str(val_loss),
+            #                          str(trn_report['loss'].avg),
+            #                          str(val_report['precision'].avg),
+            #                          str(val_report['recall'].avg),
+            #                          str(val_report['fscore'].avg),
+            #                          str(val_report['iou'].avg))
 
             if params['training']['batch_metrics'] is not None:
                 val_log.add_values(val_report, epoch)

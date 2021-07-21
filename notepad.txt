@@ -1,51 +1,5 @@
-C:\Users\muzwe\anaconda3\envs\GDL\python.exe C:/Users/muzwe/Documents/GitHub/geo-deep-learning/images_to_samples.py ./config/travis_CI/config_ci_segmentation_local.yaml
+flatten labels:
+1, 256, 256         ->          65536
 
-
-Starting images to samples preparation with ./config/travis_CI/config_ci_segmentation_local.yaml
-
-
-C:/Users/muzwe/Documents/GitHub/geo-deep-learning/images_to_samples.py:331: UserWarning: Debug mode activate. Execu
-tion may take longer...
-  warnings.warn(f'Debug mode activate. Execution may take longer...')
-Writing samples to data\samples\samples256_overlap33_min-annot3_3bands_pls_work
-Samples will be written to data\samples\samples256_overlap33_min-annot3_3bands_pls_work
-
-
-
-Successfully read csv file: images_to_samples_ci_csv
-Number of rows: 2
-Copying first entry:
-{'tif': './data/22978945_15.tif', 'meta': '', 'gpkg': './data/massachusetts_buildings.gpkg', 'attribute_name': 'pro
-perties/class', 'dataset': 'trn'}
-
-100%|███████████████████████████████████████████████████████████████████████████████| 2/2 [00:00<00:00, 13.20it/s]
-Checking validity of features in vector files: 100%|████████████████████████████████| 2/2 [00:00<00:00, 29.84it/s]
-Preparing samples:   0%|                                                                    | 0/2 [00:00<?, ?it/s]E
-lapsed time:0.25156497955322266
-Preparing samples:   0%|                                  | 0/2 [00:00<?, ?it/s, tif=22978945_15, sample_size=256]D
-EBUG: writing clipped raster to data\samples\samples256_overlap33_min-annot3_3bands_pls_work\np_input_image_0.tif
-DEBUG: writing final rasterized gpkg to data\samples\samples256_overlap33_min-annot3_3bands_pls_work\np_label_raste
-rized_0.tif
-C:/Users/muzwe/Documents/GitHub/geo-deep-learning/images_to_samples.py:202: UserWarning: high overlap >25%, note th
-at automatic train/val split creates very similar samples in both sets
-  warnings.warn("high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
-
-Writing samples. Dataset currently contains 0 samples: 100%|█| 6/6 [00:00<00:00,  8.08it/s, Added_samples=17/42, D
-Preparing samples:  50%|██████      | 1/2 [00:01<00:01,  1.66s/it, number_samples={'trn': 12, 'val': 5, 'tst': 0}]E
-lapsed time:1.915088415145874
-Preparing samples:  50%|█████████████             | 1/2 [00:01<00:01,  1.66s/it, tif=23429155_15, sample_size=256]D
-EBUG: writing clipped raster to data\samples\samples256_overlap33_min-annot3_3bands_pls_work\np_input_image_1.tif
-DEBUG: writing final rasterized gpkg to data\samples\samples256_overlap33_min-annot3_3bands_pls_work\np_label_raste
-rized_1.tif
-Writing samples. Dataset currently contains 0 samples: 100%|█| 5/5 [00:01<00:00,  4.98it/s, Added_samples=24/35, D
-Elapsed time:3.1838481426239014
-Pixels from class 1 : 9.8 %
-Pixels from class 0 : 90.2 %
-Pixels from class -1 : 0.0 %
-Number of samples created:  {'trn': 12, 'val': 5, 'tst': 24}
-Elapsed time:3.1858484745025635
-End of process
-Elapsed time:3.191856622695923
-
-Process finished with exit code 0
-
+flatten outputs:
+1, 1, 256, 256      ->          32768
