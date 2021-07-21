@@ -813,8 +813,8 @@ def main(params, config_path):
 
     time_elapsed = time.time() - since
     logging.info('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-    log_artifact(logfile)
-    log_artifact(logfile_debug)
+    # log_artifact(logfile)
+    # log_artifact(logfile_debug)
 
 
 if __name__ == '__main__':
