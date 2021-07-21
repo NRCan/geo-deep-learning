@@ -22,7 +22,7 @@ from utils.readers import read_parameters
 from train_segmentation import main as train_main
 
 # This is the hyperparameter space to explore
-my_space = {'target_size': hp.choice('target_size', [512, 896]),
+my_space = {'target_size': hp.choice('target_size', [512, 636]),
             'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3_resnet101']),
             'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
             'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
