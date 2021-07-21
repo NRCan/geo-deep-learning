@@ -585,9 +585,7 @@ if __name__ == '__main__':
     # if a yaml is inputted, get those parameters and get model state_dict to overwrite global parameters afterwards
     if args.param:
         input_params = read_parameters(args.param[0])
-        print('input DICT', input_params)
         model_ckpt = get_key_def('state_dict_path', input_params['inference'], expected_type=str)
-        print('model path', model_ckpt)
         # load checkpoint
         checkpoint = load_checkpoint(model_ckpt)
         if 'params' in checkpoint.keys():
