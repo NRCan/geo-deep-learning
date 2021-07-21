@@ -16,7 +16,7 @@ from utils.optimizer import create_optimizer
 from losses import MultiClassCriterion
 import torch.optim as optim
 from models import TernausNet, unet, checkpointed_unet, inception, coordconv
-from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
+from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, defaults_from_params
 
 logging.getLogger(__name__)
 

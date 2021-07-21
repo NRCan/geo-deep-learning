@@ -365,11 +365,17 @@ def main(params):
     :param params: (dict) Parameters found in the yaml config file.
     """
     start_time = time.time()
+    
+    # mlflow logging
+    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
+    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
 
     # MANDATORY PARAMETERS
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
-    csv_file = get_key_def('prep_csv_file', params['sample'], expected_type=str)
+    default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''), experiment_name,
+                            f"images_to_samples_{experiment_name}.csv")
+    csv_file = get_key_def('prep_csv_file', params['sample'], default_csv_file, expected_type=str)
 
     # OPTIONAL PARAMETERS
     # basics
@@ -383,10 +389,6 @@ def main(params):
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
     Path.mkdir(data_path, exist_ok=True, parents=True)
     val_percent = get_key_def('val_percent', params['sample'], default=10, expected_type=int)
-
-    # mlflow logging
-    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
-    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
 
     # parameters to set hdf5 samples directory
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
