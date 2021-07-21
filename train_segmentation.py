@@ -203,7 +203,7 @@ def get_num_samples(samples_path, params, dontcare):
     return num_samples, samples_weight
 
 
-def vis_from_dataloader(params,
+def vis_from_dataloader(vis_params,
                         eval_loader,
                         model,
                         ep_num,
@@ -214,7 +214,7 @@ def vis_from_dataloader(params,
                         vis_batch_range=None):
     """
     Use a model and dataloader to provide outputs that can then be sent to vis_from_batch function to visualize performances of model, for example.
-    :param params: (dict) Parameters found in the yaml config file.
+    :param vis_params: (dict) Parameters found in the yaml config file useful for visualization
     :param eval_loader: data loader
     :param model: model to evaluate
     :param ep_num: epoch index (for file naming purposes)
@@ -246,7 +246,7 @@ def vis_from_dataloader(params,
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
 
-                    vis_from_batch(params, inputs, outputs,
+                    vis_from_batch(vis_params, inputs, outputs,
                                    batch_index=batch_index,
                                    vis_path=vis_path,
                                    labels=labels,
@@ -711,7 +711,7 @@ def main(params, config_path):
         if get_key_def('vis_at_init', params['visualization'], False):
             logging.info(f'Visualizing initialized model on batch range {vis_batch_range} '
                          f'from {vis_at_init_dataset} dataset...\n')
-            vis_from_dataloader(params=params,
+            vis_from_dataloader(vis_params=vis_params,
                                 eval_loader=val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader,
                                 model=model,
                                 ep_num=0,
@@ -779,7 +779,7 @@ def main(params, config_path):
                 if last_vis_epoch == 0:
                     logging.info(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
                                  f'batches in range {vis_batch_range}')
-                vis_from_dataloader(params=params,
+                vis_from_dataloader(vis_params=vis_params,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
                                     model=model,
                                     ep_num=epoch+1,
@@ -797,7 +797,7 @@ def main(params, config_path):
         logging.info(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if int(params['training']['num_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
+    if num_epochs > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
 
