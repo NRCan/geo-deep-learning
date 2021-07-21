@@ -22,8 +22,13 @@ from utils.readers import read_parameters
 from train_segmentation import main as train_main
 
 # This is the hyperparameter space to explore
+# my_space = {'target_size': hp.choice('target_size', [512, 636]),
+#             'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3_resnet101']),
+#             'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
+#             'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
+#             'learning_rate': hp.loguniform('learning_rate', np.log(1e-7), np.log(0.1))}
+
 my_space = {'target_size': hp.choice('target_size', [512, 636]),
-            'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3_resnet101']),
             'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
             'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
             'learning_rate': hp.loguniform('learning_rate', np.log(1e-7), np.log(0.1))}
@@ -113,7 +118,6 @@ def trials_to_csv(trials, csv_pth):
 
 
 def main(params, config_path):
-    # ToDo: Customize where the trials file is
     # ToDo: Customize where the trials file is
     root_path = Path(params['global']['assets_path'])
     pkl_file = root_path.joinpath('hyperopt_trials.pkl')
