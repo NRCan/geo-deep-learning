@@ -572,7 +572,7 @@ def main(params, config_path):
     std = get_key_def('std', params['training']['normalization'])
     vis_params = {'colormap_file': colormap_file, 'heatmaps': heatmaps, 'heatmaps_inf': heatmaps_inf, 'grid': grid,
                   'mean': mean, 'std': std, 'vis_batch_range': vis_batch_range, 'vis_at_train': vis_at_train,
-                  'vis_at_eval': vis_at_eval, 'ignore_index': dontcare_val}
+                  'vis_at_eval': vis_at_eval, 'ignore_index': dontcare_val, 'inference_input_path': None}
 
     # coordconv parameters
     coordconv_params = {}
