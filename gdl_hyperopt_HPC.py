@@ -67,7 +67,6 @@ def objective_with_args(hparams, params, config_path):
     """
 
     # ToDo: This is dependent on the specific structure of the GDL config file
-    params['global']['model_name'] = hparams['model_name']
     params['training']['target_size'] = hparams['target_size']
     params['training']['loss_fn '] = hparams['loss_fn']
     params['training']['optimizer'] = hparams['optimizer']
