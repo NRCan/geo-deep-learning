@@ -73,8 +73,8 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference: str = '')
     strict_loading = False if not inference else True
     model.load_state_dict(checkpoint['model'], strict=strict_loading)
     logging.info(f"=> loaded model\n")
-    if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-        optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
+    # if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
+    #     optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
     return model, optimizer
 
 
