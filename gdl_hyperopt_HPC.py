@@ -30,6 +30,7 @@ from train_segmentation import main as train_main
 
 my_space = {'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
             'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
+            'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3_resnet101']),
             'learning_rate': hp.loguniform('learning_rate', np.log(1e-7), np.log(0.1))}
 
 
@@ -66,6 +67,7 @@ def objective_with_args(hparams, params, config_path):
     """
 
     # ToDo: This is dependent on the specific structure of the GDL config file
+    params['global']['model_name'] = hparams['model_name']
     params['training']['loss_fn '] = hparams['loss_fn']
     params['training']['optimizer'] = hparams['optimizer']
     params['training']['learning_rate'] = hparams['learning_rate']
