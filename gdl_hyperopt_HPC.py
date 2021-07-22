@@ -28,8 +28,7 @@ from train_segmentation import main as train_main
 #             'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
 #             'learning_rate': hp.loguniform('learning_rate', np.log(1e-7), np.log(0.1))}
 
-my_space = {'target_size': hp.choice('target_size', [512, 636]),
-            'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
+my_space = {'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
             'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
             'learning_rate': hp.loguniform('learning_rate', np.log(1e-7), np.log(0.1))}
 
@@ -67,7 +66,6 @@ def objective_with_args(hparams, params, config_path):
     """
 
     # ToDo: This is dependent on the specific structure of the GDL config file
-    params['training']['target_size'] = hparams['target_size']
     params['training']['loss_fn '] = hparams['loss_fn']
     params['training']['optimizer'] = hparams['optimizer']
     params['training']['learning_rate'] = hparams['learning_rate']
