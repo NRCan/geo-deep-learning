@@ -1,21 +1,24 @@
-import logging
-from typing import List, Sequence
-
-import torch
-# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
-import argparse
-from pathlib import Path
 import time
 import h5py
-from datetime import datetime
+import torch
+import shutil
+import logging
+import argparse
 import warnings
 import functools
-
-from tqdm import tqdm
-from collections import OrderedDict
-import shutil
 import numpy as np
 
+from tqdm import tqdm
+from pathlib import Path
+from datetime import datetime
+from omegaconf import DictConfig
+from typing import List, Sequence
+from collections import OrderedDict
+
+# Our modules
+from images_to_samples import main as segmentation_sampling
+
+# -------------------------
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -256,7 +259,7 @@ def vis_from_dataloader(params,
     logging.info(f'Saved visualization figures.\n')
 
 
-def train(train_loader,
+def training(train_loader,
           model,
           criterion,
           optimizer,
@@ -273,6 +276,7 @@ def train(train_loader,
           ):
     """
     Train the model and return the metrics of the training epoch
+
     :param train_loader: training data loader
     :param model: model to train
     :param criterion: loss criterion
@@ -282,7 +286,7 @@ def train(train_loader,
     :param batch_size: number of samples to process simultaneously
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
-    :param vis_batch_range: range of batches to perform visualization on. see README.md for more info.
+    :param vis_batch_range: range of batches to perform visualization on. see old_README.md for more info.
     :param vis_at_train: (bool) if True, will perform visualization at train time, as long as vis_batch_range is valid
     :param device: device used by pytorch (cpu ou cuda)
     :param debug: (bool) Debug mode
@@ -373,7 +377,7 @@ def evaluation(eval_loader,
     :param batch_size: number of samples to process simultaneously
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
-    :param vis_batch_range: range of batches to perform visualization on. see README.md for more info.
+    :param vis_batch_range: range of batches to perform visualization on. see old_README.md for more info.
     :param vis_at_eval: (bool) if True, will perform visualization at eval time, as long as vis_batch_range is valid
     :param batch_metrics: (int) Metrics computed every (int) batches. If left blank, will not perform metrics.
     :param dataset: (str) 'val or 'tst'
@@ -458,7 +462,7 @@ def evaluation(eval_loader,
     return eval_metrics
 
 
-def main(params, config_path):
+def train(cfg: DictConfig, log: logging) -> None:
     """
     Function to train and validate a model for semantic segmentation.
 
@@ -485,8 +489,8 @@ def main(params, config_path):
        computed on each class.
 
     -------
-    :param params: (dict) Parameters found in the yaml config file.
-    :param config_path: (str) Path to the yaml config file.
+    :param cfg: (dict) Parameters found in the yaml config file.
+    :param log: (logging) Logging module from the main code.
     """
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
@@ -713,20 +717,20 @@ def main(params, config_path):
     for epoch in range(0, num_epochs):
         logging.info(f'\nEpoch {epoch}/{num_epochs - 1}\n{"-" * 20}')
 
-        trn_report = train(train_loader=trn_dataloader,
-                           model=model,
-                           criterion=criterion,
-                           optimizer=optimizer,
-                           scheduler=lr_scheduler,
-                           num_classes=num_classes_corrected,
-                           batch_size=batch_size,
-                           ep_idx=epoch,
-                           progress_log=progress_log,
-                           vis_batch_range=vis_batch_range,
-                           vis_at_train=vis_at_train,
-                           device=device,
-                           scale=scale,
-                           debug=debug)
+        trn_report = training(train_loader=trn_dataloader,
+                              model=model,
+                              criterion=criterion,
+                              optimizer=optimizer,
+                              scheduler=lr_scheduler,
+                              num_classes=num_classes_corrected,
+                              batch_size=batch_size,
+                              ep_idx=epoch,
+                              progress_log=progress_log,
+                              vis_batch_range=vis_batch_range,
+                              vis_at_train=vis_at_train,
+                              device=device,
+                              scale=scale,
+                              debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         val_report = evaluation(eval_loader=val_dataloader,
@@ -813,10 +817,109 @@ def main(params, config_path):
             bucket.upload_file("output.txt", bucket_output_path.joinpath(f"Logs/{now}_output.txt"))
             bucket.upload_file(filename, bucket_filename)
 
-    time_elapsed = time.time() - since
-    logging.info('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    # time_elapsed = time.time() - since
+    # logging.info('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
     log_artifact(logfile)
     log_artifact(logfile_debug)
+
+
+def sampling(cfg: DictConfig, log: logging) -> None:
+    """
+    Function to manage the images sampling of the segmentation task.
+
+    Process
+    -------
+    1. TODO
+
+    -------
+    :param cfg: (dict) Parameters found in the yaml config file.
+    :param log: (logging) Logging module from the main code.
+    """
+    log.info(
+        f'\nImages to samples preparation with '
+        f'{cfg.general.sample_data_dir} image(s)'
+    )
+
+    # Check if the folder have image(s) and ground truth associate
+    # TODO
+
+    # Run the images to samples
+    segmentation_sampling(cfg, log)
+
+    # TODO change where the code is or the name of the file for sampling
+
+
+def evaluate(cfg: DictConfig, log: logging) -> None:
+    """
+    Function to manage the evaluation of the segmentation task.
+
+    Process
+    -------
+    1. TODO
+
+    -------
+    :param cfg: (dict) Parameters found in the yaml config file.
+    :param log: (logging) Logging module from the main code.
+    """
+    raise NotImplementedError('Not yet')
+
+
+def inference(cfg: DictConfig, log: logging) -> None:
+    """
+    Function to manage the inference of the segmentation task.
+
+    Process
+    -------
+    1. TODO
+
+    -------
+    :param cfg: (dict) Parameters found in the yaml config file.
+    :param log: (logging) Logging module from the main code.
+    """
+    raise NotImplementedError('Not yet')
+
+
+def hyperparameters_search(cfg: DictConfig, log: logging) -> None:
+    """
+    Function to manage an hyperparameters search on the training of
+    the segmentation task with hyperopt.
+
+    Process
+    -------
+    1. TODO
+
+    -------
+    :param cfg: (dict) Parameters found in the yaml config file.
+    :param log: (logging) Logging module from the main code.
+    """
+    raise NotImplementedError('Not yet')
+
+
+def main(cfg: DictConfig, log: logging) -> None:
+    """
+    Function to manage details about the segmentation task.
+
+    Process
+    -------
+    1. TODO
+
+    -------
+    :param cfg: (dict) Parameters found in the yaml config file.
+    :param log: (logging) Logging module from the main code.
+    """
+    # Limit of the NIR implementation TODO: Update after each version
+    if 'deeplabv3' not in cfg.model.name and cfg.general.modalities == 'RGBN':
+        log.info(
+            '\nThe NIR modality will only be concatenate at the beginning,'
+            '\nthe implementation of the concatenation point is only available'
+            '\nfor the deeplabv3 model for now. \nMore will follow on demand.'
+        )
+
+    # Preprocessing
+    # HERE the code to do for the preprocessing
+
+    # execute the name mode (need to be in this file for now)
+    globals()[cfg.mode](cfg, log)
 
 
 if __name__ == '__main__':

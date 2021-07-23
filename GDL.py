@@ -46,13 +46,13 @@ def run_gdl(cfg: DictConfig) -> None:
     # check if the mode is chosen
     if type(cfg.mode) is DictConfig:
         msg = "You need to choose between those modes: {}"
-        raise logging.error(msg.format(list(cfg.mode.keys())))
+        raise logging.critical(msg.format(list(cfg.mode.keys())))
 
     # Start -----------------------------------
-    msg = "Let's start {} !!!".format(cfg.mode)
+    msg = "Let's start {} for {} !!!".format(cfg.mode, cfg.task.name)
     logging.info(
         "\n" + "-" * len(msg) + "\n" + msg +
-        "\n" + "-" * len(msg) + "\n"
+        "\n" + "-" * len(msg)
     )
     # -----------------------------------------
 

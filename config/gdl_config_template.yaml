@@ -17,6 +17,7 @@ general:
   project_name: template_project
   workspace: your_name
   device: cuda
+  modalities: RGB
   max_epochs: 10
   min_epochs: 1
   save_dir: './log'

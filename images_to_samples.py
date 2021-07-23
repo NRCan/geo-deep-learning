@@ -1,33 +1,38 @@
-import argparse
-from datetime import datetime
-import logging
-from typing import List
-
-import numpy as np
-np.random.seed(1234)  # Set random seed for reproducibility
-import rasterio
 import time
 import shutil
-import uuid
+import logging
+import argparse
+import rasterio
+import numpy as np
 
-from pathlib import Path
 from tqdm import tqdm
-from collections import OrderedDict
+from typing import List
+from pathlib import Path
+from datetime import datetime
+from omegaconf import DictConfig
 
-from utils.create_dataset import create_files_and_datasets, append_to_dataset
-from utils.utils import get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash
+# Our modules
 from utils.geoutils import vector_to_raster
 from utils.readers import read_parameters, image_reader_as_array
-from utils.verifications import validate_num_classes, validate_raster, assert_crs_match, \
-    validate_features_from_gpkg
+from utils.create_dataset import create_files_and_datasets, append_to_dataset
+from utils.utils import (
+    get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash
+)
+from utils.verifications import (
+    validate_num_classes, validate_raster, assert_crs_match, validate_features_from_gpkg
+)
 
 try:
     import boto3
 except ModuleNotFoundError:
-    logging.warning("The boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
+    logging.warning(
+        "\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets",
+        ImportWarning
+    )
     pass
 
-logging.getLogger(__name__)
+# Set random seed for reproducibility
+np.random.seed(1234)
 
 
 def mask_image(arrayA, arrayB):
@@ -325,14 +330,13 @@ def samples_preparation(in_img_array,
     return samples_count, num_classes
 
 
-def main(params):
+def main(cfg: DictConfig, log: logging) -> None:
     """
-    Training and validation datasets preparation.
+    Function that create training, validation and testing datasets preparation.
 
     Process
     -------
     1. Read csv file and validate existence of all input files and GeoPackages.
-
     2. Do the following verifications:
         1. Assert number of bands found in raster is equal to desired number
            of bands.
@@ -341,7 +345,6 @@ def main(params):
            Warning: this validation will not succeed if a Geopackage
                     contains only a subset of `num_classes` (e.g. 3 of 4).
         3. Assert Coordinate reference system between raster and gpkg match.
-
     3. Read csv file and for each line in the file, do the following:
         1. Read input image as array with utils.readers.image_reader_as_array().
             - If gpkg's extent is smaller than raster's extent,
@@ -362,9 +365,11 @@ def main(params):
             Refer to samples_preparation().
 
     -------
-    :param params: (dict) Parameters found in the yaml config file.
+    :param cfg: (dict) Parameters found in the yaml config file.
+    :param log: (logging) Logging module from the main code.
     """
-    start_time = time.time()
+    assert 1 == 0
+    # start_time = time.time()
 
     # MANDATORY PARAMETERS
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
@@ -643,7 +648,7 @@ def main(params):
         bucket.upload_file(smpls_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
         bucket.upload_file(smpls_dir + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
 
-    logging.info(f"End of process. Elapsed time:{(time.time() - start_time)}")
+    # logging.info(f"End of process. Elapsed time:{(time.time() - start_time)}")
 
 
 if __name__ == '__main__':
