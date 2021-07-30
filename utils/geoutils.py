@@ -8,6 +8,7 @@ import fiona
 import rasterio
 from rasterio.features import is_valid_geom
 from rasterio.mask import mask
+from rasterio.transform import array_bounds
 
 
 def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
@@ -58,13 +59,35 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     gpkg: Path and name of reference GeoPackage
     debug: if True, output raster as given by this function is saved to disk
     """
+
     from shapely.geometry import box  # geopandas and shapely become a project dependency only during sample creation
     import geopandas as gpd
     # Get extent of gpkg data with fiona
     with fiona.open(gpkg, 'r') as src:
         gpkg_crs = src.crs
-        assert gpkg_crs == raster.crs
+        assert gpkg_crs == raster.crs or gpkg_crs == raster.crs.data # FIXME: these aint working as raster/gpkg.crs give variaty of datatypes
         minx, miny, maxx, maxy = src.bounds  # ouest, nord, est, sud
+
+        # region get coords for visualization HDF5 file
+        vis_coords = {}
+        # try:
+        vis_coords['projection'] = src.crs['init']
+        # vis_coords['minx'] = minx
+        # vis_coords['miny'] = miny
+        # vis_coords['maxx'] = maxx
+        # vis_coords['maxy'] = maxy
+        # except KeyError:
+        # #     try:
+        # #        wkt = src.crs_wkt
+        # #     except AttributeError:
+        # #        wkt = src.crs.wkt
+        # #     wkt
+        #     vis_coords['mapping'] = src.crs['init']
+        #     vis_coords['minx'] = minx
+        #     vis_coords['miny'] = miny
+        #     vis_coords['maxx'] = maxx
+        #     vis_coords['maxy'] = maxy
+        # endregion
 
     # Create a bounding box with Shapely
     bbox = box(minx, miny, maxx, maxy)
@@ -85,6 +108,17 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
         # TODO: warning or exception? if warning, except must be set in images_to_samples
         raise
 
+    # print(f'\n\n   {minx-maxx} : {miny-maxy}')
+    # print(f'before:\t{minx},{maxx} : {miny},{maxy}')
+    w,s,e,n = array_bounds(out_img.shape[1], out_img.shape[2], out_transform)
+    # print(f'\n   {w-e} : {s-n}')
+    # print(f'after:\t{w},{e} : {s},{n}\n')
+    # print(out_img.shape, '\n\n')
+    vis_coords['w'] = w
+    vis_coords['e'] = e
+    vis_coords['s'] = s
+    vis_coords['n'] = n
+
     out_meta = raster.meta.copy()
     out_meta.update({"driver": "GTiff",
                      "height": out_img.shape[1],
@@ -97,7 +131,7 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
             print(f"DEBUG: writing clipped raster to {out_tif}")
             dest.write(out_img)
 
-    return out_img, dest
+    return out_img, dest, vis_coords
 
 
 def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0, target_ids=None, merge_all=True):

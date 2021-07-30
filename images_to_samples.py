@@ -11,7 +11,7 @@ import shutil
 import uuid
 
 from pathlib import Path
-from tqdm import tqdm
+# from tqdm import tqdm
 from collections import OrderedDict
 
 from utils.create_dataset import create_files_and_datasets, append_to_dataset
@@ -28,6 +28,7 @@ except ModuleNotFoundError:
     pass
 
 from rich.console import Console
+from utils.tracker import Tracking_Pane
 # endregion
 
 
@@ -148,7 +149,8 @@ def add_to_datasets(dataset,
 
     return val
 
-def samples_preparation(in_img_array,
+def samples_preparation(tracker, coords, tracker_hdf5,
+                        in_img_array,
                         label_array,
                         sample_size,
                         overlap,
@@ -205,64 +207,96 @@ def samples_preparation(in_img_array,
     added_samples = 0
     excl_samples = 0
 
-    with tqdm(range(0, h, dist_samples), position=1, leave=True,
-              desc=f'Writing samples. Dataset currently contains {idx_samples} '
-                   f'samples') as _tqdm:
+    # region Calc Lat&Long for visualisation
+    # Nrows = np.ceil(w / dist_samples) # = equivalent to len(range(0, h, dist_samples))
+    # Ncols = np.ceil(w / dist_samples) # = equivalent to len(range(0, w, dist_samples))
+    # half_overlap_dist = (256 * 0.25) / 2
+    long_per_pxl = (coords['n'] - coords['s']) / h
+    lat_per_pxl = (coords['e'] - coords['w']) / w
+    # endregion
 
-        for row in _tqdm:
-            for column in range(0, w, dist_samples):
-                data = (in_img_array[row:row + sample_size, column:column + sample_size, :])
-                target = np.squeeze(label_array[row:row + sample_size, column:column + sample_size, :], axis=2)
-                data_row = data.shape[0]
-                data_col = data.shape[1]
-                if data_row < sample_size or data_col < sample_size:
-                    padding = pad_diff(data_row, data_col, sample_size,
-                                       sample_size)  # array, actual height, actual width, desired size
-                    data = pad(data, padding,
-                               fill=np.nan)  # don't fill with 0 if possible. Creates false min value when scaling.
+    for row in tracker.track(range(0, h, dist_samples), task_id=1):
+        tracker.reset(task_id=2)
+        for column in tracker.track(range(0, w, dist_samples), task_id=2):
 
-                target_row = target.shape[0]
-                target_col = target.shape[1]
-                if target_row < sample_size or target_col < sample_size:
-                    padding = pad_diff(target_row, target_col, sample_size,
-                                       sample_size)  # array, actual height, actual width, desired size
-                    target = pad(target, padding, fill=dontcare)
-                u, count = np.unique(target, return_counts=True)
-                target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
+            data = (in_img_array[row:row + sample_size, column:column + sample_size, :])
+            target = np.squeeze(label_array[row:row + sample_size, column:column + sample_size, :], axis=2)
+            data_row = data.shape[0]
+            data_col = data.shape[1]
+            if data_row < sample_size or data_col < sample_size:
+                tracker.num_padded += 1
+                padding = pad_diff(data_row, data_col, sample_size, sample_size)  # array, actual height, actual width, desired size
+                data = pad(data, padding, fill=np.nan)  # don't fill with 0 if possible. Creates false min value when scaling.
 
-                sample_metadata = {'sample_indices': (row, column)}
+            target_row = target.shape[0]
+            target_col = target.shape[1]
+            if target_row < sample_size or target_col < sample_size:
+                padding = pad_diff(target_row, target_col, sample_size, sample_size)  # array, actual height, actual width, desired size
+                target = pad(target, padding, fill=dontcare)
+            u, count = np.unique(target, return_counts=True)
+            target_background_percent = round(count[0] / np.sum(count) * 100 if 0 in u else 0, 1)
 
-                val = False
-                if minimum_annotated_percent(target_background_percent, min_annot_perc) and \
-                        class_proportion(target, sample_size, class_prop):
-                    val = add_to_datasets(dataset=dataset,
-                                          samples_file=samples_file,
-                                          val_percent=val_percent,
-                                          val_sample_file=val_sample_file,
-                                          data=data,
-                                          target=target,
-                                          sample_metadata=sample_metadata,
-                                          metadata_idx=metadata_idx,
-                                          dict_classes=pixel_classes)
-                    if val:
-                        idx_samples_v += 1
-                    else:
-                        idx_samples += 1
-                    added_samples += 1
+            sample_metadata = {'sample_indices': (row, column)}
+
+            val = False
+            if minimum_annotated_percent(target_background_percent, min_annot_perc) and class_proportion(target, sample_size, class_prop):
+                val = add_to_datasets(dataset=dataset,
+                                      samples_file=samples_file,
+                                      val_percent=val_percent,
+                                      val_sample_file=val_sample_file,
+                                      data=data,
+                                      target=target,
+                                      sample_metadata=sample_metadata,
+                                      metadata_idx=metadata_idx,
+                                      dict_classes=pixel_classes)
+
+                # print(f'row:{row}, col:{column}')
+                # print(f'lat: w{coords["w"] +(lat_per_pxl * column)}-e{coords["w"] +(lat_per_pxl * (column+sample_size))}')
+                # print(f'long:s{coords["s"] +(long_per_pxl * row)}-n{coords["s"] +(long_per_pxl * (row+sample_size))}')
+
+                if val:
+                    tracker_hdf5['val/projection'].resize(tracker_hdf5['val/projection'].shape[0]+1, axis=0)
+                    tracker_hdf5['val/projection'][tracker_hdf5['val/projection'].shape[0]-1, ...] = coords['projection']
+                    tracker_hdf5['val/coords'].resize(tracker_hdf5['val/coords'].shape[0]+1, axis=0)
+                    tracker_hdf5['val/coords'][tracker_hdf5['val/coords'].shape[0]-1, ...] = (coords["w"] +(lat_per_pxl * column),
+                                                                                              coords["w"] +(lat_per_pxl * (column+sample_size)),
+                                                                                              coords["n"] -(long_per_pxl * row),
+                                                                                              coords["n"] -(long_per_pxl * (row+sample_size)))
+                    tracker.idx_samples_v += 1
+                    idx_samples_v += 1
                 else:
-                    excl_samples += 1
+                    tracker_hdf5[dataset+'/projection'].resize(tracker_hdf5[dataset+'/projection'].shape[0]+1, axis=0)
+                    tracker_hdf5[dataset+'/projection'][tracker_hdf5[dataset+'/projection'].shape[0]-1, ...] = coords['projection']
+                    tracker_hdf5[dataset+'/coords'].resize(tracker_hdf5[dataset+'/coords'].shape[0]+1, axis=0)
+                    tracker_hdf5[dataset+'/coords'][tracker_hdf5[dataset+'/coords'].shape[0]-1, ...] = (coords["w"] +(lat_per_pxl * column),
+                                                                                                        coords["w"] +(lat_per_pxl * (column+sample_size)),
+                                                                                                        coords["n"] -(long_per_pxl * row),
+                                                                                                        coords["n"] -(long_per_pxl * (row+sample_size)))
 
-                target_class_num = np.max(u)
-                if num_classes < target_class_num:
-                    num_classes = target_class_num
+                    if dataset == 'tst': tracker.tst_samples += 1
+                    else:                tracker.trn_samples += 1
+                    idx_samples += 1
+                added_samples += 1
+            else:
+                tracker.excl_samples += 1
+                excl_samples += 1
 
-                final_dataset = 'val' if val else dataset
-                _tqdm.set_postfix(Dataset=final_dataset,
-                                  Excld_samples=excl_samples,
-                                  Added_samples=f'{added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}',
-                                  Target_annot_perc=100 - target_background_percent)
+            # if dataset == 'tst':    tst_samples = idx_samples
+            # else:                   trn_samples = idx_samples
+            # tracker.info = f'trn:[green]{trn_samples}[/]   val:[orange1]{idx_samples_v}[/]   tst:[blue]{tst_samples}[/]   under_min%:[red]{excl_samples}[/]   padded:[yellow1]{num_padded}[/]'
+
+            target_class_num = np.max(u)
+            if num_classes < target_class_num:
+                num_classes = target_class_num
+
+            final_dataset = 'val' if val else dataset
+            # _tqdm.set_postfix(Dataset=final_dataset,
+            #                   Excld_samples=excl_samples,
+            #                   Added_samples=f'{added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}',
+            #                   Target_annot_perc=100 - target_background_percent)
 
     assert added_samples > 0, "No sample added for current raster. Problems may occur with use of metadata"
+
     if dataset == 'tst':
         samples_count['tst'] = idx_samples
     else:
@@ -313,6 +347,7 @@ def main(params, console=None):
     """
     console = Console()
 
+# region params
     start_time = time.time()
     params['global']['git_hash'] = get_git_hash()
     now = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -340,6 +375,7 @@ def main(params, console=None):
     experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training')
     sample_path_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
                         f'{num_bands}bands_{experiment_name}')
+    # endregion
 
 # region prep fo Samples folder
     # AWS
@@ -370,25 +406,21 @@ def main(params, console=None):
         else:
             raise FileExistsError(f'Data path exists: {samples_folder}. Remove it or use a different experiment_name.')
     else:   # make new folder
-        tqdm.write(f'Writing samples to {samples_folder}')
         console.print('writing samples to:', style='bold #FFFFFF on green', justify="center")
         console.print(samples_folder, style='bold #FFFFFF on green', justify="center")
     Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
-    tqdm.write(f'Samples will be written to {samples_folder}\n\n')
     # endregion
 
     console.print('CSV file =', style='green')
     console.print('\t', Path(csv_file).stem, len(list_data_prep), style='green')
     console.print('\t #f rows =', len(list_data_prep), '\n', style='green')
-    # tqdm.write(f'\nSuccessfully read csv file: {Path(csv_file).stem}\n'
-    #            f'Number of rows: {len(list_data_prep)}\n'
-    #            f'Copying first entry:\n{list_data_prep[0]}\n')
+
     ignore_index = get_key_def('ignore_index', params['training'], -1)
     meta_map, metadata = get_key_def("meta_map", params["global"], {}), None
 
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
-    for info in tqdm(list_data_prep, position=0):
+    for info in list_data_prep:
         assert_num_bands(info['tif'], num_bands, meta_map)
         if info['gpkg'] not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(info['gpkg'], params['global']['num_classes'], info['attribute_name'],
@@ -398,9 +430,8 @@ def main(params, console=None):
 
     if debug:
         # VALIDATION (debug only): Checking validity of features in vector files
-        for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
-            invalid_features = validate_features_from_gpkg(info['gpkg'], info[
-                'attribute_name'])  # TODO: test this with invalid features.
+        for info in list_data_prep:
+            invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])  # TODO: test this with invalid features.
             assert not invalid_features, f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'"
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
@@ -408,7 +439,7 @@ def main(params, console=None):
 
     class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
 
-    trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(params, samples_folder)
+    trn_hdf5, val_hdf5, tst_hdf5, tracker_hdf5 = create_files_and_datasets(params, samples_folder)
 
     # region Set dontcare (aka ignore_index) value
     dontcare = get_key_def("ignore_index", params["training"], -1)  # TODO: deduplicate with train_segmentation, l300
@@ -427,14 +458,15 @@ def main(params, console=None):
     pixel_classes[dontcare] = 0
     # endregion
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
-    with tqdm(list_data_prep, position=0, leave=False, desc=f'Preparing samples') as _tqdm:
-        for rowN, info in enumerate(_tqdm):
+    with Tracking_Pane(console=console, mode='im_to_samp') as tracker: # task_ids: 0=csv row, 1=trn batch, 2=vis batch (ie. order they are create in utils.tracker)
+
+        for rowN, info in enumerate(tracker.track(list_data_prep, task_id=0)):
+            tracker.reset(task_id=1)
+            tracker.reset(task_id=2)
             console.print(' ', style='bold #FFFFFF on purple', justify="center")
             console.print('row =', rowN, style='purple', justify="center")
             console.print(info, justify='center')
             print("Elapsed time:{}".format(time.time() - start_time))
-            _tqdm.set_postfix(
-                OrderedDict(tif=f'{Path(info["tif"]).stem}', sample_size=params['global']['samples_size']))
             try:
                 if bucket_name:
                     bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
@@ -450,18 +482,20 @@ def main(params, console=None):
                         info['meta'] = info['meta'].split('/')[-1]
 
                 with rasterio.open(info['tif'], 'r') as raster:
-                    # 1. Read the input raster image
-                    np_input_image, raster, dataset_nodata = image_reader_as_array(
-                        input_image=raster,
-                        clip_gpkg=info['gpkg'],
-                        aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
-                        aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
-                        aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
-                        aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
-                        aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
-                        aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
-                    # 2. Burn vector file in a raster file
+# 1. Read the input raster image
+                    np_input_image, raster, dataset_nodata, coords = image_reader_as_array(input_image=raster,
+                                                                                          clip_gpkg=info['gpkg'],
+                                                                                          aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
+                                                                                          aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                                                                                          aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                                                                                          aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                                                                                          aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
+                                                                                          aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
+
+
+
+# 2. Burn vector file in a raster file
                     np_label_raster = vector_to_raster(vector_file=info['gpkg'],
                                                        input_image=raster,
                                                        out_shape=np_input_image.shape[:2],
@@ -478,7 +512,7 @@ def main(params, console=None):
                     out_meta.update({"driver": "GTiff",
                                      "height": np_image_debug.shape[1],
                                      "width": np_image_debug.shape[2]})
-                    out_tif = samples_folder / f"np_input_image_{_tqdm.n}.tif"
+                    out_tif = samples_folder / f"np_input_image_{rowN}.tif"
                     console.print(f"DEBUG: writing clipped raster to {out_tif}")
                     with rasterio.open(out_tif, "w", **out_meta) as dest:
                         dest.write(np_image_debug)
@@ -490,7 +524,7 @@ def main(params, console=None):
                                      "height": np_label_debug.shape[1],
                                      "width": np_label_debug.shape[2],
                                      'count': 1})
-                    out_tif = samples_folder / f"np_label_rasterized_{_tqdm.n}.tif"
+                    out_tif = samples_folder / f"np_label_rasterized_{rowN}.tif"
                     console.print(f"DEBUG: writing final rasterized gpkg to {out_tif}")
                     with rasterio.open(out_tif, "w", **out_meta) as dest:
                         dest.write(np_label_debug)
@@ -517,26 +551,28 @@ def main(params, console=None):
                                                      if count > 0}  # TODO: add this to add_metadata_from[...] function?
 
                 np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
-                # 3. Prepare samples!
-                number_samples, number_classes = samples_preparation(in_img_array=np_input_image,
-                                                                     label_array=np_label_raster,
-                                                                     sample_size=samples_size,
-                                                                     overlap=overlap,
-                                                                     samples_count=number_samples,
-                                                                     num_classes=number_classes,
-                                                                     samples_file=out_file,
-                                                                     val_percent=val_percent,
-                                                                     val_sample_file=val_file,
-                                                                     dataset=info['dataset'],
-                                                                     pixel_classes=pixel_classes,
-                                                                     image_metadata=metadata,
-                                                                     dontcare=dontcare,
-                                                                     min_annot_perc=min_annot_perc,
-                                                                     class_prop=class_prop)
+# 3. Prepare samples!
+                number_samples, number_classes = samples_preparation(tracker, coords, tracker_hdf5,
+                                                                 in_img_array=np_input_image,
+                                                                 label_array=np_label_raster,
+                                                                 sample_size=samples_size,
+                                                                 overlap=overlap,
+                                                                 samples_count=number_samples,
+                                                                 num_classes=number_classes,
+                                                                 samples_file=out_file,
+                                                                 val_percent=val_percent,
+                                                                 val_sample_file=val_file,
+                                                                 dataset=info['dataset'],
+                                                                 pixel_classes=pixel_classes,
+                                                                 image_metadata=metadata,
+                                                                 dontcare=dontcare,
+                                                                 min_annot_perc=min_annot_perc,
+                                                                 class_prop=class_prop)
 
-                _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
+                # _tqdm.set_postfix(OrderedDict(number_samples=number_samples))
                 out_file.flush()
                 console.print('row', rowN, 'finished', style='bold #FFFFFF on purple', justify="center")
+
             except OSError as e:
                 console.print(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
                               f'{Path(info["gpkg"]).stem} (gpkg). Error: "{e}"', style='bold #FFFFFF on red', justify="center")
@@ -547,6 +583,7 @@ def main(params, console=None):
     trn_hdf5.close()
     val_hdf5.close()
     tst_hdf5.close()
+    tracker_hdf5.close()
     print("Elapsed time:{}".format(time.time() - start_time))
     pixel_total = 0
     # adds up the number of pixels for each class in pixel_classes dict
@@ -567,6 +604,7 @@ def main(params, console=None):
         bucket.upload_file(samples_folder + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
         bucket.upload_file(samples_folder + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
         bucket.upload_file(samples_folder + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
+        bucket.upload_file(samples_folder + "/tracker.hdf5", final_samples_folder + '/tracker.hdf5')
     print("Elapsed time:{}".format(time.time() - start_time))
     console.print("End of process")
 
@@ -578,6 +616,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     params = read_parameters(args.ParamFile)
     start_time = time.time()
-    tqdm.write(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
+    print(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
     main(params)
     print("Elapsed time:{}".format(time.time() - start_time))

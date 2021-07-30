@@ -60,6 +60,17 @@ def create_files_and_datasets(params, samples_folder):
             warnings.warn(f'{e}. Update h5py to version 2.10 or higher')
             raise
         hdf5_files.append(hdf5_file)
+
+    if params['global']['qgis_tracker']:
+        hdf5_file = h5py.File(os.path.join(samples_folder, f"tracker.hdf5"), "w")
+        for subset in ["trn", "val", "tst"]:
+            grp = hdf5_file.create_group(subset)
+            grp.create_dataset("coords", (0, 4), dtype=float, maxshape=(None, 4))
+            grp.create_dataset("projection", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+        hdf5_files.append(hdf5_file)
+    else:
+        hdf5_files.append(None)
+
     return hdf5_files
 
 
