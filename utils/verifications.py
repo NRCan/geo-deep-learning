@@ -5,7 +5,7 @@ import fiona
 import warnings
 import rasterio
 from rasterio.features import is_valid_geom
-from tqdm import tqdm
+# from tqdm import tqdm
 
 from utils.create_dataset import MetaSegmentationDataset
 from utils.geoutils import lst_ids, get_key_recursive
@@ -24,7 +24,7 @@ def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attrib
     """
     distinct_att = set()
     with fiona.open(vector_file, 'r') as src:
-        for feature in tqdm(src, leave=False, position=1, desc=f'Scanning features'):
+        for feature in src: #, leave=False, position=1, desc=f'Scanning features'):
             # Use property of set to store unique values
             distinct_att.add(get_key_recursive(attribute_name, feature))
 
@@ -86,10 +86,23 @@ def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path])
     with rasterio.open(raster_path, 'r') as raster:
         raster_crs = raster.crs
 
-    assert gpkg_crs == raster_crs, f"CRS mismatch: \n" \
-                                   f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n" \
-                                   f"GPKG file \"{gpkg_path}\" has {src.crs} CRS."
-
+    # FIXME: these aint working as raster/gpkg give variaty of results
+    # if 'init' in gpkg_crs.keys() and 'init' in raster_crs.keys():
+    #     assert gpkg_crs['init'] == raster_crs['init'], f"CRS mismatch: \n" \
+    #                                                    f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n" \
+    #                                                    f"GPKG file \"{gpkg_path}\" has {src.crs} CRS."
+    # elif 'init' in gpkg_crs.keys():
+    #     assert gpkg_crs['init'] == raster_crs, f"CRS mismatch: \n" \
+    #                                            f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n" \
+    #                                            f"GPKG file \"{gpkg_path}\" has {src.crs} CRS."
+    # elif 'init' in raster_crs.keys():
+    #     assert gpkg_crs == raster_crs['init'], f"CRS mismatch: \n" \
+    #                                            f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n" \
+    #                                            f"GPKG file \"{gpkg_path}\" has {src.crs} CRS."
+    # else:
+    #     assert gpkg_crs == raster_crs, f"CRS mismatch: \n" \
+    #                                    f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n" \
+    #                                    f"GPKG file \"{gpkg_path}\" has {src.crs} CRS."
 
 def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
     """

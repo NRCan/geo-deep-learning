@@ -1,5 +1,0 @@
-flatten labels:
-1, 256, 256         ->          65536
-
-flatten outputs:
-1, 1, 256, 256      ->          32768

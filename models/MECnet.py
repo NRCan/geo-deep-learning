@@ -698,22 +698,22 @@ class MECNet(nn.Module):
         e1, e2, e3, e4, e5 = self.encoder(x)
         o1, o2, o3, o4, o5 = self.decoder(e1, e2, e3, e4, e5)
         if self.visualization:
-            res, visual_feat_map = self.msp((o1, o2, o3))
+            res, visual_feat_map = self.msp((o1, o2, o3, o4, o5))
             return (res, o1, o2, o3, o4, o5), visual_feat_map
         else:
             res = self.msp((o1, o2, o3))
-            return res, o1, o2, o3, o4, o5
+            return res#, o1, o2, o3, o4, o5
 
 
-# if __name__ == '__main__':
-#     from thop import profile
-#     import torchsummary
-#     band_num = 3
-#     class_num = 1
-#     model = MECNet()
-#     input = torch.randn(1, 3, 512, 512)
-#     flops, params = profile(model, inputs=(input,))
-#     model.cuda()
-#     # torchsummary.summary(model, (band_num, 512, 512))
-#     print('flops(G): %.3f' % (flops / 1e+9))
-#     print('params(M): %.3f' % (params / 1e+6))
+if __name__ == '__main__':
+    from thop import profile
+    import torchsummary
+    band_num = 3
+    class_num = 1
+    model = MECNet()
+    input = torch.randn(1, 3, 512, 512)
+    # flops, params = profile(model, inputs=(input,))
+    # model.cuda()
+    torchsummary.summary(model, (band_num, 512, 512))
+    # print('flops(G): %.3f' % (flops / 1e+9))
+    # print('params(M): %.3f' % (params / 1e+6))

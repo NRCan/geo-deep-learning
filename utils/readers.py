@@ -1,6 +1,6 @@
 import numpy as np
 from ruamel_yaml import YAML
-from tqdm import tqdm
+# from tqdm import tqdm
 from pathlib import Path
 from skimage import morphology
 
@@ -46,7 +46,7 @@ def image_reader_as_array(input_image,
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
     if clip_gpkg:
-        np_array, input_image = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
+        np_array, input_image, coords = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
     else:
         np_array = input_image.read()
 
@@ -104,4 +104,4 @@ def image_reader_as_array(input_image,
                 vec_tensor[:, :, vec_band_idx] *= aux_vector_scale
         np_array = np.concatenate([np_array, vec_tensor], axis=2)
 
-    return np_array, input_image, dataset_nodata
+    return np_array, input_image, dataset_nodata, coords

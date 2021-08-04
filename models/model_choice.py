@@ -167,8 +167,7 @@ def net(net_params, num_channels, inference=False):
 
     elif model_name == 'fcn_resnet101':
         assert num_bands == 3, msg
-        model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
-                                                  aux_loss=None)
+        model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels, aux_loss=None)
     elif model_name == 'deeplabv3_resnet101':
         assert (num_bands == 3 or num_bands == 4), msg
         if num_bands == 3:

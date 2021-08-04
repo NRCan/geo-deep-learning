@@ -34,17 +34,16 @@ from utils.readers import read_parameters
 
 from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact, start_run
 
-from torchsummary import summary as torch_summary
+# from torchsummary import summary as torch_summary
 
 from utils.tracker import Tracking_Pane
-
+from rich.console import Console
 from rich.table import Table, Column
-from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn
 from rich.panel import Panel
 from rich.text import Text
 from rich import inspect, print
 import sys
-from matplotlib import pyplot as plt
+# from matplotlib import pyplot as plt
 
 
 def get_renderables(self):
@@ -85,6 +84,7 @@ def flatten_outputs(predictions, number_of_classes):
     logits_permuted_cont = logits_permuted.contiguous()
     outputs_flatten = logits_permuted_cont.view(-1, number_of_classes)
     return outputs_flatten
+    # outputs_flatten = torch.tensor(predictions
 
 
 def loader(path):
@@ -133,15 +133,11 @@ def create_dataloader(samples_folder, batch_size, num_devices, params):
     num_workers = num_devices * 4 if num_devices > 1 else 4
 
     samples_weight = torch.from_numpy(samples_weight)
-    sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
-                                                             len(samples_weight))
+    sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'), len(samples_weight))
 
-    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler,
-                                drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=1, num_workers=num_workers, shuffle=False,
-                                drop_last=True)
-    tst_dataloader = DataLoader(tst_dataset, batch_size=1, num_workers=num_workers, shuffle=False,
-                                drop_last=True) if num_samples['tst'] > 0 else None
+    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler, drop_last=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=1, num_workers=num_workers, shuffle=False, drop_last=True)
+    tst_dataloader = DataLoader(tst_dataset, batch_size=1, num_workers=num_workers, shuffle=False, drop_last=True) if num_samples['tst'] > 0 else None
 
     return trn_dataloader, val_dataloader, tst_dataloader
 
@@ -283,9 +279,9 @@ def train(console, tracker, train_loader, model, criterion, optimizer, scheduler
         outputs = model(inputs)
         # added for torchvision models that output an OrderedDict with outputs in 'out' key.
         # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
-        if 'deeplabv3' == vis_params['global']['model_name'].lower():
+        if isinstance(outputs, OrderedDict):
             outputs = outputs['out']
-        elif 'mecnet' == vis_params['global']['model_name'].lower():
+        elif isinstance(outputs, tuple):
             outputs = outputs[0]
 
         if vis_batch_range and vis_at_train:
@@ -352,7 +348,8 @@ def evaluation(console, tracker, eval_loader, model, criterion, num_classes, bat
         # tracker.advance(1)
         tracker.batch_info = f'{len(data["index"].tolist())} Images = {data["index"].tolist()}'
 
-        progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
+        if not progress_log == None:
+            progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
         with torch.no_grad():
             inputs = data['sat_img'].to(device)
@@ -374,9 +371,9 @@ def evaluation(console, tracker, eval_loader, model, criterion, num_classes, bat
                 ############################
 
             outputs = model(inputs)
-            if 'deeplabv3' == vis_params['global']['model_name'].lower():
+            if isinstance(outputs, OrderedDict):
                 outputs = outputs['out']
-            elif 'mecnet' == vis_params['global']['model_name'].lower():
+            elif isinstance(outputs, tuple):
                 outputs = outputs[0]
 
             if vis_batch_range and vis_at_eval:
@@ -414,23 +411,15 @@ def evaluation(console, tracker, eval_loader, model, criterion, num_classes, bat
                 eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
                                                      ignore_index=eval_loader.dataset.dontcare)
 
-            # _tqdm.set_postfix(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
-            #
             if debug and device.type == 'cuda':
                 res, mem = gpu_stats(device=device.index)
                 # _tqdm.set_postfix(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
                 #                               gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
 
-    # print(f"{dataset} Loss: {eval_metrics['loss'].avg}")
-    # if batch_metrics is not None:
-    #     print(f"{dataset} precision: {eval_metrics['precision'].avg}")
-    #     print(f"{dataset} recall: {eval_metrics['recall'].avg}")
-    #     print(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
-    #     print(f"{dataset} iou: {eval_metrics['iou'].avg}")
     return eval_metrics
 
 
-def main(params, config_path, console, trckr):
+def main(params, config_path, trckr):
     """
     Function to train and validate a model for semantic segmentation.
 
@@ -462,6 +451,8 @@ def main(params, config_path, console, trckr):
     """
 
 # region basic params
+    console = Console()
+
     params['global']['git_hash'] = get_git_hash()
     debug = get_key_def('debug_mode', params['global'], False)
     # if debug:
@@ -588,12 +579,12 @@ def main(params, config_path, console, trckr):
     experiment_table.add_column('fscore', justify='center', style='color(6)')
     experiment_table.add_column('iou', justify='center', style='color(7)')
 
-    with Tracking_Pane(console=console) as tracker: # task_ids: [0=epoch, 1=trn batch, 2=vis batch] (ie. order they are create in utils.tracker)
-    # , other_renderables=[experiment_table]
+    with Tracking_Pane(console=console, mode='train') as tracker: # , other_renderables=[experiment_table]     # task_ids: 0=epoch, 1=trn batch, 2=vis batch (ie. order they are create in utils.tracker)
 
         for epoch in tracker.track(range(0, params['training']['num_epochs']), task_id=0):
             tracker.reset(task_id=1)
             tracker.reset(task_id=2)
+
             trn_report = train(console, tracker,
                                train_loader=trn_dataloader,
                                model=model,
@@ -625,14 +616,7 @@ def main(params, config_path, console, trckr):
                                     debug=debug)
             val_loss = val_report['loss'].avg
 
-            # experiment_table.add_row(f'{epoch} / {params["training"]["num_epochs"] - 1}',
-            #                          str(best_loss),
-            #                          str(val_loss),
-            #                          str(trn_report['loss'].avg),
-            #                          str(val_report['precision'].avg),
-            #                          str(val_report['recall'].avg),
-            #                          str(val_report['fscore'].avg),
-            #                          str(val_report['iou'].avg))
+
 
             if params['training']['batch_metrics'] is not None:
                 val_log.add_values(val_report, epoch)
@@ -640,6 +624,15 @@ def main(params, config_path, console, trckr):
                 val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
             if val_loss < best_loss:
+                experiment_table.add_row(f'{epoch} / {params["training"]["num_epochs"] - 1}',
+                                         str(best_loss),
+                                         str(val_loss),
+                                         str(trn_report['loss'].avg),
+                                         str(val_report['precision'].avg),
+                                         str(val_report['recall'].avg),
+                                         str(val_report['fscore'].avg),
+                                         str(val_report['iou'].avg))
+
                 # tqdm.write("save checkpoint\n")
                 console.print('saving checkpoint', style='bold white on green')
                 best_loss = val_loss
@@ -681,13 +674,14 @@ def main(params, config_path, console, trckr):
             cur_elapsed = time.time() - since
             console.print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
-# load checkpoint model and evaluate it on test dataset.
+
+    # load checkpoint model and evaluate it on test dataset
     if int(params['training']['num_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
 
     if tst_dataloader:
-        tst_report = evaluation(console,
+        tst_report = evaluation(console, tracker,
                                 eval_loader=tst_dataloader,
                                 model=model,
                                 criterion=criterion,
@@ -712,8 +706,6 @@ def main(params, config_path, console, trckr):
 
 
 if __name__ == '__main__':
-    from rich.console import Console
-    console = Console()
     print(f'Start\n')
     parser = argparse.ArgumentParser(description='Training execution')
     parser.add_argument('param_file', help='Path to training parameters stored in yaml')
@@ -730,5 +722,5 @@ if __name__ == '__main__':
             ' for the deeplabv3 model for now. \n More will follow on demande.\n'
              )
 
-    main(params, config_path, console, trckr=None)
+    main(params, config_path, trckr=None)
     print('End of training')
