@@ -2,7 +2,8 @@ import collections
 import logging
 import os
 import warnings
-from typing import List
+from pathlib import Path
+from typing import List, Union
 
 import h5py
 from torch.utils.data import Dataset
@@ -32,7 +33,8 @@ def append_to_dataset(dataset, sample):
     return old_size
 
 
-def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: str, params):
+def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: Union[str, Path],
+                              params, to_hdf5=False):
     """
     Function to create the hdfs files (trn, val and tst).
     :param samples_size: size of individual hdf5 samples to be created
@@ -44,24 +46,28 @@ def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map,
     """
     real_num_bands = number_of_bands - MetaSegmentationDataset.get_meta_layer_count(meta_map)
     assert real_num_bands > 0, "invalid number of bands when accounting for meta layers"
-    hdf5_files = []
+    dest_path = []
     for subset in ["trn", "val", "tst"]:
-        hdf5_file = h5py.File(os.path.join(samples_folder, f"{subset}_samples.hdf5"), "w")
-        hdf5_file.create_dataset("sat_img", (0, samples_size, samples_size, real_num_bands), np.uint16,
-                                 maxshape=(None, samples_size, samples_size, real_num_bands))
-        hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
-                                 maxshape=(None, samples_size, samples_size))
-        hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
-        try:
-            hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            append_to_dataset(hdf5_file["params"], repr(params))
-        except AttributeError:
-            logging.exception(f'Update h5py to version 2.10 or higher')
-            raise
-        hdf5_files.append(hdf5_file)
-    return hdf5_files
+        if to_hdf5:
+            hdf5_file = h5py.File(os.path.join(samples_folder, f"{subset}_samples.hdf5"), "w")
+            hdf5_file.create_dataset("sat_img", (0, samples_size, samples_size, real_num_bands), np.uint16,
+                                     maxshape=(None, samples_size, samples_size, real_num_bands))
+            hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
+                                     maxshape=(None, samples_size, samples_size))
+            hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
+            try:
+                hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+                hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+                hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
+                append_to_dataset(hdf5_file["params"], repr(params))
+            except AttributeError:
+                logging.exception(f'Update h5py to version 2.10 or higher')
+                raise
+            dest_path.append(hdf5_file)
+        else:
+            out_dir = samples_folder / subset
+            dest_path.append(out_dir)
+    return dest_path
 
 
 class SegmentationDataset(Dataset):

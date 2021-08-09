@@ -13,6 +13,8 @@ import uuid
 from pathlib import Path
 from tqdm import tqdm
 from collections import OrderedDict
+import solaris as sol
+import geopandas as gpd
 
 from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.utils import get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash
@@ -175,7 +177,8 @@ def samples_preparation(in_img_array,
                         image_metadata=None,
                         min_annot_perc=None,
                         class_prop=None,
-                        stratd=None):
+                        stratd=None,
+                        to_hdf5: bool = False):
     """
     Extract and write samples from input image and reference image
     :param in_img_array: numpy array of the input image
@@ -247,7 +250,7 @@ def samples_preparation(in_img_array,
                 # Stratification bias
                 if (stratd is not None) and (dataset == 'trn'):
                     tile_size = target.size
-                    tile_counts = {x: y for x, y in zip(u, count)}
+                    tile_counts = {x: y for x, y in zip(u, count)}  # FIXME: u and count not defined
                     tile_props = {x: y / tile_size for x, y in zip(u, count)}
                     for key in tile_props.keys():
                         if key not in stratd['trn']['total_counts']:
@@ -389,6 +392,7 @@ def main(params):
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
     Path.mkdir(data_path, exist_ok=True, parents=True)
     val_percent = get_key_def('val_percent', params['sample'], default=10, expected_type=int)
+    to_hdf5 = get_key_def('to_hdf5', params['sample'], default=False, expected_type=bool)
 
     # parameters to set hdf5 samples directory
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
@@ -432,7 +436,7 @@ def main(params):
     else:
         list_data_prep = read_csv(csv_file)
 
-    smpls_dir = data_path.joinpath(samples_folder_name)
+    smpls_dir = data_path / samples_folder_name
     if smpls_dir.is_dir():
         if debug:
             # Move existing data folder with a random suffix.
@@ -497,11 +501,15 @@ def main(params):
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 
-    trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
-                                                             number_of_bands=num_bands,
-                                                             meta_map=meta_map,
-                                                             samples_folder=smpls_dir,
-                                                             params=params)
+    if not to_hdf5 and overlap != 0:
+        logging.error('Overlap not implemented for tiling to tif files. Defaulting to hdf5 outputs...')
+        to_hdf5 = True
+    trn_out, val_out, tst_out = create_files_and_datasets(samples_size=samples_size,
+                                                          number_of_bands=num_bands,
+                                                          meta_map=meta_map,
+                                                          samples_folder=smpls_dir,
+                                                          params=params,
+                                                          to_hdf5=to_hdf5)
 
     # creates pixel_classes dict and keys
     pixel_classes = {key: 0 for key in gpkg_classes}
@@ -528,104 +536,150 @@ def main(params):
                         bucket.download_file(info['meta'], info['meta'].split('/')[-1])
                     info['meta'] = info['meta'].split('/')[-1]
 
-            logging.info(f"\nReading as array: {info['tif']}")
-            with rasterio.open(info['tif'], 'r') as raster:
-                # 1. Read the input raster image
-                np_input_image, raster, dataset_nodata = image_reader_as_array(
-                    input_image=raster,
-                    clip_gpkg=info['gpkg'],
-                    aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
-                    aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
-                    aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
-                    aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
-                    aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
-                    aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
-
-                # 2. Burn vector file in a raster file
-                logging.info(f"\nRasterizing vector file (attribute: {info['attribute_name']}): {info['gpkg']}")
-                np_label_raster = vector_to_raster(vector_file=info['gpkg'],
-                                                   input_image=raster,
-                                                   out_shape=np_input_image.shape[:2],
-                                                   attribute_name=info['attribute_name'],
-                                                   fill=background_val,
-                                                   target_ids=targ_ids)  # background value in rasterized vector.
-
-                if dataset_nodata is not None:
-                    # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
-                    np_label_raster[dataset_nodata] = dontcare
-
-            if debug:
-                out_meta = raster.meta.copy()
-                np_image_debug = np_input_image.transpose(2, 0, 1).astype(out_meta['dtype'])
-                out_meta.update({"driver": "GTiff",
-                                 "height": np_image_debug.shape[1],
-                                 "width": np_image_debug.shape[2]})
-                out_tif = smpls_dir / f"{Path(info['tif']).stem}_clipped.tif"
-                logging.debug(f"Writing clipped raster to {out_tif}")
-                with rasterio.open(out_tif, "w", **out_meta) as dest:
-                    dest.write(np_image_debug)
-
-                out_meta = raster.meta.copy()
-                np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(out_meta['dtype'])
-                out_meta.update({"driver": "GTiff",
-                                 "height": np_label_debug.shape[1],
-                                 "width": np_label_debug.shape[2],
-                                 'count': 1})
-                out_tif = smpls_dir / f"{Path(info['gpkg']).stem}_clipped.tif"
-                logging.debug(f"Writing final rasterized gpkg to {out_tif}")
-                with rasterio.open(out_tif, "w", **out_meta) as dest:
-                    dest.write(np_label_debug)
-
-            # Mask the zeros from input image into label raster.
-            if mask_reference:
-                np_label_raster = mask_image(np_input_image, np_label_raster)
-
             if info['dataset'] == 'trn':
-                out_file = trn_hdf5
+                out_file = trn_out
             elif info['dataset'] == 'tst':
-                out_file = tst_hdf5
+                out_file = tst_out
             else:
                 raise ValueError(f"Dataset value must be trn or tst. Provided value is {info['dataset']}")
-            val_file = val_hdf5
+            val_file = val_out
 
-            metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
-                                                          raster_handle=raster,
-                                                          meta_map=meta_map,
-                                                          raster_info=info)
-            # Save label's per class pixel count to image metadata
-            metadata['source_label_bincount'] = {class_num: count for class_num, count in
-                                                 enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
-                                                 if count > 0}  # TODO: add this to add_metadata_from[...] function?
+            if to_hdf5:
+                logging.info(f"\nReading as array: {info['tif']}")
+                with rasterio.open(info['tif'], 'r') as raster:
+                    # 1. Read the input raster image
+                    np_input_image, raster, dataset_nodata = image_reader_as_array(
+                        input_image=raster,
+                        clip_gpkg=info['gpkg'],
+                        aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
+                        aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                        aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                        aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                        aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
+                        aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
 
-            np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
-            # 3. Prepare samples!
-            number_samples, number_classes = samples_preparation(in_img_array=np_input_image,
-                                                                 label_array=np_label_raster,
-                                                                 sample_size=samples_size,
-                                                                 overlap=overlap,
-                                                                 samples_count=number_samples,
-                                                                 num_classes=number_classes,
-                                                                 samples_file=out_file,
-                                                                 val_percent=val_percent,
-                                                                 val_sample_file=val_file,
-                                                                 dataset=info['dataset'],
-                                                                 pixel_classes=pixel_classes,
-                                                                 dontcare=dontcare,
-                                                                 image_metadata=metadata,
-                                                                 min_annot_perc=min_annot_perc,
-                                                                 class_prop=class_prop,
-                                                                 stratd=stratd)
+                    # 2. Burn vector file in a raster file
+                    logging.info(f"\nRasterizing vector file (attribute: {info['attribute_name']}): {info['gpkg']}")
+                    np_label_raster = vector_to_raster(vector_file=info['gpkg'],
+                                                       input_image=raster,
+                                                       out_shape=np_input_image.shape[:2],
+                                                       attribute_name=info['attribute_name'],
+                                                       fill=background_val,
+                                                       target_ids=targ_ids)  # background value in rasterized vector.
 
-            logging.info(f'Number of samples={number_samples}')
-            out_file.flush()
+                    if dataset_nodata is not None:
+                        # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
+                        np_label_raster[dataset_nodata] = dontcare
+
+                if debug:
+                    out_meta = raster.meta.copy()
+                    np_image_debug = np_input_image.transpose(2, 0, 1).astype(out_meta['dtype'])
+                    out_meta.update({"driver": "GTiff",
+                                     "height": np_image_debug.shape[1],
+                                     "width": np_image_debug.shape[2]})
+                    out_tif = smpls_dir / f"{Path(info['tif']).stem}_clipped.tif"
+                    logging.debug(f"Writing clipped raster to {out_tif}")
+                    with rasterio.open(out_tif, "w", **out_meta) as dest:
+                        dest.write(np_image_debug)
+
+                    out_meta = raster.meta.copy()
+                    np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(out_meta['dtype'])
+                    out_meta.update({"driver": "GTiff",
+                                     "height": np_label_debug.shape[1],
+                                     "width": np_label_debug.shape[2],
+                                     'count': 1})
+                    out_tif = smpls_dir / f"{Path(info['gpkg']).stem}_clipped.tif"
+                    logging.debug(f"Writing final rasterized gpkg to {out_tif}")
+                    with rasterio.open(out_tif, "w", **out_meta) as dest:
+                        dest.write(np_label_debug)
+
+                # Mask the zeros from input image into label raster.
+                if mask_reference:
+                    np_label_raster = mask_image(np_input_image, np_label_raster)
+
+                metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
+                                                              raster_handle=raster,
+                                                              meta_map=meta_map,
+                                                              raster_info=info)
+                # Save label's per class pixel count to image metadata
+                metadata['source_label_bincount'] = {class_num: count for class_num, count in
+                                                     enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
+                                                     if count > 0}  # TODO: add this to add_metadata_from[...] function?
+
+                np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
+                # 3. Prepare samples!
+                number_samples, number_classes = samples_preparation(in_img_array=np_input_image,
+                                                                     label_array=np_label_raster,
+                                                                     sample_size=samples_size,
+                                                                     overlap=overlap,
+                                                                     samples_count=number_samples,
+                                                                     num_classes=number_classes,
+                                                                     samples_file=out_file,
+                                                                     val_percent=val_percent,
+                                                                     val_sample_file=val_file,
+                                                                     dataset=info['dataset'],
+                                                                     pixel_classes=pixel_classes,
+                                                                     dontcare=dontcare,
+                                                                     image_metadata=metadata,
+                                                                     min_annot_perc=min_annot_perc,
+                                                                     class_prop=class_prop,
+                                                                     stratd=stratd)
+                logging.info(f'Number of samples={number_samples}')
+                out_file.flush()
+            else:
+                dest_dir = out_file / Path(info['tif']).stem
+                raster_tiler = sol.tile.raster_tile.RasterTiler(dest_dir=dest_dir/'sat_img',
+                                                                src_tile_size=(samples_size, samples_size), alpha=False,
+                                                                verbose=True)
+                raster_bounds_crs = raster_tiler.tile(info['tif'])
+                vector_tiler = sol.tile.vector_tile.VectorTiler(dest_dir=dest_dir/'map_img', verbose=True)
+                vector_tiler.tile(info['gpkg'], tile_bounds=raster_tiler.tile_bounds, tile_bounds_crs=raster_bounds_crs)
+
         except OSError:
             logging.exception(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
                               f'{Path(info["gpkg"]).stem} (gpkg).')
             continue
 
-    trn_hdf5.close()
-    val_hdf5.close()
-    tst_hdf5.close()
+    if to_hdf5:
+        trn_out.close()
+        val_out.close()
+        tst_out.close()
+    else:
+        dataset_files = {'trn': smpls_dir/'train.txt', 'val': smpls_dir/'val.txt', 'tst': smpls_dir/'test.txt'}
+        sat_imgs_tiled = smpls_dir.glob('**/sat_img/*.tif')
+        for sat_img_tile in sat_imgs_tiled:
+            dataset = sat_img_tile.parts[-4]
+            map_img_dir = sat_img_tile.parent.parent / 'map_img'
+            sat_img_splits = sat_img_tile.stem.split('_')
+            map_img_tile_list = list(map_img_dir.glob(f'*{sat_img_splits[-2]}_{sat_img_splits[-1]}.geojson'))
+            if len(map_img_tile_list) == 1:
+                map_img_tile = map_img_tile_list[0]
+                logging.info(f'Create pixel mask from {map_img_tile}')
+                out_px_mask = map_img_tile.parent / f'{map_img_tile.stem}.tif'
+                gdf = gpd.read_file(map_img_tile)
+                targ_ids.extend([str(x) for x in targ_ids if isinstance(x, int)])
+                if 'Quatreclasses' in gdf.columns:  # FIXME: softcode this column
+                    burn_field = 'Quatreclasses'
+                    feat_filter = gdf.Quatreclasses.isin(targ_ids)
+                    gdf_filtered = gdf[feat_filter]
+                elif targ_ids:
+                    logging.error(f'Column "QuatreClasses" not found in label file {map_img_tile}')
+                    burn_field = None
+                    gdf_filtered = gdf
+                fp_mask = sol.vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
+                                                         reference_im=str(sat_img_tile),
+                                                         burn_field=burn_field)
+                annot_ct = np.count_nonzero(fp_mask)
+                annot_perc = annot_ct / fp_mask.size
+                if annot_perc*100 >= min_annot_perc:
+                    if dataset == 'trn':
+                        random_val = np.random.randint(1, 100)
+                        dataset = 'val' if random_val < val_percent else dataset
+                    with open(dataset_files[dataset], 'a') as dataset_file:
+                        dataset_file.write(f'{sat_img_tile} {out_px_mask} {int(annot_perc*100)}\n')
+
+            else:
+                logging.error(f"FileNotFound. No single matching map image for {sat_img_tile}: {map_img_tile_list}")
 
     pixel_total = 0
     # adds up the number of pixels for each class in pixel_classes dict
