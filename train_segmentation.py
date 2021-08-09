@@ -36,14 +36,20 @@ from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact, s
 
 # from torchsummary import summary as torch_summary
 
-from utils.tracker import Tracking_Pane
-from rich.console import Console
-from rich.table import Table, Column
-from rich.panel import Panel
-from rich.text import Text
-from rich import inspect, print
-import sys
+# import sys
 # from matplotlib import pyplot as plt
+from utils.tracker import Tracking_Pane
+try:
+    import ashjdfioastkjl
+    from rich.console import Console
+    from rich.table import Table, Column
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich import inspect, print
+    console=Console()
+    RICH = True
+except ModuleNotFoundError:
+    RICH = False
 
 
 def get_renderables(self):
@@ -174,7 +180,7 @@ def get_num_samples(samples_path, params):
     return num_samples, samples_weight
 
 
-def vis_from_dataloader(console, params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
+def vis_from_dataloader(tracker, params, eval_loader, model, ep_num, output_path, dataset='', device=None, vis_batch_range=None):
     """
     Use a model and dataloader to provide outputs that can then be sent to vis_from_batch function to visualize performances of model, for example.
     :param params: (dict) Parameters found in the yaml config file.
@@ -188,8 +194,8 @@ def vis_from_dataloader(console, params, eval_loader, model, ep_num, output_path
     :return:
     """
     vis_path = output_path.joinpath(f'visualization')
-    console.print('vis path =', style='bold #FFFFFF on purple', justify="center")
-    console.print(vis_path, style='bold #FFFFFF on purple', justify="center")
+    tracker.print('vis path =', style='bold #FFFFFF on purple', justify="center")
+    tracker.print(vis_path, style='bold #FFFFFF on purple', justify="center")
     # tqdm.write(f'Visualization figures will be saved to {vis_path}\n')
     min_vis_batch, max_vis_batch, increment = vis_batch_range
 
@@ -211,10 +217,10 @@ def vis_from_dataloader(console, params, eval_loader, model, ep_num, output_path
                                    labels=labels,
                                    dataset=dataset,
                                    ep_num=ep_num)
-    console.print(f'Saved visualization figures', style='bold #FFFFFF on purple', justify="center")
+    tracker.print(f'Saved visualization figures', style='bold #FFFFFF on purple', justify="center")
 
 
-def train(console, tracker, train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, ep_idx, progress_log, vis_params, device, debug=False):
+def train(tracker, train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, ep_idx, progress_log, vis_params, device, debug=False):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -238,7 +244,7 @@ def train(console, tracker, train_loader, model, criterion, optimizer, scheduler
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
 
 
-    for batch_index, data in enumerate(tracker.track(train_loader, description='trn batch', task_id=1)):
+    for batch_index, data in enumerate(tracker.track(train_loader, 'trn batch')):
         # tracker.batch_info = f'{len(data["index"].tolist())} Images = {data["index"].tolist()}'
 
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
@@ -317,12 +323,12 @@ def train(console, tracker, train_loader, model, criterion, optimizer, scheduler
 
     scheduler.step()
     if train_metrics["loss"].avg is not None:
-        console.print(f'   Training Loss: {train_metrics["loss"].avg:.4f}\n', style='purple')
+        tracker.print(f'   Training Loss: {train_metrics["loss"].avg:.4f}\n', style='purple')
 
     return train_metrics
 
 
-def evaluation(console, tracker, eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
+def evaluation(tracker, eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -344,7 +350,7 @@ def evaluation(console, tracker, eval_loader, model, criterion, num_classes, bat
     vis_batch_range = get_key_def('vis_batch_range', vis_params['visualization'], None)
 
     batch_index = 0
-    for data in tracker.track(eval_loader, description='val batch', task_id=2):
+    for data in tracker.track(eval_loader, 'val batch'):
         # tracker.advance(1)
         tracker.batch_info = f'{len(data["index"].tolist())} Images = {data["index"].tolist()}'
 
@@ -419,7 +425,7 @@ def evaluation(console, tracker, eval_loader, model, criterion, num_classes, bat
     return eval_metrics
 
 
-def main(params, config_path, trckr):
+def main(params, config_path):
     """
     Function to train and validate a model for semantic segmentation.
 
@@ -451,7 +457,7 @@ def main(params, config_path, trckr):
     """
 
 # region basic params
-    console = Console()
+    tracker = Tracking_Pane(mode='train')
 
     params['global']['git_hash'] = get_git_hash()
     debug = get_key_def('debug_mode', params['global'], False)
@@ -485,7 +491,7 @@ def main(params, config_path, trckr):
         if torch.cuda.is_available() else []
     num_devices = len(lst_device_ids) if lst_device_ids else 0
     device = torch.device(f'cuda:{lst_device_ids[0]}' if torch.cuda.is_available() and lst_device_ids else 'cpu')
-    console.print(device, style='bold #FFFFFF on green', justify="center")
+    tracker.print(device, style='bold #FFFFFF on green', justify="center")
     # endregion
 
 # region DATALOADERS
@@ -497,13 +503,13 @@ def main(params, config_path, trckr):
 
 # region init MODEL & checkpoint
     model, model_name, criterion, optimizer, lr_scheduler = net(params, num_classes_corrected)  # pretrained could become a yaml parameter.
-    console.print('Init Model:', style='bold #FFFFFF on blue', justify='left')
-    console.print('\tmodel        =', type(model), style='blue')
-    console.print('\tmodel_name   =', type(model_name), style='blue')
-    console.print('\tcriterion    =', type(criterion), style='blue')
-    console.print('\toptimizer    =', type(optimizer), style='blue')
-    console.print('\tlr_scheduler =', type(lr_scheduler), style='blue')
-    console.print(f'Instantiated {model_name} model with {num_classes_corrected} output channels.', style='bold #FFFFFF on blue', justify='right')
+    tracker.print('Init Model:', style='bold #FFFFFF on blue', justify='left')
+    tracker.print('\tmodel        =', type(model), style='blue')
+    tracker.print('\tmodel_name   =', type(model_name), style='blue')
+    tracker.print('\tcriterion    =', type(criterion), style='blue')
+    tracker.print('\toptimizer    =', type(optimizer), style='blue')
+    tracker.print('\tlr_scheduler =', type(lr_scheduler), style='blue')
+    tracker.print(f'Instantiated {model_name} model with {num_classes_corrected} output channels.', style='bold #FFFFFF on blue', justify='right')
     # tqdm.write(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
     bucket_name = get_key_def('bucket_name', params['global'])
     # endregion
@@ -558,7 +564,7 @@ def main(params, config_path, trckr):
         # Visualization at initialization. Visualize batch range before first eopch.
         if get_key_def('vis_at_init', params['visualization'], False):
             tqdm.write(f'Visualizing initialized model on batch range {vis_batch_range} from {vis_at_init_dataset} dataset...\n')
-            vis_from_dataloader(console,
+            vis_from_dataloader(tracker,
                                 params=params,
                                 eval_loader=val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader,
                                 model=model,
@@ -569,119 +575,118 @@ def main(params, config_path, trckr):
                                 vis_batch_range=vis_batch_range)
     # endregion
 
-    experiment_table = Table(style='purple')
-    experiment_table.add_column('epoch', justify='center', style='color(0)')
-    experiment_table.add_column('best loss', justify='center', style='color(1)')
-    experiment_table.add_column('curr loss', justify='center', style='color(2)')
-    experiment_table.add_column('trn loss', justify='center', style='color(3)')
-    experiment_table.add_column('precision', justify='center', style='color(4)')
-    experiment_table.add_column('recall', justify='center', style='color(5)')
-    experiment_table.add_column('fscore', justify='center', style='color(6)')
-    experiment_table.add_column('iou', justify='center', style='color(7)')
+    # experiment_table = Table(style='purple')
+    # experiment_table.add_column('epoch', justify='center', style='color(0)')
+    # experiment_table.add_column('best loss', justify='center', style='color(1)')
+    # experiment_table.add_column('curr loss', justify='center', style='color(2)')
+    # experiment_table.add_column('trn loss', justify='center', style='color(3)')
+    # experiment_table.add_column('precision', justify='center', style='color(4)')
+    # experiment_table.add_column('recall', justify='center', style='color(5)')
+    # experiment_table.add_column('fscore', justify='center', style='color(6)')
+    # experiment_table.add_column('iou', justify='center', style='color(7)')
 
-    with Tracking_Pane(console=console, mode='train') as tracker: # , other_renderables=[experiment_table]     # task_ids: 0=epoch, 1=trn batch, 2=vis batch (ie. order they are create in utils.tracker)
+    # with tracker: # , other_renderables=[experiment_table]     # task_ids: 0=epoch, 1=trn batch, 2=vis batch (ie. order they are create in utils.tracker)
 
-        for epoch in tracker.track(range(0, params['training']['num_epochs']), task_id=0):
-            tracker.reset(task_id=1)
-            tracker.reset(task_id=2)
+    for epoch in tracker.track(range(0, params['training']['num_epochs']), 'epoch'):
+        # tracker.reset(task_id=1)
+        # tracker.reset(task_id=2)
 
-            trn_report = train(console, tracker,
-                               train_loader=trn_dataloader,
-                               model=model,
-                               criterion=criterion,
-                               optimizer=optimizer,
-                               scheduler=lr_scheduler,
-                               num_classes=num_classes_corrected,
-                               batch_size=batch_size,
-                               ep_idx=epoch,
-                               progress_log=progress_log,
-                               vis_params=params,
-                               device=device,
-                               debug=debug)
+        trn_report = train(tracker,
+                           train_loader=trn_dataloader,
+                           model=model,
+                           criterion=criterion,
+                           optimizer=optimizer,
+                           scheduler=lr_scheduler,
+                           num_classes=num_classes_corrected,
+                           batch_size=batch_size,
+                           ep_idx=epoch,
+                           progress_log=progress_log,
+                           vis_params=params,
+                           device=device,
+                           debug=debug)
+        trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-            trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
-
-            val_report = evaluation(console, tracker,
-                                    eval_loader=val_dataloader,
-                                    model=model,
-                                    criterion=criterion,
-                                    num_classes=num_classes_corrected,
-                                    batch_size=batch_size,
-                                    ep_idx=epoch,
-                                    progress_log=progress_log,
-                                    vis_params=params,
-                                    batch_metrics=params['training']['batch_metrics'],
-                                    dataset='val',
-                                    device=device,
-                                    debug=debug)
-            val_loss = val_report['loss'].avg
-
+        val_report = evaluation(tracker,
+                                eval_loader=val_dataloader,
+                                model=model,
+                                criterion=criterion,
+                                num_classes=num_classes_corrected,
+                                batch_size=batch_size,
+                                ep_idx=epoch,
+                                progress_log=progress_log,
+                                vis_params=params,
+                                batch_metrics=params['training']['batch_metrics'],
+                                dataset='val',
+                                device=device,
+                                debug=debug)
+        val_loss = val_report['loss'].avg
 
 
-            if params['training']['batch_metrics'] is not None:
-                val_log.add_values(val_report, epoch)
-            else:
-                val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-            if val_loss < best_loss:
-                experiment_table.add_row(f'{epoch} / {params["training"]["num_epochs"] - 1}',
-                                         str(best_loss),
-                                         str(val_loss),
-                                         str(trn_report['loss'].avg),
-                                         str(val_report['precision'].avg),
-                                         str(val_report['recall'].avg),
-                                         str(val_report['fscore'].avg),
-                                         str(val_report['iou'].avg))
+        if params['training']['batch_metrics'] is not None:
+            val_log.add_values(val_report, epoch)
+        else:
+            val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-                # tqdm.write("save checkpoint\n")
-                console.print('saving checkpoint', style='bold white on green')
-                best_loss = val_loss
-                # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
-                state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
-                torch.save({'epoch': epoch,
-                            'params': params,
-                            'model': state_dict,
-                            'best_loss': best_loss,
-                            'optimizer': optimizer.state_dict()}, filename)
-                if epoch == 0:
-                    log_artifact(filename)
-                if bucket_name:
-                    bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
-                    bucket.upload_file(filename, bucket_filename)
+        if val_loss < best_loss:
+            # experiment_table.add_row(f'{epoch} / {params["training"]["num_epochs"] - 1}',
+            #                          str(best_loss),
+            #                          str(val_loss),
+            #                          str(trn_report['loss'].avg),
+            #                          str(val_report['precision'].avg),
+            #                          str(val_report['recall'].avg),
+            #                          str(val_report['fscore'].avg),
+            #                          str(val_report['iou'].avg))
 
-                # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
-                vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
-                ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4)
-                vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
-                if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
-                    if last_vis_epoch == 0:
-                        tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
-                                   f'batches in range {vis_batch_range}')
-                    vis_from_dataloader(console,
-                                        params=params,
-                                        eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
-                                        model=model,
-                                        ep_num=epoch+1,
-                                        output_path=output_path,
-                                        dataset=vis_at_ckpt_dataset,
-                                        device=device,
-                                        vis_batch_range=vis_batch_range)
-                    last_vis_epoch = epoch
-
+            # tqdm.write("save checkpoint\n")
+            tracker.print('saving checkpoint', style='bold white on green')
+            best_loss = val_loss
+            # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
+            state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
+            torch.save({'epoch': epoch,
+                        'params': params,
+                        'model': state_dict,
+                        'best_loss': best_loss,
+                        'optimizer': optimizer.state_dict()}, filename)
+            if epoch == 0:
+                log_artifact(filename)
             if bucket_name:
-                save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
+                bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
+                bucket.upload_file(filename, bucket_filename)
 
-            cur_elapsed = time.time() - since
-            console.print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
+            # VISUALIZATION: generate png of test samples, labels and outputs for visualisation to follow training performance
+            vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], False)
+            ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], 4)
+            vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
+            if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
+                if last_vis_epoch == 0:
+                    tqdm.write(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
+                               f'batches in range {vis_batch_range}')
+                vis_from_dataloader(tracker,
+                                    params=params,
+                                    eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
+                                    model=model,
+                                    ep_num=epoch+1,
+                                    output_path=output_path,
+                                    dataset=vis_at_ckpt_dataset,
+                                    device=device,
+                                    vis_batch_range=vis_batch_range)
+                last_vis_epoch = epoch
+
+        if bucket_name:
+            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
+
+        cur_elapsed = time.time() - since
+        tracker.print(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
 
     # load checkpoint model and evaluate it on test dataset
-    if int(params['training']['num_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
-        checkpoint = load_checkpoint(filename)
-        model, _ = load_from_checkpoint(checkpoint, model)
-
     if tst_dataloader:
-        tst_report = evaluation(console, tracker,
+        if int(params['training']['num_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
+            checkpoint = load_checkpoint(filename)
+            model, _ = load_from_checkpoint(checkpoint, model)
+
+        tst_report = evaluation(tracker,
                                 eval_loader=tst_dataloader,
                                 model=model,
                                 criterion=criterion,
@@ -701,8 +706,8 @@ def main(params, config_path, trckr):
             bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
-    console.print(experiment_table)
-    console.print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    # tracker.print(experiment_table)
+    tracker.print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
 if __name__ == '__main__':
@@ -722,5 +727,5 @@ if __name__ == '__main__':
             ' for the deeplabv3 model for now. \n More will follow on demande.\n'
              )
 
-    main(params, config_path, trckr=None)
+    main(params, config_path)
     print('End of training')

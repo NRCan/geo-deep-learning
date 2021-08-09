@@ -5,10 +5,10 @@ import numpy as np
 
 import fiona
 
-import rasterio
-from rasterio.features import is_valid_geom
-from rasterio.mask import mask
-from rasterio.transform import array_bounds
+# import rasterio
+# from rasterio.features import is_valid_geom
+# from rasterio.mask import mask
+# from rasterio.transform import array_bounds
 
 
 def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):

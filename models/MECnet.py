@@ -212,7 +212,7 @@ class MSP3(nn.Module):
 
     def __init__(self, num_classes=1, inter_channels=32, channels=3, feature_visualization=False):
         super(MSP3, self).__init__()
-        self.conv1x1 = nn.Conv2d(channels*num_classes, inter_channels, 1)
+        self.conv1x1 = nn.Conv2d(5, inter_channels, 1) # channels*num_classes
         self.bn1x1 = nn.BatchNorm2d(inter_channels)
         self.relu = nn.ReLU(inplace=True)
 
@@ -309,7 +309,10 @@ class MFConvNet(nn.Module):
         self._initialize_weights()
 
     def _initialize_weights(self):
+        count = 0
         for m in self.modules():
+            count += 1
+            print(count, m)
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
@@ -701,8 +704,8 @@ class MECNet(nn.Module):
             res, visual_feat_map = self.msp((o1, o2, o3, o4, o5))
             return (res, o1, o2, o3, o4, o5), visual_feat_map
         else:
-            res = self.msp((o1, o2, o3))
-            return res#, o1, o2, o3, o4, o5
+            res = self.msp((o1, o2, o3, o4, o5))
+            return res, o1, o2, o3, o4, o5
 
 
 if __name__ == '__main__':
@@ -714,6 +717,13 @@ if __name__ == '__main__':
     input = torch.randn(1, 3, 512, 512)
     # flops, params = profile(model, inputs=(input,))
     # model.cuda()
-    torchsummary.summary(model, (band_num, 512, 512))
+    torchsummary.summary(model, (3,512,512))
     # print('flops(G): %.3f' % (flops / 1e+9))
     # print('params(M): %.3f' % (params / 1e+6))
+
+'''
+legend:
+    MFConvNet = MFConvNet
+    DecoderNet = DecoderNet
+    
+'''

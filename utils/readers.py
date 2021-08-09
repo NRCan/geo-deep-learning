@@ -4,7 +4,7 @@ from ruamel_yaml import YAML
 from pathlib import Path
 from skimage import morphology
 
-from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
+# from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
 
 
 def read_parameters(param_file):
