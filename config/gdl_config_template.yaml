@@ -7,7 +7,6 @@ defaults:
   - optimizer: adamw
   - callbacks: default_callbacks
   - scheduler: plateau
-  - sampling: default_sampling
   - data: data
   - dataset: NRCAN_individual_tree
   - augmentation: basic_augmentation
@@ -17,12 +16,15 @@ general:
   project_name: template_project
   workspace: your_name
   device: cuda
-  modalities: RGB
   max_epochs: 10
   min_epochs: 1
   save_dir: './log'
-  sample_data_dir: 'img/dir'
+  raw_data_dir: 'img/dir/tiff'
+  sample_data_dir: 'img/dir/hdf5'
   save_weights_dir: './weights_saved'
+
+AWS:
+  bucket_name:
 
 inference:
   image_path: 'image/path'
@@ -30,5 +32,6 @@ inference:
   weights_dir: ${general.save_weights_dir}
   weights_name:
 
+#mode: choice(sampling, train, evaluate, inference, hyperparameters_search)
 mode: {sampling, train, evaluate, inference, hyperparameters_search}
 debug: False # will print the complete yaml config plus run a validation test

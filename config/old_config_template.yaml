@@ -1,6 +1,6 @@
 # Deep learning configuration file ------------------------------------------------
 # This config is to use massachusetts_buildings image out of the box.
-# For that, unzip the file data/massachusetts_buildings.zip befor running images_to_samples.py or other command.
+# For that, unzip the file data/massachusetts_buildings.zip befor running sampling_segmentation.py or other command.
 # Five sections :
 #   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
 #   2) Data analysis parameters
@@ -48,7 +48,7 @@ data_analysis:
     # keys (numerical values in 'string' format) represent class id
     # values (int) represent class minimum threshold targeted in samples
 
-# Sample parameters; used in images_to_samples.py -------------------
+# Sample parameters; used in sampling_segmentation.py -------------------
 sample:
   prep_csv_file: .data/images_to_samples_ci_csv.csv  # /path/to/csv/images.csv
   val_percent: 20 # Percentage of validation samples created from train set (0 - 100)

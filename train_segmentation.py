@@ -16,7 +16,7 @@ from typing import List, Sequence
 from collections import OrderedDict
 
 # Our modules
-from images_to_samples import main as segmentation_sampling
+from sampling_segmentation import main as segmentation_sampling
 
 # -------------------------
 try:
@@ -937,7 +937,7 @@ if __name__ == '__main__':
             '\n The NIR modality will only be concatenate at the begining,' /
             ' the implementation of the concatenation point is only available' /
             ' for the deeplabv3 model for now. \n More will follow on demande.\n'
-             )
+        )
 
     main(params, config_path)
     print('End of training')

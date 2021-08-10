@@ -5,11 +5,12 @@ import argparse
 import rasterio
 import numpy as np
 
+from os import path
 from tqdm import tqdm
 from typing import List
 from pathlib import Path
 from datetime import datetime
-from omegaconf import DictConfig
+from omegaconf import DictConfig, open_dict
 
 # Our modules
 from utils.geoutils import vector_to_raster
@@ -22,14 +23,6 @@ from utils.verifications import (
     validate_num_classes, validate_raster, assert_crs_match, validate_features_from_gpkg
 )
 
-try:
-    import boto3
-except ModuleNotFoundError:
-    logging.warning(
-        "\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets",
-        ImportWarning
-    )
-    pass
 
 # Set random seed for reproducibility
 np.random.seed(1234)
@@ -217,7 +210,9 @@ def samples_preparation(in_img_array,
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
 
     if overlap > 25:
-         logging.warning("high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
+         logging.warning(
+             "high overlap >25%, note that automatic train/val split creates very similar samples in both sets"
+         )
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
     excl_samples = 0
@@ -233,9 +228,11 @@ def samples_preparation(in_img_array,
                 data_row = data.shape[0]
                 data_col = data.shape[1]
                 if data_row < sample_size or data_col < sample_size:
-                    padding = pad_diff(data_row, data_col, sample_size,
-                                       sample_size)  # array, actual height, actual width, desired size
-                    data = pad(data, padding, fill=np.nan)  # don't fill with 0 if possible. Creates false min value when scaling.
+                    padding = pad_diff(
+                        data_row, data_col, sample_size, sample_size  # array, actual height, actual width, desired size
+                    )
+                    # don't fill with 0 if possible. Creates false min value when scaling.
+                    data = pad(data, padding, fill=np.nan)
 
                 target_row = target.shape[0]
                 target_col = target.shape[1]
@@ -330,12 +327,30 @@ def samples_preparation(in_img_array,
     return samples_count, num_classes
 
 
+def read_modalities(modalities: str) -> list:
+    """
+    Function that read the modalities from the yaml and convert it to a list
+    of all the bands specified.
+
+    -------
+    :param modalities: (str) A string composed of all the bands of the images.
+
+    -------
+    :returns: A list of all the bands of the images.
+    """
+    if str(modalities).find('IR') != -1:
+        ir_position = str(modalities).find('IR')
+        modalities = list(str(modalities).replace('IR', ''))
+        modalities.insert(ir_position, 'IR')
+    else:
+        modalities = list(str(modalities))
+    return modalities
+
+
 def main(cfg: DictConfig, log: logging) -> None:
     """
     Function that create training, validation and testing datasets preparation.
 
-    Process
-    -------
     1. Read csv file and validate existence of all input files and GeoPackages.
     2. Do the following verifications:
         1. Assert number of bands found in raster is equal to desired number
@@ -368,66 +383,85 @@ def main(cfg: DictConfig, log: logging) -> None:
     :param cfg: (dict) Parameters found in the yaml config file.
     :param log: (logging) Logging module from the main code.
     """
-    assert 1 == 0
-    # start_time = time.time()
 
-    # MANDATORY PARAMETERS
-    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
-    num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
-    csv_file = get_key_def('prep_csv_file', params['sample'], expected_type=str)
+    try:
+        import boto3
+    except ModuleNotFoundError:
+        log.warning(
+            "\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets",
+            ImportWarning
+        )
+        pass
 
-    # OPTIONAL PARAMETERS
-    # basics
-    debug = get_key_def('debug_mode', params['global'], False)
+    # PARAMETERS
+    num_classes = len(cfg.dataset.classes_dict.keys())
+    num_bands = len(cfg.dataset.modalities)
+    modalities = read_modalities(cfg.dataset.modalities)  # TODO add the Victor module to manage the modalities
+    debug = cfg.debug
+    task = cfg.task.name
 
-    task = get_key_def('task', params['global'], 'segmentation', expected_type=str)
-    if task == 'classification':
-        raise ValueError(f"Got task {task}. Expected 'segmentation'.")
-    elif not task == 'segmentation':
-        raise ValueError(f"images_to_samples.py isn't necessary for classification tasks")
-    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
-    Path.mkdir(data_path, exist_ok=True, parents=True)
-    val_percent = get_key_def('val_percent', params['sample'], default=10, expected_type=int)
+    # RAW DATA PARAMETERS
+    if path.exists(cfg.dataset.raw_data_dir):
+        log.info("\nImage directory used '{}'".format(cfg.dataset.raw_data_dir))
+        data_path = cfg.dataset.raw_data_dir
+    else:
+        log.critical(
+            "\nImage directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
+        )
+        log.info("\nThe image directory use will be './data'")
+        data_path = './data'
 
-    # mlflow logging
-    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
-    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
+    # HDF5 DATA PARAMETERS
+    if path.exists(cfg.dataset.sample_data_dir):
+        log.info("\nThe HDF5 directory used '{}'".format(cfg.dataset.sample_data_dir))
+        Path.mkdir(cfg.dataset.sample_data_dir, exist_ok=True, parents=True)  # TODO test if none what append
+    else:
+        log.critical(
+            "\nThe HDF5 directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
+        )
+        log.info("\nThe HDF5 directory use will be './data'")
+        cfg.dataset.sample_data_dir = './data'
+    # SAMPLE PARAMETERS
+    samples_size = cfg.dataset.input_dim if cfg.dataset.input_dim is not None else 256
+    overlap = cfg.dataset.overlap if cfg.dataset.overlap is not None else 0
+    min_annot_perc = cfg.dataset.min_annot_perc if cfg.dataset.min_annot_perc is not None else 0
+    trn_val_percent = None  # TODO
+    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' \
+                          f'_{num_bands}bands_{cfg.general.project_name}'
 
-    # parameters to set hdf5 samples directory
-    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
-    samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
-    overlap = get_key_def("overlap", params["sample"], default=5, expected_type=int)
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
-                                 expected_type=int)
-    if not data_path.is_dir():
-        raise FileNotFoundError(f'Could not locate data path {data_path}')
-    samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
-                           f'_{experiment_name}')
+    # LOGGING PARAMETERS  TODO see logging yaml
+    experiment_name = cfg.general.project_name
+    # mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
 
-    # other optional parameters
-    dontcare = get_key_def("ignore_index", params["training"], -1)
-    meta_map = get_key_def('meta_map', params['global'], default={})
+    # OTHER PARAMETERS
     metadata = None
-    targ_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
-    class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
-    mask_reference = get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
+    dontcare = cfg.dataset.ignore_index if cfg.dataset.ignore_index is not None else -1
+    meta_map = {}  # TODO get_key_def('meta_map', params['global'], default={})
+    targ_ids = None  # TODO get_key_def('target_ids', params['sample'], None, expected_type=List)
+    # TODO class_prop get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
+    class_prop = None
+    mask_reference = False  # TODO get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
 
-    if get_key_def('use_stratification', params['sample'], False) is not False:
-        stratd = {'trn': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
-                  'val': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
-                  'strat_factor': params['sample']['use_stratification']}
+    # OPTIONAL
+    use_stratification = cfg.dataset.use_stratification if cfg.dataset.use_stratification is not None else False
+    if use_stratification:
+        stratd = {
+            'trn': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
+            'val': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
+            'strat_factor': params['sample']['use_stratification']
+        }
     else:
         stratd = None
 
+    # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to hdf5s).
+    with open_dict(cfg):
+        cfg.general.git_hash = get_git_hash()
 
-    # add git hash from current commit to parameters if available. Parameters will be saved to hdf5s
-    params['global']['git_hash'] = get_git_hash()
-
-    # AWS
-    final_samples_folder = None
-    bucket_name = get_key_def('bucket_name', params['global'])
-    bucket_file_cache = []
-    if bucket_name:
+    # AWS TODO
+    if cfg.AWS.bucket_name:
+        final_samples_folder = None
+        bucket_name = cfg.AWS.bucket_name
+        bucket_file_cache = []
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
         bucket.download_file(csv_file, 'samples_prep.csv')
