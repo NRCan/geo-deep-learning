@@ -3,42 +3,14 @@
   <component name="CsvFileAttributes">
     <option name="attributeMap">
       <map>
-        <entry key="\OG_data\images_to_samples_ci_csv.csv">
+        <entry key="D:\NRCan_data\Hydro\cayouche_HPC_test13_OG.csv">
           <value>
             <Attribute>
               <option name="separator" value="," />
             </Attribute>
           </value>
         </entry>
-        <entry key="\OG_data\inference_sem_seg_ci_csv.csv">
-          <value>
-            <Attribute>
-              <option name="separator" value="," />
-            </Attribute>
-          </value>
-        </entry>
-        <entry key="\data\colormap.csv">
-          <value>
-            <Attribute>
-              <option name="separator" value="," />
-            </Attribute>
-          </value>
-        </entry>
-        <entry key="\data\images_to_samples_ci_csv.csv">
-          <value>
-            <Attribute>
-              <option name="separator" value="," />
-            </Attribute>
-          </value>
-        </entry>
-        <entry key="\data\inference_classif_ci_csv.csv">
-          <value>
-            <Attribute>
-              <option name="separator" value="," />
-            </Attribute>
-          </value>
-        </entry>
-        <entry key="\data\inference_sem_seg_ci_csv.csv">
+        <entry key="D:\NRCan_data\Hydro\prep.csv">
           <value>
             <Attribute>
               <option name="separator" value="," />

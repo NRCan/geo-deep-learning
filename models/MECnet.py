@@ -143,7 +143,7 @@ class GlobalFieldConv2d(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        w = F.adaptive_avg_pool2d(x, 1)
+        w = F.adaptive_avg_pool2d(x, x.shape[-1])
         w = self.fc1(w)
         w = self.bn1(w)
         w = self.relu(w)
@@ -195,7 +195,7 @@ class GlobalHighLowMerge(nn.Module):
         x = self.bn(x)
         x = self.relu(x)
 
-        w = F.adaptive_avg_pool2d(x, 1)
+        w = F.adaptive_avg_pool2d(x, x.shape[-1])
         w = self.fc1(w)
         w = self.bn1(w)
         w = self.relu(w)

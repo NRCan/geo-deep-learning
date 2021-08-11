@@ -69,6 +69,7 @@ training:
   num_val_samples:
   num_tst_samples:
   batch_size: 2
+  eval_batch_size: 2
   num_epochs: 1
   target_size: 256
   # See losses/README.md for all Loss function available.

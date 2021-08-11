@@ -1,10 +1,14 @@
+import logging
+
 import numpy as np
 from ruamel_yaml import YAML
-# from tqdm import tqdm
+from tqdm import tqdm
 from pathlib import Path
 from skimage import morphology
 
-# from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
+from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
+
+logger = logging.getLogger(__name__)
 
 
 def read_parameters(param_file):
@@ -20,7 +24,8 @@ def read_parameters(param_file):
     return params
 
 
-def image_reader_as_array(input_image,
+def image_reader_as_array(smpls_dir,
+                          input_image,
                           aux_vector_file=None,
                           aux_vector_attrib=None,
                           aux_vector_ids=None,
@@ -46,13 +51,18 @@ def image_reader_as_array(input_image,
         numpy array of the image (possibly concatenated with auxiliary vector channels)
     """
     if clip_gpkg:
-        np_array, input_image, coords = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
+        try:
+            np_array, input_image, coords = clip_raster_with_gpkg(input_image, clip_gpkg, smpls_dir, debug=debug)
+        except ValueError:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
+            logging.exception(f'Problem clipping raster with geopackage {clip_gpkg}')
+            np_array = input_image.read()
     else:
         np_array = input_image.read()
 
-    np_array = np.moveaxis(np_array, 0, -1) # send channels last
-    assert np_array.dtype in ['uint8', 'uint16'], f"Invalid datatype {np_array.dtype}. " \
-                                                  f"Only uint8 and uint16 are supported in current version"
+    np_array = np.moveaxis(np_array, 0, -1)  # send channels last
+    if np_array.dtype not in ['uint8', 'uint16']:
+        raise NotImplementedError(f"Invalid datatype {np_array.dtype}. "
+                                  f"Only uint8 and uint16 are supported in current version")
 
     dataset_nodata = None
     if input_image.nodata is not None:

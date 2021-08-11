@@ -12,6 +12,9 @@ def create_metrics_dict(num_classes):
         metrics_dict['fscore_' + str(i)] = AverageMeter()
         metrics_dict['iou_' + str(i)] = AverageMeter()
 
+    # Add overall non-background iou metric
+    metrics_dict['iou_nonbg'] = AverageMeter()
+
     return metrics_dict
 
 
@@ -55,7 +58,7 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
     """Computes precision, recall and f-score for each class and average of all classes.
     http://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
     """
-    class_report = classification_report(label.cpu(), pred.cpu(), output_dict=True, zero_division=0)
+    class_report = classification_report(label.cpu(), pred.cpu(), output_dict=True)
 
     class_score = {}
     for key, value in class_report.items():
@@ -89,6 +92,15 @@ def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
         iou = (intersection + min_val) / (union + min_val)  # minimum value added to avoid Zero division
         ious.append(iou)
         metric_dict['iou_' + str(i)].update(iou.item(), batch_size)
+
+    # Add overall non-background iou metric
+    c_label = (1 <= label) & (label <= num_classes - 1)
+    c_pred = (1 <= pred) & (pred <= num_classes - 1)
+    intersection = (c_pred & c_label).float().sum()
+    union = (c_pred | c_label).float().sum()
+    iou = (intersection + min_val) / (union + min_val)  # minimum value added to avoid Zero division
+    metric_dict['iou_nonbg'].update(iou.item(), batch_size)
+
     mean_IOU = np.nanmean(ious)
     if (not only_present) or (not np.isnan(mean_IOU)):
         metric_dict['iou'].update(mean_IOU, batch_size)

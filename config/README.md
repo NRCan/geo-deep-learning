@@ -61,15 +61,15 @@ global:
   coordconv_convert: False
   coordvonc_scale:
 ```
-- **`samples_size` :** Size of the tiles that you want to train/val/test with. We recommend `512` or `256` for the train/val task.
+- **`samples_size` (Mandatory):** Size of the tiles that you want to train/val/test with. We recommend `512` or `256` for the train/val task.
 
-- **`num_classes` :** Number of classes that your *ground truth* have and which you want to predict at the end.
+- **`num_classes` (Mandatory):** Number of classes that your *ground truth* have and which you want to predict at the end.
 
 - **`data_path` :** Path to the folder where samples folder will be automatically created and all the other informations will be stored. **add the link to the example of stucture**
 
-- **`number_of_bands` :** Number of bands in input images (RGB = 3 and RGBNir = 4).
+- **`number_of_bands` (Mandatory):** Number of bands in input images (RGB = 3 and RGBNir = 4).
 
-- **`model_name` :** Name of the model use to train the neural network, see the list of all the implemented models in [`/models`](../models#Models-available).
+- **`model_name` (Mandatory):** Name of the model use to train the neural network, see the list of all the implemented models in [`/models`](../models#Models-available).
 
 - **`mlflow_uri` :** Path where *mlflow* will store all the informations about the runs. By default the path is `./mlruns`.
 
@@ -79,7 +79,7 @@ global:
 
 - **`bucket_name` (Optional) :** Name of the S3 bucket where the data is stored. Leave blank if using local files.
 
-- **`task` :** Task to perform, either segmentation or classification, but classification is no longer supported.
+- **`task` (Mandatory):** Task to perform, either segmentation or classification, but classification is no longer supported.
 
 - **`num_gpus` :** Number of **GPUs** that you want to use, `0` will use the **CPU**.
 
@@ -174,6 +174,7 @@ In addition, [images_to_samples.py](../images_to_samples.py) will assert that al
 sample:
   prep_csv_file: path/to/images.csv
   val_percent: 5
+  use_stratification: 2
   overlap: 25
   sampling_method:
     'min_annotated_percent': 0
@@ -183,6 +184,8 @@ sample:
 - **`prep_csv_file` :** Path to your `csv` file with the information on the images.
 
 - **`val_percent` :** Percentage of validation samples created from train set (0 - 100), we recommend at least `5`, must be an integer (int).
+
+- **`use_stratification` :** Added or substracted from val_percent to stratify samples. Should be less than val_percent.
 
 - **`overlap` :** Percentage of overlap between 2 chunks, must be an integer (int).
 
@@ -233,6 +236,7 @@ training:
   num_val_samples: 2208
   num_tst_samples: 1000
   batch_size: 32   
+  eval_batch_size: 16
   num_epochs: 150  
   target_size: 128
   loss_fn: Lovasz
@@ -257,7 +261,7 @@ training:
     brightness_contrast_range:
     noise:
 ```
-- **`state_dict_path` (Optional):** Path to checkpoint (weights) from a trained model as .pth.tar or .pth file.
+- **`state_dict_path` :** Path to checkpoint (weights) from a trained model as .pth.tar or .pth file.
 
 - **`pretrained` :** When `True` and the chosen model have the option available,  the model will load pretrained weights (e.g. Deeplabv3 pretrained on coco dataset). The default value is `True` if no `state_dict_path` is given.
 
@@ -267,17 +271,19 @@ training:
 
 - **`num_tst_samples` :** Number of samples to use for test by default all samples in `hdf5` file are taken.
 
-- **`batch_size` :** Size of each batch given to the **GPUs** or **CPU** depending on what you are training.
+- **`batch_size` (Mandatory):** Size of each batch given to the **GPUs** or **CPU** depending on what you are training with.
 
-- **`num_epochs` :** Number of epochs on which the model will train.
+- **`eval_batch_size` (Optional) :** Size of each batch given to the **GPUs** or **CPU** during **evaluation (validation and test)**. This parameter is especially useful when cropping training samples during training with `target_size` (see below), since evaluation samples can be considerably bigger than training. If omitted, default will be either `batch_size` or a lower multiple of 2 based on GPU's memory if a `target_size` is specificed (see `calc_eval_batchsize(...)` in train_segmentation.py for more information). 
+
+- **`num_epochs` (Mandatory):** Number of epochs on which the model will train.
 
 - **`target_size` :**  Sets the crop size of image (H/W) only during training.
 
-- **`loss_fn` :** Loss function, see the documentation on the losses [here](../losses#Losses-available) for all the losses available.
+- **`loss_fn` (Mandatory):** Loss function, see the documentation on the losses [here](../losses#Losses-available) for all the losses available.
 
-- **`optimizer` :** Optimizer, see the documentation on the optimizers [here](../utils#Optimizers) for all the optimizers available.
+- **`optimizer` (Mandatory):** Optimizer, see the documentation on the optimizers [here](../utils#Optimizers) for all the optimizers available.
 
-- **`learning_rate` :** Initial learning rate.
+- **`learning_rate` (Mandatory):** Initial learning rate.
 
 - **`weight_decay` :** Value for weight decay for each epoch.
 

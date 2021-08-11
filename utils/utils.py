@@ -1,4 +1,5 @@
 import csv
+import logging
 import numbers
 import subprocess
 from pathlib import Path
@@ -10,13 +11,14 @@ from torch import nn
 import numpy as np
 import scipy.signal
 import warnings
-import matplotlib
-import matplotlib.pyplot as plt
 import collections
+
+# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
+from rasterio.crs import CRS
+from affine import Affine
 
 from utils.readers import read_parameters
 
-# matplotlib.use('Agg')
 try:
     from ruamel_yaml import YAML
 except ImportError:
@@ -25,13 +27,15 @@ except ImportError:
 try:
     from pynvml import *
 except ModuleNotFoundError:
-    xxx=1 # FIXME: warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
+    warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 try:
     import boto3
 except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
+
+logging.getLogger(__name__)
 
 
 class Interpolate(torch.nn.Module):
@@ -46,12 +50,13 @@ class Interpolate(torch.nn.Module):
         return x
 
 
-def load_from_checkpoint(checkpoint, model, optimizer=None):
+def load_from_checkpoint(checkpoint, model, optimizer=None, inference:str=''):
     """Load weights from a previous checkpoint
     Args:
         checkpoint: (dict) checkpoint
         model: model to replace
         optimizer: optimiser to be used
+        inference: (str) path to inference state_dict. If given, loading will be strict (see pytorch doc)
     """
     # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model	    model.load_state_dict(checkpoint['model'])
     # https://github.com/bearpaw/pytorch-classification/issues/27
@@ -63,8 +68,9 @@ def load_from_checkpoint(checkpoint, model, optimizer=None):
         checkpoint = {}
         checkpoint['model'] = new_state_dict['model']
 
-    model.load_state_dict(checkpoint['model'], strict=False)
-    print(f"=> loaded model\n")
+    strict_loading = False if not inference else True
+    model.load_state_dict(checkpoint['model'], strict=strict_loading)
+    logging.info(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
         optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
     return model, optimizer
@@ -81,28 +87,51 @@ def list_s3_subfolders(bucket, data_path):
     return list_classes
 
 
-def get_device_ids(number_requested, max_used_ram=2000, max_used_perc=15, debug=False):
+def get_device_ids(number_requested: int,
+                   max_used_ram_perc: int = 25,
+                   max_used_perc: int = 15):
     """
     Function to check which GPU devices are available and unused.
     :param number_requested: (int) Number of devices requested.
+    :param max_used_ram_perc: (int) If RAM usage of detected GPU exceeds this percentage, it will be ignored
+    :param max_used_perc: (int) If GPU's usage exceeds this percentage, it will be ignored
     :return: (list) Unused GPU devices.
     """
-    lst_free_devices = []
+    lst_free_devices = {}
+    if not number_requested:
+        logging.warning(f'No GPUs requested. This training will run on CPU')
+        return lst_free_devices
+    if not torch.cuda.is_available():
+        logging.error(f'Requested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
+        return lst_free_devices
     try:
         nvmlInit()
         if number_requested > 0:
             device_count = nvmlDeviceGetCount()
             for i in range(device_count):
                 res, mem = gpu_stats(i)
-                if debug:
-                    print(f'GPU RAM used: {round(mem.used/(1024**2), 1)} | GPU % used: {res.gpu}')
-                if round(mem.used/(1024**2), 1) <  max_used_ram and res.gpu < max_used_perc:
-                    lst_free_devices.append(i)
-                if len(lst_free_devices) == number_requested:
+                used_ram = mem.used / (1024 ** 2)
+                max_ram = mem.total / (1024 ** 2)
+                used_ram_perc = used_ram / max_ram * 100
+                logging.debug(f'GPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
+                if used_ram_perc < max_used_ram_perc:
+                    if res.gpu < max_used_perc:
+                        lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}
+                    else:
+                        logging.warning(f'Gpu #{i} filtered out based on usage % threshold.\n'
+                                        f'Current % usage: {res.gpu}\n'
+                                        f'Max % usage allowed by user: {max_used_perc}.')
+                else:
+                    logging.warning(f'Gpu #{i} filtered out based on RAM threshold.\n'
+                                    f'Current RAM usage: {used_ram}/{max_ram}\n'
+                                    f'Max used RAM allowed by user: {max_used_ram_perc}.')
+                if len(lst_free_devices.keys()) == number_requested:
                     break
-            if len(lst_free_devices) < number_requested:
-                warnings.warn(f"You requested {number_requested} devices. {device_count} devices are available on this computer and "
-                              f"other processes are using {device_count-len(lst_free_devices)} device(s).")
+            if len(lst_free_devices.keys()) < number_requested:
+                logging.warning(f"You requested {number_requested} devices. {device_count} devices are available and "
+                                f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
+        else:
+            logging.error('No gpu devices requested. Will run on cpu')
     except NameError as error:
         raise NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
     except NVMLError as error:
@@ -152,7 +181,7 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
             val = default
         else:
             val = config[key] if config[key] != 'None' else None
-            if expected_type:
+            if expected_type and val is not False:
                 assert isinstance(val, expected_type), f"{val} is of type {type(val)}, expected {expected_type}"
             if delete:
                 del config[key]
@@ -296,7 +325,7 @@ def list_input_images(img_dir_or_csv: str,
             raise NotImplementedError(
                 'Specify a csv file containing images for inference. Directory input not implemented yet')
     else:
-        if img_dir_or_csv.endswith('.csv'):
+        if str(img_dir_or_csv).endswith('.csv'):
             list_img = read_csv(img_dir_or_csv)
         else:
             img_dir = Path(img_dir_or_csv)
@@ -341,7 +370,7 @@ def read_csv(csv_file_name):
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
         list_values = sorted(list_values, key=lambda k: k['dataset'])
     except TypeError:
-        list_values
+        logging.warning('Unable to sort csv rows')
     return list_values
 
 
@@ -351,10 +380,10 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
                                        raster_info: dict
                                        ) -> dict:
     """
-    @param sat_img_arr: source image as array (opened with rasterio.read)
-    @param meta_map: meta map parameter from yaml (global section)
-    @param raster_info: info from raster as read with read_csv (except at inference)
-    @return: Returns a metadata dictionary populated with info from source raster, including original csv line and
+    :param sat_img_arr: source image as array (opened with rasterio.read)
+    :param meta_map: meta map parameter from yaml (global section)
+    :param raster_info: info from raster as read with read_csv (except at inference)
+    :return: Returns a metadata dictionary populated with info from source raster, including original csv line and
              histogram.
     """
     metadata_dict = {'name': raster_handle.name, 'csv_info': raster_info, 'source_raster_bincount': {}}
@@ -367,17 +396,17 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
         elif sat_img_arr.min() >= 0 and sat_img_arr.max() <= 65535:
             metadata_dict['dtype'] = "uint16"
         else:
-            raise ValueError(f"Min and max values of array ({[sat_img_arr.min(), sat_img_arr.max()]}) are not contained"
-                             f"in 8 bit nor 16 bit range. Datatype cannot be overwritten.")
+            raise NotImplementedError(f"Min and max values of array ({[sat_img_arr.min(), sat_img_arr.max()]}) "
+                                      f"are not contained in 8 bit nor 16 bit range. Datatype cannot be overwritten.")
     # Save bin count (i.e. histogram) to metadata
     assert isinstance(sat_img_arr, np.ndarray) and len(sat_img_arr.shape) == 3, f"Array should be 3-dimensional"
     for band_index in range(sat_img_arr.shape[2]):
         band = sat_img_arr[..., band_index]
         metadata_dict['source_raster_bincount'][f'band{band_index}'] = {count for count in np.bincount(band.flatten())}
-    if meta_map:
-        assert raster_info['meta'] is not None and isinstance(raster_info['meta'], str) \
-               and Path(raster_info['meta']).is_file(), "global configuration requested metadata mapping onto loaded " \
-                                                        "samples, but raster did not have available metadata"
+    if meta_map and Path(raster_info['meta']).is_file():
+        if not raster_info['meta'] is not None and isinstance(raster_info['meta'], str):
+            raise ValueError("global configuration requested metadata mapping onto loaded "
+                             "samples, but raster did not have available metadata")
         yaml_metadata = read_parameters(raster_info['meta'])
         metadata_dict.update(yaml_metadata)
     return metadata_dict
@@ -427,7 +456,7 @@ def _window_2D(window_size, power=2):
 def get_git_hash():
     """
     Get git hash during execution of python script
-    @return: (str) hash code for current version of geo-deep-learning. If necessary, the code associated to this hash can be
+    :return: (str) hash code for current version of geo-deep-learning. If necessary, the code associated to this hash can be
     found with the following url: https://github.com/<owner>/<project>/commit/<hash>, aka
     https://github.com/NRCan/geo-deep-learning/commit/<hash>
     """
@@ -437,7 +466,7 @@ def get_git_hash():
     # when code not executed from git repo, subprocess outputs return code #128. This has been tested.
     # Reference: https://stackoverflow.com/questions/58575970/subprocess-call-with-exit-status-128
     if subproc.returncode == 128:
-        warnings.warn(f'No git repo associated to this code.')
+        logging.warning(f'No git repo associated to this code.')
         return None
     return git_hash
 
@@ -445,12 +474,88 @@ def get_git_hash():
 def ordereddict_eval(str_to_eval: str):
     """
     Small utility to successfully evaluate an ordereddict object that was converted to str by repr() function.
-    @param str_to_eval: (str) string to prepared for import with eval()
+    :param str_to_eval: (str) string to prepared for import with eval()
     """
-    # Replaces "ordereddict" string to "Collections.OrderedDict"
-    if isinstance(str_to_eval, str) and "ordereddict" in str_to_eval:
+    try:
+        # Replaces "ordereddict" string to "Collections.OrderedDict"
+        if isinstance(str_to_eval, bytes):
+            str_to_eval = str_to_eval.decode('UTF-8')
         str_to_eval = str_to_eval.replace("ordereddict", "collections.OrderedDict")
         return eval(str_to_eval)
-    else:
-        warnings.warn(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
+    except Exception:
+        logging.exception(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
         return str_to_eval
+
+
+def defaults_from_params(params, key=None):
+    d = {}
+    data_path = get_key_def('data_path', params['global'], '')
+    preprocessing_path = get_key_def('preprocessing_path', params['global'], '')
+    mlflow_experiment_name = get_key_def('mlflow_experiment_name', params['global'], 'gdl-training')
+    d['prep_csv_file'] = Path(preprocessing_path, mlflow_experiment_name,
+                              f"images_to_samples_{mlflow_experiment_name}.csv")
+    d['img_dir_or_csv_file'] = Path(preprocessing_path, mlflow_experiment_name,
+                                    f"inference_sem_seg_{mlflow_experiment_name}.csv")
+    samples_size = params["global"]["samples_size"]
+    overlap = params["sample"]["overlap"]
+    if 'self' in params.keys():
+        config_file_name = Path(get_key_def('config_file', params['self'], '')).stem
+    else:
+        config_file_name = Path('')
+    if params['global']['task'] == 'segmentation':
+        min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None,
+                                     expected_type=int)
+        num_bands = params['global']['number_of_bands']
+        d['samples_dir_name'] = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_'
+                                 f'{num_bands}bands_{mlflow_experiment_name }')
+        d['state_dict_path'] = Path(data_path, d['samples_dir_name'], 'model', config_file_name, 'checkpoint.pth.tar')
+    elif params['global']['task'] == 'classification':
+        d['state_dict_path'] = Path(data_path, 'model', config_file_name, 'checkpoint.pth.tar')
+    else:
+        raise NotImplementedError
+    if key is None:
+        return d
+    return d[key]
+
+
+def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -> List:
+    """
+    Checks if values for same keys or subkeys (max depth of 2) of two dictionaries match.
+    :param yaml1: (dict) first dict to evaluate
+    :param yaml2: (dict) second dict to evaluate
+    :param update_yaml1: (bool) if True, values in yaml1 will be replaced with values in yaml2,
+                         if the latters are different
+    :return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
+    """
+    if not (isinstance(yaml1, dict) or isinstance(yaml2, dict)):
+        raise TypeError(f"Expected both yamls to be dictionaries. \n"
+                        f"Yaml1's type is  {type(yaml1)}\n"
+                        f"Yaml2's type is  {type(yaml2)}")
+    for section, params in yaml2.items():  # loop through main sections of config yaml ('global', 'sample', etc.)
+        if section not in yaml1.keys():  # create key if not in dictionary as we loop
+            yaml1[section] = {}
+        for param, val2 in params.items():  # loop through parameters of each section ('samples_size','debug_mode',...)
+            if param not in yaml1[section].keys():  # create key if not in dictionary as we loop
+                yaml1[section][param] = {}
+            # set to None if no value for that key
+            val1 = get_key_def(param, yaml1[section], default=None)
+            if isinstance(val2, dict):  # if value is a dict, loop again to fetch end val (only recursive twice)
+                for subparam, subval2 in val2.items():
+                    if subparam not in yaml1[section][param].keys():  # create key if not in dictionary as we loop
+                        yaml1[section][param][subparam] = {}
+                    # set to None if no value for that key
+                    subval1 = get_key_def(subparam, yaml1[section][param], default=None)
+                    if subval2 != subval1:
+                        # if value doesn't match between yamls, emit warning
+                        logging.warning(f"YAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
+                                        f"Current yaml value: \"{subval1}\"\nHDF5s yaml value: \"{subval2}\"\n")
+                        if update_yaml1:  # update yaml1 with subvalue of yaml2
+                            yaml1[section][param][subparam] = subval2
+                            logging.info(f'Value in yaml1 updated')
+            elif val2 != val1:
+                logging.warning(f"YAML value mismatch: section \"{section}\", key \"{param}\"\n"
+                                f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val1}\"\n"
+                                f"Problems may occur.")
+                if update_yaml1:  # update yaml1 with value of yaml2
+                    yaml1[section][param] = val2
+                    logging.info(f'Value in yaml1 updated')

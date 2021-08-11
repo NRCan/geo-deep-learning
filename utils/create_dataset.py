@@ -1,4 +1,5 @@
 import collections
+import logging
 import os
 import warnings
 from typing import List
@@ -8,14 +9,14 @@ from torch.utils.data import Dataset
 import numpy as np
 
 import models.coordconv
-from utils.utils import get_key_def, ordereddict_eval
+from utils.utils import get_key_def, ordereddict_eval, compare_config_yamls
 from utils.geoutils import get_key_recursive
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
 from affine import Affine
 
-# from torchvision import datasets, transforms
+logging.getLogger(__name__)
 
 
 def append_to_dataset(dataset, sample):
@@ -31,16 +32,16 @@ def append_to_dataset(dataset, sample):
     return old_size
 
 
-def create_files_and_datasets(params, samples_folder):
+def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: str, params):
     """
     Function to create the hdfs files (trn, val and tst).
-    :param params: (dict) Parameters found in the yaml config file.
+    :param samples_size: size of individual hdf5 samples to be created
+    :param number_of_bands: number of bands in imagery
+    :param meta_map:
     :param samples_folder: (str) Path to the output folder.
+    :param params: (dict) Parameters found in the yaml config file.
     :return: (hdf5 datasets) trn, val ant tst datasets.
     """
-    samples_size = params['global']['samples_size']
-    number_of_bands = params['global']['number_of_bands']
-    meta_map = get_key_def('meta_map', params['global'], {})
     real_num_bands = number_of_bands - MetaSegmentationDataset.get_meta_layer_count(meta_map)
     assert real_num_bands > 0, "invalid number of bands when accounting for meta layers"
     hdf5_files = []
@@ -56,12 +57,12 @@ def create_files_and_datasets(params, samples_folder):
             hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             append_to_dataset(hdf5_file["params"], repr(params))
-        except AttributeError as e:
-            warnings.warn(f'{e}. Update h5py to version 2.10 or higher')
+        except AttributeError:
+            logging.exception(f'Update h5py to version 2.10 or higher')
             raise
         hdf5_files.append(hdf5_file)
 
-    if params['global']['qgis_tracker']:
+    if params['global']['qgis_tracker']: # change to get_key_def() to allow for yamls without the qgis_tracker term
         hdf5_file = h5py.File(os.path.join(samples_folder, f"tracker.hdf5"), "w")
         for subset in ["trn", "val", "tst"]:
             grp = hdf5_file.create_group(subset)
@@ -87,10 +88,6 @@ class SegmentationDataset(Dataset):
                  totensor_transform=None,
                  params=None,
                  debug=False):
-        # self.cifar10 = datasets.CIFAR10(root=work_folder,
-        #                         download=False,
-        #                         train=True,
-        #                         transform=transforms.ToTensor())
         # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.work_folder = work_folder
         self.max_sample_count = max_sample_count
@@ -117,8 +114,12 @@ class SegmentationDataset(Dataset):
             hdf5_params = hdf5_file['params'][0, 0]
             hdf5_params = ordereddict_eval(hdf5_params)
 
-            # check match between current yaml and sample yaml for crucial parameters
-            yaml_mismatch_keys = self.compare_config_yamls(hdf5_params, params)
+            if dataset_type == 'trn' and isinstance(hdf5_params, dict) and isinstance(metadata, dict):
+                # check match between current yaml and sample yaml for crucial parameters
+                try:
+                    compare_config_yamls(hdf5_params, params)
+                except TypeError:
+                    logging.exception("Couldn't compare current yaml with hdf5 yaml")
 
     def __len__(self):
         return self.max_sample_count
@@ -137,23 +138,29 @@ class SegmentationDataset(Dataset):
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
             sat_img = np.float32(hdf5_file["sat_img"][index, ...])
             assert self.num_bands <= sat_img.shape[-1]
-            #if self.num_bands < sat_img.shape[-1]:  # FIXME: remove after NIR integration tests
-            #    sat_img = sat_img[:, :, :self.num_bands]
             map_img = self._remap_labels(hdf5_file["map_img"][index, ...])
             meta_idx = int(hdf5_file["meta_idx"][index])
             metadata = self.metadata[meta_idx]
-            sample_metadata = eval(hdf5_file["sample_metadata"][index, ...][0])
+            sample_metadata = hdf5_file["sample_metadata"][index, ...][0]
+            try:
+                sample_metadata = eval(sample_metadata.decode('UTF-8'))
+            except AttributeError:
+                pass # TODO: hdf5_file["sample_metadata"] = wha?
             if isinstance(metadata, np.ndarray) and len(metadata) == 1:
                 metadata = metadata[0]
-            if isinstance(metadata, str):
+            elif isinstance(metadata, bytes):
+                metadata = metadata.decode('UTF-8')
+            try:
                 metadata = eval(metadata)
-            metadata.update(sample_metadata)
+                metadata.update(sample_metadata)
+            except TypeError:
+                pass # FI
             # where bandwise array has no data values, set as np.nan
             # sat_img[sat_img == metadata['nodata']] = np.nan # TODO: problem with lack of dynamic range. See: https://rasterio.readthedocs.io/en/latest/topics/masks.html
 
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
                   "hdf5_path": self.hdf5_path}
-
+        # TODO: figure out this class's """ERROR 1: PROJ: proj_create_from_name: Cannot find proj.db""" it spams when debugging & loading self variable
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
             sample = self.radiom_transform(sample)
         if self.geom_transform:  # rotation, geometric scaling, flip and crop. Will also put channels first and convert to torch tensor from numpy.
@@ -167,36 +174,11 @@ class SegmentationDataset(Dataset):
             if self.dontcare is not None:
                 initial_class_ids.add(self.dontcare)
             final_class_ids = set(np.unique(sample['map_img'].numpy()))
-            assert final_class_ids.issubset(initial_class_ids), \
-                f"Class ids for label before and after augmentations don't match. "
-
+            if not final_class_ids.issubset(initial_class_ids):
+                logging.debug(f"WARNING: Class ids for label before and after augmentations don't match. "
+                              f"Ignore if overwritting ignore_index in ToTensorTarget")
         sample['index'] = index
-        # print('index ---------------------------------\n', index, '\n---------------------------------\n')
         return sample
-
-    @staticmethod
-    def compare_config_yamls(yaml1: dict, yaml2: dict) -> List:
-        """
-        Checks if values for same keys or subkeys (max depth of 2) of two dictionaries match.
-        @param yaml1: (dict) first dict to evaluate
-        @param yaml2: (dict) second dict to evaluate
-        @return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
-        """
-        for section, params in yaml1.items():  # loop through main sections of config yaml ('global', 'sample', etc.)
-            for param, val in params.items():  # loop through parameters of each section
-                val2 = yaml2[section][param]
-                if isinstance(val, dict):  # if value is a dict, loop again to fetch end val (only recursive twice)
-                    for subparam, subval in val.items():
-                        # if value doesn't match between yamls, emit warning
-                        subval2 = yaml2[section][param][subparam]
-                        if subval != subval2:
-                            warnings.warn(f"YAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
-                                          f"Current yaml value: \"{subval2}\"\nHDF5s yaml value: \"{subval}\"\n"
-                                          f"Problems may occur.")
-                elif val != val2:
-                    warnings.warn(f"YAML value mismatch: section \"{section}\", key \"{param}\"\n"
-                                  f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val}\"\n"
-                                  f"Problems may occur.")
 
 
 class MetaSegmentationDataset(SegmentationDataset):

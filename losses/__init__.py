@@ -28,13 +28,15 @@ class MultiClassCriterion(nn.Module):
         elif loss_type == 'Duo':
             lst = [LovaszSoftmax(**kwargs), BoundaryLoss(**kwargs)]
             self.criterion = lst
+        elif loss_type == 'bcewithlogitsloss':
+            self.criterion = nn.BCEWithLogitsLoss()
         else:
             raise NotImplementedError\
                 (f'Current version of geo-deep-learning does not implement {loss_type} loss')
 
     def forward(self, preds, labels):
         # preds = F.interpolate(preds, labels.shape[1:], mode='bilinear', align_corners=True)
-        if isinstance(self.criterion, list):
+        if isinstance(self.criterion, list): #TODO: does list = MECnet_loss(output, o1, o2, o3, o4, o5)
             cals = []
             for obj in self.criterion:
                 cals.append(obj(preds, labels))

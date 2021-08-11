@@ -1,14 +1,17 @@
 import collections
+import logging
 from pathlib import Path
 
 import numpy as np
 
 import fiona
 
-# import rasterio
-# from rasterio.features import is_valid_geom
-# from rasterio.mask import mask
-# from rasterio.transform import array_bounds
+import rasterio
+from rasterio.features import is_valid_geom
+from rasterio.mask import mask
+from rasterio.transform import array_bounds
+
+logger = logging.getLogger(__name__)
 
 
 def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
@@ -23,16 +26,16 @@ def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
     '''
     lst_vector_tuple = {}
     for vector in list_vector:
-        id = get_key_recursive(attr_name, vector) if attr_name is not None else None
-        if target_ids is None or id in target_ids:
-            if id not in lst_vector_tuple:
-                lst_vector_tuple[id] = []
+        att_val = int(get_key_recursive(attr_name, vector)) if attr_name is not None else None
+        if target_ids is None or att_val in target_ids:
+            if att_val not in lst_vector_tuple:
+                lst_vector_tuple[att_val] = []
             if merge_all:
                 # here, we assume that the id can be cast to int!
-                lst_vector_tuple[id].append((vector['geometry'], int(id) if id is not None else 0))
+                lst_vector_tuple[att_val].append((vector['geometry'], int(att_val) if att_val is not None else 0))
             else:
                 # if not merging layers, just use '1' as the value for each target
-                lst_vector_tuple[id].append((vector['geometry'], 1))
+                lst_vector_tuple[att_val].append((vector['geometry'], 1))
     return lst_vector_tuple
 
 
@@ -53,40 +56,28 @@ def getFeatures(gdf):
     return [json.loads(gdf.to_json())['features'][0]['geometry']]
 
 
-def clip_raster_with_gpkg(raster, gpkg, debug=False):
+def clip_raster_with_gpkg(raster, gpkg, smpls_dir, debug=False):
     """Clips input raster to limits of vector data in gpkg. Adapted from: https://automating-gis-processes.github.io/CSC18/lessons/L6/clipping-raster.html
     raster: Rasterio file handle holding the (already opened) input raster
     gpkg: Path and name of reference GeoPackage
     debug: if True, output raster as given by this function is saved to disk
     """
-
     from shapely.geometry import box  # geopandas and shapely become a project dependency only during sample creation
     import geopandas as gpd
     # Get extent of gpkg data with fiona
-    with fiona.open(gpkg, 'r') as src:
-        gpkg_crs = src.crs
-        assert gpkg_crs == raster.crs or gpkg_crs == raster.crs.data # FIXME: these aint working as raster/gpkg.crs give variaty of datatypes
+    with fiona.open(gpkg, 'r') as src: # FIXME: we nolong compare the projections are the same
         minx, miny, maxx, maxy = src.bounds  # ouest, nord, est, sud
 
         # region get coords for visualization HDF5 file
         vis_coords = {}
         # try:
         vis_coords['projection'] = src.crs['init']
-        # vis_coords['minx'] = minx
-        # vis_coords['miny'] = miny
-        # vis_coords['maxx'] = maxx
-        # vis_coords['maxy'] = maxy
         # except KeyError:
         # #     try:
         # #        wkt = src.crs_wkt
         # #     except AttributeError:
         # #        wkt = src.crs.wkt
         # #     wkt
-        #     vis_coords['mapping'] = src.crs['init']
-        #     vis_coords['minx'] = minx
-        #     vis_coords['miny'] = miny
-        #     vis_coords['maxx'] = maxx
-        #     vis_coords['maxy'] = maxy
         # endregion
 
     # Create a bounding box with Shapely
@@ -102,18 +93,9 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     coords = getFeatures(geo)
 
     # clip the raster with the polygon
-    try:
-        out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
-    except ValueError as e:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
-        # TODO: warning or exception? if warning, except must be set in images_to_samples
-        raise
+    out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
 
-    # print(f'\n\n   {minx-maxx} : {miny-maxy}')
-    # print(f'before:\t{minx},{maxx} : {miny},{maxy}')
     w,s,e,n = array_bounds(out_img.shape[1], out_img.shape[2], out_transform)
-    # print(f'\n   {w-e} : {s-n}')
-    # print(f'after:\t{w},{e} : {s},{n}\n')
-    # print(out_img.shape, '\n\n')
     vis_coords['w'] = w
     vis_coords['e'] = e
     vis_coords['s'] = s
@@ -125,11 +107,12 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
                      "width": out_img.shape[2],
                      "transform": out_transform})
 
-    out_tif = f"{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
-    with rasterio.open(out_tif, "w", **out_meta) as dest:
-        if debug:
-            print(f"DEBUG: writing clipped raster to {out_tif}")
+    out_tif = smpls_dir / f"samp_prep___{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
+    if debug:
+        with rasterio.open(out_tif, "w", **out_meta) as dest:
+            logging.debug(f"writing clipped raster to {out_tif}")
             dest.write(out_img)
+
 
     return out_img, dest, vis_coords
 
@@ -159,8 +142,11 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
     lst_vector_tuple = lst_ids(list_vector=lst_vector, attr_name=attribute_name, target_ids=target_ids,
                                merge_all=merge_all)
 
-    if merge_all:
-        return rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
+    if not lst_vector_tuple:  # if no vectors found, return None and prevent error in rasterize function below.
+        logging.warning()
+        return None
+    elif merge_all:
+        np_label_raster = rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
                                            fill=fill,
                                            out_shape=out_shape,
                                            transform=input_image.transform,
@@ -171,7 +157,14 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
                                                       out_shape=out_shape,
                                                       transform=input_image.transform,
                                                       dtype=np.int16) for id in lst_vector_tuple]
-        return np.stack(burned_rasters, axis=-1)
+        np_label_raster = np.stack(burned_rasters, axis=-1)
+
+    # overwritte label values to make sure they are continuous
+    if target_ids:
+        for index, target_id in enumerate(target_ids):
+            np_label_raster[np_label_raster == target_id] = (index+1)
+
+    return np_label_raster
 
 
 def create_new_raster_from_base(input_raster, output_raster, write_array):

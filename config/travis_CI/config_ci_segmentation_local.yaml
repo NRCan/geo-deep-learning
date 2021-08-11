@@ -1,72 +1,44 @@
-# Deep learning configuration file ------------------------------------------------
-# This config is to use massachusetts_buildings image out of the box.
-# For that, unzip the file data/massachusetts_buildings.zip befor running imag
-#
-#Geo-Deep-Learning
-#
-#
-#
-#
-#
-#
-#Matthew Wesley-Jameses_to_samples.py or other command.
-# Five sections :
 
-#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
-#   2) Data analysis parameters
-#   3) Sampling parameters
-#   4) Training parameters
-#   5) Inference parameters
-#   6) Visualization parameters
+#   2) Sampling parameters
+#   3) Training parameters
+#   4) Inference parameters
+#   5) Model parameters
 
 # Global parameters
 
 global:
-  data_path: ./run
-  model_output_dir: TEST
-
-  mlflow_uri: ./mlruns
-  mlflow_experiment_name: pls_work
-
   samples_size: 256
-  num_classes: 1                    # (+1 fo bg)
+  num_classes: 1  # will automatically create a 'background' class
+  data_path: ./data
+  mlflow_uri: ./mlruns
   number_of_bands: 3
-  model_name: unet #deeplabv3_resnet101
-              # unet
-              # unetsmall
-              # checkpointed_unet
-              # ternausnet
-              # fcn_resnet101
-              # deeplabv3_resnet101
-
-  bucket_name:
-  task: segmentation  # (seg. or clas.)
+  model_name: deeplabv3_resnet101     # One of unet, unetsmall, checkpointed_unet, ternausnet, fcn_resnet101, deeplabv3_resnet101
+  bucket_name:   # name of the S3 bucket where data is stored. Leave blank if using local files
+  task: segmentation  # Task to perform. Either segmentation or classification
   num_gpus: 1
-  max_used_ram: 7500
-  max_used_perc: 95
-  BGR_to_RGB: true
-  scale_data: [0, 1]
-  debug_mode: false
+  BGR_to_RGB: True
+  scale_data: [0,1]
+  debug_mode: True
 
 # Sample parameters; used in images_to_samples.py -------------------
 
 sample:
-  prep_csv_file: ./data/OG_data/images_to_samples_ci_csv.csv
+  prep_csv_file: ./data/images_to_samples_ci_csv.csv
   overlap: 33
-  val_percent: 30
+  val_percent: 30 # Percentage of validation samples created from train set (0 - 100)
   sampling_method: # class_proportion or min_annotated_percent
-    min_annotated_percent: 3    # Min % of non background pixels in samples. Default: 0
-    class_proportion: {'1': 5}
-  mask_reference: false
+    'min_annotated_percent': 3  # Min % of non background pixels in samples. Default: 0
+    'class_proportion': {'1':5}
+  mask_reference: False
 
 # Data analysis parameters; used in data_analysis.py ------------------
 
 data_analysis:
-  create_csv: false
-  optimal_parameters_search: false
+  create_csv: False
+  optimal_parameters_search : False
   sampling_method: # class_proportion or min_annotated_percent
-    min_annotated_percent: 3    # Min % of non background pixels in samples. Default: 0
-    class_proportion: {'1': 5}
+    'min_annotated_percent': 3  # Min % of non background pixels in samples. Default: 0
+    'class_proportion': {'1':5}
 
 # Training parameters; used in train_segmentation.py ----------------------
 
@@ -76,26 +48,24 @@ training:
   num_val_samples:
   num_tst_samples:
   batch_size: 2
-  num_epochs: 20
+  num_epochs: 2
   target_size: 128
-  loss_fn: Lovasz
-         # CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
+  loss_fn: Lovasz # One of CrossEntropy, Lovasz, Focal, OhemCrossEntropy (*Lovasz for segmentation tasks only)
   optimizer: adam # One of adam, sgd or adabound
   learning_rate: 0.0001
   weight_decay: 0
   step_size: 4
   gamma: 0.9
-  dropout: false    # (bool) Use dropout or not
-  dropout_prob: false    # (float) Set dropout probability, e.g. 0.5
+  dropout: False    # (bool) Use dropout or not
+  dropout_prob: False    # (float) Set dropout probability, e.g. 0.5
   class_weights: [1.0, 2.0]
   batch_metrics: 1
-  ignore_index: 255 # Specifies a target value that is ignored and does not contribute to the input gradient
+  ignore_index:  # Specifies a target value that is ignored and does not contribute to the input gradient
   augmentation:
-    noise:
-    rotate_limit: #45           # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
-    rotate_prob: #0.5           # Specifies the probability for data rotation. If not specified, no rotation will be performed.
-    hflip_prob: #0.5            # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.
-    random_radiom_trim_range: #[0.1, 2.0]   # Specifies the range in which a random percentile value will be chosen to trim values. This value applies to both left and right sides of the raster's histogram. If not specified, no enhancement will be performed.
+      rotate_limit: 45         # Specifies the upper and lower limits for data rotation. If not specified, no rotation will be performed.
+      rotate_prob: 0.5         # Specifies the probability for data rotation. If not specified, no rotation will be performed.
+      hflip_prob: 0.5          # Specifies the probability for data horizontal flip. If not specified, no horizontal flip will be performed.
+      random_radiom_trim_range: [0.1, 2.0] # Specifies the range in which a random percentile value will be chosen to trim values. This value applies to both left and right sides of the raster's histogram. If not specified, no enhancement will be performed.
   normalization:  # Normalization parameters for finetuning (Ex. mean: [0.485, 0.456, 0.406], std: std: [0.229, 0.224, 0.225])
     mean:
     std:
@@ -103,39 +73,23 @@ training:
 # Inference parameters; used in inference.py --------
 
 inference:
-  img_dir_or_csv_file: ./data/OG_data/inference_sem_seg_ci_csv.csv
-  state_dict_path: ./data/OG_data/samples256_overlap33_min-annot3_3bands_gdl-training/model/config_ci_segmentation_local/checkpoint.pth.tar
+  img_dir_or_csv_file: ./data/inference_sem_seg_ci_csv.csv
+  state_dict_path: ./data/samples256_overlap33_min-annot3_3bands_gdl-training/model/config_ci_segmentation_local/checkpoint.pth.tar
   chunk_size: 512 # (int) Size (height and width) of each prediction patch. Default: 512
-  smooth_prediction: false
+  smooth_prediction: False
   overlap: 2 # overlap between tiles for smoothing. Must be an even number that divides chunk_size without remainder.
 
 # Visualization parameters
 
 visualization:
-  vis: true
-  vis_batch_range: #[0, 200, 10]
-  vis_at_checkpoint: true
+  vis_batch_range: [0,200,10] #start, finish, increment
+  vis_at_checkpoint: True
   vis_at_ckpt_min_ep_diff: 0
-  vis_at_ckpt_dataset: val
-  vis_at_init: true
+  vis_at_ckpt_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.
+  vis_at_init: True
   vis_at_init_dataset: val
-  vis_at_evaluation: true
-  vis_at_train: true
-  grid: false
-  heatmaps: true
-  colormap_file: ./data/OG_data/colormap.csv
-
-#visualization:
-#  vis_batch_range: [0, 200, 10] #start, finish, increment
-#  vis_at_checkpoint: false
-#  vis_at_ckpt_min_ep_diff: 0
-#  vis_at_ckpt_dataset: val # FIXME: Parameter adds confusion. To be removed. Default to val dataset.
-#  vis_at_init: false
-#  vis_at_init_dataset: val
-#  vis_at_evaluation: false #val during training, tst at end of training
-#  vis_at_train: false
-#  grid: true
-#  heatmaps: true
-#  colormap_file: ./data/OG_data/colormap.csv
-
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+  vis_at_evaluation: True #val during training, tst at end of training
+  vis_at_train: True
+  grid: True
+  heatmaps: True
+  colormap_file: ./data/colormap.csv
