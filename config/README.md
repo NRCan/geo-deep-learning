@@ -112,7 +112,7 @@ global:
 ## **Data Analysis**
 The [data_analysis](data_analysis.py) module is used to visualize the composition of the sample's classes and see how it shapes the training dataset and can be  useful for balancing training data in which a class is under-represented. Using basic statistical analysis, the user can test multiple sampling parameters and immediately see their impact on the classes' distribution. It can also be used to automatically search optimal sampling parameters and obtain a more balanced class distribution in the dataset.
 
-The sampling parameters can then be used in [images_to_samples.py](../images_to_samples.py) to obtain the desired dataset or can be use alone this way there is no need to run the full code to find out how the classes are distributed (see the [example](#Running)).
+The sampling parameters can then be used in [images_to_samples.py](../data_to_tiles.py) to obtain the desired dataset or can be use alone this way there is no need to run the full code to find out how the classes are distributed (see the [example](#Running)).
 
 Before running [data_analysis.py](data_analysis.py), the paths to the `csv` file containing all the information about the images and the data folder must be specified in the `yaml` file use to the experience.
 ```YAML
@@ -125,7 +125,7 @@ global:
 
       ...
 
-# Sample parameters; used in images_to_samples.py -------------------
+# Sample parameters; used in data_to_tiles.py -------------------
 sample:
   prep_csv_file: /path/to/csv/images.csv  # <--- must be specified
   val_percent: 5
@@ -166,9 +166,9 @@ python utils/data_analysis.py path/to/yaml_files/your_config.yaml
 
 
 ## **Sampling**
-This section is use by [images_to_samples.py](../images_to_samples.py) to prepare the images for the training, validation and inference. Those images must be geotiff combine with a GeoPackage, otherwise it will not work.
+This section is use by [images_to_samples.py](../data_to_tiles.py) to prepare the images for the training, validation and inference. Those images must be geotiff combine with a GeoPackage, otherwise it will not work.
 
-In addition, [images_to_samples.py](../images_to_samples.py) will assert that all geometries for features in GeoPackages are valid according to [Rasterio's algorithm](https://github.com/mapbox/rasterio/blob/d4e13f4ba43d0f686b6f4eaa796562a8a4c7e1ee/rasterio/features.py#L461).
+In addition, [images_to_samples.py](../data_to_tiles.py) will assert that all geometries for features in GeoPackages are valid according to [Rasterio's algorithm](https://github.com/mapbox/rasterio/blob/d4e13f4ba43d0f686b6f4eaa796562a8a4c7e1ee/rasterio/features.py#L461).
 
 ```yaml
 sample:
@@ -196,13 +196,13 @@ sample:
 
 - **`mask_reference` :** A mask that mask the input image where there is no reference data, when the value is `True`.
 
-#### Running [images_to_samples.py](../images_to_samples.py)
+#### Running [images_to_samples.py](../data_to_tiles.py)
 You must run this code before training to generate the `hdf5` use by the other code.
 Even if you only want to do inference on the images, you need to generate a `tst_samples.hdf5`.
 
 To launch the code:
 ```shell
-python images_to_samples.py path/to/yaml_files/your_config.yaml
+python data_to_tiles.py path/to/yaml_files/your_config.yaml
 ```
 The output of this code will result at the following structure:
 ```
@@ -322,7 +322,7 @@ training:
 
 #### Running [train_segmentation.py](../train_segmentation.py)
 
-You must run [`images_to_samples.py`](../images_to_samples.py) code before training to generate the `hdf5` use for the training and the validation.
+You must run [`images_to_samples.py`](../data_to_tiles.py) code before training to generate the `hdf5` use for the training and the validation.
 
 To launch the code:
 ```shell
@@ -455,7 +455,7 @@ Input value|Class name|Html color
 
 
 ## Final Results
-If you run the three code: [images_to_samples.py](../images_to_samples.py), [train_segmentation.py](../train_segmentation.py) and [inference.py](../inference.py) with `your_config.yaml` you should end with a structure like:
+If you run the three code: [images_to_samples.py](../data_to_tiles.py), [train_segmentation.py](../train_segmentation.py) and [inference.py](../inference.py) with `your_config.yaml` you should end with a structure like:
 ```
 ├── {data_path}
     └── {samples_folder}*

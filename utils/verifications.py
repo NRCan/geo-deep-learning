@@ -16,10 +16,9 @@ logger = logging.getLogger(__name__)
 def validate_num_classes(vector_file: Union[str, Path],
                          num_classes: int,
                          attribute_name: str,
-                         ignore_index: int,
-                         target_ids: List):
+                         ignore_index: int = None,
+                         target_ids: List = None):
     """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
-    FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
     Args:
         :param vector_file: full file path of the vector image
         :param num_classes: number of classes set in config_template.yaml
@@ -41,7 +40,7 @@ def validate_num_classes(vector_file: Union[str, Path],
             unique_att_vals.add(int(get_key_recursive(attribute_name, feature)))
 
     # if dontcare value is defined, remove from list of unique attribute values for verification purposes
-    if ignore_index in unique_att_vals:
+    if ignore_index and ignore_index in unique_att_vals:
         unique_att_vals.remove(ignore_index)
 
     # if burning a subset of gpkg's classes

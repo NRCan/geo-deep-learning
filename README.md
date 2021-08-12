@@ -6,7 +6,7 @@
 The **geo-deep-learning** project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced data sets.
 The overall learning process comprises three broad stages:
 
-### Data preparation ([images_to_samples.py](images_to_samples.py))
+### Data preparation ([images_to_samples.py](data_to_tiles.py))
 The data preparation phase (sampling) allows creating sub-images that will be used for either training, validation or testing.
 
 The first phase of the process is to determine sub-images (samples) to be used for training, validation and, optionally, test.  Images to be used must be of the geotiff type.  Sample locations in each image must be stored in a GeoPackage.
@@ -94,7 +94,7 @@ touch path/to/images.csv
 3. Execute your task (can be use separately).
 ```shell
 # Creating the hdf5 from the raw data
-python images_to_samples.py path/to/yaml_files/your_config.yaml
+python data_to_tiles.py path/to/yaml_files/your_config.yaml
 # Training the neural network
 python train_segmentation.py path/to/yaml_files/your_config.yaml
 # Inference on the new data

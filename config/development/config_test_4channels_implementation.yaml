@@ -56,7 +56,7 @@ data_analysis:
     # values (int) represent class minimum threshold targeted in samples
 
 
-# Sample parameters; used in images_to_samples.py -------------------
+# Sample parameters; used in data_to_tiles.py -------------------
 sample:
   prep_csv_file: /home/cauthier/data/test4channel.csv # TODO: put in git ignor
   val_percent: 5 # Percentage of validation samples created from train set (0 - 100)

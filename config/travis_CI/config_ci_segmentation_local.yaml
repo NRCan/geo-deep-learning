@@ -20,7 +20,7 @@ global:
   scale_data: [0,1]
   debug_mode: True
 
-# Sample parameters; used in images_to_samples.py -------------------
+# Sample parameters; used in data_to_tiles.py -------------------
 
 sample:
   prep_csv_file: ./data/images_to_samples_ci_csv.csv
