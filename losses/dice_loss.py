@@ -21,6 +21,10 @@ def soft_dice_score(
 class DiceLoss(nn.Module):
 
     def __init__(self, smooth=1.0, eps=1e-7, ignore_index=None, weight=None, mode='MULTICLASS_MODE'):
+        """Implementation of Dice loss for image segmentation task.
+        https://github.com/qubvel/segmentation_models.pytorch
+        """
+
         super().__init__()
         self.smooth = smooth
         self.eps = eps

@@ -461,10 +461,10 @@ def _spline_window(window_size, power=2):
     https://www.wolframalpha.com/input/?i=y%3Dx**2,+y%3D-(x-2)**2+%2B2,+y%3D(x-4)**2,+from+y+%3D+0+to+2
     """
     intersection = int(window_size/4)
-    wind_outer = (abs(2*(scipy.signal.triang(window_size))) ** power)/2
+    wind_outer = (abs(2 * (scipy.signal.windows.triang(window_size))) ** power) / 2
     wind_outer[intersection:-intersection] = 0
 
-    wind_inner = 1 - (abs(2*(scipy.signal.triang(window_size) - 1)) ** power)/2
+    wind_inner = 1 - (abs(2 * (scipy.signal.windows.triang(window_size) - 1)) ** power) / 2
     wind_inner[:intersection] = 0
     wind_inner[-intersection:] = 0
 

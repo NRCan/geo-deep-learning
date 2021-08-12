@@ -18,38 +18,12 @@ from typing import List, Union
 
 from utils.create_dataset import create_files_and_datasets
 from utils.utils import get_key_def, pad, pad_diff, add_metadata_from_raster_to_sample
-from utils.geoutils import vector_to_raster, get_key_recursive
+from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
 from utils.readers import read_parameters
 from utils.verifications import assert_crs_match, validate_num_classes
 from rasterio.mask import mask
 from rasterio.windows import Window
 from rasterio.plot import reshape_as_image
-
-
-# def validate_num_classes(vector_file: Union[str, Path], num_classes: int, attribute_name: str, ignore_index: int):
-#     """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
-#     FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
-#     Args:
-#         vector_file: full file path of the vector image
-#         num_classes: number of classes set in config_template.yaml
-#         attribute_name: name of the value field representing the required classes in the vector image file
-#         ignore_index: (int) target value that is ignored during training and does not contribute to the input gradient
-#     Return:
-#         List of unique attribute values found in gpkg vector file
-#     """
-#     distinct_att = set()
-#     with fiona.open(vector_file, 'r') as src:
-#         for feature in tqdm(src, leave=False, position=1, desc=f'Scanning features'):
-#             # Use property of set to store unique values
-#             distinct_att.add(get_key_recursive(attribute_name, feature))
-#
-#     detected_classes = len(distinct_att) - len([ignore_index]) if ignore_index in distinct_att else len(distinct_att)
-#
-#     if detected_classes != num_classes:
-#         warnings.warn('The number of classes in the yaml.config {} is different than the number of classes in '
-#                       'the file {} {}'.format(num_classes, vector_file, str(list(distinct_att))))
-#
-#     return distinct_att
 
 
 def validate_class_prop_dict(actual_classes_dict, config_dict):
@@ -93,58 +67,10 @@ def getFeatures(gdf):
     import json
     return [json.loads(gdf.to_json())['features'][0]['geometry']]
 
-
-def clip_raster_with_gpkg(raster, gpkg, debug=False):
-    """Clips input raster to limits of vector data in gpkg. Adapted from: https://automating-gis-processes.github.io/CSC18/lessons/L6/clipping-raster.html
-    raster: Rasterio file handle holding the (already opened) input raster
-    gpkg: Path and name of reference GeoPackage
-    debug: if True, output raster as given by this function is saved to disk
-    """
-    from shapely.geometry import box  # geopandas and shapely become a project dependency only during sample creation
-    import geopandas as gpd
-    import fiona
-    # Get extent of gpkg data with fiona
-    with fiona.open(gpkg, 'r') as src:
-        gpkg_crs = src.crs
-        assert gpkg_crs == raster.crs
-        minx, miny, maxx, maxy = src.bounds  # ouest, nord, est, sud
-
-    # Create a bounding box with Shapely
-    bbox = box(minx, miny, maxx, maxy)
-
-    # Insert the bbox into a GeoDataFrame
-    geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0])  # , crs=gpkg_crs['init'])
-
-    # Re-project into the same coordinate system as the raster data
-    # geo = geo.to_crs(crs=raster.crs.data)
-
-    # Get the geometry coordinates by using the function.
-    coords = getFeatures(geo)
-
-    # clip the raster with the polygon
-    out_tif = Path(raster.name).parent / f"{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
-    if os.path.isfile(out_tif):
-        return out_tif
-    else:
-        try:
-            out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
-            out_meta = raster.meta.copy()
-            out_meta.update({"driver": "GTiff",
-                             "height": out_img.shape[1],
-                             "width": out_img.shape[2],
-                             "transform": out_transform})
-            with rasterio.open(out_tif, "w", **out_meta) as dest:
-                print(f"writing clipped raster to {out_tif}")
-                dest.write(out_img)
-            return out_tif
-        except ValueError as e:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
-            # TODO: warning or exception? if warning, except must be set in images_to_samples
-            warnings.warn(f"e\n {raster.name}\n{gpkg}")
-
-
 def process_raster_img(rst_pth, gpkg_pth):
     with rasterio.open(rst_pth) as src:
         rst_pth = clip_raster_with_gpkg(src, gpkg_pth)
+    # TODO: Return clipped raster handle
     return rst_pth, src
 
 
@@ -391,6 +317,8 @@ def main(params):
     in_pth = get_key_def('input_file', list_params, default='data_file.json', expected_type=str)
     sensor_lst = get_key_def('sensorID', list_params, default=['GeoEye1', 'QuickBird2' 'WV2', 'WV3', 'WV4'],
                              expected_type=list)
+    month_range = get_key_def('month_range', list_params, default=list(range(1, 12 + 1)), expected_type=list)
+    root_folder = Path(get_key_def('root_img_folder', list_params, default='', expected_type=str))
     gpkg_status = 'all'
 
     data_path = Path(params['global']['data_path'])
@@ -432,18 +360,20 @@ def main(params):
         dict_images = json.load(fin)
 
         for i_dict in tqdm(dict_images['all_images'], desc=f'Writing samples to {samples_folder}'):
-            if i_dict['sensorID'] in sensor_lst:
+            if i_dict['sensorID'] in sensor_lst and \
+                    datetime.strptime(i_dict['date']['yyyy/mm/dd'], '%Y/%m/%d').month in month_range:
 
                 if source_pan:
                     if not len(i_dict['pan_img']) == 0 and i_dict['gpkg']:
                         if gpkg_status == 'all':
                             if 'corr' or 'prem' in i_dict['gpkg'].keys():
-                                gpkg = list(i_dict['gpkg'].values())[0]
+                                gpkg = root_folder.joinpath(list(i_dict['gpkg'].values())[0])
                                 gpkg_classes = validate_num_classes(gpkg, num_classes,
                                                                     'properties/Quatreclasses',
                                                                     dontcare,
                                                                     targ_ids)
                                 for img_pan in i_dict['pan_img']:
+                                    img_pan = root_folder.joinpath(img_pan)
                                     assert_crs_match(img_pan, gpkg)
                                     rst_pth, r_ = process_raster_img(img_pan, gpkg)
                                     np_label = process_vector_label(rst_pth, gpkg, targ_ids)
@@ -477,12 +407,13 @@ def main(params):
                         band_order = reorder_bands(i_dict['mul_band'], mul_band_order)
                         if gpkg_status == 'all':
                             if 'corr' or 'prem' in i_dict['gpkg'].keys():
-                                gpkg = list(i_dict['gpkg'].values())[0]
+                                gpkg = root_folder.joinpath(list(i_dict['gpkg'].values())[0])
                                 gpkg_classes = validate_num_classes(gpkg, num_classes,
                                                                     'properties/Quatreclasses',
                                                                     dontcare,
                                                                     targ_ids)
                                 for img_mul in i_dict['mul_img']:
+                                    img_mul = root_folder.joinpath(img_mul)
                                     assert_crs_match(img_mul, gpkg)
                                     rst_pth, r_ = process_raster_img(img_mul, gpkg)
                                     np_label = process_vector_label(rst_pth, gpkg, targ_ids)
@@ -517,9 +448,10 @@ def main(params):
                     if set(prep_band).issubset({'R', 'G', 'B', 'N'}):
                         for ib in prep_band:
                             if i_dict[f'{ib}_band'] and i_dict['gpkg']:
+                                i_dict[f'{ib}_band'] = root_folder.joinpath(i_dict[f'{ib}_band'])
                                 if gpkg_status == 'all':
                                     if 'corr' or 'prem' in i_dict['gpkg'].keys():
-                                        gpkg = list(i_dict['gpkg'].values())[0]
+                                        gpkg = root_folder.joinpath(list(i_dict['gpkg'].values())[0])
                                         gpkg_classes = validate_num_classes(gpkg, num_classes,
                                                                             'properties/Quatreclasses',
                                                                             dontcare,

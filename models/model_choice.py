@@ -30,6 +30,12 @@ lm_smp = {
             'encoder_name': 'resnext50_32x4d',
             'encoder_depth': 5,
         }},
+    'unet_pretrained_101': {
+        'fct': smp.Unet, 'params': {
+            'encoder_name': 'resnext101_32x8d',
+            'encoder_depth': 4,
+            'decoder_channels': [256, 128, 64, 32]
+        }},
     'fpn_pretrained': {
         'fct': smp.FPN, 'params': {
             'encoder_name': 'resnext50_32x4d',
