@@ -5,6 +5,7 @@ import warnings
 from typing import List
 
 import h5py
+from pathlib import Path
 from torch.utils.data import Dataset
 import numpy as np
 
@@ -32,14 +33,14 @@ def append_to_dataset(dataset, sample):
     return old_size
 
 
-def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: str, params):
+def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: Path, cfg: dict):
     """
     Function to create the hdfs files (trn, val and tst).
     :param samples_size: size of individual hdf5 samples to be created
     :param number_of_bands: number of bands in imagery
     :param meta_map:
     :param samples_folder: (str) Path to the output folder.
-    :param params: (dict) Parameters found in the yaml config file.
+    :param cfg: (dict) Parameters found in the yaml config file.
     :return: (hdf5 datasets) trn, val ant tst datasets.
     """
     real_num_bands = number_of_bands - MetaSegmentationDataset.get_meta_layer_count(meta_map)
@@ -56,7 +57,7 @@ def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map,
             hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            append_to_dataset(hdf5_file["params"], repr(params))
+            append_to_dataset(hdf5_file["params"], repr(cfg))
         except AttributeError:
             logging.exception(f'Update h5py to version 2.10 or higher')
             raise
