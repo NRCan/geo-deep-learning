@@ -303,14 +303,13 @@ def main(params):
             gdf = gpd.read_file(map_img_tile)
             burn_field = None
             gdf_filtered = gdf
-            if len(attr_vals) == 1:
-                pass  # will burn to 255 value if only one class
-            elif attr_field in gdf.columns:
-                attr_vals.extend([str(x) for x in attr_vals if isinstance(x, int)])
+            if attr_field in gdf.columns:
                 condList = [gdf[f'{attr_field}'] == val for val in attr_vals]
+                condList.extend([gdf[f'{attr_field}'] == str(val) for val in attr_vals])
                 allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
                 gdf_filtered = gdf[allcond]
-                burn_field = attr_field
+                # will burn to 255 value if only one class
+                burn_field = attr_field if len(attr_vals) > 1 else None
             elif attr_vals and not gdf.empty:
                 logging.error(f'Column "{attr_field}" not found in label file {map_img_tile}')
 
