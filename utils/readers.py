@@ -1,7 +1,10 @@
 import logging
 
 import numpy as np
-from ruamel_yaml import YAML
+try:
+    from ruamel_yaml import YAML
+except ModuleNotFoundError:
+    from ruamel.yaml import YAML
 from tqdm import tqdm
 from pathlib import Path
 from skimage import morphology

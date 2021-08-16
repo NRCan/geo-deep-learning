@@ -123,9 +123,9 @@ def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path])
         raster_crs = raster.crs
 
     if not gpkg_crs == raster_crs:
-        logging.warning(f"CRS mismatch: \n"
-                        f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n"
-                        f"GPKG file \"{gpkg_path}\" has {src.crs} CRS.")
+        logging.error(f"CRS mismatch: \n"
+                      f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n"
+                      f"GPKG file \"{gpkg_path}\" has {src.crs} CRS.")
 
 
 def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
