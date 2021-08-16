@@ -68,11 +68,11 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference:str=''):
         checkpoint = {}
         checkpoint['model'] = new_state_dict['model']
 
-    strict_loading = False if not inference else True
+    strict_loading = True if inference else False
     model.load_state_dict(checkpoint['model'], strict=strict_loading)
     logging.info(f"=> loaded model\n")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-        optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
+        optimizer.load_state_dict(checkpoint['optimizer'])#, strict=False) todo, should optimizer be strict?
     return model, optimizer
 
 
@@ -110,7 +110,7 @@ def get_device_ids(number_requested: int,
             device_count = nvmlDeviceGetCount()
             for i in range(device_count):
                 res, mem = gpu_stats(i)
-                used_ram = mem.used / (1024 ** 2)
+                used_ram = mem.used / (1024 ** 2) # todo!!! ABSTRACT THESE INTO gpu_stats
                 max_ram = mem.total / (1024 ** 2)
                 used_ram_perc = used_ram / max_ram * 100
                 logging.debug(f'GPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')

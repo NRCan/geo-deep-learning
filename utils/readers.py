@@ -24,8 +24,7 @@ def read_parameters(param_file):
     return params
 
 
-def image_reader_as_array(smpls_dir,
-                          input_image,
+def image_reader_as_array(input_image,
                           aux_vector_file=None,
                           aux_vector_attrib=None,
                           aux_vector_ids=None,
@@ -33,7 +32,8 @@ def image_reader_as_array(smpls_dir,
                           aux_vector_dist_log=True,
                           aux_vector_scale=None,
                           clip_gpkg=None,
-                          debug=False):
+                          debug=False,
+                          smpls_dir=None):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
         input_image: Rasterio file handle holding the (already opened) input raster
@@ -52,7 +52,7 @@ def image_reader_as_array(smpls_dir,
     """
     if clip_gpkg:
         try:
-            np_array, input_image, coords = clip_raster_with_gpkg(input_image, clip_gpkg, smpls_dir, debug=debug)
+            np_array, coords = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug, smpls_dir=smpls_dir)
         except ValueError:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
             logging.exception(f'Problem clipping raster with geopackage {clip_gpkg}')
             np_array = input_image.read()

@@ -348,7 +348,7 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     return train_metrics
 
 
-def evaluation(tracker, eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, scale, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
+def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, scale, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -411,6 +411,10 @@ def evaluation(tracker, eval_loader, model, criterion, num_classes, batch_size, 
                                    scale=scale)
 
             outputs_flatten = flatten_outputs(outputs, num_classes)
+            # for j in range(outputs.shape[0]):
+            #     for i in range(outputs.shape[1]):
+            #         Image.fromarray(outputs.detach().cpu().numpy()[j, i, ...]).convert('RGB').save(f'D:/NRCan_data/MECnet_implementation/runs/mecnet_batch{j}_2class_class{i}.png')
+            #         print('saved!', f'D:/NRCan_data/MECnet_implementation/runs/mecnet_batch{j}_2class_class{i}.png')
 
             loss = criterion(outputs, labels)
 

@@ -1,3 +1,15 @@
+labels:            ([4, 128, 128])        ([4, 128, 128])
+inputs:            ([4, 3, 128, 128])     ([4, 3, 128, 128])
+outputs:           ([4, 2, 128, 128])     ([4, 1, 128, 128])
+outputs_flatten:   ([65536, 2])           ([32768, 2])
+segmentation:      ([65536])              ([32768])
+labels_flatten:    ([65536])              ([65536])
+labels: torch.Size([4, 128, 128])
+inputs: torch.Size([4, 3, 128, 128])
+outputs: torch.Size([4, 1, 128, 128])
+outputs_flatten: torch.Size([32768, 2])
+segmentation: torch.Size([32768])
+labels_flatten:     torch.Size([65536])
 flatten labels:
 1, 256, 256         ->          65536
 

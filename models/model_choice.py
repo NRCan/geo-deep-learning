@@ -165,7 +165,7 @@ def net(model_name: str,
 
     if model_name == 'mecnet':
         assert num_bands == 3, msg
-        model = MECnet.MECNet()# dropout, dropout_prob)
+        model = MECnet.MECNet(num_channels)# dropout, dropout_prob) # TODO: change num_channels to num_classes
 
     elif model_name == 'unet':
         model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
@@ -268,7 +268,9 @@ def net(model_name: str,
         else:
             checkpoint = None
         # list of GPU devices that are available and unused. If no GPUs, returns empty list
-        gpu_devices_dict = get_device_ids(num_devices)
+        gpu_devices_dict = get_device_ids(num_devices,
+                                          max_used_ram_perc=get_key_def('max_used_ram', net_params['global'], default=25, expected_type=int),
+                                          max_used_perc=get_key_def('max_used_perc', net_params['global'], default=15, expected_type=int))
         num_devices = len(gpu_devices_dict.keys())
         device = torch.device(f'cuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
         logging.info(f"Number of cuda devices requested: {num_devices}. "

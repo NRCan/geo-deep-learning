@@ -690,12 +690,12 @@ class MECNet(nn.Module):
     MEC-module + MPF-module + DSFF-module + Multi-Constraint
     '''
 
-    def __init__(self, visualization=False):
+    def __init__(self, num_classes, visualization=False):
         super(MECNet, self).__init__()
         self.encoder = MFConvNet()
         self.decoder = DecoderNet()
         self.visualization = visualization
-        self.msp = MergeDecoder(num_classes=1, channels=3, visualization=self.visualization)
+        self.msp = MergeDecoder(num_classes=num_classes, channels=3, visualization=self.visualization)
 
     def forward(self, x):
         e1, e2, e3, e4, e5 = self.encoder(x)

@@ -56,7 +56,7 @@ def getFeatures(gdf):
     return [json.loads(gdf.to_json())['features'][0]['geometry']]
 
 
-def clip_raster_with_gpkg(raster, gpkg, smpls_dir, debug=False):
+def clip_raster_with_gpkg(raster, gpkg, debug=False, smpls_dir=None):
     """Clips input raster to limits of vector data in gpkg. Adapted from: https://automating-gis-processes.github.io/CSC18/lessons/L6/clipping-raster.html
     raster: Rasterio file handle holding the (already opened) input raster
     gpkg: Path and name of reference GeoPackage
@@ -107,14 +107,16 @@ def clip_raster_with_gpkg(raster, gpkg, smpls_dir, debug=False):
                      "width": out_img.shape[2],
                      "transform": out_transform})
 
-    out_tif = smpls_dir / f"samp_prep___{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
     if debug:
+        out_tif = smpls_dir / f"samp_prep___{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
         with rasterio.open(out_tif, "w", **out_meta) as dest:
             logging.debug(f"writing clipped raster to {out_tif}")
             dest.write(out_img)
 
+        return out_img, dest, vis_coords
 
-    return out_img, dest, vis_coords
+
+    return out_img, vis_coords # TODO does samples_dir/dest even need to be returned
 
 
 def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0, target_ids=None, merge_all=True):
