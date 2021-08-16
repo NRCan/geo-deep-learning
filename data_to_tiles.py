@@ -1,4 +1,5 @@
 import argparse
+import functools
 import math
 import multiprocessing
 from datetime import datetime
@@ -248,17 +249,17 @@ def main(params):
                 do_tile = False
             elif act_img_tiles > exp_tiles and act_gt_tiles > exp_tiles:
                 logging.critical(f'\nToo many tiles for "{info["tif"]}". \n'
-                              f'Expected: {exp_tiles}\n'
-                              f'Actual image tiles: {act_img_tiles}\n'
-                              f'Actual label tiles: {act_gt_tiles}\n'
-                              f'Skipping tiling.')
+                                 f'Expected: {exp_tiles}\n'
+                                 f'Actual image tiles: {act_img_tiles}\n'
+                                 f'Actual label tiles: {act_gt_tiles}\n'
+                                 f'Skipping tiling.')
                 do_tile = False
             elif act_img_tiles > 0 or act_gt_tiles > 0:
                 logging.critical('Missing tiles for {info["tif"]}. \n'
-                              f'Expected: {exp_tiles}\n'
-                              f'Actual image tiles: {act_img_tiles}\n'
-                              f'Actual label tiles: {act_gt_tiles}\n'
-                              f'Starting tiling from scratch...')
+                                 f'Expected: {exp_tiles}\n'
+                                 f'Actual image tiles: {act_img_tiles}\n'
+                                 f'Actual label tiles: {act_gt_tiles}\n'
+                                 f'Starting tiling from scratch...')
             if do_tile:
                 if parallel:
                     input_args.append([tiling, info['tif'], out_img_dir, samples_size, out_gt_dir, info['gpkg']])
@@ -306,26 +307,33 @@ def main(params):
                 pass  # will burn to 255 value if only one class
             elif attr_field in gdf.columns:
                 attr_vals.extend([str(x) for x in attr_vals if isinstance(x, int)])
+                condList = [gdf[f'{attr_field}'] == val for val in attr_vals]
+                allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
+                gdf_filtered = gdf[allcond]
                 burn_field = attr_field
-                feat_filter = gdf.Quatreclasses.isin(attr_vals)  # FIXME: softcode to attr_field
-                gdf_filtered = gdf[feat_filter]
             elif attr_vals and not gdf.empty:
                 logging.error(f'Column "{attr_field}" not found in label file {map_img_tile}')
 
-            fp_mask = sol.vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
-                                                     reference_im=str(sat_img_tile),
-                                                     burn_field=burn_field)
-            annot_ct = np.count_nonzero(fp_mask)
-            annot_perc = annot_ct / fp_mask.size
+            sat_tile_fh = rasterio.open(sat_img_tile)
+            sat_tile_ext = abs(sat_tile_fh.bounds.right - sat_tile_fh.bounds.left) * \
+                           abs(sat_tile_fh.bounds.top - sat_tile_fh.bounds.bottom)
+            annot_ct_vec = gdf_filtered.area.sum()
+            annot_perc = annot_ct_vec / sat_tile_ext
             if dataset == 'train':
                 if annot_perc*100 >= min_annot_perc:
                     random_val = np.random.randint(1, 100)
                     dataset = 'val' if random_val < val_percent else dataset
+                    sol.vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
+                                                   reference_im=str(sat_img_tile),
+                                                   burn_field=burn_field)
                     with open(dataset_files[dataset], 'a') as dataset_file:
                         dataset_file.write(f'{sat_img_tile} {out_px_mask} {int(annot_perc*100)}\n')
                     datasets_kept[dataset] += 1
                 datasets_total[dataset] += 1
             elif dataset in ['tst', 'test']:
+                sol.vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
+                                               reference_im=str(sat_img_tile),
+                                               burn_field=burn_field)
                 with open(dataset_files[dataset], 'a') as dataset_file:
                     dataset_file.write(f'{sat_img_tile} {out_px_mask} {int(annot_perc*100)}\n')
                 datasets_kept[dataset] += 1
