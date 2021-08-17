@@ -28,10 +28,11 @@ from torch.utils.data import DataLoader
 from PIL import Image
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
+from utils.hydra_utils import get_hydra_key
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, get_git_hash
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, get_git_hash, read_modalities
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
 from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact, start_run
@@ -466,8 +467,8 @@ def train(cfg: DictConfig, log: logging) -> None:
     """
     Function to train and validate a model for semantic segmentation.
 
-    Process
     -------
+
     1. Model is instantiated and checkpoint is loaded from path, if provided in
        `your_config.yaml`.
     2. GPUs are requested according to desired amount of `num_gpus` and
@@ -495,13 +496,17 @@ def train(cfg: DictConfig, log: logging) -> None:
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     # MANDATORY PARAMETERS
-    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
-    num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
-    batch_size = get_key_def('batch_size', params['training'], expected_type=int)
-    eval_batch_size = get_key_def('eval_batch_size', params['training'], expected_type=int, default=batch_size)
-    num_epochs = get_key_def('num_epochs', params['training'], expected_type=int)
-    model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
-    BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
+    num_classes = len(get_hydra_key('classes_dict', cfg.dataset).keys())
+    num_bands = len(read_modalities(cfg.dataset.modalities))
+    batch_size = get_hydra_key('batch_size', cfg.trainer)
+    eval_batch_size = get_hydra_key('eval_batch_size', cfg.trainer, default=batch_size)
+    num_epochs = get_hydra_key('max_epochs', cfg.trainer)
+    model_name = get_hydra_key('name', cfg.model).lower()
+    # TODO need to keep in parameters? see victor stuff
+    # BGR_to_RGB = get_hydra_key('BGR_to_RGB', params['global'], expected_type=bool)
+    BGR_to_RGB = False
+
+    assert 1==0
 
     # OPTIONAL PARAMETERS
     # basics
@@ -823,84 +828,12 @@ def train(cfg: DictConfig, log: logging) -> None:
     log_artifact(logfile_debug)
 
 
-def sampling(cfg: DictConfig, log: logging) -> None:
-    """
-    Function to manage the images sampling of the segmentation task.
-
-    Process
-    -------
-    1. TODO
-
-    -------
-    :param cfg: (dict) Parameters found in the yaml config file.
-    :param log: (logging) Logging module from the main code.
-    """
-    log.info(
-        f'\nImages to samples preparation with '
-        f'{cfg.general.sample_data_dir} image(s)'
-    )
-
-    # Check if the folder have image(s) and ground truth associate
-    # TODO
-
-    # Run the images to samples
-    segmentation_sampling(cfg, log)
-
-    # TODO change where the code is or the name of the file for sampling
-
-
-def evaluate(cfg: DictConfig, log: logging) -> None:
-    """
-    Function to manage the evaluation of the segmentation task.
-
-    Process
-    -------
-    1. TODO
-
-    -------
-    :param cfg: (dict) Parameters found in the yaml config file.
-    :param log: (logging) Logging module from the main code.
-    """
-    raise NotImplementedError('Not yet')
-
-
-def inference(cfg: DictConfig, log: logging) -> None:
-    """
-    Function to manage the inference of the segmentation task.
-
-    Process
-    -------
-    1. TODO
-
-    -------
-    :param cfg: (dict) Parameters found in the yaml config file.
-    :param log: (logging) Logging module from the main code.
-    """
-    raise NotImplementedError('Not yet')
-
-
-def hyperparameters_search(cfg: DictConfig, log: logging) -> None:
-    """
-    Function to manage an hyperparameters search on the training of
-    the segmentation task with hyperopt.
-
-    Process
-    -------
-    1. TODO
-
-    -------
-    :param cfg: (dict) Parameters found in the yaml config file.
-    :param log: (logging) Logging module from the main code.
-    """
-    raise NotImplementedError('Not yet')
-
-
 def main(cfg: DictConfig, log: logging) -> None:
     """
     Function to manage details about the segmentation task.
 
-    Process
     -------
+
     1. TODO
 
     -------
@@ -908,7 +841,7 @@ def main(cfg: DictConfig, log: logging) -> None:
     :param log: (logging) Logging module from the main code.
     """
     # Limit of the NIR implementation TODO: Update after each version
-    if 'deeplabv3' not in cfg.model.name and cfg.general.modalities == 'RGBN':
+    if 'deeplabv3' not in cfg.model.name and 'IR' in read_modalities(cfg.dataset.modalities):
         log.info(
             '\nThe NIR modality will only be concatenate at the beginning,'
             '\nthe implementation of the concatenation point is only available'
@@ -919,7 +852,8 @@ def main(cfg: DictConfig, log: logging) -> None:
     # HERE the code to do for the preprocessing
 
     # execute the name mode (need to be in this file for now)
-    globals()[cfg.mode](cfg, log)
+    train(cfg, log)
+    # globals()[cfg.mode](cfg, log)
 
 
 if __name__ == '__main__':

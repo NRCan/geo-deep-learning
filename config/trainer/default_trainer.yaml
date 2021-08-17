@@ -1,5 +1,8 @@
 # @package _global_
 trainer:
+  num_workers: 10
+  batch_size: 1
+  eval_batch_size:
   gpus: 1
   distributed_backend: dp
   accumulate_grad_batches: 1

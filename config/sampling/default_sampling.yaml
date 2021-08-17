@@ -1,6 +1,0 @@
-# @package _global_
-sampling:
-  raw_data_dir: ${general.raw_data_dir}
-  sample_data_dir: ${general.sample_data_dir}
-  input_dim: [256, 256]
-  overlap:

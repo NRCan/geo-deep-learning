@@ -18,7 +18,8 @@ from utils.readers import read_parameters, image_reader_as_array
 from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.hydra_utils import get_hydra_key
 from utils.utils import (
-    get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash
+    get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash,
+    read_modalities,
 )
 from utils.verifications import (
     validate_num_classes, validate_raster, assert_crs_match, validate_features_from_gpkg
@@ -326,26 +327,6 @@ def samples_preparation(in_img_array,
         samples_count['val'] = idx_samples_v
     # return the appended samples count and number of classes.
     return samples_count, num_classes
-
-
-def read_modalities(modalities: str) -> list:
-    """
-    Function that read the modalities from the yaml and convert it to a list
-    of all the bands specified.
-
-    -------
-    :param modalities: (str) A string composed of all the bands of the images.
-
-    -------
-    :returns: A list of all the bands of the images.
-    """
-    if str(modalities).find('IR') != -1:
-        ir_position = str(modalities).find('IR')
-        modalities = list(str(modalities).replace('IR', ''))
-        modalities.insert(ir_position, 'IR')
-    else:
-        modalities = list(str(modalities))
-    return modalities
 
 
 def main(cfg: DictConfig, log: logging) -> None:

@@ -8,7 +8,7 @@ defaults:
   - callbacks: default_callbacks
   - scheduler: plateau
   - data: data
-  - dataset: test_ci_dataset
+  - dataset: test_ci_segmentation_dataset
   - augmentation: basic_augmentation
   - logging: mlflow
 

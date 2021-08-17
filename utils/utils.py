@@ -550,3 +550,23 @@ def load_obj(obj_path: str, default_obj_path: str = '') -> any:
     if not hasattr(module_obj, obj_name):
         raise AttributeError(f"Object `{obj_name}` cannot be loaded from from `{obj_path}`.")
     return getattr(module_obj, obj_name)
+
+
+def read_modalities(modalities: str) -> list:
+    """
+    Function that read the modalities from the yaml and convert it to a list
+    of all the bands specified.
+
+    -------
+    :param modalities: (str) A string composed of all the bands of the images.
+
+    -------
+    :returns: A list of all the bands of the images.
+    """
+    if str(modalities).find('IR') != -1:
+        ir_position = str(modalities).find('IR')
+        modalities = list(str(modalities).replace('IR', ''))
+        modalities.insert(ir_position, 'IR')
+    else:
+        modalities = list(str(modalities))
+    return modalities
