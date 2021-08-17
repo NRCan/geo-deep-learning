@@ -16,7 +16,7 @@ from utils.optimizer import create_optimizer
 from losses import MultiClassCriterion
 import torch.optim as optim
 from models import TernausNet, unet, checkpointed_unet, inception, coordconv
-from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, defaults_from_params
+from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
 
 logging.getLogger(__name__)
 
@@ -29,6 +29,12 @@ lm_smp = {
         'fct': smp.Unet, 'params': {
             'encoder_name': 'resnext50_32x4d',
             'encoder_depth': 5,
+        }},
+    'unet_pretrained_101': {
+        'fct': smp.Unet, 'params': {
+            'encoder_name': 'resnext101_32x8d',
+            'encoder_depth': 4,
+            'decoder_channels': [256, 128, 64, 32]
         }},
     'fpn_pretrained': {
         'fct': smp.FPN, 'params': {
@@ -91,9 +97,11 @@ def verify_weights(num_classes, weights):
         weights: weights defined in the configuration file
     """
     if num_classes == 1 and len(weights) == 2:
-        logging.warning("got two class weights for single class defined in configuration file; will assume index 0 = background")
+        logging.warning(
+            "got two class weights for single class defined in configuration file; will assume index 0 = background")
     elif num_classes != len(weights):
-        raise ValueError('The number of class weights in the configuration file is different than the number of classes')
+        raise ValueError(f'The number of class weights {len(weights)} '
+                         f'in the configuration file is different than the number of classes {num_classes}')
 
 
 def set_hyperparameters(params,
@@ -287,7 +295,7 @@ def net(model_name: str,
             model.to(device)
         except AssertionError:
             logging.exception(f"Unable to use device. Trying device 0...\n")
-            device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
+            device = torch.device(f'cuda' if gpu_devices_dict else 'cpu')
             model.to(device)
 
         model, criterion, optimizer, lr_scheduler = set_hyperparameters(params=net_params,

@@ -26,7 +26,7 @@ def compose_transforms(params,
                        aug_type: str = '',
                        dontcare=None,
                        dontcare2backgr: bool = False,
-                       crop_size:int = None):
+                       crop_size: int = None):
     """
     Function to compose the transformations to be applied on every batches.
     :param input_space: (bool) if True, flip BGR channels to RGB
@@ -72,7 +72,7 @@ def compose_transforms(params,
             if rotate_limit and rotate_prob:
                 lst_trans.append(
                     RandomRotationTarget(
-                    limit=rotate_limit, prob=rotate_prob, ignore_index=dontcare
+                        limit=rotate_limit, prob=rotate_prob, ignore_index=dontcare
                     )
                 )
 
@@ -374,6 +374,7 @@ class BgrToRgb(object):
 
 class ToTensorTarget(object):
     """Convert ndarrays in sample to Tensors."""
+
     def __init__(self, dontcare2backgr: bool = False, dontcare_val: int = None):
         """
         @param dontcare2backgr: if True, dontcare value in label will be replaced by background value (i.e. 0)

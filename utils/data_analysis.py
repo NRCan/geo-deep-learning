@@ -358,7 +358,7 @@ def main(params):  # TODO: test this.
             total_pixel += pixel_classes[i]
 
         for i in pixel_classes:
-            logging.info('Pixels from class ', i, ' :', round(pixel_classes[i]/total_pixel * 100, 1), ' %')
+            logging.info('Pixels from class ', i, ' :', round(pixel_classes[i] / total_pixel * 100, 1), ' %')
         logging.info(number_samples)
 
 
