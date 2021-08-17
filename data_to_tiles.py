@@ -307,7 +307,7 @@ def main(params):
                 condList = [gdf[f'{attr_field}'] == val for val in attr_vals]
                 condList.extend([gdf[f'{attr_field}'] == str(val) for val in attr_vals])
                 allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
-                gdf_filtered = gdf[allcond]
+                gdf_filtered = gdf[allcond].copy(deep=True)
                 # will burn to 255 value if only one class
                 burn_field = attr_field if len(attr_vals) > 1 else None
             elif attr_vals and not gdf.empty:
