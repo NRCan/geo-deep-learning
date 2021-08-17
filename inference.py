@@ -259,6 +259,7 @@ def main(params: dict):
         mlflow_uri = None
     
     # MANDATORY PARAMETERS
+    # sets default csv path
     default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''),
                             exp_name, f"inference_sem_seg_{exp_name}.csv")
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default_csv_file, expected_type=str)
