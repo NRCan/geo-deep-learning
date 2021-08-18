@@ -390,11 +390,19 @@ class ToTensorTarget(object):
         map_img = None
         if 'map_img' in sample.keys():
             if sample['map_img'] is not None:  # This can also be used in inference.
+                sample['map_img'] = self.to_consecutive_values(sample['map_img'])
                 map_img = np.int64(sample['map_img'])
                 if self.dontcare2backgr:
                     map_img[map_img == self.dontcare_val] = 0
                 map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
+
+    def to_consecutive_values(self, array):
+        values = set(np.unique(array.astype(int)))
+        values.discard(self.dontcare_val)
+        for enum_value, arr_value in enumerate(values):
+            array[array == arr_value] = enum_value
+        return array
 
 
 class AddGaussianNoise(object):

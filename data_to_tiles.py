@@ -216,8 +216,8 @@ def main(params):
             gpkg_classes = validate_num_classes(info['gpkg'], num_classes, info['attribute_name'], target_ids=attr_vals)
             assert_crs_match(info['tif'], info['gpkg'])
             valid_gpkg_set.add(info['gpkg'])
-        if not info['dataset'] in ['trn', 'train', 'tst', 'test']:
-            raise ValueError(f'Dataset value must be "trn", "train", "tst" or "test". Got: {info["dataset"]}')
+        if not info['dataset'] in ['trn', 'tst']:
+            raise ValueError(f'Dataset value must be "trn" or "tst". Got: {info["dataset"]}')
 
     if debug:
         # VALIDATION (debug only): Checking validity of features in vector files
@@ -227,15 +227,13 @@ def main(params):
             if invalid_features:
                 logging.critical(f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'")
 
-    datasets = ['train', 'val', 'test']
+    datasets = ['trn', 'val', 'tst']
 
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
     input_args = []
     logging.info(f"Preparing samples \n\tSamples_size: {samples_size} ")
     for info in tqdm(list_data_prep, position=0, leave=False):
         try:
-            info['dataset'] = 'train' if info['dataset'] == 'trn' else info['dataset']
-            info['dataset'] = 'test' if info['dataset'] == 'tst' else info['dataset']
             out_img_dir = out_tiling_dir(smpls_dir, info['dataset'], Path(info['tif']).stem, 'sat_img')
             out_gt_dir = out_tiling_dir(smpls_dir, info['dataset'], Path(info['tif']).stem, 'map_img')
 

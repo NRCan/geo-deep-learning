@@ -129,6 +129,8 @@ def vis(vis_params,
         output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
         if label is not None:
             label_copy = label.cpu().numpy().copy()
+            if len(label_copy.shape) == 3 and label_copy.shape[2] == 1:
+                label_copy = label_copy[:, :, 0]
             if vis_params['ignore_index'] < 0:
                 new_ignore_index = 255
                 # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.

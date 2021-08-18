@@ -1,6 +1,7 @@
 import logging
 from typing import List, Sequence
 
+import rasterio
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import argparse
@@ -86,16 +87,13 @@ def create_dataloader(samples_folder: Path,
     """
     if not samples_folder.is_dir():
         raise FileNotFoundError(f'Could not locate: {samples_folder}')
-    if not len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1:
-        raise FileNotFoundError(f"Couldn't locate .hdf5 files in {samples_folder}")
+    if not len([f for f in samples_folder.glob('**/*.txt')]) >= 1:
+        raise FileNotFoundError(f"Couldn't locate text file containing list of training data in {samples_folder}")
     num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=params, dontcare=dontcare_val)
     if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
         raise ValueError(f"Number of samples in .hdf5 files is less than batch size")
     logging.info(f"Number of samples : {num_samples}\n")
-    if not meta_map:
-        dataset_constr = create_dataset.SegmentationDataset
-    else:
-        dataset_constr = functools.partial(create_dataset.MetaSegmentationDataset, meta_map=meta_map)
+    dataset_constr = create_dataset.SegmentationDataset
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
@@ -178,23 +176,26 @@ def get_num_samples(samples_path, params, dontcare):
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
     weights = []
     samples_weight = None
-    for i in ['trn', 'val', 'tst']:
-        if get_key_def(f"num_{i}_samples", params['training'], None) is not None:
-            num_samples[i] = params['training'][f"num_{i}_samples"]
+    for dataset in ['trn', 'val', 'tst']:
+        if get_key_def(f"num_{dataset}_samples", params['training'], None) is not None:
+            num_samples[dataset] = params['training'][f"num_{dataset}_samples"]
 
-            with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), 'r') as hdf5_file:
-                file_num_samples = len(hdf5_file['map_img'])
-            if num_samples[i] > file_num_samples:
-                raise IndexError(f"The number of training samples in the configuration file ({num_samples[i]}) "
+            with open(samples_path/f"{dataset}.txt", 'r') as datafile:
+                file_num_samples = len(datafile.readlines())
+            if num_samples[dataset] > file_num_samples:
+                raise IndexError(f"The number of training samples in the configuration file ({num_samples[dataset]}) "
                                  f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
         else:
-            with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), "r") as hdf5_file:
-                num_samples[i] = len(hdf5_file['map_img'])
+            with open(samples_path/f"{dataset}.txt", 'r') as datafile:
+                num_samples[dataset] = len(datafile.readlines())
 
-        with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), "r") as hdf5_file:
-            if i == 'trn':
-                for x in range(num_samples[i]):
-                    label = hdf5_file['map_img'][x]
+        with open(samples_path / f"{dataset}.txt", 'r') as datafile:
+            datalist = datafile.readlines()
+            if dataset == 'trn':
+                for x in range(num_samples[dataset]):
+                    label_file = datalist[x].split(' ')[1]
+                    with rasterio.open(label_file, 'r') as label_handle:
+                        label = label_handle.read()
                     label = np.where(label == dontcare, 0, label)
                     unique_labels = np.unique(label)
                     weights.append(''.join([str(int(i)) for i in unique_labels]))
@@ -553,7 +554,7 @@ def main(params, config_path):
                                  expected_type=int)
     if not data_path.is_dir():
         raise FileNotFoundError(f'Could not locate data path {data_path}')
-    samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
+    samples_folder_name = (f'tiles{samples_size}_min-annot{min_annot_perc}_{num_bands}bands'
                            f'_{experiment_name}')
     samples_folder = data_path.joinpath(samples_folder_name)
 
@@ -597,9 +598,11 @@ def main(params, config_path):
     log_config_path = Path('utils/logging.conf').absolute()
     logfile = f'{output_path}/{model_id}.log'
     logfile_debug = f'{output_path}/{model_id}_debug.log'
+    logfile_error = f'{output_path}/{model_id}_error.log'
     console_level_logging = 'INFO' if not debug else 'DEBUG'
     logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile,
                                                          'logfilename_debug': logfile_debug,
+                                                         'logfilename_error': logfile_error,
                                                          'console_level': console_level_logging})
 
     # now that we know where logs will be saved, we can start logging!
