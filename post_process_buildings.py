@@ -299,18 +299,18 @@ def arr_threshold(arr, value=127):
     return arr
 
 
-def regularize_buildings(pred_arr, sat_img_arr=None, apply_threshold=True):
+def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=True):
     print('Applying threshold...')
     if apply_threshold:
         pred_arr = arr_threshold(pred_arr)
 
     print('Done')
-    MODEL_ENCODER = "/home/remi/PycharmProjects/projectRegularization/saved_models_gan/E140000_e1"  # FIXME: softcode
-    MODEL_GENERATOR = "/home/remi/PycharmProjects/projectRegularization/saved_models_gan/E140000_net"
+    model_encoder = Path(model_dir) / "E140000_e1"
+    model_generator = Path(model_dir) / "E140000_net"
     E1 = Encoder()
     G = GeneratorResNet()
-    G.load_state_dict(torch.load(MODEL_GENERATOR))
-    E1.load_state_dict(torch.load(MODEL_ENCODER))
+    G.load_state_dict(torch.load(model_generator))
+    E1.load_state_dict(torch.load(model_encoder))
     E1 = E1.cuda()
     G = G.cuda()
 
@@ -319,7 +319,7 @@ def regularize_buildings(pred_arr, sat_img_arr=None, apply_threshold=True):
     return R
 
 
-def main(params):
+def main(params, model_dir):
     """
     -------
     :param params: (dict) Parameters found in the yaml config file.
@@ -410,7 +410,7 @@ def main(params):
                 if not outname_reg.is_file():
                     meta = raw_pred.meta
                     raw_pred_arr = raw_pred.read()[0, ...]
-                    reg_arr = regularize_buildings(raw_pred_arr)
+                    reg_arr = regularize_buildings(raw_pred_arr, model_dir)
                     reg_arr = reg_arr[np.newaxis, :, :]
 
                     with rasterio.open(outname_reg, 'w+', **meta) as reg_pred:
@@ -424,10 +424,13 @@ def main(params):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Sample preparation')
+    parser = argparse.ArgumentParser(description='Buildings post processing')
     parser.add_argument('ParamFile', metavar='DIR',
                         help='Path to training parameters stored in yaml')
+    parser.add_argument('RegModelDir', metavar='DIR',
+                        help='Path to model weights for buildings footprint regularization')
     args = parser.parse_args()
     params = read_parameters(args.ParamFile)
-    print(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
-    main(params)
+    model_dir = args.RegModelDir
+    print(f'\n\nStarting buildings post-processing with {args.ParamFile}\n\n')
+    main(params, model_dir)
