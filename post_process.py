@@ -16,6 +16,8 @@ from skimage import measure
 from skimage.transform import rescale
 from torch import nn
 
+from data_to_tiles import validate_raster
+
 np.random.seed(1234)  # Set random seed for reproducibility
 import rasterio
 import time
@@ -26,7 +28,7 @@ from tqdm import tqdm
 import solaris as sol
 import geopandas as gpd
 
-from utils.utils import get_key_def, read_csv, get_git_hash
+from utils.utils import get_key_def, read_csv, get_git_hash, defaults_from_params
 from utils.readers import read_parameters
 from utils.verifications import validate_num_classes, assert_crs_match, validate_features_from_gpkg
 
@@ -299,10 +301,10 @@ def arr_threshold(arr, value=127):
     return arr
 
 
-def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=True):
+def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=127):
     print('Applying threshold...')
     if apply_threshold:
-        pred_arr = arr_threshold(pred_arr)
+        pred_arr = arr_threshold(pred_arr, value=apply_threshold)
 
     print('Done')
     model_encoder = Path(model_dir) / "E140000_e1"
@@ -319,106 +321,166 @@ def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=
     return R
 
 
-def main(params, model_dir):
+def main(params):
     """
     -------
     :param params: (dict) Parameters found in the yaml config file.
     """
     start_time = time.time()
 
-    tiles_dir = Path(
-        '/home/remi/PycharmProjects/SpaceNet7_Multi-Temporal_Solutions/1-lxastro0/code_local/vis/test_org/23322E759_notta')
-
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
-    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
+    exp_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
 
     # MANDATORY PARAMETERS
+    default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''),
+                            exp_name, f"inference_sem_seg_{exp_name}.csv")
+    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default_csv_file, expected_type=str)
+    state_dict = get_key_def('state_dict_path', params['inference'],
+                             defaults_from_params(params, 'state_dict_path'), expected_type=str)
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
-    default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''), experiment_name,
-                            f"images_to_samples_{experiment_name}.csv")
-    csv_file = get_key_def('prep_csv_file', params['sample'], default_csv_file, expected_type=str)
 
     # OPTIONAL PARAMETERS
     # basics
     debug = get_key_def('debug_mode', params['global'], False)
-    task = get_key_def('task', params['global'], 'segmentation', expected_type=str)
-    if task == 'classification':
-        raise ValueError(f"Got task {task}. Expected 'segmentation'.")
-    elif not task == 'segmentation':
-        raise ValueError(f"images_to_samples.py isn't necessary for classification tasks")
-    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
-    Path.mkdir(data_path, exist_ok=True, parents=True)
-    val_percent = get_key_def('val_percent', params['sample'], default=10, expected_type=int)
-    parallel = get_key_def('parallelize_tiling', params['sample'], default=True, expected_type=bool)
+    apply_threshold = get_key_def('apply_threshold', params['inference'], None, expected_type=int)
+    simp_tolerance = get_key_def('simp_tolerance', params['inference'], 0.2, expected_type=float)
+    # keeps this script relatively agnostic to source of inference data
+    tiles_dir = Path(get_key_def('tiles_dir', params['inference'], None, expected_type=str))
+    if tiles_dir is not None and not tiles_dir.is_dir():
+        raise NotADirectoryError(f"Couldn't locate tiles directory: {tiles_dir}")
+    buildings_model = Path(get_key_def('buildings_reg_modeldir', params['inference'], None, expected_type=str))
+    if buildings_model is not None and not buildings_model.is_dir():
+        raise NotADirectoryError(f"Couldn't locate building regularization model directory: {buildings_model}")
+    if num_classes > 1 and buildings_model is not None:
+        raise ValueError(f'Value mismatch: when "buildings" is True, "num_classes" should be 1, not {num_classes}')
 
-    # parameters to set output tiles directory
-    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
-    samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
-                                 expected_type=int)
-    if not data_path.is_dir():
-        raise FileNotFoundError(f'Could not locate data path {data_path}')
-    samples_folder_name = (f'tiles{samples_size}_min-annot{min_annot_perc}_{num_bands}bands'
-                           f'_{experiment_name}')
-    attr_vals = get_key_def('target_ids', params['sample'], None, expected_type=List)
+    # SETTING OUTPUT DIRECTORY
+    working_folder = Path(state_dict).parent / f'inference_{num_bands}bands'
+    if tiles_dir:
+        Path.mkdir(working_folder, exist_ok=True)
+    elif not working_folder.is_dir():
+        raise NotADirectoryError("Couldn't find source inference directory")
 
+    working_folder_pp = working_folder.parent / f'{working_folder.stem}_post-process'
+    Path.mkdir(working_folder_pp, exist_ok=True)
     # add git hash from current commit to parameters if available. Parameters will be saved to hdf5s
     params['global']['git_hash'] = get_git_hash()
-
-    final_samples_folder = None
-    list_data_prep = read_csv(csv_file)
-
-    smpls_dir = data_path / samples_folder_name
-    if smpls_dir.is_dir():
-        if debug:
-            # Move existing data folder with a random suffix.
-            last_mod_time_suffix = datetime.fromtimestamp(smpls_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-            shutil.move(smpls_dir, data_path.joinpath(f'{str(smpls_dir)}_{last_mod_time_suffix}'))
-        else:
-            print(f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.')
-    Path.mkdir(smpls_dir, exist_ok=True)
 
     # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     log_config_path = Path('utils/logging.conf').absolute()
     console_level_logging = 'INFO' if not debug else 'DEBUG'
-    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{smpls_dir}/{samples_folder_name}.log',
+    log_file_prefix = 'post-process'
+    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{working_folder_pp}/{log_file_prefix}.log',
                                                          'logfilename_error':
-                                                             f'{smpls_dir}/{samples_folder_name}_error.log',
+                                                             f'{working_folder_pp}/{log_file_prefix}_error.log',
                                                          'logfilename_debug':
-                                                             f'{smpls_dir}/{samples_folder_name}_debug.log',
+                                                             f'{working_folder_pp}/{log_file_prefix}_debug.log',
                                                          'console_level': console_level_logging})
 
-    logging.info(f'\n\tSuccessfully read csv file: {Path(csv_file).name}\n'
-                 f'\tNumber of rows: {len(list_data_prep)}\n'
-                 f'\tCopying first entry:\n{list_data_prep[0]}\n')
+    if tiles_dir and Path(img_dir_or_csv).suffix == '.csv':
+        inference_srcdata_list = read_csv(Path(img_dir_or_csv))
+    elif tiles_dir and Path(img_dir_or_csv).is_dir():
+        # TODO: test this. Only tested csv for now
+        inference_srcdata_list = [{'tif': raster} for raster in Path(img_dir_or_csv).iterdir()]
+    elif tiles_dir:
+        raise FileNotFoundError(f'Couldn\'t locate .csv file or directory "{img_dir_or_csv}" '
+                                f'containing imagery for inference')
 
-    logging.info(f"Merging tiles...")
-    for info in tqdm(list_data_prep, position=0, leave=False):
-        if info['dataset'] == 'tst':
-            outname = tiles_dir / f"{Path(info['tif']).stem}_merged.tif"
-            tiles_files = list(tiles_dir.glob(f"{Path(info['tif']).stem}*.tif"))
-            if not outname.is_file():
-                cmd = f"gdal_merge.py -o {outname}"
-                subprocess.call(cmd.split() + tiles_files)
-            else:
-                logging.info(f'Merged raster exists: {outname}')
-
-            with rasterio.open(outname, 'r') as raw_pred:
-                outname_reg = outname.parent / f'{outname.stem}_reg.tif'
-                if not outname_reg.is_file():
-                    meta = raw_pred.meta
-                    raw_pred_arr = raw_pred.read()[0, ...]
-                    reg_arr = regularize_buildings(raw_pred_arr, model_dir)
-                    reg_arr = reg_arr[np.newaxis, :, :]
-
-                    with rasterio.open(outname_reg, 'w+', **meta) as reg_pred:
-                        reg_pred.write(reg_arr.astype(np.uint8)*255)
+    if tiles_dir:
+        logging.info(f"Merging tiles...")
+        for info in inference_srcdata_list:
+            is_valid_srcraster, _ = validate_raster(info['tif'])
+            # post-process only if raster is valid and if 'dataset' column is empty or 'tst'
+            if is_valid_srcraster and 'dataset' not in info.keys() or info['dataset'] == 'tst':
+                inference_raster = working_folder / f"{Path(info['tif']).stem}_pred.tif"
+                tiles_files = [str(tile) for tile in tiles_dir.glob(f"{Path(info['tif']).stem}_*.tif")]
+                logging.info(f'{info["tif"]}: \n\tFound {len(tiles_files)} tiles to merge')
+                tiles_files_str = " ".join(tiles_files)
+                if not inference_raster.is_file():
+                    cmd = f"gdal_merge.py -o {inference_raster} {tiles_files_str}"
+                    logging.debug(cmd)
+                    subproc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    if subproc.returncode == 0:
+                        logging.info(f'Successfully merged inference tiles from {Path(info["tif"])}\n'
+                                     f'Merged raster: {inference_raster}')
+                    else:
+                        logging.error(f'Failed to merged inference tiles from {Path(info["tif"])}\n'
+                                      f'Could\'t create merged raster: {inference_raster}')
                 else:
-                    logging.info(f'Regularized prediction exists: {outname_reg}')
+                    logging.info(f'Merged raster exists: {inference_raster}')
+            else:
+                logging.error(f"Failed to merge tiles from {info['tif']}")
+                if not is_valid_srcraster:
+                    logging.error(f"{info['tif']} is not a valid raster")
+                else:
+                    logging.error(f"If csv, only lines where 'dataset' column is 'tst' or empty is considered valid. "
+                                  f"Check README.md for more information about expected csv file")
 
-                print(f'Successfully regularized on {outname}\nWriting to file: {outname_reg}')
+    inference_destdata_list = [raster for raster in Path(working_folder).iterdir()]
+    logging.info(f'\n\tFound {len(inference_destdata_list)} inference rasters to post-process\n'
+                 f'\tCopying first entry:\n{inference_destdata_list[0]}\n')
+
+    for inference_raster in tqdm(inference_destdata_list, position=0, leave=False):
+        is_valid_raster, _ = validate_raster(inference_raster)
+        if is_valid_raster:
+            if buildings_model is not None:
+                with rasterio.open(inference_raster, 'r') as raw_pred:
+                    outname_reg = working_folder_pp / f'{inference_raster.stem}_reg.tif'
+                    if not outname_reg.is_file():
+                        meta = raw_pred.meta
+                        raw_pred_arr = raw_pred.read()[0, ...]
+                        reg_arr = regularize_buildings(raw_pred_arr, buildings_model, apply_threshold=apply_threshold)
+                        reg_arr = reg_arr[np.newaxis, :, :]
+
+                        with rasterio.open(outname_reg, 'w+', **meta) as reg_pred:
+                            logging.info(f'Successfully regularized on {inference_raster}\nWriting to file: {outname_reg}')
+                            reg_pred.write(reg_arr.astype(np.uint8)*255)
+                    else:
+                        logging.info(f'Regularized prediction exists: {outname_reg}')
+
+            outname_reg_vec_temp = working_folder_pp / f'{outname_reg.stem}_temp.gpkg'
+            if not outname_reg_vec_temp.is_file():
+                cmd = f"gdal_polygonize.py -8 {outname_reg} {outname_reg_vec_temp}"
+                logging.debug(cmd)
+                subproc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                if subproc.returncode == 0:
+                    logging.info(f'Successfully polygonized {outname_reg}\n'
+                                 f'Output file: {outname_reg_vec_temp}')
+                else:
+                    logging.error(f'Failed to polygonized {outname_reg}\n'
+                                  f'Couldn\'t create output file: {outname_reg_vec_temp}')
+
+            else:
+                logging.info(f'Polygonized raster exists: {outname_reg_vec_temp}')
+
+            outname_reg_vec = working_folder_pp / f'{outname_reg.stem}_raw.gpkg'
+            if not outname_reg_vec.is_file():
+                cmd = f'ogr2ogr -progress {outname_reg_vec} {outname_reg_vec_temp} -where \"\\\"DN\\\" > 0\"'
+                logging.debug(cmd)
+                subproc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                logging.info(f'Successfully filtered features  {outname_reg}\n'
+                             f'Output file: {outname_reg_vec}')
+            else:
+                logging.info(f'Polygonized raster exists: {outname_reg_vec}')
+
+            final_gpkg = working_folder_pp / f'{outname_reg_vec.stem}_simp.gpkg'
+            if not final_gpkg.is_file():
+                cmd = f'ogr2ogr -progress {final_gpkg} {outname_reg_vec_temp} -where \"\\\"DN\\\" > 0\"' \
+                      f' -simplify {simp_tolerance}'
+                logging.debug(cmd)
+                subproc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                if subproc.returncode == 0:
+                    logging.info(f'Successfully simplified {outname_reg_vec}\n'
+                                 f'Output file: {final_gpkg}')
+                    outname_reg_vec_temp.unlink(missing_ok=True)
+            else:
+                logging.info(f'Simplified vector inference exists: {final_gpkg}')
+        else:
+            logging.error(f"Failed to post-process from {inference_raster}\n")
+            if not is_valid_raster:
+                logging.error(f"{inference_raster} is not a valid raster")
 
     logging.info(f"End of process. Elapsed time: {int(time.time() - start_time)} seconds")
 
@@ -427,10 +489,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Buildings post processing')
     parser.add_argument('ParamFile', metavar='DIR',
                         help='Path to training parameters stored in yaml')
-    parser.add_argument('RegModelDir', metavar='DIR',
-                        help='Path to model weights for buildings footprint regularization')
     args = parser.parse_args()
     params = read_parameters(args.ParamFile)
-    model_dir = args.RegModelDir
-    print(f'\n\nStarting buildings post-processing with {args.ParamFile}\n\n')
-    main(params, model_dir)
+    print(f'\n\nStarting post-processing with {args.ParamFile}\n\n')
+    main(params)
