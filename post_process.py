@@ -1,36 +1,26 @@
 import argparse
-import functools
-import math
 import multiprocessing
 import subprocess
-from datetime import datetime
 import logging
 import logging.config
-from typing import List, Union
 
 import numpy as np
 import torch
-from rasterio.merge import merge
-from rasterio.plot import reshape_as_image, reshape_as_raster
 from skimage import measure
 from skimage.transform import rescale
 from torch import nn
 
-from data_to_tiles import validate_raster
+from data_to_tiles import validate_raster, map_wrapper
 
 np.random.seed(1234)  # Set random seed for reproducibility
 import rasterio
 import time
-import shutil
 
 from pathlib import Path
 from tqdm import tqdm
-import solaris as sol
-import geopandas as gpd
 
 from utils.utils import get_key_def, read_csv, get_git_hash, defaults_from_params
 from utils.readers import read_parameters
-from utils.verifications import validate_num_classes, assert_crs_match, validate_features_from_gpkg
 
 logging.getLogger(__name__)
 
@@ -321,6 +311,68 @@ def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=
     return R
 
 
+def subprocess_cmd(cmd, success_msg, failure_msg, use_spcall=True):
+    logging.debug(cmd)
+    if use_spcall:
+        subproc = subprocess.call(cmd.split())
+    else:
+        subproc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subproc = subproc.returncode
+    if subproc == 0:
+        logging.info(success_msg)
+    else:
+        logging.error(failure_msg)
+
+
+def post_process_pipeline(inference_raster, outdir, apply_threshold=False, buildings_model=None, simp_tolerance=0.2):
+    is_valid_raster, _ = validate_raster(inference_raster)
+    if not is_valid_raster:
+        logging.error(f"{inference_raster} is not a valid raster")
+        return
+
+    if buildings_model is not None:
+        with rasterio.open(inference_raster, 'r') as raw_pred:
+            outname_reg = outdir / f'{inference_raster.stem}_reg.tif'
+            if not outname_reg.is_file():
+                meta = raw_pred.meta
+                raw_pred_arr = raw_pred.read()[0, ...]
+                reg_arr = regularize_buildings(raw_pred_arr, buildings_model, apply_threshold=apply_threshold)
+                reg_arr = reg_arr[np.newaxis, :, :]
+
+                with rasterio.open(outname_reg, 'w+', **meta) as reg_pred:
+                    logging.info(f'Successfully regularized on {inference_raster}\nWriting to file: {outname_reg}')
+                    reg_pred.write(reg_arr.astype(np.uint8) * 255)
+            else:
+                logging.info(f'Regularized prediction exists: {outname_reg}')
+
+    outname_reg_vec_temp = outdir / f'{outname_reg.stem}_temp.gpkg'
+    if not outname_reg_vec_temp.is_file():
+        cmd = f"gdal_polygonize.py -8 {outname_reg} {outname_reg_vec_temp}"
+        logging.debug(cmd)
+        suc_msg = f'Successfully polygonized {outname_reg}\nOutput file: {outname_reg_vec_temp}'
+        fail_msg = f'Failed to polygonized {outname_reg}\nCouldn\'t create output file: {outname_reg_vec_temp}'
+        subprocess_cmd(cmd, suc_msg, fail_msg)
+    else:
+        logging.info(f'Polygonized raster exists: {outname_reg_vec_temp}')
+
+    outname_reg_vec = outdir / f'{outname_reg.stem}_raw.gpkg'
+    if not outname_reg_vec.is_file():
+        cmd = f'ogr2ogr -progress {outname_reg_vec} {outname_reg_vec_temp} -where \"\\\"DN\\\" > 0\"'
+        logging.debug(cmd)
+        suc_msg = f'Successfully filtered features  {outname_reg}\nOutput file: {outname_reg_vec}'
+        fail_msg = f'Polygonized raster exists: {outname_reg_vec}'
+        subprocess_cmd(cmd, suc_msg, fail_msg, use_spcall=False)
+
+    final_gpkg = outdir / f'{outname_reg_vec.stem}_simp.gpkg'
+    if not final_gpkg.is_file():
+        cmd = f'ogr2ogr -progress {final_gpkg} {outname_reg_vec_temp} -where \"\\\"DN\\\" > 0\"' \
+              f' -simplify {simp_tolerance}'
+        logging.debug(cmd)
+        suc_msg = f'Successfully simplified {outname_reg_vec}\nOutput file: {final_gpkg}'
+        fail_msg = f'Simplified vector inference exists: {final_gpkg}'
+        subprocess_cmd(cmd, suc_msg, fail_msg, use_spcall=False)
+
+
 def main(params):
     """
     -------
@@ -344,6 +396,7 @@ def main(params):
     # OPTIONAL PARAMETERS
     # basics
     debug = get_key_def('debug_mode', params['global'], False)
+    parallel = get_key_def('parallelize', params['inference'], default=True, expected_type=bool)
     apply_threshold = get_key_def('apply_threshold', params['inference'], None, expected_type=int)
     simp_tolerance = get_key_def('simp_tolerance', params['inference'], 0.2, expected_type=float)
     # keeps this script relatively agnostic to source of inference data
@@ -388,7 +441,9 @@ def main(params):
         raise FileNotFoundError(f'Couldn\'t locate .csv file or directory "{img_dir_or_csv}" '
                                 f'containing imagery for inference')
 
+    # 1. TILING
     if tiles_dir:
+        input_args = []
         logging.info(f"Merging tiles...")
         for info in inference_srcdata_list:
             is_valid_srcraster, _ = validate_raster(info['tif'])
@@ -401,13 +456,15 @@ def main(params):
                 if not inference_raster.is_file():
                     cmd = f"gdal_merge.py -o {inference_raster} {tiles_files_str}"
                     logging.debug(cmd)
-                    subproc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    if subproc.returncode == 0:
-                        logging.info(f'Successfully merged inference tiles from {Path(info["tif"])}\n'
-                                     f'Merged raster: {inference_raster}')
+                    suc_msg = f'Successfully merged inference tiles from {Path(info["tif"])}\n' \
+                              f'Merged raster: {inference_raster}'
+                    fail_msg = f'Failed to merged inference tiles from {Path(info["tif"])}\n'\
+                               f'Could\'t create merged raster: {inference_raster}'
+                    # Have encountered problems with subprocess.run on Unix: "Arguments list too long". Subp.call ok.
+                    if parallel:
+                        input_args.append([subprocess_cmd, cmd, suc_msg, fail_msg])
                     else:
-                        logging.error(f'Failed to merged inference tiles from {Path(info["tif"])}\n'
-                                      f'Could\'t create merged raster: {inference_raster}')
+                        subprocess_cmd(cmd, suc_msg, fail_msg)
                 else:
                     logging.info(f'Merged raster exists: {inference_raster}')
             else:
@@ -418,69 +475,32 @@ def main(params):
                     logging.error(f"If csv, only lines where 'dataset' column is 'tst' or empty is considered valid. "
                                   f"Check README.md for more information about expected csv file")
 
+        if parallel:
+            logging.info(f'Will merge tiles for {len(input_args)} inference images')
+            with multiprocessing.Pool(None) as pool:
+                pool.map(map_wrapper, input_args)
+
     inference_destdata_list = [raster for raster in Path(working_folder).iterdir()]
     logging.info(f'\n\tFound {len(inference_destdata_list)} inference rasters to post-process\n'
                  f'\tCopying first entry:\n{inference_destdata_list[0]}\n')
 
+    # 2. POLYGONIZATION PIPELINE
+    input_args = []
     for inference_raster in tqdm(inference_destdata_list, position=0, leave=False):
-        is_valid_raster, _ = validate_raster(inference_raster)
-        if is_valid_raster:
-            if buildings_model is not None:
-                with rasterio.open(inference_raster, 'r') as raw_pred:
-                    outname_reg = working_folder_pp / f'{inference_raster.stem}_reg.tif'
-                    if not outname_reg.is_file():
-                        meta = raw_pred.meta
-                        raw_pred_arr = raw_pred.read()[0, ...]
-                        reg_arr = regularize_buildings(raw_pred_arr, buildings_model, apply_threshold=apply_threshold)
-                        reg_arr = reg_arr[np.newaxis, :, :]
-
-                        with rasterio.open(outname_reg, 'w+', **meta) as reg_pred:
-                            logging.info(f'Successfully regularized on {inference_raster}\nWriting to file: {outname_reg}')
-                            reg_pred.write(reg_arr.astype(np.uint8)*255)
-                    else:
-                        logging.info(f'Regularized prediction exists: {outname_reg}')
-
-            outname_reg_vec_temp = working_folder_pp / f'{outname_reg.stem}_temp.gpkg'
-            if not outname_reg_vec_temp.is_file():
-                cmd = f"gdal_polygonize.py -8 {outname_reg} {outname_reg_vec_temp}"
-                logging.debug(cmd)
-                subproc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                if subproc.returncode == 0:
-                    logging.info(f'Successfully polygonized {outname_reg}\n'
-                                 f'Output file: {outname_reg_vec_temp}')
-                else:
-                    logging.error(f'Failed to polygonized {outname_reg}\n'
-                                  f'Couldn\'t create output file: {outname_reg_vec_temp}')
-
+        try:
+            if parallel:
+                input_args.append([post_process_pipeline, inference_raster, working_folder_pp, apply_threshold,
+                                   buildings_model, simp_tolerance])
             else:
-                logging.info(f'Polygonized raster exists: {outname_reg_vec_temp}')
+                post_process_pipeline(inference_raster, working_folder_pp, apply_threshold, buildings_model,
+                                      simp_tolerance)
+        except IOError as e:
+            logging.error(f"Failed to post-process from {inference_raster}\n{e}")
 
-            outname_reg_vec = working_folder_pp / f'{outname_reg.stem}_raw.gpkg'
-            if not outname_reg_vec.is_file():
-                cmd = f'ogr2ogr -progress {outname_reg_vec} {outname_reg_vec_temp} -where \"\\\"DN\\\" > 0\"'
-                logging.debug(cmd)
-                subproc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                logging.info(f'Successfully filtered features  {outname_reg}\n'
-                             f'Output file: {outname_reg_vec}')
-            else:
-                logging.info(f'Polygonized raster exists: {outname_reg_vec}')
-
-            final_gpkg = working_folder_pp / f'{outname_reg_vec.stem}_simp.gpkg'
-            if not final_gpkg.is_file():
-                cmd = f'ogr2ogr -progress {final_gpkg} {outname_reg_vec_temp} -where \"\\\"DN\\\" > 0\"' \
-                      f' -simplify {simp_tolerance}'
-                logging.debug(cmd)
-                subproc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                if subproc.returncode == 0:
-                    logging.info(f'Successfully simplified {outname_reg_vec}\n'
-                                 f'Output file: {final_gpkg}')
-                    outname_reg_vec_temp.unlink(missing_ok=True)
-            else:
-                logging.info(f'Simplified vector inference exists: {final_gpkg}')
-        else:
-            logging.error(f"Failed to post-process from {inference_raster}\n")
-            if not is_valid_raster:
-                logging.error(f"{inference_raster} is not a valid raster")
+    if parallel:
+        logging.info(f'Will post-process {len(input_args)} inference images')
+        with multiprocessing.Pool(None) as pool:
+            pool.map(map_wrapper, input_args)
 
     logging.info(f"End of process. Elapsed time: {int(time.time() - start_time)} seconds")
 
