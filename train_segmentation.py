@@ -7,10 +7,8 @@ import torch
 import argparse
 from pathlib import Path
 import time
-import h5py
 from datetime import datetime
 import warnings
-import functools
 
 from tqdm import tqdm
 from collections import OrderedDict
@@ -27,7 +25,7 @@ from PIL import Image
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
-from utils.metrics import report_classification, create_metrics_dict, iou
+from metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
 from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, get_git_hash
 from utils.visualization import vis_from_batch

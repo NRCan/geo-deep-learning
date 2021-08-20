@@ -499,7 +499,9 @@ def main(params):
 
     if parallel:
         logging.info(f'Will post-process {len(input_args)} inference images')
-        with multiprocessing.Pool(None) as pool:
+        # If regularizing buildings, multiprocessing is limited because of GPU operation. Fills up 16G GPU RAM if > 2
+        num_threads = 2 if buildings_model else None
+        with multiprocessing.Pool(num_threads) as pool:
             pool.map(map_wrapper, input_args)
 
     logging.info(f"End of process. Elapsed time: {int(time.time() - start_time)} seconds")

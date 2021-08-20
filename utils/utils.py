@@ -361,7 +361,8 @@ def read_csv(csv_file_name):
             row_length = len(row) if index == 0 else row_length
             assert len(row) == row_length, "Rows in csv should be of same length"
             row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
-            list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
+            list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3],
+                                'dataset': row[4], 'other': row[5:]})
             assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
             if row[2]:
                 assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'

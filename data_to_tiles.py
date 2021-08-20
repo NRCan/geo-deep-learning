@@ -101,6 +101,29 @@ def tiling(src_img: Union[str, Path],
         vector_tiler.tile(src_label, tile_bounds=raster_tiler.tile_bounds, tile_bounds_crs=raster_bounds_crs)
 
 
+def filter_gdf(gdf: gpd.GeoDataFrame, attr_field: str = None, attr_vals: List = [255]):
+    """
+    Filter features from a geopandas.GeoDataFrame according to an attribute field and filtering values
+    @param gdf: gpd.GeoDataFrame to filter feature from
+    @param attr_field: Name of field on which filtering operation is based
+    @param attr_vals: list of integer values to keep in filtered GeoDataFrame
+    @return: Subset of source GeoDataFrame with only filtered features (deep copy)
+    """
+    if not attr_field and not attr_vals:
+        return gdf
+    if not attr_field in gdf.columns:
+        attr_field = attr_field.split('/')[-1]
+    try:
+        condList = [gdf[f'{attr_field}'] == val for val in attr_vals]
+        condList.extend([gdf[f'{attr_field}'] == str(val) for val in attr_vals])
+        allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
+        gdf_filtered = gdf[allcond].copy(deep=True)
+        return gdf_filtered
+    except KeyError as e:
+        logging.error(f'Column "{attr_field}" not found in label file {gdf.info()}')
+        return gdf
+
+
 def main(params):
     """
     Training and validation datasets preparation.
@@ -300,16 +323,7 @@ def main(params):
             out_px_mask = map_img_tile.parent / f'{map_img_tile.stem}.tif'
             gdf = gpd.read_file(map_img_tile)
             burn_field = None
-            gdf_filtered = gdf
-            if attr_field in gdf.columns:
-                condList = [gdf[f'{attr_field}'] == val for val in attr_vals]
-                condList.extend([gdf[f'{attr_field}'] == str(val) for val in attr_vals])
-                allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
-                gdf_filtered = gdf[allcond].copy(deep=True)
-                # will burn to 255 value if only one class
-                burn_field = attr_field if len(attr_vals) > 1 else None
-            elif attr_vals and not gdf.empty:
-                logging.error(f'Column "{attr_field}" not found in label file {map_img_tile}')
+            gdf_filtered = filter_gdf(gdf, attr_field, attr_vals)
 
             sat_tile_fh = rasterio.open(sat_img_tile)
             sat_tile_ext = abs(sat_tile_fh.bounds.right - sat_tile_fh.bounds.left) * \

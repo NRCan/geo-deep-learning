@@ -1,4 +1,3 @@
-import gc
 import logging
 import warnings
 from math import sqrt
@@ -13,7 +12,6 @@ import csv
 import time
 import argparse
 import heapq
-import fiona  # keep this import. it sets GDAL_DATA to right value
 import rasterio
 from PIL import Image
 import torchvision
@@ -23,10 +21,10 @@ import pandas as pd
 import geopandas as gpd
 
 from tqdm import tqdm
-from shapely.geometry import Polygon, box
+from shapely.geometry import Polygon
 from pathlib import Path
 
-from utils.metrics import ComputePixelMetrics
+from metrics import ComputePixelMetrics
 from models.model_choice import net, load_checkpoint
 from utils import augmentation
 from utils.geoutils import vector_to_raster
@@ -307,7 +305,7 @@ def main(params: dict):
                                                              'console_level': console_level_logging})
 
         # import only if mlflow uri is set
-        from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
+        from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_metrics
         if not Path(mlflow_uri).is_dir():
             logging.warning(f"Couldn't locate mlflow uri directory {mlflow_uri}. Directory will be created.")
             Path(mlflow_uri).mkdir()
