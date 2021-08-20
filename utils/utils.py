@@ -503,8 +503,11 @@ def defaults_from_params(params, key=None):
     else:
         config_file_name = Path('')
     if params['global']['task'] == 'segmentation':
-        min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
-                                     expected_type=int)
+        if 'sample' in params.keys():
+            min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
+                                         expected_type=int)
+        else:
+            min_annot_perc = 0
         num_bands = params['global']['number_of_bands']
         d['samples_dir_name'] = (f'tiles{samples_size}_min-annot{min_annot_perc}_{num_bands}bands'
                            f'_{mlflow_experiment_name}')

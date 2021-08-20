@@ -232,7 +232,7 @@ def main(params):
                              defaults_from_params(params, 'state_dict_path'), expected_type=str)
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
-    attr_vals = get_key_def('target_ids', params['sample'], None, expected_type=List)
+    attr_vals = get_key_def('target_ids', params['sample'], [4], List) if 'sample' in params.keys() else [255]
 
     # OPTIONAL PARAMETERS
     # basics
@@ -284,7 +284,6 @@ def main(params):
             else:
                 logging.critical(f"No single vectorized prediction file found to match ground truth {gt}.\n"
                                  f"Got: {pred_glob}")
-    # df = pd.DataFrame.from_dict(scoring_dict_list)
     df = pd.DataFrame(metrics)
     df_md = df.to_markdown()
     logging.info(f'\n{df_md}')

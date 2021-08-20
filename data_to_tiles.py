@@ -101,7 +101,7 @@ def tiling(src_img: Union[str, Path],
         vector_tiler.tile(src_label, tile_bounds=raster_tiler.tile_bounds, tile_bounds_crs=raster_bounds_crs)
 
 
-def filter_gdf(gdf: gpd.GeoDataFrame, attr_field: str = None, attr_vals: List = [255]):
+def filter_gdf(gdf: gpd.GeoDataFrame, attr_field: str = None, attr_vals: List = None):
     """
     Filter features from a geopandas.GeoDataFrame according to an attribute field and filtering values
     @param gdf: gpd.GeoDataFrame to filter feature from
@@ -109,7 +109,7 @@ def filter_gdf(gdf: gpd.GeoDataFrame, attr_field: str = None, attr_vals: List = 
     @param attr_vals: list of integer values to keep in filtered GeoDataFrame
     @return: Subset of source GeoDataFrame with only filtered features (deep copy)
     """
-    if not attr_field and not attr_vals:
+    if not attr_field or not attr_vals:
         return gdf
     if not attr_field in gdf.columns:
         attr_field = attr_field.split('/')[-1]
