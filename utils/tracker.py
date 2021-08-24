@@ -1,5 +1,3 @@
-import numpy as np
-
 try:
     import ashjdfioastkjl
     from rich.table import Table, Column
@@ -11,7 +9,6 @@ try:
     from rich.console import Console
 
     RICH = True
-
 except ModuleNotFoundError:
     print('rich not imported')
 
@@ -44,13 +41,13 @@ class Tracking_Pane(Progress):
     info = ''
 
     def __init__(self, mode=None, other_renderables=[]):
-        self.taskss = {}
+        self.my_tasks = {}
         if RICH:
             # self.console = Console() # TODO can prob just use parent class's console instead
 
             self.other_renderables = other_renderables
             self.mode = mode
-            if mode == 'train':
+            if mode == 'trn_seg':
                 super().__init__(SpinnerColumn(table_column=Column(ratio=1)),
                                  TextColumn("{task.description}", table_column=Column(ratio=3)),
                                  # TextColumn("[progress.percentage]{task.percentage:>3.0f}%", table_column=Column(ratio=1)),
@@ -59,14 +56,14 @@ class Tracking_Pane(Progress):
                                  BarColumn(table_column=Column(ratio=10)),
                                  TimeElapsedColumn(table_column=Column(ratio=2)),
                                  TimeRemainingColumn(table_column=Column(ratio=2)),
-                                 auto_refresh=False,
-                                 console=None,
+                                 # auto_refresh=False,
+                                 # console=self.console,
                                  expand=True)
-                # self.taskss['epoch'] = self.add_task('[cyan1]epoch')
-                # self.taskss['trn batch'] = self.add_task('[bright_magenta]trn batch')
-                # self.taskss['val batch'] = self.add_task('[magenta]val batch')
+                self.my_tasks['epoch'] = self.add_task('[cyan1]epoch')
+                self.my_tasks['trn batch'] = self.add_task('[bright_magenta]trn batch')
+                self.my_tasks['val batch'] = self.add_task('[magenta]val batch')
 
-            elif mode == 'im_to_samp':
+            elif mode == 'im_to_s':
                 super().__init__(SpinnerColumn(table_column=Column(ratio=1)),
                                  TextColumn("{task.description}", table_column=Column(ratio=3)),
                                  # TextColumn("[progress.percentage]{task.percentage:>3.0f}%", table_column=Column(ratio=1)),
@@ -74,32 +71,28 @@ class Tracking_Pane(Progress):
                                             style='bold white', table_column=Column(ratio=3)),
                                  BarColumn(table_column=Column(ratio=10)),
                                  TimeElapsedColumn(table_column=Column(ratio=2)),
-                                 auto_refresh=False,
-                                 console=None,
+                                 # auto_refresh=False,
+                                 # console=self.console,
                                  expand=True)
-                self.taskss['csv row'] = self.add_task('[cyan1]csv row')
-                self.taskss['im row'] = self.add_task('[bright_magenta]im row')
-                self.taskss['im column'] = self.add_task('[magenta]im column')
+                self.my_tasks['csv row'] = self.add_task('[cyan1]csv row')
+                self.my_tasks['im row'] = self.add_task('[bright_magenta]im row')
+                self.my_tasks['im column'] = self.add_task('[magenta]im column')
                 self.trn_samples = 0
                 self.idx_samples_v = 0
                 self.tst_samples = 0
                 self.excl_samples = 0
                 self.num_padded = 0
+            else:
+                raise NotImplementedError(f'please select a valid mode')
+
         else:
             # self.other_renderables = other_renderables # TODO: add implementation err (or something)
             self.mode = mode
             # if mode == 'train':
             # elif mode == 'im_to_samp':
 
-    # def add_task(
-    #     self,
-    #     description: str,
-    #     start: bool = True,
-    #     total: float = 100.0,
-    #     completed: int = 0,
-    #     visible: bool = True,
-    #     **fields: Any,
-    # ) -> TaskID:
+    # def add_task(self,) -> TaskID:
+    #     return super().add_task(args, kwargs)
     #     """Add a new 'task' to the Progress display.
     #
     #     Args:
@@ -133,16 +126,19 @@ class Tracking_Pane(Progress):
     #     self.refresh()
     #     return new_task_index
 
+    # def get_renderables(self):
+    #     if not isinstance(self.tasks, list):
+    #         yield Panel(self.make_tasks_table(self.tasks[0]))
     def get_renderables(self):
         if RICH:
             layout = Table.grid(expand=True)
             layout.add_column(justify="center")
 
-            # if len(self.taskss) == 1:
+            # if len(self.my_tasks) == 1:
             #     # layout.add_row(Text('time:     since est.     remain     ', justify='right'))
             #     # layout.add_row(Text('epoch:  '+str(self.epoch_curr+1) + ' / ' + str(self.epoch_size), style='purple', justify='left'))
             #     layout.add_row(self.make_tasks_table([self.tasks[0]]))
-            if len(self.taskss) > 1:
+            if len(self.my_tasks) > 1:
                 # layout.add_row(Text('time: since est. remain', justify='right'))
                 # layout.add_row(Text('epoch:  '+str(self.epoch_curr+1) + ' / ' + str(self.epoch_size), style='purple', justify='left'))
                 # layout.add_row(Text('   batch:   '+str(self.batch_curr+1) + ' / ' + str(self.batch_size), style='cyan1', justify='left'))
@@ -164,114 +160,46 @@ class Tracking_Pane(Progress):
                 yield Panel(layout_big)
         # else:
 
-    def track(
-            self,
-            sequence: Union[Iterable[ProgressType], Sequence[ProgressType]],
-            task_key,
-            total: Optional[float] = None,
-            # task_id: Optional[TaskID] = None,
-            # description: str = "Working...",
-            update_period: float = 0.1,
-    ) -> Iterable[ProgressType]:
-        """Track progress by iterating over a sequence.
-
-        Args:
-            sequence (Sequence[ProgressType]): A sequence of values you want to iterate over and track progress.
-            total: (float, optional): Total number of steps. Default is len(sequence).
-            task_id: (TaskID): Task to track. Default is new task.
-            description: (str, optional): Description of task, if new task is created.
-            update_period (float, optional): Minimum time (in seconds) between calls to update(). Defaults to 0.1.
-
-        Returns:
-            Iterable[ProgressType]: An iterable of values taken from the provided sequence.
-        """
-        if task_key not in self.taskss:
-            self.taskss[task_key] = {'curr' : 0,
-                                     'total': len(sequence),
-                                     'sequence': sequence}
-        else:
-            self.taskss[task_key]['curr'] += 1
-            self.taskss[task_key]['total'] = len(sequence)
-
-        RESET_others = False
-        for key in self.taskss:
-            if RESET_others:
-                self.taskss[key]['curr'] = 0
-            if task_key == key:
-                RESET_others = True
-
+    def track(self, seq, task=None) -> Iterable[ProgressType]:
+    # def track(self,
+    #           task,
+    #           sequence: Union[Iterable[ProgressType], Sequence[ProgressType]],
+    #           update_period: float = 0.1) -> Iterable[ProgressType]:
+        # todo: add Not ImplementedERR for task
+        # print(task)
         if RICH:
-            if self.mode == 'train':
-                if task_key == 'epoch':
-                    task_id=0
-                elif task_key == 'trn batch':
-                    task_id=1
-                elif task_key == 'val batch':
-                    task_id=2
-                elif task_key == 'tst batch':
-                    task_id=3
+            # self.print(type(self.my_tasks[task]))
+            # self.print(*seq, self.my_tasks[task])
+            # return_val = super().track(*seq, task_id=self.my_tasks[task])
+            # self.get_renderables()
+            # print(return_val)
+            # print('return_val:', type(return_val))
+            # return return_val
+            # self.print(seq)
+            yield super().track(*seq, task_id=self.my_tasks[task])
 
-            elif self.mode == 'im_to_samp':
-                if task_key == 'csv':
-                    task_id=0 # TODO finish im->s task_ids
-
-
-            # if task_key not in self.taskss:
-            #     self.taskss[task_key] = {'curr' : 0,
-            #                             'total': len(sequence)}
+            # if isinstance(sequence, Sized):
+            #     task_total = float(len(sequence))
             # else:
-            if total is None:
-                if isinstance(sequence, Sized):
-                    task_total = float(len(sequence))
-                else:
-                    raise ValueError(
-                        f"unable to get size of {sequence!r}, please specify 'total'"
-                    )
-            else:
-                task_total = total
-
-            # if task_id is None:
-            #     task_id = self.add_task(description, total=task_total)
-            # else:
-            #     self.update(task_id, total=task_total)
-
-            if self.live.auto_refresh:
-                with _TrackThread(self, task_id, update_period) as track_thread:
-                    for value in sequence:
-                        yield value
-                        track_thread.completed += 1
-            else:  # ignore, unless you disabled auto_refresh
-                advance = self.advance
-                refresh = self.refresh
-                for value in sequence:
-                    yield value
-                    advance(task_id, 1)
-                    refresh()
+            #     raise ValueError(
+            #         f"unable to get size of {sequence!r}, please specify 'total'"
+            #     )
+            #
+            #
+            # super().update(self.my_tasks[task], total=task_total)
+            #
+            #
+            # advance = super().advance
+            # refresh = super().refresh
+            # for value in sequence:
+            #     yield value
+            #     advance(self.my_tasks[task], 1)
+            #     refresh()
         else:
-            if task_key not in self.taskss:
-                self.taskss[task_key] = {'curr' : 0,
-                                         'total': len(sequence)}
+            for val in seq:
+                self.print(task, ' :   ', val)
+                yield val
 
-            for value in self.taskss[task_key]['sequence']:
-                self.taskss[task_key]['curr'] += 1
-                self.taskss[task_key]['total'] = len(sequence)
-
-                s = []
-                RESET_others = False
-
-                for key in self.taskss:
-
-                    if RESET_others:
-                        self.taskss[key]['curr'] = 0
-                    if task_key == key:
-                        RESET_others = True
-
-                        s.append(f'-->   {key} : {self.taskss[key]["curr"]} / {self.taskss[key]["total"]}      ')
-                    else:
-                        s.append(f'{key} : {self.taskss[key]["curr"]} / {self.taskss[key]["total"]}')
-                self.print(s, style='thick panel')
-
-                yield value
 
     def print(self, *objects: Any, style=None, justify=None):
         if RICH:
@@ -291,7 +219,20 @@ class Tracking_Pane(Progress):
 
 
 if __name__ == '__main__':
-    tracker = Tracking_Pane()
-    for i in tracker.track([0, 1, 2, 3, 55], 'epoch'):
-        for j in tracker.track([0, 1, 2, 3, 55], 'trn batch'):
-            tracker.print('\t\t\t\t', i, j, [0, 1])
+    # with Tracking_Pane(mode='trn_seg') as tracker:
+    #     for i in tracker.track('epoch', [0, 1, 2, 3, 55]):#task_id=0):
+    #         for j in tracker.track('trn batch', [0, 1, 2, 3, 55]):#task_id=1):
+    #             # tracker.print('\t\t\t',i, j)
+    #             xxx=69
+
+    # with Tracking_Pane(mode='trn_seg') as tracker:
+    #     for i in tracker.track([0, 1, 2, 3, 55], task='epoch'):#task_id=0):
+    #         for j in tracker.track([0, 1, 2, 3, 55], task='trn batch'):#task_id=1):
+    #             # tracker.print('\t\t\t',i, j)
+    #             xxx=69
+
+    tracker = Tracking_Pane(mode='trn_seg')
+    for i in tracker.track([0, 1, 2, 3, 55], task='epoch'):#task_id=0):
+        for j in tracker.track([0, 1, 2, 3, 55], task='trn batch'):#task_id=1):
+            # tracker.print('\t\t\t',i, j)
+            xxx=69
