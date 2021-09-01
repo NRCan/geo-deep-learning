@@ -70,14 +70,22 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False, smpls_dir=None):
 
         # region get coords for visualization HDF5 file
         vis_coords = {}
-        # try:
-        vis_coords['projection'] = src.crs['init']
-        # except KeyError:
-        # #     try:
-        # #        wkt = src.crs_wkt
-        # #     except AttributeError:
-        # #        wkt = src.crs.wkt
-        # #     wkt
+        try:
+            vis_coords['projection'] = src.crs['init']
+        except KeyError as e:
+            vis_coords['projection'] = '6969'
+            print(type(e))
+            print(e)
+            try:
+               wkt = src.crs_wkt
+            except AttributeError as e:
+                print(type(e))
+                print(e)
+                try:
+                    wkt = src.crs.wkt
+                except AttributeError as e:
+                    print(type(e))
+                    print(e)
         # endregion
 
     # Create a bounding box with Shapely

@@ -101,12 +101,15 @@ class SegmentationDataset(Dataset):
         self.dontcare = dontcare
         self.hdf5_path = os.path.join(self.work_folder, self.dataset_type + "_samples.hdf5")
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
-            for i in range(hdf5_file["metadata"].shape[0]):
-                metadata = hdf5_file["metadata"][i, ...]
-                if isinstance(metadata, np.ndarray) and len(metadata) == 1:
-                    metadata = metadata[0]
-                    metadata = ordereddict_eval(metadata)
-                self.metadata.append(metadata)
+            if hdf5_file["metadata"].shape[0] > 0:
+                for i in range(hdf5_file["metadata"].shape[0]):
+                    metadata = hdf5_file["metadata"][i, ...]
+                    if isinstance(metadata, np.ndarray) and len(metadata) == 1:
+                        metadata = metadata[0]
+                        metadata = ordereddict_eval(metadata)
+                    self.metadata.append(metadata)
+            else:
+                metadata = np.zeros(hdf5_file["sat_img"].shape[0])
             if self.max_sample_count is None:
                 self.max_sample_count = hdf5_file["sat_img"].shape[0]
 

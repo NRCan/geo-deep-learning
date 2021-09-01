@@ -156,7 +156,8 @@ def add_to_datasets(dataset,
             logging.error(f'Sample contains value "{class_val}" not defined in the classes ({dict_classes.keys()}).')
     return to_val_set
 
-def samples_preparation(coords,
+def samples_preparation(hydro,
+                        coords,
                         tracker_hdf5,
                         in_img_array,
                         label_array,
@@ -193,6 +194,9 @@ def samples_preparation(coords,
     :param class_prop: optional, minimal proportion of pixels for each class required for sample to be created
     :return: updated samples count and number of classes.
     """
+    if hydro:
+        label_array[np.where((label_array != 0) & (label_array != 1) & (label_array != 255))] = 0
+        # label_array[np.where(label_array == 1)] = 1
 
     # read input and reference images as array
     h, w, num_bands = in_img_array.shape
@@ -583,15 +587,15 @@ def main(params):
             with rasterio.open(info['tif'], 'r') as raster:
 
 # 1. Read the input raster image
-                np_input_image, raster, dataset_nodata, coords = image_reader_as_array(smpls_dir,
-                                                                                      input_image=raster,
-                                                                                      clip_gpkg=info['gpkg'],
-                                                                                      aux_vector_file=get_key_def('aux_vector_file', params['global'], None), # TODO: what does aux mean?
-                                                                                      aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
-                                                                                      aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
-                                                                                      aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
-                                                                                      aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
-                                                                                      aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
+                np_input_image, raster, dataset_nodata, coords = image_reader_as_array(input_image=raster,
+                                                                                       clip_gpkg=info['gpkg'],
+                                                                                       aux_vector_file=get_key_def('aux_vector_file', params['global'], None), # TODO: what does aux mean?
+                                                                                       aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
+                                                                                       aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
+                                                                                       aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
+                                                                                       aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
+                                                                                       aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None),
+                                                                                       smpls_dir=smpls_dir)
 
 
 
@@ -653,7 +657,8 @@ def main(params):
 
             np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
 # 3. Prepare samples!
-            number_samples, number_classes = samples_preparation(coords, tracker_hdf5,
+            number_samples, number_classes = samples_preparation(params['global']['hydro'],
+                                                             coords, tracker_hdf5,
                                                              in_img_array=np_input_image,
                                                              label_array=np_label_raster,
                                                              sample_size=samples_size,

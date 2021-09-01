@@ -35,7 +35,7 @@ from utils.readers import read_parameters
 
 from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact, start_run
 
-# from utils.tracker import Tracking_Pane
+from utils.tracker_basic import Tracking_Pane
 # endregion
 
 
@@ -230,34 +230,34 @@ def vis_from_dataloader(tracker, params, eval_loader, model, ep_num, output_path
     min_vis_batch, max_vis_batch, increment = vis_batch_range
 
     model.eval()
-    with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
-        for batch_index, data in enumerate(_tqdm):
-            if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
-                with torch.no_grad():
-                    try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-                        inputs = data['sat_img'].to(device)
-                        labels = data['map_img'].to(device)
-                    except RuntimeError:
-                        logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-                        device = torch.device('cuda:0')
-                        inputs = data['sat_img'].to(device)
-                        labels = data['map_img'].to(device)
+    # with tqdm(eval_loader, dynamic_ncols=True) as _tqdm:
+    for batch_index, data in enumerate(tracker.track(eval_loader, 'val vis')):
+        if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
+            with torch.no_grad():
+                try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
+                except RuntimeError:
+                    logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
+                    device = torch.device('cuda:0')
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
 
-                    outputs = model(inputs)
-                    if isinstance(outputs, OrderedDict):
-                        outputs = outputs['out']
+                outputs = model(inputs)
+                if isinstance(outputs, OrderedDict):
+                    outputs = outputs['out']
 
-                    vis_from_batch(params, inputs, outputs,
-                                   batch_index=batch_index,
-                                   vis_path=vis_path,
-                                   labels=labels,
-                                   dataset=dataset,
-                                   ep_num=ep_num,
-                                   scale=scale)
+                vis_from_batch(params, inputs, outputs,
+                               batch_index=batch_index,
+                               vis_path=vis_path,
+                               labels=labels,
+                               dataset=dataset,
+                               ep_num=ep_num,
+                               scale=scale)
     logging.info(f'Saved visualization figures.\n')
 
 
-def train(train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, ep_idx, progress_log, device, scale, vis_params, debug=False):
+def train(tracker, train_loader, model, criterion, optimizer, scheduler, num_classes, batch_size, ep_idx, progress_log, device, scale, vis_params, debug=False):
     """
     Train the model and return the metrics of the training epoch
     :param train_loader: training data loader
@@ -278,8 +278,10 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
     model.train()
     train_metrics = create_metrics_dict(num_classes)
 
-    for batch_index, data in enumerate(tqdm(train_loader, desc=f'Iterating train batches with {device.type}')):
-        logging.info(f'{len(data["index"].tolist())}   Images = {data["index"].tolist()}')
+    # for batch_index, data in enumerate(tqdm(train_loader, desc=f'Iterating train batches with {device.type}')):
+    for batch_index, data in enumerate(tracker.track(train_loader, 'trn batch')):
+        # loggingdebug()o(f'{len(data["index"].tolist())}   Images = {data["index"].tolist()}')
+        tracker.add_stat('samples', data["index"].tolist(), task='batch')
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
         try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
@@ -291,6 +293,8 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
             inputs = data['sat_img'].to(device)
             labels = data['map_img'].to(device)
 
+        if num_classes < len(torch.unique(labels)):
+            labels = labels[torch.where(labels < num_classes)]
         # forward
         optimizer.zero_grad()
         outputs = model(inputs)
@@ -317,15 +321,13 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                                ep_num=ep_idx+1,
                                scale=scale)
 
-        # if isinstance(outputs, tuple):
-        #     loss = criterion(outputs.squeeze(1), labels)
-        # else:
         loss = criterion(outputs, labels)
-
-        # if isinstance(loss, float):
-        #     train_metrics['loss'].update(loss, batch_size)
-        # else:
         train_metrics['loss'].update(loss.item(), batch_size)
+
+        tracker.add_stats({'dataset' : 'trn',
+                           'loss'    : f'{train_metrics["loss"].avg:.4f}',
+                           'lr'      :optimizer.param_groups[0]['lr']},
+                           task='batch')
 
         if device.type == 'cuda' and debug:
             res, mem = gpu_stats(device=device.index)
@@ -336,19 +338,24 @@ def train(train_loader, model, criterion, optimizer, scheduler, num_classes, bat
                                           img=data['sat_img'].numpy().shape,
                                           smpl=data['map_img'].numpy().shape,
                                           bs=batch_size,
-                                          out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy()),
+                                          out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy()),     # TODO: change to all np.unique to torch.unique.cpu()
                                           gt_vals=np.unique(labels[0].detach().cpu().numpy())))
-
+            tracker.add_stats({'device'  : device,
+                               'gpu_perc':f'{res.gpu} %',
+                               'gpu_RAM' :f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f}MB'},
+                                task='batch')
         loss.backward()
         optimizer.step()
 
     scheduler.step()
     if train_metrics["loss"].avg is not None:
         logging.info(f'Training Loss: {train_metrics["loss"].avg:.4f}')
+        tracker.add_stat('trn loss', train_metrics["loss"].avg, task='epoch')
+    tracker.notify_end('trn batch')
     return train_metrics
 
 
-def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, scale, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
+def evaluation(tracker, eval_loader, model, criterion, num_classes, batch_size, ep_idx, progress_log, scale, vis_params, batch_metrics=None, dataset='val', device=None, debug=False):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -370,9 +377,10 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
 
-    for batch_index, data in enumerate(tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} '
-                                                                                  f'batches with {device.type}')):
-        logging.info(f'{len(data["index"].tolist())}   Images = {data["index"].tolist()}')
+    # for batch_index, data in enumerate(tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} ')):
+    for batch_index, data in enumerate(tracker.track(eval_loader, 'val batch')):
+        logging.debug(f'{len(data["index"].tolist())}   Images = {data["index"].tolist()}')
+        tracker.add_stat('samples', data["index"].tolist(), task='batch')
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
         with torch.no_grad():
@@ -417,7 +425,7 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
             #         print('saved!', f'D:/NRCan_data/MECnet_implementation/runs/mecnet_batch{j}_2class_class{i}.png')
 
             loss = criterion(outputs, labels)
-
+            # print((labels & outputs).shape)
             eval_metrics['loss'].update(loss.item(), batch_size)
 
             if (dataset == 'val') and (batch_metrics is not None):
@@ -437,18 +445,30 @@ def evaluation(eval_loader, model, criterion, num_classes, batch_size, ep_idx, p
                                                      ignore_index=eval_loader.dataset.dontcare)
 
             logging.debug(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
+            tracker.add_stats({'dataset' : dataset, 'loss' : f'{eval_metrics["loss"].avg:.4f}'}, task='batch')
 
             if debug and device.type == 'cuda':
                 res, mem = gpu_stats(device=device.index)
                 logging.debug(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
                                               gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
+                tracker.add_stats({'device'  : device,
+                                   'gpu_perc':f'{res.gpu} %',
+                                   'gpu_RAM' :f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f}MB'},
+                                   task='batch')
 
     logging.info(f"{dataset} Loss: {eval_metrics['loss'].avg}")
+    tracker.add_stat('val loss', eval_metrics['loss'].avg, task='epoch')
     if batch_metrics is not None:
         logging.info(f"{dataset} precision: {eval_metrics['precision'].avg}")
         logging.info(f"{dataset} recall: {eval_metrics['recall'].avg}")
         logging.info(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
         logging.info(f"{dataset} iou: {eval_metrics['iou'].avg}")
+
+        tracker.add_stat('precision', eval_metrics['precision'].avg, task='epoch')
+        tracker.add_stat('recall', eval_metrics['recall'].avg, task='epoch')
+        tracker.add_stat('fscore', eval_metrics['fscore'].avg, task='epoch')
+        tracker.add_stat('iou', eval_metrics['iou'].avg, task='epoch')
+    tracker.notify_end('val batch')
 
     return eval_metrics
 
@@ -485,7 +505,7 @@ def main(params, config_path):
     """
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
-    # MANDATORY PARAMETERS
+    # region MANDATORY PARAMETERS
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
     batch_size = get_key_def('batch_size', params['training'], expected_type=int)
@@ -493,8 +513,9 @@ def main(params, config_path):
     num_epochs = get_key_def('num_epochs', params['training'], expected_type=int)
     model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
     BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
+    # endregion
 
-    # OPTIONAL PARAMETERS
+    # region OPTIONAL PARAMETERS
     # basics
     debug = get_key_def('debug_mode', params['global'], default=False, expected_type=bool)
     task = get_key_def('task', params['global'], default='segmentation', expected_type=str)
@@ -508,8 +529,9 @@ def main(params, config_path):
         raise FileNotFoundError(f'Couldn\'t locate {meta_map}')
     bucket_name = get_key_def('bucket_name', params['global'])  # AWS
     scale = get_key_def('scale_data', params['global'], default=[0, 1], expected_type=List)
+    # endregion
 
-    # model params
+    # region model params
     loss_fn = get_key_def('loss_fn', params['training'], default='CrossEntropy', expected_type=str)
     class_weights = get_key_def('class_weights', params['training'], default=None, expected_type=Sequence)
     if class_weights:
@@ -523,22 +545,25 @@ def main(params, config_path):
     # Read the concatenation point
     # TODO: find a way to maybe implement it in classification one day
     conc_point = get_key_def('concatenate_depth', params['global'], None)
+    # endregion
 
-    # gpu parameters
+    # region gpu parameters
     num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
     if num_devices and not num_devices >= 0:
         raise ValueError("missing mandatory num gpus parameter")
     default_max_used_ram = 15
     max_used_ram = get_key_def('max_used_ram', params['global'], default=default_max_used_ram, expected_type=int)
     max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
+    # endregion
 
-    # mlflow logging
+    # region mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
     Path(mlflow_uri).mkdir(exist_ok=True)
     experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
     run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
+    # endregion
 
-    # parameters to find hdf5 samples
+    # region parameters to find hdf5 samples
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
     samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
     overlap = get_key_def("overlap", params["sample"], default=5, expected_type=int)
@@ -548,8 +573,9 @@ def main(params, config_path):
         raise FileNotFoundError(f'Could not locate data path {data_path}')
     samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{experiment_name}')
     samples_folder = data_path.joinpath(samples_folder_name)
+    # endregion
 
-    # visualization parameters
+    # region visualization parameters
     vis_at_train = get_key_def('vis_at_train', params['visualization'], default=False)
     vis_at_eval = get_key_def('vis_at_evaluation', params['visualization'], default=False)
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], default=None)
@@ -565,15 +591,19 @@ def main(params, config_path):
     vis_params = {'colormap_file': colormap_file, 'heatmaps': heatmaps, 'heatmaps_inf': heatmaps_inf, 'grid': grid,
                   'mean': mean, 'std': std, 'vis_batch_range': vis_batch_range, 'vis_at_train': vis_at_train,
                   'vis_at_eval': vis_at_eval, 'ignore_index': dontcare_val, 'inference_input_path': None}
+    # endregion
 
-    # coordconv parameters
+    # region coordconv parameters
     coordconv_params = {}
     for param, val in params['global'].items():
         if 'coordconv' in param:
             coordconv_params[param] = val
+    # endregion
 
+    # region git
     # add git hash from current commit to parameters if available. Parameters will be saved to model's .pth.tar
     params['global']['git_hash'] = get_git_hash()
+    # endregion
 
     # automatic model naming with unique id for each training
     model_id = config_path.stem
@@ -650,7 +680,7 @@ def main(params, config_path):
                                                                        dontcare2backgr=dontcare2backgr,
                                                                        calc_eval_bs=calc_eval_bs,
                                                                        debug=debug)
-    # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
+    # region INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
     model, model_name, criterion, optimizer, lr_scheduler = net(model_name=model_name,
                                                                 num_bands=num_bands,
@@ -669,8 +699,8 @@ def main(params, config_path):
 
     logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n'
                  f'lr_scheduler:{type(lr_scheduler)} criterion:{type(criterion)} optimizer:{type(optimizer)}')
-
-    # mlflow tracking path + parameters logging
+    # endregion
+    # region mlflow tracking path + parameters logging
     set_tracking_uri(mlflow_uri)
     set_experiment(experiment_name)
     start_run(run_name=run_name)
@@ -683,12 +713,12 @@ def main(params, config_path):
         bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
                                                                                data_path=data_path,
                                                                                output_path=output_path)
-
     since = time.time()
     best_loss = 999
     last_vis_epoch = 0
+    # endregion
 
-# region init loggers
+    # region init loggers
     progress_log = output_path / 'progress.log'
     if not progress_log.exists():
         progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))  # Add header
@@ -699,7 +729,24 @@ def main(params, config_path):
     filename = output_path.joinpath('checkpoint.pth.tar')
     # endregion
 
-# region VISUALIZATION: generate pngs of inputs, labels and outputs
+    tracker = Tracking_Pane(output_path,
+                            mode='trn_seg',
+                            stats_to_track = {'epoch' : ['save_check',
+                                                         'iou',
+                                                         'val loss',
+                                                         'trn loss',
+                                                         'precision',
+                                                         'recall',
+                                                         'fscore'],
+                                              'batch' : ['loss',
+                                                         'lr',
+                                                         'dataset',
+                                                         'device',
+                                                         'gpu_perc',
+                                                         'gpu_RAM',
+                                                         ['samples', 20]]})
+
+    # region VISUALIZATION: generate pngs of inputs, labels and outputs
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], None)
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment).
@@ -714,7 +761,8 @@ def main(params, config_path):
         if get_key_def('vis_at_init', params['visualization'], False):
             logging.info(f'Visualizing initialized model on batch range {vis_batch_range} '
                          f'from {vis_at_init_dataset} dataset...\n')
-            vis_from_dataloader(vis_params=vis_params,
+            vis_from_dataloader(tracker,
+                                vis_params=params,
                                 eval_loader=val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader,
                                 model=model,
                                 ep_num=0,
@@ -723,11 +771,14 @@ def main(params, config_path):
                                 scale=scale,
                                 device=device,
                                 vis_batch_range=vis_batch_range)
+    # endregion
 
-    for epoch in range(0, num_epochs):
+
+    for epoch in tracker.track(range(0, num_epochs), 'epoch'):
         logging.info(f'\nEpoch {epoch}/{num_epochs - 1}\n{"-" * 20}')
 
-        trn_report = train(train_loader=trn_dataloader,
+        trn_report = train(tracker,
+                           train_loader=trn_dataloader,
                            model=model,
                            criterion=criterion,
                            optimizer=optimizer,
@@ -742,7 +793,8 @@ def main(params, config_path):
                            debug=debug)
         trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-        val_report = evaluation(eval_loader=val_dataloader,
+        val_report = evaluation(tracker,
+                                eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
                                 num_classes=num_classes_corrected,
@@ -764,6 +816,7 @@ def main(params, config_path):
 
         if val_loss < best_loss:
             logging.info("save checkpoint\n")
+            tracker.add_stat('save_check', 'true!', task='epoch')
             best_loss = val_loss
             # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
@@ -783,7 +836,8 @@ def main(params, config_path):
                 if last_vis_epoch == 0:
                     logging.info(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
                                  f'batches in range {vis_batch_range}')
-                vis_from_dataloader(vis_params=vis_params,
+                vis_from_dataloader(tracker,
+                                    vis_params=vis_params,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
                                     model=model,
                                     ep_num=epoch+1,
@@ -799,6 +853,7 @@ def main(params, config_path):
 
         cur_elapsed = time.time() - since
         logging.info(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
+    tracker.notify_end('epoch')
 
     # load checkpoint model and evaluate it on test dataset.
     if num_epochs > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
@@ -833,6 +888,7 @@ def main(params, config_path):
 
 if __name__ == '__main__':
     print(f'Start\n')
+    torch.cuda.empty_cache()
     parser = argparse.ArgumentParser(description='Training execution')
     parser.add_argument('param_file', help='Path to training parameters stored in yaml')
     args = parser.parse_args()

@@ -120,7 +120,7 @@ def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path])
     with fiona.open(gpkg_path, 'r') as src:
         gpkg_crs = src.crs
 
-    with rasterio.open(raster_path, 'r') as raster:
+    with rasterio.open(raster_path, 'r') as raster: # TODO: we should check for this too: src.crs['init']
         raster_crs = raster.crs
 
     if not gpkg_crs == raster_crs:
