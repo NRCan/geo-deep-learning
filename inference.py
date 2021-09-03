@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
 import numpy as np
+import dask.array as da
 import os
 import csv
 import time
@@ -145,7 +146,9 @@ def segmentation(input_image,
                  device,
                  scale: List,
                  BGR_to_RGB: bool,
-                 debug=False):
+                 tp_mem,
+                 debug=False,
+                 ):
 
     # switch to evaluate mode
     model.eval()
@@ -166,7 +169,7 @@ def segmentation(input_image,
     w = input_image.width
     h_ = h + padded
     w_ = w + padded
-    pred_img = np.zeros((h_, w_, num_classes), dtype=np.uint8)
+    fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(h_, w_, num_classes))
     dist_samples = int(round(chunk_size * (1 - 1.0 / 2.0)))
 
     # construct window for smoothing
@@ -175,8 +178,9 @@ def segmentation(input_image,
     WINDOW_SPLINE_2D = WINDOW_SPLINE_2D.to(device)
 
     sample = {'sat_img': None, 'map_img': None, 'metadata': None}
+    cnt = 0
     img_gen = gen_img_samples(input_image, chunk_size)
-    for img in img_gen:
+    for img in tqdm(img_gen, position=1, leave=False, desc='inferring on window slices'):
         row = img[1]
         col = img[2]
         sub_image = img[0]
@@ -230,22 +234,26 @@ def segmentation(input_image,
         outputs = torch.mul(outputs, WINDOW_SPLINE_2D)
         outputs, _ = torch.max(outputs, dim=0)
         outputs = outputs.permute(1, 2, 0)
-        outputs = outputs.reshape(padded, padded, num_classes).cpu().numpy()
+        outputs = outputs.reshape(padded, padded, num_classes).cpu().numpy().astype('float16')
         outputs = outputs[dist_samples:-dist_samples, dist_samples:-dist_samples, :]
-        if debug:
-            logging.debug(f'Bin count of final output: {np.unique(outputs, return_counts=True)}')
-        pred_img[row:row + chunk_size, col:col + chunk_size] = \
-            pred_img[row:row + chunk_size, col:col + chunk_size] + outputs
-    pred_img = pred_img / (2 ** 2)
-    pred_img = np.argmax(pred_img, axis=-1)
-    print('orig_shape:', h, w, 'pred_shape:', pred_img.shape)
-    pred_img = pred_img[:h, :w]
+        fp[row:row + chunk_size, col:col + chunk_size] = \
+            fp[row:row + chunk_size, col:col + chunk_size] + outputs
+        cnt += 1
+    fp.flush()
+    del fp
+    fp = np.memmap(tp_mem, dtype='float16', mode='r', shape=(h_, w_, num_classes))
+    arr = da.from_array(fp, chunks=(10000, 10000, num_classes))
+    arr1 = arr / (2 ** 2)
+    arr2 = arr1.persist().argmax(axis=-1).astype('uint8')
+    pred_img = arr2[:h, :w].compute()
+    if debug:
+        logging.debug(f'Bin count of final output: {np.unique(pred_img, return_counts=True)}')
     gdf = None
     if label_arr is not None:
         feature = defaultdict(list)
         cnt = 0
-        for row in tqdm(range(0, h, chunk_size), position=1, leave=False, desc='Inferring rows'):
-            for col in tqdm(range(0, w, chunk_size), position=2, leave=False, desc='Inferring columns'):
+        for row in tqdm(range(0, h, chunk_size), position=2, leave=False):
+            for col in tqdm(range(0, w, chunk_size), position=3, leave=False):
                 label = label_arr[row:row + chunk_size, col:col + chunk_size]
                 pred = pred_img[row:row + chunk_size, col:col + chunk_size]
                 pixelMetrics = ComputePixelMetrics(label.flatten(), pred.flatten(), num_classes)
@@ -269,6 +277,8 @@ def segmentation(input_image,
                 cnt += 1
         gdf = gpd.GeoDataFrame(feature, crs=input_image.crs)
         gdf.to_crs(crs="EPSG:4326", inplace=True)
+    input_image.close()
+    logging.info(f'Successfully processed {cnt} image chunks')
     return pred_img, gdf
 
 
@@ -435,13 +445,13 @@ def main(params: dict):
     gpu_devices_dict = get_device_ids(num_devices,
                                       max_used_ram_perc=max_used_ram,
                                       max_used_perc=max_used_perc)
-    device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
-
     if gpu_devices_dict:
         logging.info(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {gpu_devices_dict}. "
                      f"Using {list(gpu_devices_dict.keys())[0]}\n\n")
+        device = torch.device(f'cuda:{list(range(len(gpu_devices_dict.keys())))[0]}')
     else:
         logging.warning(f"No Cuda device available. This process will only run on CPU")
+        device = torch.device('cpu')
 
     # CONFIGURE MODEL
     num_classes_backgr = add_background_to_num_class(task, num_classes)
@@ -494,33 +504,36 @@ def main(params: dict):
         else:
             model, _ = load_from_checkpoint(loaded_checkpoint, model)
         # LOOP THROUGH LIST OF INPUT IMAGES
-        for info in tqdm(list_img, desc='Inferring from images', position=0):
-            img_name = Path(info['tif']).name
-            local_gpkg = Path(info['gpkg']) if 'gpkg' in info.keys() and info['gpkg'] else None
-            gpkg_name = local_gpkg.stem if local_gpkg else None
-            if bucket:
-                local_img = f"Images/{img_name}"
-                bucket.download_file(info['tif'], local_img)
-                inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-                if info['meta']:
-                    if info['meta'] not in bucket_file_cache:
-                        bucket_file_cache.append(info['meta'])
-                        bucket.download_file(info['meta'], info['meta'].split('/')[-1])
-                    info['meta'] = info['meta'].split('/')[-1]
-            else:  # FIXME: else statement should support img['meta'] integration as well.
-                local_img = Path(info['tif'])
-                Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
-                inference_image = working_folder.joinpath(local_img.parent.name,
-                                                          f"{img_name.split('.')[0]}_inference.tif")
-            with rasterio.open(local_img, 'r') as raster:
+        for info in tqdm(list_img, desc='Inferring from images', position=0, leave=True):
+            with start_run(run_name=Path(info['tif']).name, nested=True):
+                img_name = Path(info['tif']).name
+                local_gpkg = Path(info['gpkg']) if 'gpkg' in info.keys() and info['gpkg'] else None
+                gpkg_name = local_gpkg.stem if local_gpkg else None
+                if bucket:
+                    local_img = f"Images/{img_name}"
+                    bucket.download_file(info['tif'], local_img)
+                    inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
+                    if info['meta']:
+                        if info['meta'] not in bucket_file_cache:
+                            bucket_file_cache.append(info['meta'])
+                            bucket.download_file(info['meta'], info['meta'].split('/')[-1])
+                        info['meta'] = info['meta'].split('/')[-1]
+                else:  # FIXME: else statement should support img['meta'] integration as well.
+                    local_img = Path(info['tif'])
+                    Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
+                    inference_image = working_folder.joinpath(local_img.parent.name,
+                                                              f"{img_name.split('.')[0]}_inference.tif")
+                temp_file = working_folder.joinpath(local_img.parent.name, f"{img_name.split('.')[0]}.dat")
+                raster = rasterio.open(local_img, 'r')
                 logging.info(f'Reading original image: {raster.name}')
                 inf_meta = raster.meta
                 label = None
                 if local_gpkg:
                     logging.info(f'Burning label as raster: {local_gpkg}')
                     local_img = clip_raster_with_gpkg(raster, local_gpkg)
-                    with rasterio.open(local_img, 'r') as raster:
-                        logging.info(f'Reading clipped image: {raster.name}')
+                    raster.close()
+                    raster = rasterio.open(local_img, 'r')
+                    logging.info(f'Reading clipped image: {raster.name}')
                     inf_meta = raster.meta
                     label = vector_to_raster(vector_file=local_gpkg,
                                              input_image=raster,
@@ -540,15 +553,15 @@ def main(params: dict):
                                          device=device,
                                          scale=scale,
                                          BGR_to_RGB=BGR_to_RGB,
+                                         tp_mem=temp_file,
                                          debug=debug)
                 if gdf is not None:
                     gdf_.append(gdf)
                     gpkg_name_.append(gpkg_name)
                 if local_gpkg:
-                    with start_run(run_name=img_name, nested=True):
-                        pixelMetrics = ComputePixelMetrics(label, pred, num_classes_backgr)
-                        log_metrics(pixelMetrics.update(pixelMetrics.iou))
-                        log_metrics(pixelMetrics.update(pixelMetrics.dice))
+                    pixelMetrics = ComputePixelMetrics(label, pred, num_classes_backgr)
+                    log_metrics(pixelMetrics.update(pixelMetrics.iou))
+                    log_metrics(pixelMetrics.update(pixelMetrics.dice))
                 pred = pred[np.newaxis, :, :].astype(np.uint8)
                 inf_meta.update({"driver": "GTiff",
                                  "height": pred.shape[1],
@@ -559,7 +572,11 @@ def main(params: dict):
                 logging.info(f'Successfully inferred on {img_name}\nWriting to file: {inference_image}')
                 with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
                     dest.write(pred)
-
+                del pred
+                try:
+                    temp_file.unlink()
+                except OSError as e:
+                    logging.warning(f'File Error: {temp_file, e.strerror}')
                 if raster_to_vec:
                     inference_vec = working_folder.joinpath(local_img.parent.name,
                                                             f"{img_name.split('.')[0]}_inference.gpkg")
