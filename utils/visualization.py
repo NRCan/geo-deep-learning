@@ -123,7 +123,6 @@ def vis(vis_params,
 
     assert vis_path.parent.is_dir()
     vis_path.mkdir(exist_ok=True)
-
     if not vis_params[
         'inference_input_path']:  # FIXME: function parameters should not come in as different types if inference or not.
         input_ = input_.cpu().permute(1, 2, 0).numpy()  # channels last

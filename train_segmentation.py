@@ -316,8 +316,8 @@ def train(train_loader,
             if batch_index in range(min_vis_batch, max_vis_batch, increment):
                 vis_path = progress_log.parent.joinpath('visualization')
                 if ep_idx == 0:
-                    logging.info(f'Visualizing on train outputs for batches in range {vis_params[
-                        "vis_batch_range"]}. All images will be saved to {vis_path}\n')
+                    logging.info(f'Visualizing on train outputs for batches in range {vis_params["vis_batch_range"]}. '
+                                 f'All images will be saved to {vis_path}\n')
                 vis_from_batch(vis_params, inputs, outputs,
                                batch_index=batch_index,
                                vis_path=vis_path,
@@ -411,8 +411,8 @@ def evaluation(eval_loader,
                 if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0 and batch_index == min_vis_batch:
-                        logging.info(f'Visualizing on {dataset} outputs for batches in range {vis_params[
-                            "vis_batch_range"]}. All '
+                        logging.info(
+                            f'Visualizing on {dataset} outputs for batches in range {vis_params["vis_batch_range"]} '
                                      f'images will be saved to {vis_path}\n')
                     vis_from_batch(vis_params, inputs, outputs,
                                    batch_index=batch_index,
@@ -821,6 +821,7 @@ def main(params, config_path):
             bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
+    log_params({'checkpoint path': filename})
     logging.info('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
     # log_artifact(logfile)
     # log_artifact(logfile_debug)
