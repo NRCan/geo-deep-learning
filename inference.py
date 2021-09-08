@@ -137,7 +137,8 @@ def gen_img_samples(src, chunk_size, *band_order):
 
 
 @torch.no_grad()
-def segmentation(input_image,
+def segmentation(param,
+                 input_image,
                  label_arr,
                  num_classes: int,
                  gpkg_name,
@@ -190,7 +191,7 @@ def segmentation(input_image,
                                                             raster_info={})
 
         sample['metadata'] = image_metadata
-        totensor_transform = augmentation.compose_transforms(params,
+        totensor_transform = augmentation.compose_transforms(param,
                                                              dataset="tst",
                                                              input_space=BGR_to_RGB,
                                                              scale=scale,
@@ -544,7 +545,8 @@ def main(params: dict):
                     if debug:
                         logging.debug(f'Unique values in loaded label as raster: {np.unique(label)}\n'
                                       f'Shape of label as raster: {label.shape}')
-                pred, gdf = segmentation(input_image=raster,
+                pred, gdf = segmentation(param=params,
+                                         input_image=raster,
                                          label_arr=label,
                                          num_classes=num_classes_backgr,
                                          gpkg_name=gpkg_name,
