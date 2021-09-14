@@ -28,7 +28,7 @@ logging.getLogger(__name__)
 
 def validate_raster(geo_image: Union[str, Path], verbose: bool = True):
     if not geo_image:
-        return False
+        return False, None
     geo_image = Path(geo_image) if isinstance(geo_image, str) else geo_image
     try:
         with rasterio.open(geo_image, 'r') as raster:
@@ -240,11 +240,12 @@ def main(params):
             raise ValueError(f'Imagery contains {metadata["count"]} bands, expected {num_bands}')
         if info['gpkg']:
             if info['gpkg'] not in valid_gpkg_set:
+                # FIXME: check/fix this validation and use it
                 gpkg_classes = validate_num_classes(info['gpkg'], num_classes, info['attribute_name'], target_ids=attr_vals)
                 assert_crs_match(info['tif'], info['gpkg'])
                 valid_gpkg_set.add(info['gpkg'])
         else:
-            logging.warning(f'No ground truth data found in {csv_file}')
+            logging.warning(f"No ground truth data found for {info['tif']}")
             no_gt = True
         if not info['dataset'] in ['trn', 'tst']:
             raise ValueError(f'Dataset value must be "trn" or "tst". Got: {info["dataset"]}')
@@ -337,6 +338,16 @@ def main(params):
         out_gt_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'map_img')
         imgs_tiled = sorted(list(out_img_dir.glob('*.tif')))
         gts_tiled = sorted(list(out_gt_dir.glob('*.geojson')))
+        if debug:
+            for sat_img_tile in tqdm(imgs_tiled, desc='DEBUG: Checking if imagery tiles are valid'):
+                is_valid, _ = validate_raster(sat_img_tile)
+                if not is_valid:
+                    logging.error(f'Invalid imagery tile: {sat_img_tile}')
+            for map_img_tile in tqdm(gts_tiled, desc='DEBUG: Checking if ground truth tiles are valid'):
+                try:
+                    gpd.read_file(map_img_tile)
+                except Exception as e:
+                    logging.error(f'Invalid ground truth tile: {sat_img_tile}. Error: {e}')
         if len(imgs_tiled) > 0 and len(gts_tiled) == 0:
             logging.warning('List of training tiles contains no ground truth, only imagery.')
             for sat_img_tile in imgs_tiled:
@@ -402,6 +413,8 @@ if __name__ == '__main__':
                         help='Path to parameters stored in yaml')
     parser.add_argument('-c', '--csv', metavar='csv_file', nargs=1,
                         help='Path to csv containing listed data')
+    parser.add_argument('-d', '--debug', metavar='debug_mode', nargs=1,
+                        help='Boolean. If True, will activate debug mode')
     args = parser.parse_args()
     if args.param:
         params = read_parameters(args.param[0])
@@ -409,6 +422,7 @@ if __name__ == '__main__':
         data_list = read_csv(args.csv[0])
         params = OrderedDict()
         params['global'] = OrderedDict()
+        params['global']['debug_mode'] = True if args.debug and args.debug[0] == 'True' else False
         bands_per_imagery = []
         classes_per_gt_file = []
         for data in data_list:
