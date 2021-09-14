@@ -405,7 +405,7 @@ if __name__ == '__main__':
                       f'Min: {min(classes_per_gt_file)}\n'
                       f'Max: {max(classes_per_gt_file)}\n'
                       f'Number of classes will be set to max value.')
-        params['global']['num_classes'] = max(classes_per_gt_file)
+        params['global']['num_classes'] = max(classes_per_gt_file) if classes_per_gt_file else None
         params['sample'] = OrderedDict()
         params['sample']['prep_csv_file'] = args.csv[0]
     print(f'\n\nStarting data to tiles preparation with {args}\n\n')
