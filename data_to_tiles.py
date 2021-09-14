@@ -245,7 +245,7 @@ def main(params):
                 assert_crs_match(info['tif'], info['gpkg'])
                 valid_gpkg_set.add(info['gpkg'])
         else:
-            logging.warning(f"No ground truth data found for {info['tif']}")
+            logging.warning(f"No ground truth data found for {info['tif']}. Only imagery will be processed from now on")
             no_gt = True
         if not info['dataset'] in ['trn', 'tst']:
             raise ValueError(f'Dataset value must be "trn" or "tst". Got: {info["dataset"]}')
@@ -275,7 +275,7 @@ def main(params):
                                                       tile_size=samples_size, out_suffix=('.tif'))
             if no_gt:
                 if act_img_tiles == exp_tiles:
-                    logging.info('All tiles exist. Skipping tiling.\n')
+                    logging.info(f'All {exp_tiles} tiles exist. Skipping tiling.\n')
                     do_tile = False
                 elif act_img_tiles > exp_tiles:
                     logging.critical(f'\nToo many tiles for "{info["tif"]}". \n'
@@ -283,10 +283,14 @@ def main(params):
                                      f'Actual image tiles: {act_img_tiles}\n'
                                      f'Skipping tiling.')
                 elif act_img_tiles > 0:
-                    logging.critical('Missing tiles for {info["tif"]}. \n'
+                    logging.critical(f'Missing tiles for {info["tif"]}. \n'
                                      f'Expected: {exp_tiles}\n'
                                      f'Actual image tiles: {act_img_tiles}\n'
                                      f'Starting tiling from scratch...')
+                else:
+                    logging.debug(f'Expected: {exp_tiles}\n'
+                                  f'Actual image tiles: {act_img_tiles}\n'
+                                  f'Starting tiling from scratch...')
             else:
                 act_gt_tiles, _ = tiling_checker(info['tif'], out_gt_dir,
                                                  tile_size=samples_size, out_suffix=('.geojson'))
@@ -306,6 +310,11 @@ def main(params):
                                      f'Actual image tiles: {act_img_tiles}\n'
                                      f'Actual label tiles: {act_gt_tiles}\n'
                                      f'Starting tiling from scratch...')
+                else:
+                    logging.debug(f'Expected: {exp_tiles}\n'
+                                  f'Actual image tiles: {act_img_tiles}\n'
+                                  f'Actual label tiles: {act_gt_tiles}\n'
+                                  f'Starting tiling from scratch...')
             if do_tile:
                 if parallel:
                     input_args.append([tiling, info['tif'], out_img_dir, samples_size, out_gt_dir, info['gpkg']])
