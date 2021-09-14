@@ -2,6 +2,7 @@ import argparse
 import functools
 import math
 import multiprocessing
+from collections import OrderedDict
 from datetime import datetime
 import logging
 import logging.config
@@ -179,6 +180,7 @@ def main(params):
     # parameters to set output tiles directory
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
     samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
+    params['sample']['sampling_method'] = {}
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
                                  expected_type=int)
     if not data_path.is_dir():
@@ -235,10 +237,13 @@ def main(params):
         _, metadata = validate_raster(info['tif'])
         if metadata['count'] != num_bands:
             raise ValueError(f'Imagery contains {metadata["count"]} bands, expected {num_bands}')
-        if info['gpkg'] not in valid_gpkg_set:
-            gpkg_classes = validate_num_classes(info['gpkg'], num_classes, info['attribute_name'], target_ids=attr_vals)
-            assert_crs_match(info['tif'], info['gpkg'])
-            valid_gpkg_set.add(info['gpkg'])
+        if info['gpkg']:
+            if info['gpkg'] not in valid_gpkg_set:
+                gpkg_classes = validate_num_classes(info['gpkg'], num_classes, info['attribute_name'], target_ids=attr_vals)
+                assert_crs_match(info['tif'], info['gpkg'])
+                valid_gpkg_set.add(info['gpkg'])
+        else:
+            logging.warning(f'No ground truth data found in {csv_file}')
         if not info['dataset'] in ['trn', 'tst']:
             raise ValueError(f'Dataset value must be "trn" or "tst". Got: {info["dataset"]}')
 
@@ -246,9 +251,10 @@ def main(params):
         # VALIDATION (debug only): Checking validity of features in vector files
         for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
             # TODO: make unit to test this with invalid features.
-            invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])
-            if invalid_features:
-                logging.critical(f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'")
+            if info['gpkg']:
+                invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])
+                if invalid_features:
+                    logging.critical(f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'")
 
     datasets = ['trn', 'val', 'tst']
 
@@ -368,9 +374,39 @@ def main(params):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Sample preparation')
-    parser.add_argument('ParamFile', metavar='DIR',
-                        help='Path to training parameters stored in yaml')
+    parser.add_argument('-p', '--param', metavar='yaml_file', nargs=1,
+                        help='Path to parameters stored in yaml')
+    parser.add_argument('-c', '--csv', metavar='csv_file', nargs=1,
+                        help='Path to csv containing listed data')
     args = parser.parse_args()
-    params = read_parameters(args.ParamFile)
-    print(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
+    if args.param:
+        params = read_parameters(args.param[0])
+    else:
+        data_list = read_csv(args.csv[0])
+        params = OrderedDict()
+        params['global'] = OrderedDict()
+        bands_per_imagery = []
+        classes_per_gt_file = []
+        for data in data_list:
+            with rasterio.open(data['tif'], 'r') as rdataset:
+                _, metadata = validate_raster(data['tif'])
+                bands_per_imagery.append(metadata['count'])
+        if len(set(bands_per_imagery)) == 1:
+            params['global']['number_of_bands'] = int(list(set(bands_per_imagery))[0])
+        else:
+            raise ValueError(f'Not all imagery has identical number of bands: {bands_per_imagery}')
+        for data in data_list:
+            if data['gpkg']:
+                attr_field = data['attribute_name'].split('/')[-1]
+                gdf = gpd.read_file(data['gpkg'])
+                classes_per_gt_file.append(len(set(gdf[f'{attr_field}'])))
+        print(f'Number of classes in ground truth files for attribute {attr_field}:'
+                     f'\n{classes_per_gt_file}\n'
+                     f'Min: {min(classes_per_gt_file)}\n'
+                     f'Max: {max(classes_per_gt_file)}\n'
+                     f'Number of classes will be set to max value.')
+        params['global']['num_classes'] = max(classes_per_gt_file)
+        params['sample'] = OrderedDict()
+        params['sample']['prep_csv_file'] = args.csv[0]
+    print(f'\n\nStarting data to tiles preparation with {args}\n\n')
     main(params)

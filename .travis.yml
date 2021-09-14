@@ -17,7 +17,7 @@ before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
   - unzip ./data/classification_data.zip -d ./data
 script:
-  - python data_to_tiles.py ./config/travis_CI/config_ci_segmentation_local.yaml
+  - python data_to_tiles.py -p ./config/travis_CI/config_ci_segmentation_local.yaml
   - python train_segmentation.py ./config/travis_CI/config_ci_segmentation_local.yaml
   - python inference.py -p ./config/travis_CI/config_ci_segmentation_local.yaml
   - python train_classification.py ./config/travis_CI/config_ci_classification_local.yaml
