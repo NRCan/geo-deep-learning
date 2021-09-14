@@ -200,7 +200,7 @@ def main(params):
         if debug:
             # Move existing data folder with a random suffix.
             last_mod_time_suffix = datetime.fromtimestamp(smpls_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-            shutil.move(smpls_dir, data_path.joinpath(f'{str(smpls_dir)}_{last_mod_time_suffix}'))
+            shutil.move(str(smpls_dir), data_path.joinpath(f'{str(smpls_dir)}_{last_mod_time_suffix}'))
         else:
             print(f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.')
     Path.mkdir(smpls_dir, exist_ok=True)
