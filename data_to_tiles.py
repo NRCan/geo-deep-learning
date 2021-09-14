@@ -314,50 +314,57 @@ def main(params):
 
     datasets_kept = {dataset: 0 for dataset in datasets}
     datasets_total = {dataset: 0 for dataset in datasets}
-    for info in tqdm(list_data_prep, position=0):
-        out_img_dir = out_tiling_dir(smpls_dir, info['dataset'], Path(info['tif']).stem, 'sat_img')
-        out_gt_dir = out_tiling_dir(smpls_dir, info['dataset'], Path(info['tif']).stem, 'map_img')
+    for info in tqdm(list_data_prep, position=0, desc='Filtering tiles and writing list to dataset text files'):
+        aoi_name = Path(info['tif']).stem if not info['aoi'] else info['aoi']
+        out_img_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'sat_img')
+        out_gt_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'map_img')
         imgs_tiled = sorted(list(out_img_dir.glob('*.tif')))
         gts_tiled = sorted(list(out_gt_dir.glob('*.geojson')))
-        if not len(imgs_tiled) == len(gts_tiled):
+        if len(imgs_tiled) > 0 and len(gts_tiled) == 0:
+            logging.warning('List of training tiles contains no ground truth, only imagery.')
+            for sat_img_tile in imgs_tiled:
+                dataset = sat_img_tile.parts[-4]
+                with open(dataset_files[dataset], 'a') as dataset_file:
+                    dataset_file.write(f'{sat_img_tile}\n')
+        elif not len(imgs_tiled) == len(gts_tiled):
             msg = f"Number of imagery tiles ({len(imgs_tiled)}) and label tiles ({len(gts_tiled)}) don't match"
             logging.error(msg)
             raise IOError(msg)
+        else:
+            for sat_img_tile, map_img_tile in zip(imgs_tiled, gts_tiled):
+                dataset = sat_img_tile.parts[-4]
+                attr_field = info['attribute_name'].split('/')[-1]
+                out_px_mask = map_img_tile.parent / f'{map_img_tile.stem}.tif'
+                gdf = gpd.read_file(map_img_tile)
+                burn_field = None
+                gdf_filtered = filter_gdf(gdf, attr_field, attr_vals)
 
-        for sat_img_tile, map_img_tile in zip(imgs_tiled, gts_tiled):
-            dataset = sat_img_tile.parts[-4]
-            attr_field = info['attribute_name'].split('/')[-1]
-            out_px_mask = map_img_tile.parent / f'{map_img_tile.stem}.tif'
-            gdf = gpd.read_file(map_img_tile)
-            burn_field = None
-            gdf_filtered = filter_gdf(gdf, attr_field, attr_vals)
-
-            sat_tile_fh = rasterio.open(sat_img_tile)
-            sat_tile_ext = abs(sat_tile_fh.bounds.right - sat_tile_fh.bounds.left) * \
-                           abs(sat_tile_fh.bounds.top - sat_tile_fh.bounds.bottom)
-            annot_ct_vec = gdf_filtered.area.sum()
-            annot_perc = annot_ct_vec / sat_tile_ext
-            if dataset in ['trn', 'train']:
-                if annot_perc*100 >= min_annot_perc:
-                    random_val = np.random.randint(1, 100)
-                    dataset = 'val' if random_val < val_percent else dataset
+                sat_tile_fh = rasterio.open(sat_img_tile)
+                sat_tile_ext = abs(sat_tile_fh.bounds.right - sat_tile_fh.bounds.left) * \
+                               abs(sat_tile_fh.bounds.top - sat_tile_fh.bounds.bottom)
+                annot_ct_vec = gdf_filtered.area.sum()
+                annot_perc = annot_ct_vec / sat_tile_ext
+                if dataset in ['trn', 'train']:
+                    if annot_perc*100 >= min_annot_perc:
+                        random_val = np.random.randint(1, 100)
+                        dataset = 'val' if random_val < val_percent else dataset
+                        sol.vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
+                                                       reference_im=str(sat_img_tile),
+                                                       burn_field=burn_field)
+                        with open(dataset_files[dataset], 'a') as dataset_file:
+                            dataset_file.write(f'{sat_img_tile} {out_px_mask} {int(annot_perc*100)}\n')
+                        datasets_kept[dataset] += 1
+                    datasets_total[dataset] += 1
+                elif dataset in ['tst', 'test']:
                     sol.vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
                                                    reference_im=str(sat_img_tile),
                                                    burn_field=burn_field)
                     with open(dataset_files[dataset], 'a') as dataset_file:
                         dataset_file.write(f'{sat_img_tile} {out_px_mask} {int(annot_perc*100)}\n')
                     datasets_kept[dataset] += 1
-                datasets_total[dataset] += 1
-            elif dataset in ['tst', 'test']:
-                sol.vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
-                                               reference_im=str(sat_img_tile),
-                                               burn_field=burn_field)
-                with open(dataset_files[dataset], 'a') as dataset_file:
-                    dataset_file.write(f'{sat_img_tile} {out_px_mask} {int(annot_perc*100)}\n')
-                datasets_kept[dataset] += 1
-                datasets_total[dataset] += 1
-            else:
-                logging.error(f"Invalid dataset value {dataset} for {sat_img_tile}")
+                    datasets_total[dataset] += 1
+                else:
+                    logging.error(f"Invalid dataset value {dataset} for {sat_img_tile}")
 
     for dataset in datasets:
         if dataset == 'train':
@@ -393,6 +400,7 @@ if __name__ == '__main__':
                 bands_per_imagery.append(metadata['count'])
         if len(set(bands_per_imagery)) == 1:
             params['global']['number_of_bands'] = int(list(set(bands_per_imagery))[0])
+            print(f"Inputted imagery contains {params['global']['number_of_bands']} bands")
         else:
             raise ValueError(f'Not all imagery has identical number of bands: {bands_per_imagery}')
         for data in data_list:
