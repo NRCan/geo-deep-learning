@@ -233,6 +233,7 @@ def main(params):
 
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
+    no_gt = False
     for info in tqdm(list_data_prep, position=0):
         _, metadata = validate_raster(info['tif'])
         if metadata['count'] != num_bands:
@@ -244,6 +245,7 @@ def main(params):
                 valid_gpkg_set.add(info['gpkg'])
         else:
             logging.warning(f'No ground truth data found in {csv_file}')
+            no_gt = True
         if not info['dataset'] in ['trn', 'tst']:
             raise ValueError(f'Dataset value must be "trn" or "tst". Got: {info["dataset"]}')
 
@@ -251,7 +253,7 @@ def main(params):
         # VALIDATION (debug only): Checking validity of features in vector files
         for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
             # TODO: make unit to test this with invalid features.
-            if info['gpkg']:
+            if not no_gt:
                 invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])
                 if invalid_features:
                     logging.critical(f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'")
@@ -265,29 +267,44 @@ def main(params):
         try:
             aoi_name = Path(info['tif']).stem if not info['aoi'] else info['aoi']
             out_img_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'sat_img')
-            out_gt_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'map_img')
+            out_gt_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'map_img') if not no_gt else None
 
             do_tile = True
             act_img_tiles, exp_tiles = tiling_checker(info['tif'], out_img_dir,
                                                       tile_size=samples_size, out_suffix=('.tif'))
-            act_gt_tiles, _ = tiling_checker(info['tif'], out_gt_dir,
-                                             tile_size=samples_size, out_suffix=('.geojson'))
-            if act_img_tiles == act_gt_tiles == exp_tiles:
-                logging.info('All tiles exist. Skipping tiling.\n')
-                do_tile = False
-            elif act_img_tiles > exp_tiles and act_gt_tiles > exp_tiles:
-                logging.critical(f'\nToo many tiles for "{info["tif"]}". \n'
-                                 f'Expected: {exp_tiles}\n'
-                                 f'Actual image tiles: {act_img_tiles}\n'
-                                 f'Actual label tiles: {act_gt_tiles}\n'
-                                 f'Skipping tiling.')
-                do_tile = False
-            elif act_img_tiles > 0 or act_gt_tiles > 0:
-                logging.critical('Missing tiles for {info["tif"]}. \n'
-                                 f'Expected: {exp_tiles}\n'
-                                 f'Actual image tiles: {act_img_tiles}\n'
-                                 f'Actual label tiles: {act_gt_tiles}\n'
-                                 f'Starting tiling from scratch...')
+            if no_gt:
+                if act_img_tiles == exp_tiles:
+                    logging.info('All tiles exist. Skipping tiling.\n')
+                    do_tile = False
+                elif act_img_tiles > exp_tiles:
+                    logging.critical(f'\nToo many tiles for "{info["tif"]}". \n'
+                                     f'Expected: {exp_tiles}\n'
+                                     f'Actual image tiles: {act_img_tiles}\n'
+                                     f'Skipping tiling.')
+                elif act_img_tiles > 0:
+                    logging.critical('Missing tiles for {info["tif"]}. \n'
+                                     f'Expected: {exp_tiles}\n'
+                                     f'Actual image tiles: {act_img_tiles}\n'
+                                     f'Starting tiling from scratch...')
+            else:
+                act_gt_tiles, _ = tiling_checker(info['tif'], out_gt_dir,
+                                                 tile_size=samples_size, out_suffix=('.geojson'))
+                if act_img_tiles == act_gt_tiles == exp_tiles:
+                    logging.info('All tiles exist. Skipping tiling.\n')
+                    do_tile = False
+                elif act_img_tiles > exp_tiles and act_gt_tiles > exp_tiles:
+                    logging.critical(f'\nToo many tiles for "{info["tif"]}". \n'
+                                     f'Expected: {exp_tiles}\n'
+                                     f'Actual image tiles: {act_img_tiles}\n'
+                                     f'Actual label tiles: {act_gt_tiles}\n'
+                                     f'Skipping tiling.')
+                    do_tile = False
+                elif act_img_tiles > 0 or act_gt_tiles > 0:
+                    logging.critical('Missing tiles for {info["tif"]}. \n'
+                                     f'Expected: {exp_tiles}\n'
+                                     f'Actual image tiles: {act_img_tiles}\n'
+                                     f'Actual label tiles: {act_gt_tiles}\n'
+                                     f'Starting tiling from scratch...')
             if do_tile:
                 if parallel:
                     input_args.append([tiling, info['tif'], out_img_dir, samples_size, out_gt_dir, info['gpkg']])
