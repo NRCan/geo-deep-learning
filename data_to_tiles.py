@@ -330,7 +330,7 @@ def main(params):
                            abs(sat_tile_fh.bounds.top - sat_tile_fh.bounds.bottom)
             annot_ct_vec = gdf_filtered.area.sum()
             annot_perc = annot_ct_vec / sat_tile_ext
-            if dataset == 'train':
+            if dataset in ['trn', 'train']:
                 if annot_perc*100 >= min_annot_perc:
                     random_val = np.random.randint(1, 100)
                     dataset = 'val' if random_val < val_percent else dataset
@@ -349,6 +349,8 @@ def main(params):
                     dataset_file.write(f'{sat_img_tile} {out_px_mask} {int(annot_perc*100)}\n')
                 datasets_kept[dataset] += 1
                 datasets_total[dataset] += 1
+            else:
+                logging.error(f"Invalid dataset value {dataset} for {sat_img_tile}")
 
     for dataset in datasets:
         if dataset == 'train':
