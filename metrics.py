@@ -271,7 +271,7 @@ def main(params):
     for info in tqdm(inference_srcdata_list):
         if info['dataset'] == 'tst':
             aoi_id = Path(info["tif"]).stem
-            region = info['other'][0].capitalize()
+            region = info['aoi'][0].capitalize()
             gt = Path(info['gpkg'])
             gt_clip_bounds = rasterio.open(info["tif"], 'r').bounds
             pred_glob = list(working_folder_pp.glob(f'{aoi_id}_*simp.gpkg'))

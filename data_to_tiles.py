@@ -257,8 +257,9 @@ def main(params):
     logging.info(f"Preparing samples \n\tSamples_size: {samples_size} ")
     for info in tqdm(list_data_prep, position=0, leave=False):
         try:
-            out_img_dir = out_tiling_dir(smpls_dir, info['dataset'], Path(info['tif']).stem, 'sat_img')
-            out_gt_dir = out_tiling_dir(smpls_dir, info['dataset'], Path(info['tif']).stem, 'map_img')
+            aoi_name = Path(info['tif']).stem if not info['aoi'] else info['aoi']
+            out_img_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'sat_img')
+            out_gt_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'map_img')
 
             do_tile = True
             act_img_tiles, exp_tiles = tiling_checker(info['tif'], out_img_dir,
