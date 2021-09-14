@@ -400,11 +400,11 @@ if __name__ == '__main__':
                 attr_field = data['attribute_name'].split('/')[-1]
                 gdf = gpd.read_file(data['gpkg'])
                 classes_per_gt_file.append(len(set(gdf[f'{attr_field}'])))
-        print(f'Number of classes in ground truth files for attribute {attr_field}:'
-                     f'\n{classes_per_gt_file}\n'
-                     f'Min: {min(classes_per_gt_file)}\n'
-                     f'Max: {max(classes_per_gt_file)}\n'
-                     f'Number of classes will be set to max value.')
+                print(f'Number of classes in ground truth files for attribute {attr_field}:'
+                      f'\n{classes_per_gt_file}\n'
+                      f'Min: {min(classes_per_gt_file)}\n'
+                      f'Max: {max(classes_per_gt_file)}\n'
+                      f'Number of classes will be set to max value.')
         params['global']['num_classes'] = max(classes_per_gt_file)
         params['sample'] = OrderedDict()
         params['sample']['prep_csv_file'] = args.csv[0]
