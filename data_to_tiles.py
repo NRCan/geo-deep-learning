@@ -9,6 +9,8 @@ import logging.config
 from typing import List, Union
 
 import numpy as np
+from PIL import Image
+
 np.random.seed(1234)  # Set random seed for reproducibility
 import rasterio
 import time
@@ -26,19 +28,34 @@ from utils.verifications import validate_num_classes, assert_crs_match, validate
 logging.getLogger(__name__)
 
 
-def validate_raster(geo_image: Union[str, Path], verbose: bool = True):
+def validate_raster(geo_image: Union[str, Path], verbose: bool = True, read_size_thresh: int = 10000):
     if not geo_image:
         return False, None
     geo_image = Path(geo_image) if isinstance(geo_image, str) else geo_image
     try:
+        logging.debug(f'Raster to validate: {geo_image}\n'
+                      f'Size: {geo_image.stat().st_size}\n'
+                      f'Size threshold to read: {read_size_thresh}')
         with rasterio.open(geo_image, 'r') as raster:
             metadata = raster.meta
+            if geo_image.stat().st_size < read_size_thresh:
+                logging.debug('Will read')
+                raster.read()
+                pil_img = Image.open(geo_image)
+                pil_np = np.asarray(pil_img)
+                logging.debug(pil_np.shape)
         return True, metadata
     except rasterio.errors.RasterioIOError as e:
         metadata = ''
         if verbose:
             print(e)
         return False, metadata
+    except Exception as e:
+        metadata = ''
+        if verbose:
+            print(e)
+        return False, metadata
+
 
 
 def tiling_checker(src_img: Union[str, Path],
@@ -183,6 +200,7 @@ def main(params):
     params['sample']['sampling_method'] = {}
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
                                  expected_type=int)
+    min_raster_tile_size = get_key_def('min_raster_tile_size', params['sample'], default=0, expected_type=int)
     if not data_path.is_dir():
         raise FileNotFoundError(f'Could not locate data path {data_path}')
     samples_folder_name = (f'tiles{samples_size}_min-annot{min_annot_perc}_{num_bands}bands'
@@ -197,11 +215,6 @@ def main(params):
 
     smpls_dir = data_path / samples_folder_name
     if smpls_dir.is_dir():
-        if debug:
-            # Move existing data folder with a random suffix.
-            last_mod_time_suffix = datetime.fromtimestamp(smpls_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-            shutil.move(str(smpls_dir), data_path.joinpath(f'{str(smpls_dir)}_{last_mod_time_suffix}'))
-        else:
             print(f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.')
     Path.mkdir(smpls_dir, exist_ok=True)
 
@@ -360,6 +373,10 @@ def main(params):
         if len(imgs_tiled) > 0 and len(gts_tiled) == 0:
             logging.warning('List of training tiles contains no ground truth, only imagery.')
             for sat_img_tile in imgs_tiled:
+                sat_size = sat_img_tile.stat().st_size
+                if sat_size > min_raster_tile_size:
+                    logging.debug(f'File {sat_img_tile} below minimum size ({min_raster_tile_size}): {sat_size}')
+                    continue
                 dataset = sat_img_tile.parts[-4]
                 with open(dataset_files[dataset], 'a') as dataset_file:
                     dataset_file.write(f'{sat_img_tile}\n')
@@ -369,6 +386,10 @@ def main(params):
             raise IOError(msg)
         else:
             for sat_img_tile, map_img_tile in zip(imgs_tiled, gts_tiled):
+                sat_size = sat_img_tile.stat().st_size
+                if sat_size > min_raster_tile_size:
+                    logging.debug(f'File {sat_img_tile} below minimum size ({min_raster_tile_size}): {sat_size}')
+                    continue
                 dataset = sat_img_tile.parts[-4]
                 attr_field = info['attribute_name'].split('/')[-1]
                 out_px_mask = map_img_tile.parent / f'{map_img_tile.stem}.tif'
@@ -424,6 +445,8 @@ if __name__ == '__main__':
                         help='Path to csv containing listed data')
     parser.add_argument('-d', '--debug', metavar='debug_mode', nargs=1,
                         help='Boolean. If True, will activate debug mode')
+    parser.add_argument('-s', '--minsize', metavar='min_size_to_list', nargs=1,
+                        help='Minimum size in bytes to include a tiled tif in final dataset list')
     args = parser.parse_args()
     if args.param:
         params = read_parameters(args.param[0])
@@ -456,5 +479,6 @@ if __name__ == '__main__':
         params['global']['num_classes'] = max(classes_per_gt_file) if classes_per_gt_file else None
         params['sample'] = OrderedDict()
         params['sample']['prep_csv_file'] = args.csv[0]
+        params['sample']['min_raster_tile_size'] = int(args.minsize[0])
     print(f'\n\nStarting data to tiles preparation with {args}\n\n')
     main(params)
