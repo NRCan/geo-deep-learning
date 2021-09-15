@@ -379,7 +379,7 @@ def main(params):
                     continue
                 dataset = sat_img_tile.parts[-4]
                 with open(dataset_files[dataset], 'a') as dataset_file:
-                    dataset_file.write(f'{sat_img_tile}\n')
+                    dataset_file.write(f'{sat_img_tile.absolute()}\n')
         elif not len(imgs_tiled) == len(gts_tiled):
             msg = f"Number of imagery tiles ({len(imgs_tiled)}) and label tiles ({len(gts_tiled)}) don't match"
             logging.error(msg)
@@ -410,7 +410,8 @@ def main(params):
                                                        reference_im=str(sat_img_tile),
                                                        burn_field=burn_field)
                         with open(dataset_files[dataset], 'a') as dataset_file:
-                            dataset_file.write(f'{sat_img_tile} {out_px_mask} {int(annot_perc*100)}\n')
+                            dataset_file.write(f'{sat_img_tile.absolute()} {out_px_mask.absolute()} '
+                                               f'{int(annot_perc*100)}\n')
                         datasets_kept[dataset] += 1
                     datasets_total[dataset] += 1
                 elif dataset in ['tst', 'test']:
@@ -418,7 +419,8 @@ def main(params):
                                                    reference_im=str(sat_img_tile),
                                                    burn_field=burn_field)
                     with open(dataset_files[dataset], 'a') as dataset_file:
-                        dataset_file.write(f'{sat_img_tile} {out_px_mask} {int(annot_perc*100)}\n')
+                        dataset_file.write(f'{sat_img_tile.absolute()} {out_px_mask.absolute()} '
+                                           f'{int(annot_perc*100)}\n')
                     datasets_kept[dataset] += 1
                     datasets_total[dataset] += 1
                 else:
