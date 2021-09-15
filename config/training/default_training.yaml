@@ -1,7 +1,17 @@
 # @package _global_
 training:
-  lr: 0.000001
-  metric: IOU_loss # name of the metric you want to manage the training
+  num_trn_samples:
+  num_val_samples:
+  num_tst_samples:
+  lr: 0.0001
+  loss_fn: CrossEntropy # name of the metric you want to manage the training
   mode: 'min' # 'min' or 'max'
   seed: 666
   debug: True
+  batch_metrics:
+  target_size:
+  step_size: 4
+  weight_decay: 0
+  gamma: 0.9
+  dropout: False   # (bool) Use dropout or not
+  dropout_prob:    # (float) Set dropout probability, e.g. 0.5

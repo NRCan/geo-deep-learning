@@ -71,7 +71,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference:str=''):
 
     strict_loading = False if not inference else True
     model.load_state_dict(checkpoint['model'], strict=strict_loading)
-    logging.info(f"=> loaded model\n")
+    logging.info(f"\n=> loaded model")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
         optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
     return model, optimizer
@@ -88,9 +88,10 @@ def list_s3_subfolders(bucket, data_path):
     return list_classes
 
 
-def get_device_ids(number_requested: int,
-                   max_used_ram_perc: int = 25,
-                   max_used_perc: int = 15):
+def get_device_ids(
+        number_requested: int,
+        max_used_ram_perc: int = 25,
+        max_used_perc: int = 15):
     """
     Function to check which GPU devices are available and unused.
     :param number_requested: (int) Number of devices requested.
@@ -100,10 +101,10 @@ def get_device_ids(number_requested: int,
     """
     lst_free_devices = {}
     if not number_requested:
-        logging.warning(f'No GPUs requested. This training will run on CPU')
+        logging.warning(f'\nNo GPUs requested. This training will run on CPU')
         return lst_free_devices
     if not torch.cuda.is_available():
-        logging.error(f'Requested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
+        logging.error(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
         return lst_free_devices
     try:
         nvmlInit()
@@ -114,30 +115,33 @@ def get_device_ids(number_requested: int,
                 used_ram = mem.used / (1024 ** 2)
                 max_ram = mem.total / (1024 ** 2)
                 used_ram_perc = used_ram / max_ram * 100
-                logging.debug(f'GPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
+                logging.debug(f'\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
                 if used_ram_perc < max_used_ram_perc:
                     if res.gpu < max_used_perc:
                         lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}
                     else:
-                        logging.warning(f'Gpu #{i} filtered out based on usage % threshold.\n'
-                                        f'Current % usage: {res.gpu}\n'
-                                        f'Max % usage allowed by user: {max_used_perc}.')
+                        logging.warning(f'\nGpu #{i} filtered out based on usage % threshold.\n'
+                                    f'Current % usage: {res.gpu}\n'
+                                    f'Max % usage allowed by user: {max_used_perc}.')
                 else:
-                    logging.warning(f'Gpu #{i} filtered out based on RAM threshold.\n'
-                                    f'Current RAM usage: {used_ram}/{max_ram}\n'
-                                    f'Max used RAM allowed by user: {max_used_ram_perc}.')
+                    logging.warning(f'\nGpu #{i} filtered out based on RAM threshold.\n'
+                                f'Current RAM usage: {used_ram}/{max_ram}\n'
+                                f'Max used RAM allowed by user: {max_used_ram_perc}.')
                 if len(lst_free_devices.keys()) == number_requested:
                     break
             if len(lst_free_devices.keys()) < number_requested:
-                logging.warning(f"You requested {number_requested} devices. {device_count} devices are available and "
-                                f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
+                logging.warning(f"\nYou requested {number_requested} devices. {device_count} devices are available and "
+                            f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
         else:
             logging.error('No gpu devices requested. Will run on cpu')
     except NameError as error:
-        raise NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
+        raise logging.critical(
+            NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
+        )
     except NVMLError as error:
-        raise ValueError(f"{error}. Make sure that the latest NVIDIA driver is installed and running.")
-
+        raise logging.critical(
+            ValueError(f"{error}. Make sure that the latest NVIDIA driver is installed and running.")
+        )
     return lst_free_devices
 
 
@@ -498,14 +502,20 @@ def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -
                          if the latters are different
     :return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
     """
+    # TODO need to be change if the training or testing config are note the same as when the sampling have been create
+    # TODO maybe only check and save a small part of the config like the model or something
     if not (isinstance(yaml1, dict) or isinstance(yaml2, dict)):
-        raise TypeError(f"Expected both yamls to be dictionaries. \n"
+        raise TypeError(f"\nExpected both yamls to be dictionaries. \n"
                         f"Yaml1's type is  {type(yaml1)}\n"
                         f"Yaml2's type is  {type(yaml2)}")
     for section, params in yaml2.items():  # loop through main sections of config yaml ('global', 'sample', etc.)
+        if section in {'task', 'mode', 'debug'}:  # the task is not the same as the hdf5 since the hdf5 is in sampling
+            continue
         if section not in yaml1.keys():  # create key if not in dictionary as we loop
             yaml1[section] = {}
         for param, val2 in params.items():  # loop through parameters of each section ('samples_size','debug_mode',...)
+            if param in {'config_override_dirname'}:  # the config_override_dirname is not the same as the hdf5 since the hdf5 is in sampling
+                continue
             if param not in yaml1[section].keys():  # create key if not in dictionary as we loop
                 yaml1[section][param] = {}
             # set to None if no value for that key
@@ -518,13 +528,13 @@ def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -
                     subval1 = get_key_def(subparam, yaml1[section][param], default=None)
                     if subval2 != subval1:
                         # if value doesn't match between yamls, emit warning
-                        logging.warning(f"YAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
+                        logging.warning(f"\nYAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
                                         f"Current yaml value: \"{subval1}\"\nHDF5s yaml value: \"{subval2}\"\n")
                         if update_yaml1:  # update yaml1 with subvalue of yaml2
                             yaml1[section][param][subparam] = subval2
                             logging.info(f'Value in yaml1 updated')
             elif val2 != val1:
-                logging.warning(f"YAML value mismatch: section \"{section}\", key \"{param}\"\n"
+                logging.warning(f"\nYAML value mismatch: section \"{section}\", key \"{param}\"\n"
                                 f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val1}\"\n"
                                 f"Problems may occur.")
                 if update_yaml1:  # update yaml1 with value of yaml2
@@ -570,3 +580,16 @@ def read_modalities(modalities: str) -> list:
     else:
         modalities = list(str(modalities))
     return modalities
+
+
+def find_first_file(name, list_path):
+    """
+    TODO
+    """
+    for dirname in list_path:
+        # print("dir:", dirname)
+        for root, dirs, files in os.walk(dirname):
+            for filename in files:
+                # print("file:", filename)
+                if filename == name:
+                    return os.path.join(dirname, name)

@@ -70,7 +70,7 @@ training:
     mean:
     std:
 
-# Inference parameters; used in inference.py --------
+# Inference parameters; used in inference_segmentation.py --------
 
 inference:
   img_dir_or_csv_file: ./data/inference_sem_seg_ci_csv.csv

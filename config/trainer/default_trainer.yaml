@@ -3,7 +3,9 @@ trainer:
   num_workers: 10
   batch_size: 1
   eval_batch_size:
-  gpus: 1
+  num_gpus: 1
+  max_used_ram:
+  max_used_perc:
   distributed_backend: dp
   accumulate_grad_batches: 1
   num_sanity_val_steps: 0

@@ -11,6 +11,7 @@ from typing import List
 from pathlib import Path
 from datetime import datetime
 from omegaconf import DictConfig, open_dict
+from hydra.core.hydra_config import HydraConfig
 
 # Our modules
 from utils.geoutils import vector_to_raster
@@ -24,7 +25,6 @@ from utils.utils import (
 from utils.verifications import (
     validate_num_classes, validate_raster, assert_crs_match, validate_features_from_gpkg
 )
-
 
 # Set random seed for reproducibility
 np.random.seed(1234)
@@ -529,6 +529,8 @@ def main(cfg: DictConfig, log: logging) -> None:
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 
+    # with open_dict(cfg):
+    #     print(cfg)
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
                                                              number_of_bands=num_bands,
                                                              meta_map=meta_map,
@@ -626,7 +628,9 @@ def main(cfg: DictConfig, log: logging) -> None:
             elif info['dataset'] == 'tst':
                 out_file = tst_hdf5
             else:
-                raise ValueError(f"Dataset value must be trn or tst. Provided value is {info['dataset']}")
+                raise log.critical(
+                    ValueError(f"\nDataset value must be trn or tst. Provided value is {info['dataset']}")
+                )
             val_file = val_hdf5
 
             metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,

@@ -1,5 +1,6 @@
 # @package _global_
 dataset:
+  name:
   modalities: RGB
   input_dim: 256
   overlap:
@@ -9,6 +10,7 @@ dataset:
   sample_data_dir: ${general.sample_data_dir}
   class_name: src.utils.dataset.BaseDataSetObjectDetection
   classes_dict: {'Building':1}
+  class_weights:
   train_val_percent: {'trn':0.7, 'val':0.2, 'tst':0.1}
   ignore_index:
   use_stratification: False

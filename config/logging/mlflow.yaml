@@ -1,4 +1,7 @@
 # @package _global_
 logging:
+  name: 'mlflow'
+  experiment_name: ${general.project_name}
+  uri:
   log: True
   # TODO add more option

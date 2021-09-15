@@ -59,7 +59,7 @@ training:
   dropout:
   dropout_prob:
 
-# Inference parameters; used in inference.py --------
+# Inference parameters; used in inference_segmentation.py --------
 
 inference:
   img_dir_or_csv_file: ./data/trn_val_tst_kingston.csv  # https://drive.google.com/file/d/1uNizOAToa-R_sik0DvBqDUVwjqYdOALJ

@@ -1,0 +1,8 @@
+# @package _global_
+visualization:
+  vis_at_train:
+  vis_at_evaluation:
+  vis_batch_range:
+  vis_at_checkpoint:
+  vis_at_ckpt_min_ep_diff:
+  vis_at_ckpt_dataset:

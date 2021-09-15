@@ -49,7 +49,7 @@ training:
   batch_metrics: 1
   ignore_index: # Specifies a target value that is ignored and does not contribute to the input gradient
 
-# Inference parameters; used in inference.py --------
+# Inference parameters; used in inference_segmentation.py --------
 
 inference:
   img_dir_or_csv_file: ./data/inference_classif_ci_csv.csv

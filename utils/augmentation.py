@@ -14,6 +14,7 @@ import numpy as np
 from skimage import transform, exposure
 from torchvision import transforms
 
+from utils.hydra_utils import get_hydra_key
 from utils.utils import get_key_def, pad, minmax_scale, BGR_to_RGB
 
 logging.getLogger(__name__)
@@ -26,7 +27,8 @@ def compose_transforms(params,
                        aug_type: str = '',
                        dontcare=None,
                        dontcare2backgr: bool = False,
-                       crop_size:int = None):
+                       crop_size:int = None,
+                       print_log=True):
     """
     Function to compose the transformations to be applied on every batches.
     :param input_space: (bool) if True, flip BGR channels to RGB
@@ -37,45 +39,39 @@ def compose_transforms(params,
                          if rotation or crop augmentation
     :param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
                             before training
+    :param print_log: (bool) if True, all log messages will be printed, otherwise they wont
+                      (to avoid useless print during a `for`)
 
     :return: (obj) PyTorch's compose object of the transformations to be applied.
     """
     lst_trans = []
-    norm_mean = get_key_def('mean', params['training']['normalization'])
-    norm_std = get_key_def('std', params['training']['normalization'])
-    random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['training']['augmentation'], None)
+    norm_mean = get_hydra_key('mean', params.augmentation.normalization)
+    norm_std = get_hydra_key('std', params.augmentation.normalization)
+    random_radiom_trim_range = get_hydra_key('random_radiom_trim_range', params.augmentation, None)
 
     if dataset == 'trn':
-
         if aug_type == 'radiometric':
-            noise = get_key_def('noise', params['training']['augmentation'], None)
-
+            noise = get_hydra_key('noise', params.augmentation, None)
             if random_radiom_trim_range:  # Contrast stretching
                 # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
                 lst_trans.append(RadiometricTrim(random_range=random_radiom_trim_range))
-
             if noise:
                 lst_trans.append(AddGaussianNoise(std=noise))
-
         elif aug_type == 'geometric':
-            geom_scale_range = get_key_def('geom_scale_range', params['training']['augmentation'], None)
-            hflip = get_key_def('hflip_prob', params['training']['augmentation'], None)
-            rotate_prob = get_key_def('rotate_prob', params['training']['augmentation'], None)
-            rotate_limit = get_key_def('rotate_limit', params['training']['augmentation'], None)
-
+            geom_scale_range = get_hydra_key('geom_scale_range', params.augmentation, None)
+            hflip = get_hydra_key('hflip_prob', params.augmentation, None)
+            rotate_prob = get_hydra_key('rotate_prob', params.augmentation, None)
+            rotate_limit = get_hydra_key('rotate_limit', params.augmentation, None)
             if geom_scale_range:  # TODO: test this.
                 lst_trans.append(GeometricScale(range=geom_scale_range))
-
             if hflip:
                 lst_trans.append(HorizontalFlip(prob=hflip))
-
             if rotate_limit and rotate_prob:
                 lst_trans.append(
                     RandomRotationTarget(
                     limit=rotate_limit, prob=rotate_prob, ignore_index=dontcare
                     )
                 )
-
             if crop_size:
                 lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=dontcare))
 
@@ -93,18 +89,21 @@ def compose_transforms(params,
         if input_space:
             lst_trans.append(BgrToRgb(input_space))
         else:
-            logging.info(f'Channels will be fed to model as is. First 3 bands of imagery should be RGB, not BGR.')
+            if print_log:
+                logging.info(f'\nChannels will be fed to model as is. First 3 bands of imagery should be RGB, not BGR.')
 
         if scale:
             lst_trans.append(Scale(scale))  # TODO: assert coherence with below normalization
         else:
-            logging.warning(f'No scaling of raster values will be performed.')
+            if print_log:
+                logging.warning(f'\nNo scaling of raster values will be performed.')
 
         if norm_mean and norm_std:
-            lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
-                                       std=params['training']['normalization']['std']))
+            lst_trans.append(Normalize(mean=params.augmentation.normalization.mean,
+                                       std=params.augmentation.normalization.std))
         else:
-            logging.warning(f'No normalization of raster values will be performed.')
+            if print_log:
+                logging.warning(f'\nNo normalization of raster values will be performed.')
 
         # Send channels first, convert numpy array to torch tensor
         lst_trans.append(ToTensorTarget(dontcare2backgr=dontcare2backgr, dontcare_val=dontcare))

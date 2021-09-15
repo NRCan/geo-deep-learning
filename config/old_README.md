@@ -346,7 +346,7 @@ The `{model_name}` is set from the `yaml` name. Therefore, `yaml` name should be
 
 
 ## **Inference**
-This section is use by [inference.py](../inference.py) to make the inference.This is the final step in the process, assigning every pixel in an image never seen to a value corresponding to the most probable class.
+This section is use by [inference.py](../inference_segmentation.py) to make the inference.This is the final step in the process, assigning every pixel in an image never seen to a value corresponding to the most probable class.
 This process will load the trained weights associated to the lower loss score of the chosen model and perform a per-pixel inference task on all the images.
 
 ```YAML
@@ -374,7 +374,7 @@ inference:
 #### Running [data_analysis.py](data_analysis.py)
 You can run the data analysis alone if you only want the stats, and to do that you only need to launch the program :
 ```shell
-python inference.py path/to/yaml_files/your_config.yaml
+python inference_segmentation.py path/to/yaml_files/your_config.yaml
 ```
 The output of this code will result at the following structure:
 ```
@@ -455,7 +455,7 @@ Input value|Class name|Html color
 
 
 ## Final Results
-If you run the three code: [images_to_samples.py](../sampling_segmentation.py), [train_segmentation.py](../train_segmentation.py) and [inference.py](../inference.py) with `your_config.yaml` you should end with a structure like:
+If you run the three code: [images_to_samples.py](../sampling_segmentation.py), [train_segmentation.py](../train_segmentation.py) and [inference.py](../inference_segmentation.py) with `your_config.yaml` you should end with a structure like:
 ```
 ├── {data_path}
     └── {samples_folder}*

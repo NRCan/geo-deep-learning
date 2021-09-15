@@ -1,7 +1,7 @@
 defaults:
   - hydra: save
   - task: segmentation
-  - model: fastrcnn
+  - model: unet
   - trainer: default_trainer
   - training: default_training
   - optimizer: adamw
@@ -9,10 +9,15 @@ defaults:
   - scheduler: plateau
   - data: data
   - dataset: test_ci_segmentation_dataset
-  - augmentation: basic_augmentation
+  - augmentation: basic_augmentation_segmentation
   - logging: mlflow
+  - visualization: default_visualization
+  - inference: default_inference
 
 general:
+  config_name: ${hydra:job.config_name}
+  config_override_dirname: ${hydra:job.override_dirname}
+  config_path: ${hydra:runtime.config_sources}
   project_name: template_project
   workspace: your_name
   device: cuda
@@ -22,16 +27,11 @@ general:
   raw_data_dir: './data'
   raw_data_csv: './data/images_to_samples_ci_csv.csv'
   sample_data_dir: './data'
+  state_dict_path:
   save_weights_dir: './weights_saved'
 
 AWS:
   bucket_name:
-
-inference:
-  image_path: 'image/path'
-  save_dir:
-  weights_dir: ${general.save_weights_dir}
-  weights_name:
 
 mode: {sampling, train, evaluate, inference, hyperparameters_search}
 debug: False # will print the complete yaml config plus run a validation test

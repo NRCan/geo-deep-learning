@@ -114,7 +114,7 @@ training:
     noise:  # Standard deviation of Gaussian Noise (optional)
 
 
-# Inference parameters; used in inference.py --------
+# Inference parameters; used in inference_segmentation.py --------
 inference:
   img_dir_or_csv_file: # /path/to/csv/containing/images/list.csv
   state_dict_path: # optional: /path/to/model/weights/for/inference/checkpoint.pth.tar

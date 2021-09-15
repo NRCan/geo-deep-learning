@@ -11,9 +11,9 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
-from omegaconf import DictConfig
 from typing import List, Sequence
 from collections import OrderedDict
+from omegaconf import DictConfig, open_dict
 
 # Our modules
 from sampling_segmentation import main as segmentation_sampling
@@ -68,7 +68,7 @@ def create_dataloader(samples_folder: Path,
                       num_bands: int,
                       BGR_to_RGB: bool,
                       scale: Sequence,
-                      params: dict,
+                      cfg: dict,
                       dontcare2backgr: bool = False,
                       calc_eval_bs: bool = False,
                       debug: bool = False):
@@ -83,19 +83,19 @@ def create_dataloader(samples_folder: Path,
     :param num_bands: (int) number of bands in imagery
     :param BGR_to_RGB: (bool) if True, BGR channels will be flipped to RGB
     :param scale: (List) imagery data will be scaled to this min and max value (ex.: 0 to 1)
-    :param params: (dict) Parameters found in the yaml config file.
+    :param cfg: (dict) Parameters found in the yaml config file.
     :param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
                             before training
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
     if not samples_folder.is_dir():
-        raise FileNotFoundError(f'Could not locate: {samples_folder}')
+        raise logging.critical(FileNotFoundError(f'\nCould not locate: {samples_folder}'))
     if not len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1:
-        raise FileNotFoundError(f"Couldn't locate .hdf5 files in {samples_folder}")
-    num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=params, dontcare=dontcare_val)
+        raise logging.critical(FileNotFoundError(f"\nCouldn't locate .hdf5 files in {samples_folder}"))
+    num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=cfg, dontcare=dontcare_val)
     if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
-        raise ValueError(f"Number of samples in .hdf5 files is less than batch size")
-    logging.info(f"Number of samples : {num_samples}\n")
+        raise logging.critical(ValueError(f"\nNumber of samples in .hdf5 files is less than batch size"))
+    logging.info(f"\nNumber of samples : {num_samples}")
     if not meta_map:
         dataset_constr = create_dataset.SegmentationDataset
     else:
@@ -103,26 +103,25 @@ def create_dataloader(samples_folder: Path,
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
-
         datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare_val,
-                                       radiom_transform=aug.compose_transforms(params=params,
+                                       radiom_transform=aug.compose_transforms(params=cfg,
                                                                                dataset=subset,
                                                                                aug_type='radiometric'),
-                                       geom_transform=aug.compose_transforms(params=params,
+                                       geom_transform=aug.compose_transforms(params=cfg,
                                                                              dataset=subset,
                                                                              aug_type='geometric',
                                                                              dontcare=dontcare_val,
                                                                              crop_size=crop_size),
-                                       totensor_transform=aug.compose_transforms(params=params,
+                                       totensor_transform=aug.compose_transforms(params=cfg,
                                                                                  dataset=subset,
                                                                                  input_space=BGR_to_RGB,
                                                                                  scale=scale,
                                                                                  dontcare2backgr=dontcare2backgr,
                                                                                  dontcare=dontcare_val,
                                                                                  aug_type='totensor'),
-                                       params=params,
+                                       params=cfg,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
@@ -183,14 +182,15 @@ def get_num_samples(samples_path, params, dontcare):
     weights = []
     samples_weight = None
     for i in ['trn', 'val', 'tst']:
-        if get_key_def(f"num_{i}_samples", params['training'], None) is not None:
-            num_samples[i] = params['training'][f"num_{i}_samples"]
-
+        if get_hydra_key(f"num_{i}_samples", params.training, None) is not None:
+            num_samples[i] = get_hydra_key(f"num_{i}_samples", params.training)
             with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), 'r') as hdf5_file:
                 file_num_samples = len(hdf5_file['map_img'])
             if num_samples[i] > file_num_samples:
-                raise IndexError(f"The number of training samples in the configuration file ({num_samples[i]}) "
-                                 f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
+                raise logging.critical(
+                    IndexError(f"\nThe number of training samples in the configuration file ({num_samples[i]}) "
+                               f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
+                )
         else:
             with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), "r") as hdf5_file:
                 num_samples[i] = len(hdf5_file['map_img'])
@@ -398,7 +398,7 @@ def evaluation(eval_loader,
                 inputs = data['sat_img'].to(device)
                 labels = data['map_img'].to(device)
             except RuntimeError:
-                logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
+                logging.exception(f'\nUnable to use device {device}. Trying "cuda:0"')
                 device = torch.device('cuda:0')
                 inputs = data['sat_img'].to(device)
                 labels = data['map_img'].to(device)
@@ -414,8 +414,8 @@ def evaluation(eval_loader,
                 if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0 and batch_index == min_vis_batch:
-                        logging.info(f'Visualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
-                                   f'images will be saved to {vis_path}\n')
+                        logging.info(f'\nVisualizing on {dataset} outputs for batches in range {vis_batch_range}. All '
+                                     f'images will be saved to {vis_path}')
                     vis_from_batch(params, inputs, outputs,
                                    batch_index=batch_index,
                                    vis_path=vis_path,
@@ -433,7 +433,7 @@ def evaluation(eval_loader,
             if (dataset == 'val') and (batch_metrics is not None):
                 # Compute metrics every n batches. Time consuming.
                 if not batch_metrics <= len(eval_loader):
-                    logging.error(f"Batch_metrics ({batch_metrics}) is smaller than batch size "
+                    logging.error(f"\nBatch_metrics ({batch_metrics}) is smaller than batch size "
                                   f"{len(eval_loader)}. Metrics in validation loop won't be computed")
                 if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
                     a, segmentation = torch.max(outputs_flatten, dim=1)
@@ -453,12 +453,12 @@ def evaluation(eval_loader,
                 logging.debug(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
                                               gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
 
-    logging.info(f"{dataset} Loss: {eval_metrics['loss'].avg}")
+    logging.info(f"\n{dataset} Loss: {eval_metrics['loss'].avg}")
     if batch_metrics is not None:
-        logging.info(f"{dataset} precision: {eval_metrics['precision'].avg}")
-        logging.info(f"{dataset} recall: {eval_metrics['recall'].avg}")
-        logging.info(f"{dataset} fscore: {eval_metrics['fscore'].avg}")
-        logging.info(f"{dataset} iou: {eval_metrics['iou'].avg}")
+        logging.info(f"\n{dataset} precision: {eval_metrics['precision'].avg}")
+        logging.info(f"\n{dataset} recall: {eval_metrics['recall'].avg}")
+        logging.info(f"\n{dataset} fscore: {eval_metrics['fscore'].avg}")
+        logging.info(f"\n{dataset} iou: {eval_metrics['iou'].avg}")
 
     return eval_metrics
 
@@ -506,130 +506,150 @@ def train(cfg: DictConfig, log: logging) -> None:
     # BGR_to_RGB = get_hydra_key('BGR_to_RGB', params['global'], expected_type=bool)
     BGR_to_RGB = False
 
-    assert 1==0
-
     # OPTIONAL PARAMETERS
-    # basics
-    debug = get_key_def('debug_mode', params['global'], default=False, expected_type=bool)
-    task = get_key_def('task', params['global'], default='segmentation', expected_type=str)
-    if not task == 'segmentation':
-        raise ValueError(f"The task should be segmentation. The provided value is {task}")
-    dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
-    crop_size = get_key_def('target_size', params['training'], default=None, expected_type=int)
-    batch_metrics = get_key_def('batch_metrics', params['training'], default=None, expected_type=int)
-    meta_map = get_key_def("meta_map", params["global"], default=None)
+    debug = get_hydra_key('debug', cfg)
+    task = get_hydra_key('name',  cfg.task, default='segmentation')
+    dontcare_val = get_hydra_key("ignore_index", cfg.dataset, default=-1)
+    bucket_name = get_hydra_key('bucket_name', cfg.AWS)
+    scale = get_hydra_key('scale_data', cfg.augmentation, default=[0, 1])
+    batch_metrics = get_hydra_key('batch_metrics', cfg.training, default=None)
+    meta_map = get_hydra_key("meta_map", cfg.training, default=None)  # TODO what is that?
+    crop_size = get_hydra_key('target_size', cfg.training, default=None)
+    # if error
     if meta_map and not Path(meta_map).is_file():
-        raise FileNotFoundError(f'Couldn\'t locate {meta_map}')
-    bucket_name = get_key_def('bucket_name', params['global'])  # AWS
-    scale = get_key_def('scale_data', params['global'], default=[0, 1], expected_type=List)
+        raise log.critical(FileNotFoundError(f'Couldn\'t locate {meta_map}'))
+    if task != 'segmentation':
+        raise log.critical(ValueError(f"The task should be segmentation. The provided value is {task}"))
 
-    # model params
-    loss_fn = get_key_def('loss_fn', params['training'], default='CrossEntropy', expected_type=str)
-    class_weights = get_key_def('class_weights', params['training'], default=None, expected_type=Sequence)
+    # MODEL PARAMETERS
+    class_weights = get_hydra_key('class_weights', cfg.dataset, default=None)
+    loss_fn = get_hydra_key('loss_fn', cfg.training, default='CrossEntropy')
+    optimizer = get_hydra_key('name', cfg.optimizer, default='adam')  # TODO change something to call the function
+    pretrained = get_hydra_key('pretrained', cfg.model, default=True)
+    train_state_dict_path = get_hydra_key('state_dict_path', cfg.general, default=None)
+    dropout_prob = get_hydra_key('factor', cfg.scheduler.params, default=None)
+    # if error
+    if train_state_dict_path and not Path(train_state_dict_path).is_file():
+        raise log.critical(
+            FileNotFoundError(f'Could not locate pretrained checkpoint for training: {train_state_dict_path}')
+        )
     if class_weights:
         verify_weights(num_classes, class_weights)
-    optimizer = get_key_def('optimizer', params['training'], default='adam', expected_type=str)
-    pretrained = get_key_def('pretrained', params['training'], default=True, expected_type=bool)
-    train_state_dict_path = get_key_def('state_dict_path', params['training'], default=None, expected_type=str)
-    if train_state_dict_path and not Path(train_state_dict_path).is_file():
-        raise FileNotFoundError(f'Could not locate pretrained checkpoint for training: {train_state_dict_path}')
-    dropout_prob = get_key_def('dropout_prob', params['training'], default=None, expected_type=float)
     # Read the concatenation point
     # TODO: find a way to maybe implement it in classification one day
-    conc_point = get_key_def('concatenate_depth', params['global'], None)
+    conc_point = None
+    #conc_point = get_key_def('concatenate_depth', params['global'], None)
 
-    # gpu parameters
-    num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
+    # GPU PARAMETERS
+    num_devices = get_hydra_key('num_gpus', cfg.trainer, default=0)
     if num_devices and not num_devices >= 0:
-        raise ValueError("missing mandatory num gpus parameter")
+        raise log.critical(ValueError("missing mandatory num gpus parameter"))
     default_max_used_ram = 15
-    max_used_ram = get_key_def('max_used_ram', params['global'], default=default_max_used_ram, expected_type=int)
-    max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
+    max_used_ram = get_hydra_key('max_used_ram', cfg.trainer, default=default_max_used_ram)
+    max_used_perc = get_hydra_key('max_used_perc', cfg.trainer, default=15)
 
-    # mlflow logging
-    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
+    # LOGGING PARAMETERS TODO
+    mlflow_uri = get_hydra_key('uri', cfg.logging, default="./mlruns")
     Path(mlflow_uri).mkdir(exist_ok=True)
-    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
-    run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
+    experiment_name = get_hydra_key('experiment_name', cfg.logging, default='gdl-training')
+    run_name = get_hydra_key('name', cfg.logging, default='gdl')
 
-    # parameters to find hdf5 samples
-    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
-    samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
-    overlap = get_key_def("overlap", params["sample"], default=5, expected_type=int)
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
-                                 expected_type=int)
+    # PARAMETERS FOR hdf5 SAMPLES
+    data_path = Path(get_hydra_key('sample_data_dir', cfg.dataset, './data'))
+    samples_size = get_hydra_key("input_dim", cfg.dataset, default=256)
+    overlap = get_hydra_key("overlap", cfg.dataset, default=0)
+    min_annot_perc = get_hydra_key('min_annotated_percent', cfg.dataset, default=0)
     if not data_path.is_dir():
-        raise FileNotFoundError(f'Could not locate data path {data_path}')
+        raise log.critical(FileNotFoundError(f'Could not locate data path {data_path}'))
     samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
                            f'_{experiment_name}')
     samples_folder = data_path.joinpath(samples_folder_name)
 
     # visualization parameters
-    vis_at_train = get_key_def('vis_at_train', params['visualization'], default=False)
-    vis_at_eval = get_key_def('vis_at_evaluation', params['visualization'], default=False)
-    vis_batch_range = get_key_def('vis_batch_range', params['visualization'], default=None)
-    vis_at_checkpoint = get_key_def('vis_at_checkpoint', params['visualization'], default=False)
-    ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', params['visualization'], default=1, expected_type=int)
-    vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', params['visualization'], 'val')
+    vis_at_train = get_hydra_key('vis_at_train', cfg.visualization, default=False)
+    vis_at_eval = get_hydra_key('vis_at_evaluation', cfg.visualization, default=False)
+    vis_batch_range = get_hydra_key('vis_batch_range', cfg.visualization, default=None)
+    vis_at_checkpoint = get_hydra_key('vis_at_checkpoint', cfg.visualization, default=False)
+    ep_vis_min_thresh = get_hydra_key('vis_at_ckpt_min_ep_diff', cfg.visualization, default=1)
+    vis_at_ckpt_dataset = get_hydra_key('vis_at_ckpt_dataset', cfg.visualization, 'val')
 
-    # coordconv parameters
-    coordconv_params = {}
-    for param, val in params['global'].items():
-        if 'coordconv' in param:
-            coordconv_params[param] = val
+    # coordconv parameters TODO
+    # coordconv_params = {}
+    # for param, val in params['global'].items():
+    #     if 'coordconv' in param:
+    #         coordconv_params[param] = val
+    coordconv_params = get_hydra_key('coordconv', cfg.model)
 
-    # add git hash from current commit to parameters if available. Parameters will be saved to model's .pth.tar
-    params['global']['git_hash'] = get_git_hash()
+    # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to hdf5s).
+    with open_dict(cfg):
+        cfg.general.git_hash = get_git_hash()
 
     # automatic model naming with unique id for each training
-    model_id = config_path.stem
-    output_path = samples_folder.joinpath('model') / model_id
+    config_path = None
+    for list_path in cfg.general.config_path:
+        if list_path['provider'] == 'main':
+            config_path = list_path['path']
+    config_name = str(cfg.general.config_name)
+    # model_id = os.path.join(cfg.general.save_dir, config_name)
+    model_id = config_name
+    output_path = Path(cfg.general.save_dir).joinpath('model') / model_id
+    # output_path = Path(model_id)
     if output_path.is_dir():
         last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-        archive_output_path = samples_folder.joinpath('model') / f"{model_id}_{last_mod_time_suffix}"
+        archive_output_path = Path(cfg.general.save_dir).joinpath('model') / f"{model_id}_{last_mod_time_suffix}"
         shutil.move(output_path, archive_output_path)
+        log.warning(f"\n'{output_path}' already exist, the contents will be move to '{archive_output_path}'")
+        # change the path for the new one
+        # output_path = archive_output_path
     output_path.mkdir(parents=True, exist_ok=False)
-    shutil.copy(str(config_path), str(output_path))  # copy yaml to output path where model will be saved
 
-    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
+    # copy yaml to output path where model will be saved
+    shutil.copy(
+        os.path.join(str(config_path), config_name + '.yaml'), str(output_path)
+    )
+    # TODO copy the config file in .hydra/config.yaml anf rename it
+
+    # import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
+    log.info(f'\nModel and log files will be saved to: {output_path}')
     log_config_path = Path('utils/logging.conf').absolute()
     logfile = f'{output_path}/{model_id}.log'
     logfile_debug = f'{output_path}/{model_id}_debug.log'
     console_level_logging = 'INFO' if not debug else 'DEBUG'
-    logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile,
-                                                         'logfilename_debug': logfile_debug,
-                                                         'console_level': console_level_logging})
+    log.config.fileConfig(log_config_path,
+                          defaults={
+                              'logfilename': logfile,
+                              'logfilename_debug': logfile_debug,
+                              'console_level': console_level_logging}
+                          )
+    # TODO just copy the GDL.log (get the name GDL by hydra:run...) and join the 2 logs
 
     # now that we know where logs will be saved, we can start logging!
     if not (0 <= max_used_ram <= 100):
-        logging.warning(f'Max used ram parameter should be a percentage. Got {max_used_ram}. '
-                        f'Will set default value of {default_max_used_ram} %')
+        log.warning(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}. '
+                    f'Will set default value of {default_max_used_ram} %')
         max_used_ram = default_max_used_ram
-
-    logging.info(f'Model and log files will be saved to: {output_path}\n\n')
     if debug:
-        logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
-                        f'cause delays in execution.')
+        log.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
+                    f'cause delays in execution.')
     if dontcare_val < 0 and vis_batch_range:
-        logging.warning(f'Visualization: expected positive value for ignore_index, got {dontcare_val}.'
-                        f'Will be overridden to 255 during visualization only. Problems may occur.')
+        log.warning(f'\nVisualization: expected positive value for ignore_index, got {dontcare_val}.'
+                    f'Will be overridden to 255 during visualization only. Problems may occur.')
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
     gpu_devices_dict = get_device_ids(num_devices,
                                       max_used_ram_perc=max_used_ram,
                                       max_used_perc=max_used_perc)
-    logging.info(f'GPUs devices available: {gpu_devices_dict}')
+    log.info(f'\nGPUs devices available: {gpu_devices_dict}')
     num_devices = len(gpu_devices_dict.keys())
-    device = torch.device(f'cuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
-
-    logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
+    device = torch.device(f'\ncuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
+    log.info(f'\nCreating dataloader from data in {samples_folder}...')
 
     # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
     dontcare2backgr = False
     if loss_fn not in ['Lovasz', 'CrossEntropy', 'OhemCrossEntropy']:
         dontcare2backgr = True
-        logging.warning(f'Dontcare is not implemented for loss function "{loss_fn}". '
-                        f'Dontcare values ({dontcare_val}) in label will be replaced with background value (0)')
+        log.warning(f'\nDontcare is not implemented for loss function "{loss_fn}". '
+                    f'Dontcare values ({dontcare_val}) in label will be replaced with background value (0)')
 
     # Will check if batch size needs to be a lower value only if cropping samples during training
     calc_eval_bs = True if crop_size else False
@@ -645,7 +665,7 @@ def train(cfg: DictConfig, log: logging) -> None:
                                                                        num_bands=num_bands,
                                                                        BGR_to_RGB=BGR_to_RGB,
                                                                        scale=scale,
-                                                                       params=params,
+                                                                       cfg=cfg,
                                                                        dontcare2backgr=dontcare2backgr,
                                                                        calc_eval_bs=calc_eval_bs,
                                                                        debug=debug)
@@ -662,19 +682,21 @@ def train(cfg: DictConfig, log: logging) -> None:
                                                                 loss_fn=loss_fn,
                                                                 class_weights=class_weights,
                                                                 optimizer=optimizer,
-                                                                net_params=params,
+                                                                net_params=cfg,
                                                                 conc_point=conc_point,
                                                                 coordconv_params=coordconv_params)
 
-    logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
+    log.info(f'\nInstantiated {model_name} model with {num_classes_corrected} output channels.')
 
     # mlflow tracking path + parameters logging
     set_tracking_uri(mlflow_uri)
     set_experiment(experiment_name)
     start_run(run_name=run_name)
-    log_params(params['training'])
-    log_params(params['global'])
-    log_params(params['sample'])
+    log_params(cfg['training'])
+    log_params(cfg['trainer'])
+    log_params(cfg['general'])
+    log_params(cfg['dataset'])
+    log_params(cfg['data'])
 
     if bucket_name:
         from utils.aws import download_s3_files
@@ -701,8 +723,10 @@ def train(cfg: DictConfig, log: logging) -> None:
         # Check once for all visualization tasks.
         if not isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int)
                                                                                        for x in vis_batch_range):
-            raise ValueError(f'Vis_batch_range expects three integers in a list: start batch, end batch, increment.'
-                             f'Got {vis_batch_range}')
+            raise logging.critical(
+                ValueError(f'\nVis_batch_range expects three integers in a list: start batch, end batch, increment.'
+                           f'Got {vis_batch_range}')
+            )
         vis_at_init_dataset = get_key_def('vis_at_init_dataset', params['visualization'], 'val')
 
         # Visualization at initialization. Visualize batch range before first eopch.
@@ -720,7 +744,7 @@ def train(cfg: DictConfig, log: logging) -> None:
                                 vis_batch_range=vis_batch_range)
 
     for epoch in range(0, num_epochs):
-        logging.info(f'\nEpoch {epoch}/{num_epochs - 1}\n{"-" * 20}')
+        logging.info(f'\nEpoch {epoch}/{num_epochs - 1}\n' + "-" * len(f'Epoch {epoch}/{num_epochs - 1}'))
 
         trn_report = training(train_loader=trn_dataloader,
                               model=model,
@@ -759,12 +783,12 @@ def train(cfg: DictConfig, log: logging) -> None:
             val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         if val_loss < best_loss:
-            logging.info("save checkpoint\n")
+            logging.info("\nsave checkpoint")
             best_loss = val_loss
             # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
             torch.save({'epoch': epoch,
-                        'params': params,
+                        'params': cfg,
                         'model': state_dict,
                         'best_loss': best_loss,
                         'optimizer': optimizer.state_dict()}, filename)
@@ -777,9 +801,9 @@ def train(cfg: DictConfig, log: logging) -> None:
             # VISUALIZATION: generate pngs of img samples, labels and outputs as alternative to follow training
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if last_vis_epoch == 0:
-                    logging.info(f'Visualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
+                    logging.info(f'\nVisualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
                                  f'batches in range {vis_batch_range}')
-                vis_from_dataloader(params=params,
+                vis_from_dataloader(params=cfg,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
                                     model=model,
                                     ep_num=epoch+1,
@@ -791,13 +815,13 @@ def train(cfg: DictConfig, log: logging) -> None:
                 last_vis_epoch = epoch
 
         if bucket_name:
-            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, params['training']['batch_metrics'])
+            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, cfg['training']['batch_metrics'])
 
         cur_elapsed = time.time() - since
-        logging.info(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
+        logging.info(f'\nCurrent elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if int(params['training']['num_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
+    if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
 

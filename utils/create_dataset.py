@@ -6,6 +6,7 @@ from typing import List
 
 import h5py
 from pathlib import Path
+from omegaconf import OmegaConf
 from torch.utils.data import Dataset
 import numpy as np
 
@@ -57,7 +58,7 @@ def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map,
             hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            append_to_dataset(hdf5_file["params"], repr(cfg))
+            append_to_dataset(hdf5_file["params"], repr(OmegaConf.create(OmegaConf.to_yaml(cfg, resolve=True))))
         except AttributeError:
             logging.exception(f'Update h5py to version 2.10 or higher')
             raise
@@ -109,7 +110,7 @@ class SegmentationDataset(Dataset):
                 try:
                     compare_config_yamls(hdf5_params, params)
                 except TypeError:
-                    logging.exception("Couldn't compare current yaml with hdf5 yaml")
+                    logging.exception("\nCouldn't compare current yaml with hdf5 yaml")
 
     def __len__(self):
         return self.max_sample_count
@@ -132,7 +133,8 @@ class SegmentationDataset(Dataset):
             meta_idx = int(hdf5_file["meta_idx"][index])
             metadata = self.metadata[meta_idx]
             sample_metadata = hdf5_file["sample_metadata"][index, ...][0]
-            sample_metadata = eval(sample_metadata.decode('UTF-8'))
+            # sample_metadata = eval(sample_metadata.decode('UTF-8'))
+            sample_metadata = eval(sample_metadata)
             if isinstance(metadata, np.ndarray) and len(metadata) == 1:
                 metadata = metadata[0]
             elif isinstance(metadata, bytes):
@@ -162,7 +164,7 @@ class SegmentationDataset(Dataset):
                 initial_class_ids.add(self.dontcare)
             final_class_ids = set(np.unique(sample['map_img'].numpy()))
             if not final_class_ids.issubset(initial_class_ids):
-                logging.debug(f"WARNING: Class ids for label before and after augmentations don't match. "
+                logging.debug(f"\nWARNING: Class ids for label before and after augmentations don't match. "
                               f"Ignore if overwritting ignore_index in ToTensorTarget")
         sample['index'] = index
         return sample

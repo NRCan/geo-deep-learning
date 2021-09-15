@@ -21,7 +21,7 @@ The crux of the learning process is the training phase.
 - Samples labeled "*val*" are used to estimate the training error (i.e. loss) on a set of sub-images not used for training, after every epoch.
 - At the end of all epochs, the model with the lowest error on validation data is loaded and samples labeled "*tst*", if they exist, are used to estimate the accuracy of the model on sub-images unseen during training or validation.
 
-### Inference ([inference.py](inference.py))
+### Inference ([inference.py](inference_segmentation.py))
 The inference phase allows the use of a trained model to predict on new input data.
 The final step in the process is to assign every pixel in the original image a value corresponding to the most probable class.
 
@@ -98,9 +98,9 @@ python sampling_segmentation.py path/to/yaml_files/your_config.yaml
 # Training the neural network
 python train_segmentation.py path/to/yaml_files/your_config.yaml
 # Inference on the new data
-python inference.py --param path/to/yaml_files/your_config.yaml
+python inference_segmentation.py --param path/to/yaml_files/your_config.yaml
 or 
-python inference.py --input path/to/your_checkpoint.pth.tar /path/to/images/
+python inference_segmentation.py --input path/to/your_checkpoint.pth.tar /path/to/images/
 ```
 > If you only want to use the `inference.py` you dont have to fill all the `yaml` file, only fill the inference section.
 

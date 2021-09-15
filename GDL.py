@@ -41,12 +41,15 @@ def run_gdl(cfg: DictConfig) -> None:
     # debug config
     if cfg.debug:
         cfg.trainer.num_sanity_val_steps = 1  # only work with pytorch lightning
-        logging.info(OmegaConf.to_yaml(cfg))
+        logging.info(OmegaConf.to_yaml(cfg, resolve=True))
 
     # check if the mode is chosen
     if type(cfg.mode) is DictConfig:
         msg = "You need to choose between those modes: {}"
         raise logging.critical(msg.format(list(cfg.mode.keys())))
+
+    # save all overwritten parameters
+    logging.info('\nOverwritten parameters in the config: \n' + cfg.general.config_override_dirname)
 
     # Start -----------------------------------
     msg = "Let's start {} for {} !!!".format(cfg.mode, cfg.task.name)
