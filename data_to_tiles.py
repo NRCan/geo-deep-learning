@@ -374,7 +374,7 @@ def main(params):
             logging.warning('List of training tiles contains no ground truth, only imagery.')
             for sat_img_tile in imgs_tiled:
                 sat_size = sat_img_tile.stat().st_size
-                if sat_size > min_raster_tile_size:
+                if sat_size < min_raster_tile_size:
                     logging.debug(f'File {sat_img_tile} below minimum size ({min_raster_tile_size}): {sat_size}')
                     continue
                 dataset = sat_img_tile.parts[-4]
@@ -387,7 +387,7 @@ def main(params):
         else:
             for sat_img_tile, map_img_tile in zip(imgs_tiled, gts_tiled):
                 sat_size = sat_img_tile.stat().st_size
-                if sat_size > min_raster_tile_size:
+                if sat_size < min_raster_tile_size:
                     logging.debug(f'File {sat_img_tile} below minimum size ({min_raster_tile_size}): {sat_size}')
                     continue
                 dataset = sat_img_tile.parts[-4]
@@ -452,7 +452,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.param:
         params = read_parameters(args.param[0])
-    else:
+    elif args.csv:
         data_list = read_csv(args.csv[0])
         params = OrderedDict()
         params['global'] = OrderedDict()
@@ -481,6 +481,9 @@ if __name__ == '__main__':
         params['global']['num_classes'] = max(classes_per_gt_file) if classes_per_gt_file else None
         params['sample'] = OrderedDict()
         params['sample']['prep_csv_file'] = args.csv[0]
-        params['sample']['min_raster_tile_size'] = int(args.minsize[0])
+        params['sample']['min_raster_tile_size'] = int(args.minsize[0]) if args.minsize else 0
+    else:
+        raise ValueError(f'A yaml parameter file OR csv should be inputted. '
+                         f'None found in input argument parameters: {args}')
     print(f'\n\nStarting data to tiles preparation with {args}\n\n')
     main(params)

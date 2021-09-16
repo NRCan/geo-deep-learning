@@ -334,6 +334,7 @@ def post_process_pipeline(inference_raster, outdir, apply_threshold=False, build
         with rasterio.open(inference_raster, 'r') as raw_pred:
             outname_reg = outdir / f'{inference_raster.stem}_reg.tif'
             if not outname_reg.is_file():
+                logging.debug(f'Regularizing buildings in {inference_raster}...')
                 meta = raw_pred.meta
                 raw_pred_arr = raw_pred.read()[0, ...]
                 reg_arr = regularize_buildings(raw_pred_arr, buildings_model, apply_threshold=apply_threshold)
