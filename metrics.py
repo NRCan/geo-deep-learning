@@ -232,7 +232,7 @@ def main(params):
                              defaults_from_params(params, 'state_dict_path'), expected_type=str)
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
-    attr_vals = get_key_def('target_ids', params['sample'], [4], List) if 'sample' in params.keys() else [255]
+    attr_vals = get_key_def('target_ids', params['sample'], [4], List) if 'sample' in params.keys() else [4]
 
     # OPTIONAL PARAMETERS
     # basics
@@ -243,7 +243,7 @@ def main(params):
     # SETTING OUTPUT DIRECTORY
     working_folder = Path(state_dict).parent / f'inference_{num_bands}bands'
     if not working_folder.is_dir():
-        raise NotADirectoryError("Couldn't find source inference directory")
+        raise NotADirectoryError(f"Couldn't find source inference directory: {working_folder}")
 
     working_folder_pp = working_folder.parent / f'{working_folder.stem}_post-process'
     Path.mkdir(working_folder_pp, exist_ok=True)
@@ -274,7 +274,7 @@ def main(params):
             region = info['aoi'][0].capitalize()
             gt = Path(info['gpkg'])
             gt_clip_bounds = rasterio.open(info["tif"], 'r').bounds
-            pred_glob = list(working_folder_pp.glob(f'{aoi_id}_*simp.gpkg'))
+            pred_glob = list(working_folder_pp.glob(f'{aoi_id}_*raw.gpkg'))
             if len(pred_glob) == 1:
                 pred = pred_glob[0]
                 logging.info(f'\nImage: {info["tif"]}\nGround truth: {gt}\nPrediction from glob: {pred}')
