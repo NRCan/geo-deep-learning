@@ -6,7 +6,6 @@ import torch
 import torch.nn.functional as F
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
 import numpy as np
-import dask.array as da
 import os
 import csv
 import time
@@ -150,13 +149,6 @@ def segmentation(param,
                  tp_mem,
                  debug=False,
                  ):
-
-    # switch to evaluate mode
-    model.eval()
-
-    # initialize test time augmentation
-    transforms = tta.Compose([tta.HorizontalFlip(), ])
-
     xmin, ymin, xmax, ymax = (input_image.bounds.left,
                               input_image.bounds.bottom,
                               input_image.bounds.right,
@@ -164,23 +156,28 @@ def segmentation(param,
     xres, yres = (abs(input_image.transform.a), abs(input_image.transform.e))
     mx = chunk_size * xres
     my = chunk_size * yres
-
     padded = chunk_size * 2
     h = input_image.height
     w = input_image.width
     h_ = h + padded
     w_ = w + padded
-    fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(h_, w_, num_classes))
     dist_samples = int(round(chunk_size * (1 - 1.0 / 2.0)))
 
+    # switch to evaluate mode
+    model.eval()
+
+    # initialize test time augmentation
+    transforms = tta.Compose([tta.HorizontalFlip(), ])
     # construct window for smoothing
     WINDOW_SPLINE_2D = _window_2D(window_size=padded, power=2.0)
     WINDOW_SPLINE_2D = torch.as_tensor(np.moveaxis(WINDOW_SPLINE_2D, 2, 0), ).type(torch.float)
     WINDOW_SPLINE_2D = WINDOW_SPLINE_2D.to(device)
 
+    fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(h_, w_, num_classes))
     sample = {'sat_img': None, 'map_img': None, 'metadata': None}
     cnt = 0
     img_gen = gen_img_samples(input_image, chunk_size)
+    start_seg = time.time()
     for img in tqdm(img_gen, position=1, leave=False, desc='inferring on window slices'):
         row = img[1]
         col = img[2]
@@ -237,20 +234,30 @@ def segmentation(param,
         outputs = outputs.permute(1, 2, 0)
         outputs = outputs.reshape(padded, padded, num_classes).cpu().numpy().astype('float16')
         outputs = outputs[dist_samples:-dist_samples, dist_samples:-dist_samples, :]
-        fp[row:row + chunk_size, col:col + chunk_size] = \
-            fp[row:row + chunk_size, col:col + chunk_size] + outputs
+        fp[row:row + chunk_size, col:col + chunk_size, :] = \
+            fp[row:row + chunk_size, col:col + chunk_size, :] + outputs
         cnt += 1
     fp.flush()
     del fp
+
     fp = np.memmap(tp_mem, dtype='float16', mode='r', shape=(h_, w_, num_classes))
-    arr = da.from_array(fp, chunks=(10000, 10000, num_classes))
-    arr1 = arr / (2 ** 2)
-    arr2 = arr1.persist().argmax(axis=-1).astype('uint8')
-    pred_img = arr2[:h, :w].compute()
+    subdiv = 2.0
+    step = int(chunk_size / subdiv)
+    pred_img = np.zeros((h_, w_), dtype=np.uint8)
+    for row in tqdm(range(0, input_image.height, step), position=2, leave=False):
+        for col in tqdm(range(0, input_image.width, step), position=3, leave=False):
+            arr1 = fp[row:row + chunk_size, col:col + chunk_size, :] / (2 ** 2)
+            arr1 = arr1.argmax(axis=-1).astype('uint8')
+            pred_img[row:row + chunk_size, col:col + chunk_size] = arr1
+    pred_img = pred_img[:h, :w]
+    end_seg = time.time() - start_seg
+    logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
+
     if debug:
         logging.debug(f'Bin count of final output: {np.unique(pred_img, return_counts=True)}')
     gdf = None
     if label_arr is not None:
+        start_seg_ = time.time()
         feature = defaultdict(list)
         cnt = 0
         for row in tqdm(range(0, h, chunk_size), position=2, leave=False):
@@ -278,8 +285,9 @@ def segmentation(param,
                 cnt += 1
         gdf = gpd.GeoDataFrame(feature, crs=input_image.crs)
         gdf.to_crs(crs="EPSG:4326", inplace=True)
+        end_seg_ = time.time() - start_seg_
+        logging.info('Benchmark operation completed in {:.0f}m {:.0f}s'.format(end_seg_ // 60, end_seg_ % 60))
     input_image.close()
-    logging.info(f'Successfully processed {cnt} image chunks')
     return pred_img, gdf
 
 
@@ -580,9 +588,12 @@ def main(params: dict):
                 except OSError as e:
                     logging.warning(f'File Error: {temp_file, e.strerror}')
                 if raster_to_vec:
+                    start_vec = time.time()
                     inference_vec = working_folder.joinpath(local_img.parent.name,
                                                             f"{img_name.split('.')[0]}_inference.gpkg")
                     ras2vec(inference_image, inference_vec)
+                    end_vec = time.time() - start_vec
+                    logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))
 
         if len(gdf_) >= 1:
             if not len(gdf_) == len(gpkg_name_):
@@ -595,8 +606,7 @@ def main(params: dict):
             logging.info(f'Successfully wrote benchmark geopackage to: {bench_gpkg}')
         # log_artifact(working_folder)
     time_elapsed = time.time() - since
-    logging.info(
-        'Inference and Benchmarking completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
+    logging.info('Inference Script completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
 if __name__ == '__main__':
