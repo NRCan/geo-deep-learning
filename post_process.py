@@ -1,3 +1,5 @@
+print('Importing packages and modules...')
+import shutil
 import argparse
 import multiprocessing
 import subprocess
@@ -24,6 +26,7 @@ from utils.readers import read_parameters
 
 logging.getLogger(__name__)
 
+print('Done')
 
 class ResidualBlock(nn.Module):
     def __init__(self, in_features):
@@ -201,6 +204,7 @@ def regularization(rgb, ins_segmentation, model, in_mode="instance", out_mode="i
     border = 256
 
     if rgb is None:
+        logging.debug(ins_segmentation.shape)
         rgb = np.zeros((ins_segmentation.shape[0], ins_segmentation.shape[1], 3), dtype=np.uint8)
 
     print('Padding...')
@@ -291,10 +295,11 @@ def arr_threshold(arr, value=127):
     return arr
 
 
-def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=127):
-    print('Applying threshold...')
+def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=None):
     if apply_threshold:
+        print('Applying threshold...')
         pred_arr = arr_threshold(pred_arr, value=apply_threshold)
+    logging.debug(pred_arr.shape)
 
     print('Done')
     model_encoder = Path(model_dir) / "E140000_e1"
@@ -311,8 +316,8 @@ def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=
     return R
 
 
-def subprocess_cmd(cmd, success_msg, failure_msg, use_spcall=True):
-    logging.debug(cmd)
+def subprocess_cmd(cmd, success_msg='Success', failure_msg='Failed', use_spcall=True):
+    logging.debug(f'\n{cmd}')
     if use_spcall:
         subproc = subprocess.call(cmd.split())
     else:
@@ -322,6 +327,7 @@ def subprocess_cmd(cmd, success_msg, failure_msg, use_spcall=True):
         logging.info(success_msg)
     else:
         logging.error(failure_msg)
+    return subproc
 
 
 def post_process_pipeline(inference_raster, outdir, apply_threshold=False, buildings_model=None, simp_tolerance=0.2):
@@ -331,15 +337,25 @@ def post_process_pipeline(inference_raster, outdir, apply_threshold=False, build
         return
 
     if buildings_model is not None:
+        logging.debug(buildings_model)
         with rasterio.open(inference_raster, 'r') as raw_pred:
             outname_reg = outdir / f'{inference_raster.stem}_reg.tif'
             if not outname_reg.is_file():
                 logging.debug(f'Regularizing buildings in {inference_raster}...')
                 meta = raw_pred.meta
                 raw_pred_arr = raw_pred.read()[0, ...]
-                reg_arr = regularize_buildings(raw_pred_arr, buildings_model, apply_threshold=apply_threshold)
-                reg_arr = reg_arr[np.newaxis, :, :]
+                # FIXME: softcode for multiclass inference
+                raw_pred_arr_buildings = raw_pred_arr
+                #logging.debug(raw_pred_arr.shape)
+                #raw_pred_arr_buildings = np.where(raw_pred_arr == 4, 255, 0)
+                #logging.debug(raw_pred_arr_buildings.shape)
+                #logging.debug(np.bincount(raw_pred_arr_buildings.flatten()))
+                reg_arr = regularize_buildings(raw_pred_arr_buildings, buildings_model, apply_threshold=apply_threshold)
+                #out_arr = np.where(reg_arr == 255, 4, 0)
+                #out_arr = raw_pred_arr[raw_pred_arr < 4]
+                #out_arr = out_arr[np.newaxis, :, :]
 
+                meta.update({"dtype": 'uint8', "compress": 'lzw'})
                 with rasterio.open(outname_reg, 'w+', **meta) as reg_pred:
                     logging.info(f'Successfully regularized on {inference_raster}\nWriting to file: {outname_reg}')
                     reg_pred.write(reg_arr.astype(np.uint8) * 255)
@@ -402,13 +418,14 @@ def main(params):
     simp_tolerance = get_key_def('simp_tolerance', params['inference'], 0.2, expected_type=float)
     # keeps this script relatively agnostic to source of inference data
     tiles_dir = get_key_def('tiles_dir', params['inference'], None, expected_type=str)
-    if tiles_dir is not None and Path(tiles_dir).is_dir():
+    if tiles_dir is not None and tiles_dir.is_dir():
         tiles_dir = Path(tiles_dir)
     else:
         raise NotADirectoryError(f"Couldn't locate tiles directory: {tiles_dir}")
     buildings_model = Path(get_key_def('buildings_reg_modeldir', params['inference'], None, expected_type=str))
     if buildings_model is not None and not buildings_model.is_dir():
         raise NotADirectoryError(f"Couldn't locate building regularization model directory: {buildings_model}")
+    # FIXME: accept multiclass inference
     if num_classes > 1 and buildings_model is not None:
         raise ValueError(f'Value mismatch: when "buildings" is True, "num_classes" should be 1, not {num_classes}')
 
@@ -439,7 +456,7 @@ def main(params):
         inference_srcdata_list = read_csv(Path(img_dir_or_csv))
     elif tiles_dir and Path(img_dir_or_csv).is_dir():
         # TODO: test this. Only tested csv for now
-        inference_srcdata_list = [{'tif': raster} for raster in Path(img_dir_or_csv).iterdir()]
+        inference_srcdata_list = [{'tif': raster} for raster in Path(img_dir_or_csv).glob(f'**/*.tif')]
     elif tiles_dir:
         raise FileNotFoundError(f'Couldn\'t locate .csv file or directory "{img_dir_or_csv}" '
                                 f'containing imagery for inference')
@@ -483,7 +500,7 @@ def main(params):
             with multiprocessing.Pool(None) as pool:
                 pool.map(map_wrapper, input_args)
 
-    inference_destdata_list = [raster for raster in Path(working_folder).iterdir()]
+    inference_destdata_list = [raster for raster in Path(working_folder).glob(f'**/*.tif')]
     logging.info(f'\n\tFound {len(inference_destdata_list)} inference rasters to post-process\n'
                  f'\tCopying first entry:\n{inference_destdata_list[0]}\n')
 
@@ -495,6 +512,7 @@ def main(params):
                 input_args.append([post_process_pipeline, inference_raster, working_folder_pp, apply_threshold,
                                    buildings_model, simp_tolerance])
             else:
+                # FIXME: one for loop for each PP step (complete all regularization first, then polygonize, etc.)
                 post_process_pipeline(inference_raster, working_folder_pp, apply_threshold, buildings_model,
                                       simp_tolerance)
         except IOError as e:
