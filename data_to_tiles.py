@@ -57,7 +57,6 @@ def validate_raster(geo_image: Union[str, Path], verbose: bool = True, read_size
         return False, metadata
 
 
-
 def tiling_checker(src_img: Union[str, Path],
                    out_tiled_dir: Union[str, Path],
                    tile_size: int = 1024,
@@ -127,6 +126,7 @@ def filter_gdf(gdf: gpd.GeoDataFrame, attr_field: str = None, attr_vals: List = 
     @param attr_vals: list of integer values to keep in filtered GeoDataFrame
     @return: Subset of source GeoDataFrame with only filtered features (deep copy)
     """
+    logging.debug(gdf.columns)
     if not attr_field or not attr_vals:
         return gdf
     if not attr_field in gdf.columns:
@@ -169,7 +169,7 @@ def main(params):
     :param params: (dict) Parameters found in the yaml config file.
     """
     start_time = time.time()
-    
+
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
     experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
@@ -192,12 +192,14 @@ def main(params):
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
     Path.mkdir(data_path, exist_ok=True, parents=True)
     val_percent = get_key_def('val_percent', params['sample'], default=10, expected_type=int)
-    parallel = get_key_def('parallelize_tiling', params['sample'], default=True, expected_type=bool)
+    parallel = get_key_def('parallelize_tiling', params['sample'], default=False, expected_type=bool)
 
     # parameters to set output tiles directory
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
     samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
-    params['sample']['sampling_method'] = {}
+    # FIXME
+    if 'sampling_method' not in params['sample'].keys():
+        params['sample']['sampling_method'] = {}
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
                                  expected_type=int)
     min_raster_tile_size = get_key_def('min_raster_tile_size', params['sample'], default=0, expected_type=int)
@@ -215,7 +217,7 @@ def main(params):
 
     smpls_dir = data_path / samples_folder_name
     if smpls_dir.is_dir():
-            print(f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.')
+        print(f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.')
     Path.mkdir(smpls_dir, exist_ok=True)
 
     # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
@@ -254,7 +256,8 @@ def main(params):
         if info['gpkg']:
             if info['gpkg'] not in valid_gpkg_set:
                 # FIXME: check/fix this validation and use it
-                gpkg_classes = validate_num_classes(info['gpkg'], num_classes, info['attribute_name'], target_ids=attr_vals)
+                gpkg_classes = validate_num_classes(info['gpkg'], num_classes, info['attribute_name'],
+                                                    target_ids=attr_vals)
                 assert_crs_match(info['tif'], info['gpkg'])
                 valid_gpkg_set.add(info['gpkg'])
         else:
@@ -341,12 +344,12 @@ def main(params):
 
     if parallel:
         logging.info(f'Will tile {len(input_args)} images and labels')
-        with multiprocessing.Pool(None) as pool:
+        with multiprocessing.get_context('spawn').Pool(None) as pool:
             pool.map(map_wrapper, input_args)
 
     logging.info(f"Creating pixel masks from clipped geojsons\n"
                  f"Validation set: {val_percent} % of created training tiles")
-    dataset_files = {dataset: smpls_dir/f'{dataset}.txt' for dataset in datasets}
+    dataset_files = {dataset: smpls_dir / f'{dataset}.txt' for dataset in datasets}
     for file in dataset_files.values():
         if file.is_file():
             logging.critical(f'Dataset list exists and will be overwritten: {file}')
@@ -391,8 +394,9 @@ def main(params):
                     logging.debug(f'File {sat_img_tile} below minimum size ({min_raster_tile_size}): {sat_size}')
                     continue
                 dataset = sat_img_tile.parts[-4]
-                attr_field = info['attribute_name'].split('/')[-1]
+                attr_field = info['attribute_name']
                 out_px_mask = map_img_tile.parent / f'{map_img_tile.stem}.tif'
+                logging.debug(map_img_tile)
                 gdf = gpd.read_file(map_img_tile)
                 burn_field = None
                 gdf_filtered = filter_gdf(gdf, attr_field, attr_vals)
@@ -403,7 +407,7 @@ def main(params):
                 annot_ct_vec = gdf_filtered.area.sum()
                 annot_perc = annot_ct_vec / sat_tile_ext
                 if dataset in ['trn', 'train']:
-                    if annot_perc*100 >= min_annot_perc:
+                    if annot_perc * 100 >= min_annot_perc:
                         random_val = np.random.randint(1, 100)
                         dataset = 'val' if random_val < val_percent else dataset
                         sol.vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
@@ -411,7 +415,7 @@ def main(params):
                                                        burn_field=burn_field)
                         with open(dataset_files[dataset], 'a') as dataset_file:
                             dataset_file.write(f'{sat_img_tile.absolute()} {out_px_mask.absolute()} '
-                                               f'{int(annot_perc*100)}\n')
+                                               f'{int(annot_perc * 100)}\n')
                         datasets_kept[dataset] += 1
                     datasets_total[dataset] += 1
                 elif dataset in ['tst', 'test']:
@@ -420,7 +424,7 @@ def main(params):
                                                    burn_field=burn_field)
                     with open(dataset_files[dataset], 'a') as dataset_file:
                         dataset_file.write(f'{sat_img_tile.absolute()} {out_px_mask.absolute()} '
-                                           f'{int(annot_perc*100)}\n')
+                                           f'{int(annot_perc * 100)}\n')
                     datasets_kept[dataset] += 1
                     datasets_total[dataset] += 1
                 else:
@@ -441,12 +445,14 @@ def main(params):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Sample preparation')
-    parser.add_argument('-p', '--param', metavar='yaml_file', nargs=1,
+    parser.add_argument('-y', '--param', metavar='yaml_file', nargs=1,
                         help='Path to parameters stored in yaml')
     parser.add_argument('-c', '--csv', metavar='csv_file', nargs=1,
                         help='Path to csv containing listed data')
     parser.add_argument('-d', '--debug', metavar='debug_mode', nargs=1,
                         help='Boolean. If True, will activate debug mode')
+    parser.add_argument('-p', '--parallel', metavar='multiprocessing', nargs=1,
+                        help='Boolean. If True, will activate parallel mode')
     parser.add_argument('-s', '--minsize', metavar='min_size_to_list', nargs=1,
                         help='Minimum size in bytes to include a tiled tif in final dataset list')
     args = parser.parse_args()
@@ -480,6 +486,7 @@ if __name__ == '__main__':
                       f'Number of classes will be set to max value.')
         params['global']['num_classes'] = max(classes_per_gt_file) if classes_per_gt_file else None
         params['sample'] = OrderedDict()
+        params['sample']['parallelize_tiling'] = True if args.parallel and args.parallel[0] == 'True' else False
         params['sample']['prep_csv_file'] = args.csv[0]
         params['sample']['min_raster_tile_size'] = int(args.minsize[0]) if args.minsize else 0
     else:
