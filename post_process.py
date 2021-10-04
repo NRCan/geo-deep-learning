@@ -397,12 +397,14 @@ def main(params):
     # OPTIONAL PARAMETERS
     # basics
     debug = get_key_def('debug_mode', params['global'], False)
-    parallel = get_key_def('parallelize', params['inference'], default=True, expected_type=bool)
+    parallel = get_key_def('parallelize', params['inference'], default=False, expected_type=bool)
     apply_threshold = get_key_def('apply_threshold', params['inference'], None, expected_type=int)
     simp_tolerance = get_key_def('simp_tolerance', params['inference'], 0.2, expected_type=float)
     # keeps this script relatively agnostic to source of inference data
-    tiles_dir = Path(get_key_def('tiles_dir', params['inference'], None, expected_type=str))
-    if tiles_dir is not None and not tiles_dir.is_dir():
+    tiles_dir = get_key_def('tiles_dir', params['inference'], None, expected_type=str)
+    if tiles_dir is not None and Path(tiles_dir).is_dir():
+        tiles_dir = Path(tiles_dir)
+    else:
         raise NotADirectoryError(f"Couldn't locate tiles directory: {tiles_dir}")
     buildings_model = Path(get_key_def('buildings_reg_modeldir', params['inference'], None, expected_type=str))
     if buildings_model is not None and not buildings_model.is_dir():
@@ -502,7 +504,7 @@ def main(params):
         logging.info(f'Will post-process {len(input_args)} inference images')
         # If regularizing buildings, multiprocessing is limited because of GPU operation. Fills up 16G GPU RAM if > 2
         num_threads = 2 if buildings_model else None
-        with multiprocessing.Pool(num_threads) as pool:
+        with multiprocessing.get_context('spawn').Pool(num_threads) as pool:
             pool.map(map_wrapper, input_args)
 
     logging.info(f"End of process. Elapsed time: {int(time.time() - start_time)} seconds")
