@@ -334,7 +334,7 @@ def main(params):
 
     logging.info(f"Tiling done. Creating pixel masks from clipped geojsons...\n"
                  f"Validation set: {val_percent} % of created training tiles")
-    dataset_files = {dataset: smpls_dir / f'{dataset}.txt' for dataset in datasets}
+    dataset_files = {dataset: smpls_dir / f'{Path(csv_file).stem}_{dataset}.txt' for dataset in datasets}
     for file in dataset_files.values():
         if file.is_file():
             logging.critical(f'Dataset list exists and will be overwritten: {file}')
