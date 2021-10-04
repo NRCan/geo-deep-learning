@@ -266,6 +266,7 @@ def main(params):
     for info in tqdm(list_data_prep, position=0, leave=False):
         try:
             aoi_name = Path(info['tif']).stem if not info['aoi'] else info['aoi']
+            # FIXME: why does output dir change whether GT is present or not?
             out_img_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'sat_img')
             out_gt_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'map_img') if not no_gt else None
 

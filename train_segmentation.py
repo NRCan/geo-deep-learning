@@ -174,17 +174,19 @@ def get_num_samples(samples_path, params, dontcare):
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
     weights = []
     samples_weight = None
+    # FIXME: this param should not be read here
+    csv_file = get_key_def('prep_csv_file', params['sample'], expected_type=str)
     for dataset in ['trn', 'val', 'tst']:
         if get_key_def(f"num_{dataset}_samples", params['training'], None) is not None:
             num_samples[dataset] = params['training'][f"num_{dataset}_samples"]
 
-            with open(samples_path/f"{dataset}.txt", 'r') as datafile:
+            with open(samples_path/f"{Path(csv_file).stem}_{dataset}.txt", 'r') as datafile:
                 file_num_samples = len(datafile.readlines())
             if num_samples[dataset] > file_num_samples:
                 raise IndexError(f"The number of training samples in the configuration file ({num_samples[dataset]}) "
                                  f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
         else:
-            with open(samples_path/f"{dataset}.txt", 'r') as datafile:
+            with open(samples_path/f"{Path(csv_file).stem}_{dataset}.txt", 'r') as datafile:
                 num_samples[dataset] = len(datafile.readlines())
 
         with open(samples_path / f"{dataset}.txt", 'r') as datafile:
