@@ -380,7 +380,7 @@ def main(params: dict):
     # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
     valid_gpkg_set = set()
     for info in tqdm(list_img, desc='Validating imagery'):
-        validate_raster(info['tif'], num_bands, meta_map)
+        validate_raster(info['tif'])
         if 'gpkg' in info.keys() and info['gpkg'] and info['gpkg'] not in valid_gpkg_set:
             validate_num_classes(vector_file=info['gpkg'],
                                  num_classes=num_classes,

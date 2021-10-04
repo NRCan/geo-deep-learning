@@ -23,38 +23,29 @@ import geopandas as gpd
 
 from utils.utils import get_key_def, read_csv, get_git_hash
 from utils.readers import read_parameters
-from utils.verifications import validate_num_classes, assert_crs_match, validate_features_from_gpkg
+from utils.verifications import validate_num_classes, assert_crs_match, validate_features_from_gpkg, validate_raster
 
 logging.getLogger(__name__)
 
 
-def validate_raster(geo_image: Union[str, Path], verbose: bool = True, read_size_thresh: int = 10000):
-    if not geo_image:
-        return False, None
-    geo_image = Path(geo_image) if isinstance(geo_image, str) else geo_image
-    try:
-        logging.debug(f'Raster to validate: {geo_image}\n'
-                      f'Size: {geo_image.stat().st_size}\n'
-                      f'Size threshold to read: {read_size_thresh}')
-        with rasterio.open(geo_image, 'r') as raster:
-            metadata = raster.meta
-            if geo_image.stat().st_size < read_size_thresh:
-                logging.debug('Will read')
-                raster.read()
-                pil_img = Image.open(geo_image)
-                pil_np = np.asarray(pil_img)
-                logging.debug(pil_np.shape)
-        return True, metadata
-    except rasterio.errors.RasterioIOError as e:
-        metadata = ''
-        if verbose:
-            print(e)
-        return False, metadata
-    except Exception as e:
-        metadata = ''
-        if verbose:
-            print(e)
-        return False, metadata
+def set_logging(console_level: str = 'WARNING', logfiles_dir=[str, Path], logfiles_prefix: str = 'log',
+                conf_path: Union[str, Path] = 'utils/logging.conf'):
+    """
+    Configures logging with provided ".conf" file, console level, output paths.
+    @param conf_path: Path to ".conf" file with loggers, handlers, formatters, etc.
+    @param console_level: Level of logging to output to console. Defaults to "WARNING"
+    @param logfiles_dir: path where output logs will be written
+    @return:
+    """
+    conf_path = Path(conf_path).absolute()
+    if not conf_path.is_file():
+        raise FileNotFoundError(f'Invalid logging configuration file')
+    log_config_path = Path(conf_path).absolute()
+    out = Path(logfiles_dir) / logfiles_prefix
+    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{out}.log',
+                                                         'logfilename_error': f'{out}_error.log',
+                                                         'logfilename_debug': f'{out}_debug.log',
+                                                         'console_level': console_level})
 
 
 def tiling_checker(src_img: Union[str, Path],
@@ -197,7 +188,6 @@ def main(params):
     # parameters to set output tiles directory
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
     samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
-    # FIXME
     if 'sampling_method' not in params['sample'].keys():
         params['sample']['sampling_method'] = {}
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
@@ -212,7 +202,6 @@ def main(params):
     # add git hash from current commit to parameters if available. Parameters will be saved to hdf5s
     params['global']['git_hash'] = get_git_hash()
 
-    final_samples_folder = None
     list_data_prep = read_csv(csv_file)
 
     smpls_dir = data_path / samples_folder_name
@@ -221,14 +210,8 @@ def main(params):
     Path.mkdir(smpls_dir, exist_ok=True)
 
     # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
-    log_config_path = Path('utils/logging.conf').absolute()
     console_level_logging = 'INFO' if not debug else 'DEBUG'
-    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{smpls_dir}/{samples_folder_name}.log',
-                                                         'logfilename_error':
-                                                             f'{smpls_dir}/{samples_folder_name}_error.log',
-                                                         'logfilename_debug':
-                                                             f'{smpls_dir}/{samples_folder_name}_debug.log',
-                                                         'console_level': console_level_logging})
+    set_logging(console_level=console_level_logging, logfiles_dir=smpls_dir, logfiles_prefix=samples_folder_name)
 
     if debug:
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
@@ -331,6 +314,8 @@ def main(params):
                                   f'Actual image tiles: {act_img_tiles}\n'
                                   f'Actual label tiles: {act_gt_tiles}\n'
                                   f'Starting tiling from scratch...')
+
+            # if no previous step has shown existence of all tiles, then go on and tile.
             if do_tile:
                 if parallel:
                     input_args.append([tiling, info['tif'], out_img_dir, samples_size, out_gt_dir, info['gpkg']])
@@ -343,11 +328,11 @@ def main(params):
             continue
 
     if parallel:
-        logging.info(f'Will tile {len(input_args)} images and labels')
+        logging.info(f'Will tile {len(input_args)} images and labels...')
         with multiprocessing.get_context('spawn').Pool(None) as pool:
             pool.map(map_wrapper, input_args)
 
-    logging.info(f"Creating pixel masks from clipped geojsons\n"
+    logging.info(f"Tiling done. Creating pixel masks from clipped geojsons...\n"
                  f"Validation set: {val_percent} % of created training tiles")
     dataset_files = {dataset: smpls_dir / f'{dataset}.txt' for dataset in datasets}
     for file in dataset_files.values():
@@ -357,6 +342,7 @@ def main(params):
 
     datasets_kept = {dataset: 0 for dataset in datasets}
     datasets_total = {dataset: 0 for dataset in datasets}
+    # loop through line of csv again
     for info in tqdm(list_data_prep, position=0, desc='Filtering tiles and writing list to dataset text files'):
         aoi_name = Path(info['tif']).stem if not info['aoi'] else info['aoi']
         out_img_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'sat_img')
@@ -445,24 +431,23 @@ def main(params):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Sample preparation')
-    parser.add_argument('-y', '--param', metavar='yaml_file', nargs=1,
-                        help='Path to parameters stored in yaml')
-    parser.add_argument('-c', '--csv', metavar='csv_file', nargs=1,
-                        help='Path to csv containing listed data')
-    parser.add_argument('-d', '--debug', metavar='debug_mode', nargs=1,
-                        help='Boolean. If True, will activate debug mode')
-    parser.add_argument('-p', '--parallel', metavar='multiprocessing', nargs=1,
-                        help='Boolean. If True, will activate parallel mode')
-    parser.add_argument('-s', '--minsize', metavar='min_size_to_list', nargs=1,
-                        help='Minimum size in bytes to include a tiled tif in final dataset list')
+    input_type = parser.add_mutually_exclusive_group(required=True)
+    input_type.add_argument('-c', '--csv', metavar='csv_file', help='Path to csv containing listed geodata with columns'
+                                                                    ' as expected by geo-deep-learning. See README')
+    input_type.add_argument('-y', '--param', metavar='yaml_file', help='Path to parameters stored in yaml')
+    parser.add_argument('--debug', metavar='debug_mode', action=argparse.BooleanOptionalAction,
+                        default=False)
+    parser.add_argument('--parallel', metavar='multiprocessing', action=argparse.BooleanOptionalAction,
+                        default=False,
+                        help="Boolean. If activated, will use python's multiprocessing package to parallelize")
     args = parser.parse_args()
     if args.param:
-        params = read_parameters(args.param[0])
+        params = read_parameters(args.param)
     elif args.csv:
-        data_list = read_csv(args.csv[0])
+        data_list = read_csv(args.csv)
         params = OrderedDict()
         params['global'] = OrderedDict()
-        params['global']['debug_mode'] = True if args.debug and args.debug[0] == 'True' else False
+        params['global']['debug_mode'] = args.debug
         bands_per_imagery = []
         classes_per_gt_file = []
         for data in data_list:
@@ -486,11 +471,8 @@ if __name__ == '__main__':
                       f'Number of classes will be set to max value.')
         params['global']['num_classes'] = max(classes_per_gt_file) if classes_per_gt_file else None
         params['sample'] = OrderedDict()
-        params['sample']['parallelize_tiling'] = True if args.parallel and args.parallel[0] == 'True' else False
-        params['sample']['prep_csv_file'] = args.csv[0]
-        params['sample']['min_raster_tile_size'] = int(args.minsize[0]) if args.minsize else 0
-    else:
-        raise ValueError(f'A yaml parameter file OR csv should be inputted. '
-                         f'None found in input argument parameters: {args}')
+        params['sample']['parallelize_tiling'] = args.parallel
+        params['sample']['prep_csv_file'] = args.csv
+
     print(f'\n\nStarting data to tiles preparation with {args}\n\n')
     main(params)

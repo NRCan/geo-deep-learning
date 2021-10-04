@@ -355,6 +355,10 @@ def read_csv(csv_file_name):
     - dataset (trn or tst)
     """
     list_values = []
+    csv_file_name = Path(csv_file_name)
+    if not csv_file_name.suffix == '.csv' and not csv_file_name.is_file():
+        raise FileNotFoundError(f"Couldn't locate geodata csv: {csv_file_name}")
+
     with open(csv_file_name, 'r') as f:
         reader = csv.reader(f)
         for index, row in enumerate(reader):
@@ -562,3 +566,17 @@ def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -
                 if update_yaml1:  # update yaml1 with value of yaml2
                     yaml1[section][param] = val2
                     logging.info(f'Value in yaml1 updated')
+
+
+def subprocess_cmd(cmd, success_msg='Success', failure_msg='Failed', use_spcall=True):
+    logging.debug(f'\n{cmd}')
+    if use_spcall:
+        subproc = subprocess.call(cmd.split())
+    else:
+        subproc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subproc = subproc.returncode
+    if subproc == 0:
+        logging.info(success_msg)
+    else:
+        logging.error(failure_msg)
+    return subproc

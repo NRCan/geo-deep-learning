@@ -1,8 +1,6 @@
 print('Importing packages and modules...')
-import shutil
 import argparse
 import multiprocessing
-import subprocess
 import logging
 import logging.config
 
@@ -12,7 +10,8 @@ from skimage import measure
 from skimage.transform import rescale
 from torch import nn
 
-from data_to_tiles import validate_raster, map_wrapper
+from data_to_tiles import map_wrapper
+from utils.verifications import validate_raster
 
 np.random.seed(1234)  # Set random seed for reproducibility
 import rasterio
@@ -21,7 +20,7 @@ import time
 from pathlib import Path
 from tqdm import tqdm
 
-from utils.utils import get_key_def, read_csv, get_git_hash, defaults_from_params
+from utils.utils import get_key_def, read_csv, get_git_hash, defaults_from_params, subprocess_cmd
 from utils.readers import read_parameters
 
 logging.getLogger(__name__)
@@ -314,20 +313,6 @@ def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=
     model = [E1, G]
     R = regularization(sat_img_arr, pred_arr, model, in_mode="semantic", out_mode="semantic")
     return R
-
-
-def subprocess_cmd(cmd, success_msg='Success', failure_msg='Failed', use_spcall=True):
-    logging.debug(f'\n{cmd}')
-    if use_spcall:
-        subproc = subprocess.call(cmd.split())
-    else:
-        subproc = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        subproc = subproc.returncode
-    if subproc == 0:
-        logging.info(success_msg)
-    else:
-        logging.error(failure_msg)
-    return subproc
 
 
 def post_process_pipeline(inference_raster, outdir, apply_threshold=False, buildings_model=None, simp_tolerance=0.2):
