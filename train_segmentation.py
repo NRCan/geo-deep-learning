@@ -85,9 +85,13 @@ def create_dataloader(samples_folder: Path,
     """
     if not samples_folder.is_dir():
         raise FileNotFoundError(f'Could not locate: {samples_folder}')
+    experiment_name = samples_folder.parent.stem
     if not len([f for f in samples_folder.glob('**/*.txt')]) >= 1:
         raise FileNotFoundError(f"Couldn't locate text file containing list of training data in {samples_folder}")
-    num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=params, dontcare=dontcare_val)
+    num_samples, samples_weight = get_num_samples(samples_path=samples_folder,
+                                                  params=params,
+                                                  dontcare=dontcare_val,
+                                                  experiment_name=experiment_name)
     if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
         raise ValueError(f"Number of samples in .hdf5 files is less than batch size")
     logging.info(f"Number of samples : {num_samples}\n")
@@ -96,7 +100,7 @@ def create_dataloader(samples_folder: Path,
 
     for subset in ["trn", "val", "tst"]:
 
-        datasets.append(dataset_constr(samples_folder, subset, num_bands,
+        datasets.append(dataset_constr(samples_folder, experiment_name, subset, num_bands,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare_val,
                                        radiom_transform=aug.compose_transforms(params=params,
@@ -163,7 +167,7 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     return eval_batch_size_rd
 
 
-def get_num_samples(samples_path, params, dontcare):
+def get_num_samples(samples_path, params, dontcare, experiment_name:str):
     """
     Function to retrieve number of samples, either from config file or directly from hdf5 file.
     :param samples_path: (str) Path to samples folder
@@ -174,22 +178,20 @@ def get_num_samples(samples_path, params, dontcare):
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
     weights = []
     samples_weight = None
-    # FIXME: this param should not be read here
-    csv_file = get_key_def('prep_csv_file', params['sample'], expected_type=str)
     for dataset in ['trn', 'val', 'tst']:
         if get_key_def(f"num_{dataset}_samples", params['training'], None) is not None:
             num_samples[dataset] = params['training'][f"num_{dataset}_samples"]
 
-            with open(samples_path/f"{Path(csv_file).stem}_{dataset}.txt", 'r') as datafile:
+            with open(samples_path/f"{experiment_name}_{dataset}.txt", 'r') as datafile:
                 file_num_samples = len(datafile.readlines())
             if num_samples[dataset] > file_num_samples:
                 raise IndexError(f"The number of training samples in the configuration file ({num_samples[dataset]}) "
                                  f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
         else:
-            with open(samples_path/f"{Path(csv_file).stem}_{dataset}.txt", 'r') as datafile:
+            with open(samples_path/f"{experiment_name}_{dataset}.txt", 'r') as datafile:
                 num_samples[dataset] = len(datafile.readlines())
 
-        with open(samples_path / f"{dataset}.txt", 'r') as datafile:
+        with open(samples_path / f"{experiment_name}_{dataset}.txt", 'r') as datafile:
             datalist = datafile.readlines()
             if dataset == 'trn':
                 for x in range(num_samples[dataset]):
@@ -554,9 +556,8 @@ def main(params, config_path):
                                  expected_type=int)
     if not data_path.is_dir():
         raise FileNotFoundError(f'Could not locate data path {data_path}')
-    samples_folder_name = (f'tiles{samples_size}_min-annot{min_annot_perc}_{num_bands}bands'
-                           f'_{experiment_name}')
-    samples_folder = data_path.joinpath(samples_folder_name)
+    samples_folder_name = (f'tiles{samples_size}_min-annot{min_annot_perc}_{num_bands}bands')
+    samples_folder = data_path / experiment_name / samples_folder_name
 
     # visualization parameters
     vis_at_train = get_key_def('vis_at_train', params['visualization'], default=False)

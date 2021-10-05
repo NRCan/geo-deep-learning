@@ -82,7 +82,7 @@ def map_wrapper(x):
 
 def out_tiling_dir(root, dataset, aoi_name, category):
     root = Path(root)
-    return root / dataset / aoi_name / category
+    return root / dataset.strip() / aoi_name.strip() / category
 
 
 def tiling(src_img: Union[str, Path],
@@ -161,18 +161,18 @@ def main(params):
     """
     start_time = time.time()
 
-    # mlflow logging
-    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
-    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
-
     # MANDATORY PARAMETERS
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
-    default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''), experiment_name,
-                            f"images_to_samples_{experiment_name}.csv")
-    csv_file = get_key_def('prep_csv_file', params['sample'], default_csv_file, expected_type=str)
+    csv_file = get_key_def('prep_csv_file', params['sample'], expected_type=str)
 
     # OPTIONAL PARAMETERS
+
+    # mlflow logging
+    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
+    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default=f'{Path(csv_file).stem}',
+                                  expected_type=str)
+
     # basics
     debug = get_key_def('debug_mode', params['global'], False)
     task = get_key_def('task', params['global'], 'segmentation', expected_type=str)
@@ -180,13 +180,12 @@ def main(params):
         raise ValueError(f"Got task {task}. Expected 'segmentation'.")
     elif not task == 'segmentation':
         raise ValueError(f"images_to_samples.py isn't necessary for classification tasks")
-    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
-    Path.mkdir(data_path, exist_ok=True, parents=True)
     val_percent = get_key_def('val_percent', params['sample'], default=10, expected_type=int)
     parallel = get_key_def('parallelize_tiling', params['sample'], default=False, expected_type=bool)
 
     # parameters to set output tiles directory
-    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
+    data_path = Path(get_key_def('data_path', params['global'], f'./data', expected_type=str))
+    Path.mkdir(data_path, exist_ok=True, parents=True)
     samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
     if 'sampling_method' not in params['sample'].keys():
         params['sample']['sampling_method'] = {}
@@ -195,8 +194,7 @@ def main(params):
     min_raster_tile_size = get_key_def('min_raster_tile_size', params['sample'], default=0, expected_type=int)
     if not data_path.is_dir():
         raise FileNotFoundError(f'Could not locate data path {data_path}')
-    samples_folder_name = (f'tiles{samples_size}_min-annot{min_annot_perc}_{num_bands}bands'
-                           f'_{experiment_name}')
+    samples_folder_name = (f'tiles{samples_size}_min-annot{min_annot_perc}_{num_bands}bands')
     attr_vals = get_key_def('target_ids', params['sample'], None, expected_type=List)
 
     # add git hash from current commit to parameters if available. Parameters will be saved to hdf5s
@@ -204,10 +202,10 @@ def main(params):
 
     list_data_prep = read_csv(csv_file)
 
-    smpls_dir = data_path / samples_folder_name
+    smpls_dir = data_path / experiment_name / samples_folder_name
     if smpls_dir.is_dir():
-        print(f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.')
-    Path.mkdir(smpls_dir, exist_ok=True)
+        print(f'WARNING: Data path exists: {smpls_dir}. Make sure samples belong to the same experiment.')
+    Path.mkdir(smpls_dir, exist_ok=True, parents=True)
 
     # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     console_level_logging = 'INFO' if not debug else 'DEBUG'
@@ -335,7 +333,7 @@ def main(params):
 
     logging.info(f"Tiling done. Creating pixel masks from clipped geojsons...\n"
                  f"Validation set: {val_percent} % of created training tiles")
-    dataset_files = {dataset: smpls_dir / f'{Path(csv_file).stem}_{dataset}.txt' for dataset in datasets}
+    dataset_files = {dataset: smpls_dir / f'{experiment_name}_{dataset}.txt' for dataset in datasets}
     for file in dataset_files.values():
         if file.is_file():
             logging.critical(f'Dataset list exists and will be overwritten: {file}')
@@ -345,6 +343,7 @@ def main(params):
     datasets_total = {dataset: 0 for dataset in datasets}
     # loop through line of csv again
     for info in tqdm(list_data_prep, position=0, desc='Filtering tiles and writing list to dataset text files'):
+        # FIXME: create Tiler class to prevent redundance here.
         aoi_name = Path(info['tif']).stem if not info['aoi'] else info['aoi']
         out_img_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'sat_img')
         out_gt_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'map_img')

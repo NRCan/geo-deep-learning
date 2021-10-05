@@ -26,6 +26,7 @@ class SegmentationDataset(Dataset):
     """Semantic segmentation dataset based on HDF5 parsing."""
 
     def __init__(self, work_folder,
+                 experiment_name,
                  dataset_type,
                  num_bands,
                  max_sample_count=None,
@@ -37,6 +38,7 @@ class SegmentationDataset(Dataset):
                  debug=False):
         # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.work_folder = Path(work_folder)
+        self.experiment_name = experiment_name
         self.max_sample_count = max_sample_count
         self.dataset_type = dataset_type
         self.num_bands = num_bands
@@ -45,7 +47,7 @@ class SegmentationDataset(Dataset):
         self.totensor_transform = totensor_transform
         self.debug = debug
         self.dontcare = dontcare
-        self.list_path = self.work_folder / f"{self.dataset_type}.txt"
+        self.list_path = self.work_folder / f"{self.experiment_name}_{self.dataset_type}.txt"
         with open(self.list_path, 'r') as datafile:
             datalist = datafile.readlines()
             if self.max_sample_count is None:
