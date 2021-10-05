@@ -73,11 +73,6 @@ def objective_with_args(hparams, params, config_path):
         params['global']['mlflow_run_name'] = run_name_split[0] + f'_{int(run_name_split[1]) + 1}'
     except:
         pass
-
-    if params['global']['model_name'] == "unet_pretrained":
-        params['training']['state_dict_path'] = params['training']['dict_unet']
-    elif params['global']['model_name'] == "deeplabv3_resnet101":
-        params['training']['state_dict_path'] = params['training']['dict_deeplab']
     train_main(params, config_path)
     torch.cuda.empty_cache()
 

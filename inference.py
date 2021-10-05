@@ -118,6 +118,16 @@ def ras2vec(raster_file, output_path):
 
 
 def gen_img_samples(src, chunk_size, *band_order):
+    """
+
+    Args:
+        src: input image (rasterio object)
+        chunk_size: image tile size
+        *band_order: ignore
+
+    Returns: generator object
+
+    """
     subdiv = 2.0
     step = int(chunk_size / subdiv)
     for row in range(0, src.height, step):
@@ -149,6 +159,25 @@ def segmentation(param,
                  tp_mem,
                  debug=False,
                  ):
+    """
+
+    Args:
+        param: parameter dict
+        input_image: opened image (rasterio object)
+        label_arr: numpy array of label if available
+        num_classes: number of classes
+        gpkg_name: geo-package name if available
+        model: model weights
+        chunk_size: image tile size
+        device: cuda/cpu device
+        scale: scale range
+        BGR_to_RGB: True/False
+        tp_mem: memory temp file for saving numpy array to disk
+        debug: True/False
+
+    Returns:
+
+    """
     xmin, ymin, xmax, ymax = (input_image.bounds.left,
                               input_image.bounds.bottom,
                               input_image.bounds.right,
