@@ -1,7 +1,9 @@
 import gc
 import logging
 import warnings
+from math import sqrt
 from typing import List
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -26,7 +28,7 @@ from rasterio import features
 from shapely.geometry import Polygon
 from rasterio.windows import Window
 from rasterio.plot import reshape_as_image
-from pathlib import Path
+from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_metrics
 
 from metrics import ComputePixelMetrics
 from models.model_choice import net, load_checkpoint
@@ -36,7 +38,7 @@ from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
     list_input_images, add_metadata_from_raster_to_sample, _window_2D, is_url, checkpoint_url_download, \
     compare_config_yamls
 from utils.readers import read_parameters
-from utils.verifications import add_background_to_num_class, validate_num_classes, assert_crs_match
+from utils.verifications import add_background_to_num_class, validate_num_classes, assert_crs_match, validate_raster
 
 try:
     import boto3
@@ -459,7 +461,6 @@ def main(params: dict):
                                                              'console_level': console_level_logging})
 
         # import only if mlflow uri is set
-        from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
         if not Path(mlflow_uri).is_dir():
             logging.warning(f"Couldn't locate mlflow uri directory {mlflow_uri}. Directory will be created.")
             Path(mlflow_uri).mkdir()

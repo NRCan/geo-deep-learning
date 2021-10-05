@@ -8,6 +8,7 @@ import fiona
 import os
 import warnings
 import rasterio
+from fiona.crs import to_string
 from rasterio.features import is_valid_geom
 from rasterio.mask import mask
 
@@ -67,8 +68,12 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     import fiona
     # Get extent of gpkg data with fiona
     with fiona.open(gpkg, 'r') as src:
-        gpkg_crs = src.crs
-        assert gpkg_crs == raster.crs
+        gpkg_crs = to_string(src.crs)
+        if not gpkg_crs == raster.crs:
+            logging.warning(f'CRS potential mismatch.\n'
+                            f'Vector file: {gpkg}\n'
+                            f'CRS of vector: {gpkg_crs}\n'
+                            f'CRS of raster: {raster.crs}')
         minx, miny, maxx, maxy = src.bounds  # ouest, nord, est, sud
 
     # Create a bounding box with Shapely

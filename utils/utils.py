@@ -331,7 +331,7 @@ def checkpoint_url_download(url: str):
         raise SystemExit(e)
 
 
-def list_input_images(img_dir_or_csv: Union[str, Path],
+def list_input_images(img_dir_or_csv: str,
                       bucket_name: str = None,
                       glob_patterns: List = None):
     """

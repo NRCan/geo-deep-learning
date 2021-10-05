@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from data_to_tiles import filter_gdf
 from utils.readers import read_parameters
-from utils.utils import get_git_hash, get_key_def, defaults_from_params, read_csv
+from utils.utils import get_git_hash, get_key_def, read_csv
 
 
 min_val = 1e-6
@@ -228,8 +228,7 @@ def main(params):
     default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''),
                             exp_name, f"inference_sem_seg_{exp_name}.csv")
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default_csv_file, expected_type=str)
-    state_dict = get_key_def('state_dict_path', params['inference'],
-                             defaults_from_params(params, 'state_dict_path'), expected_type=str)
+    state_dict = get_key_def('state_dict_path', params['inference'], expected_type=str)
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
     attr_vals = get_key_def('target_ids', params['sample'], [4], List) if 'sample' in params.keys() else [4]

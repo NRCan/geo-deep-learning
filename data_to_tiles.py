@@ -434,7 +434,7 @@ if __name__ == '__main__':
     input_type = parser.add_mutually_exclusive_group(required=True)
     input_type.add_argument('-c', '--csv', metavar='csv_file', help='Path to csv containing listed geodata with columns'
                                                                     ' as expected by geo-deep-learning. See README')
-    input_type.add_argument('-y', '--param', metavar='yaml_file', help='Path to parameters stored in yaml')
+    input_type.add_argument('-p', '--param', metavar='yaml_file', help='Path to parameters stored in yaml')
     parser.add_argument('--debug', metavar='debug_mode', action=argparse.BooleanOptionalAction,
                         default=False)
     parser.add_argument('--parallel', metavar='multiprocessing', action=argparse.BooleanOptionalAction,
