@@ -2,7 +2,10 @@ import logging
 
 import numpy as np
 import rasterio
-from ruamel_yaml import YAML
+try:
+    from ruamel_yaml import YAML
+except ImportError:
+    from ruamel.yaml import YAML
 from tqdm import tqdm
 from pathlib import Path
 from skimage import morphology

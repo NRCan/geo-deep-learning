@@ -27,7 +27,7 @@ from utils import augmentation as aug, create_dataset
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, get_git_hash
+from utils.utils import load_from_checkpoint, gpu_stats, get_key_def, get_git_hash
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
 from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact, start_run
