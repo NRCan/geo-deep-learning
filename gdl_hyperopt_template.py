@@ -11,6 +11,7 @@ from pathlib import Path
 import pickle
 from functools import partial
 import pprint
+import numpy as np
 
 import mlflow
 import torch
@@ -21,12 +22,10 @@ from utils.readers import read_parameters
 from train_segmentation import main as train_main
 
 # This is the hyperparameter space to explore
-my_space = {'target_size': hp.choice('target_size', [128, 256]),
-            'model_name': hp.choice('model_name', ['unet', 'deeplabv3+_pretrained']),
-            'permanent_water_weight': hp.uniform('permanent_water_weight', 1.0, 10.0),
-            'rivers_weight': hp.uniform('rivers_weight', 1.0, 10.0),
-            'flood_weight': hp.uniform('flood_weight', 1.0, 10.0),
-            'noise': hp.choice('noise', [0.0, 1.0])}
+my_space = {'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3_resnet101']),
+            'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
+            'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
+            'learning_rate': hp.loguniform('learning_rate', np.log(1e-7), np.log(0.1))}
 
 
 def get_latest_mlrun(params):
@@ -62,20 +61,18 @@ def objective_with_args(hparams, params, config_path):
     """
 
     # ToDo: This is dependent on the specific structure of the GDL config file
-    params['training']['target_size'] = hparams['target_size']
     params['global']['model_name'] = hparams['model_name']
-    # ToDo: Should adjust batch size as a function of model and target size...
-    params['training']['class_weights'] = [1.0, hparams['permanent_water_weight'], hparams['rivers_weight'],
-                                           hparams['flood_weight']]
-    params['training']['augmentation']['noise'] = hparams['noise']
+    # params['training']['target_size'] = hparams['target_size']
+    params['training']['loss_fn '] = hparams['loss_fn']
+    params['training']['optimizer'] = hparams['optimizer']
+    params['training']['learning_rate'] = hparams['learning_rate']
 
     try:
         mlrun = get_latest_mlrun(params)
         run_name_split = mlrun.data.tags['mlflow.runName'].split('_')
-        params['global']['mlflow_run_name'] = run_name_split[0] + f'_{int(run_name_split[1])+1}'
+        params['global']['mlflow_run_name'] = run_name_split[0] + f'_{int(run_name_split[1]) + 1}'
     except:
         pass
-
     train_main(params, config_path)
     torch.cuda.empty_cache()
 
@@ -88,7 +85,7 @@ def objective_with_args(hparams, params, config_path):
     return {'loss': -mlrun.data.metrics['tst_iou'], 'status': STATUS_OK}
 
 
-def trials_to_csv(trials):
+def trials_to_csv(trials, csv_pth):
     """hyperopt trials to CSV
 
     :param trials: hyperopt trials object
@@ -109,14 +106,18 @@ def trials_to_csv(trials):
         csv_str = csv_str + f'{trials.results[i]["loss"]}' + '\n'
 
     # ToDo: Customize where the csv output is
-    with open('hyperopt_results.csv', 'w') as csv_obj:
+    with open(csv_pth, 'w') as csv_obj:
         csv_obj.write(csv_str)
 
 
 def main(params, config_path):
     # ToDo: Customize where the trials file is
-    if Path('hyperopt_trials.pkl').is_file():
-        trials = pickle.load(open("hyperopt_trials.pkl", "rb"))
+    # ToDo: Customize where the trials file is
+    root_path = Path(params['global']['assets_path'])
+    pkl_file = root_path.joinpath('hyperopt_trials.pkl')
+    csv_file = root_path.joinpath('hyperopt_results.csv')
+    if pkl_file.is_file():
+        trials = pickle.load(open(pkl_file, "rb"))
     else:
         trials = Trials()
 
@@ -128,19 +129,19 @@ def main(params, config_path):
                     space=my_space,
                     algo=tpe.suggest,
                     trials=trials,
-                    max_evals=n+params['global']['hyperopt_delta'])
+                    max_evals=n + params['global']['hyperopt_delta'])
         n += params['global']['hyperopt_delta']
-        pickle.dump(trials, open("hyperopt_trials.pkl", "wb"))
+        pickle.dump(trials, open(pkl_file, "wb"))
 
     # ToDo: Cleanup the output
     pprint.pprint(trials.vals)
     pprint.pprint(trials.results)
     for key, val in best.items():
         if my_space[key].name == 'switch':
-            best[key] = my_space[key].pos_args[val+1].obj
+            best[key] = my_space[key].pos_args[val + 1].obj
     pprint.pprint(best)
     print(trials.best_trial['result'])
-    trials_to_csv(trials)
+    trials_to_csv(trials, csv_file)
 
 
 if __name__ == '__main__':

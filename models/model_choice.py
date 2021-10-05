@@ -16,7 +16,7 @@ from utils.optimizer import create_optimizer
 from losses import MultiClassCriterion
 import torch.optim as optim
 from models import TernausNet, unet, checkpointed_unet, inception, coordconv
-from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, defaults_from_params
+from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
 
 logging.getLogger(__name__)
 
@@ -29,6 +29,12 @@ lm_smp = {
         'fct': smp.Unet, 'params': {
             'encoder_name': 'resnext50_32x4d',
             'encoder_depth': 5,
+        }},
+    'unet_pretrained_101': {
+        'fct': smp.Unet, 'params': {
+            'encoder_name': 'resnext101_32x8d',
+            'encoder_depth': 4,
+            'decoder_channels': [256, 128, 64, 32]
         }},
     'fpn_pretrained': {
         'fct': smp.FPN, 'params': {
@@ -91,9 +97,11 @@ def verify_weights(num_classes, weights):
         weights: weights defined in the configuration file
     """
     if num_classes == 1 and len(weights) == 2:
-        logging.warning("got two class weights for single class defined in configuration file; will assume index 0 = background")
+        logging.warning(
+            "got two class weights for single class defined in configuration file; will assume index 0 = background")
     elif num_classes != len(weights):
-        raise ValueError('The number of class weights in the configuration file is different than the number of classes')
+        raise ValueError(f'The number of class weights {len(weights)} '
+                         f'in the configuration file is different than the number of classes {num_classes}')
 
 
 def set_hyperparameters(params,
@@ -163,6 +171,7 @@ def net(model_name: str,
     msg = f'Number of bands specified incompatible with this model. Requires 3 band data.'
     pretrained = False if train_state_dict_path or inference_state_dict else pretrained
     dropout = True if dropout_prob else False
+    model = None
 
     if model_name == 'unetsmall':
         model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
@@ -264,30 +273,29 @@ def net(model_name: str,
         # list of GPU devices that are available and unused. If no GPUs, returns empty list
         gpu_devices_dict = get_device_ids(num_devices)
         num_devices = len(gpu_devices_dict.keys())
-        device = torch.device(f'cuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
         logging.info(f"Number of cuda devices requested: {num_devices}. "
                      f"Cuda devices available: {list(gpu_devices_dict.keys())}\n")
         if num_devices == 1:
-            logging.info(f"Using Cuda device 'cuda:0'")
+            logging.info(f"Using Cuda device 'cuda:{list(gpu_devices_dict.keys())[0]}'")
         elif num_devices > 1:
             logging.info(f"Using data parallel on devices: {list(gpu_devices_dict.keys())[1:]}. "
-                         f"Main device: 'cuda:0'")
+                         f"Main device: 'cuda:{list(gpu_devices_dict.keys())[0]}'")
             try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
                 # DataParallel adds prefix 'module.' to state_dict keys
                 model = nn.DataParallel(model, device_ids=list(gpu_devices_dict.keys()))
             except AssertionError:
-                logging.warning(f"Unable to use devices {gpu_devices_dict}. "
-                                f"Trying devices {list(range(len(gpu_devices_dict.keys())))}")
-                device = torch.device(f'cuda:0')
+                logging.warning(f"Unable to use devices with ids {gpu_devices_dict.keys()}"
+                                f"Trying devices with ids {list(range(len(gpu_devices_dict.keys())))}")
                 model = nn.DataParallel(model, device_ids=list(range(len(gpu_devices_dict.keys()))))
         else:
             logging.warning(f"No Cuda device available. This process will only run on CPU\n")
         logging.info(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
+        device = torch.device(f'cuda:{list(range(len(gpu_devices_dict.keys())))[0]}' if gpu_devices_dict else 'cpu')
         try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
             model.to(device)
         except AssertionError:
             logging.exception(f"Unable to use device. Trying device 0...\n")
-            device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
+            device = torch.device(f'cuda' if gpu_devices_dict else 'cpu')
             model.to(device)
 
         model, criterion, optimizer, lr_scheduler = set_hyperparameters(params=net_params,
@@ -301,4 +309,4 @@ def net(model_name: str,
                                                                         inference=inference_state_dict)
         criterion = criterion.to(device)
 
-        return model, model_name, criterion, optimizer, lr_scheduler
+        return model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict

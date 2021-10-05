@@ -10,6 +10,7 @@ from utils.create_dataset import MetaSegmentationDataset
 from utils.geoutils import lst_ids, get_key_recursive
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,7 +62,8 @@ def validate_num_classes(vector_file: Union[str, Path],
             logging.warning(f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
         # this should not happen, thus the exception raised
         elif len(unique_att_vals) > num_classes:
-            raise ValueError(f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
+            raise ValueError(
+                f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
 
     return unique_att_vals
 

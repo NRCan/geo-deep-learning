@@ -212,7 +212,8 @@ def samples_preparation(in_img_array,
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
 
     if overlap > 25:
-         logging.warning("high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
+        logging.warning(
+            "high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
     excl_samples = 0
@@ -247,6 +248,7 @@ def samples_preparation(in_img_array,
                 # Stratification bias
                 if (stratd is not None) and (dataset == 'trn'):
                     tile_size = target.size
+                    u, count = np.unique(target, return_counts=True)
                     tile_counts = {x: y for x, y in zip(u, count)}
                     tile_props = {x: y / tile_size for x, y in zip(u, count)}
                     for key in tile_props.keys():
@@ -268,8 +270,8 @@ def samples_preparation(in_img_array,
                                      for key, val in tile_props.items()}
                     distances_val = {key: np.abs(val - stratd['val']['total_props'][key])
                                      for key, val in tile_props.items()}
-                    dist_trn = np.mean(np.array(list(distances_trn.values()))**2)
-                    dist_val = np.mean(np.array(list(distances_val.values()))**2)
+                    dist_trn = np.mean(np.array(list(distances_trn.values())) ** 2)
+                    dist_val = np.mean(np.array(list(distances_val.values())) ** 2)
                     dist = dist_val - dist_trn
                     stratification_bias = stratd['strat_factor'] * np.sign(dist)
                 else:
@@ -311,7 +313,7 @@ def samples_preparation(in_img_array,
                 final_dataset = 'val' if val else dataset
                 logging.debug(f'Dset={final_dataset}, '
                               f'Added samps={added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}, '
-                              f'Excld samps={excl_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}, ' 
+                              f'Excld samps={excl_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}, '
                               f'Target annot perc={100 - target_background_percent:.1f}')
 
     if added_samples == 0:
@@ -365,7 +367,7 @@ def main(params):
     :param params: (dict) Parameters found in the yaml config file.
     """
     start_time = time.time()
-    
+
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
     experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
@@ -415,7 +417,6 @@ def main(params):
                   'strat_factor': params['sample']['use_stratification']}
     else:
         stratd = None
-
 
     # add git hash from current commit to parameters if available. Parameters will be saved to hdf5s
     params['global']['git_hash'] = get_git_hash()

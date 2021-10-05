@@ -15,6 +15,7 @@ from utils.utils import unscale, unnormalize, get_key_def
 from utils.geoutils import create_new_raster_from_base
 
 import matplotlib
+
 matplotlib.use('Agg')
 
 logging.getLogger(__name__)
@@ -122,8 +123,8 @@ def vis(vis_params,
 
     assert vis_path.parent.is_dir()
     vis_path.mkdir(exist_ok=True)
-
-    if not vis_params['inference_input_path']:  # FIXME: function parameters should not come in as different types if inference or not.
+    if not vis_params[
+        'inference_input_path']:  # FIXME: function parameters should not come in as different types if inference or not.
         input_ = input_.cpu().permute(1, 2, 0).numpy()  # channels last
         output = F.softmax(output, dim=0)  # Inference output is already softmax
         output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
@@ -151,7 +152,8 @@ def vis(vis_params,
     # Define colormap and names of classes with respect to grayscale values
     classes, cmap = colormap_reader(output, vis_params['colormap_file'], default_colormap='Set1')
 
-    heatmaps_dict = heatmaps_to_dict(output, classes, inference=inference_input_path, debug=debug)  # Prepare heatmaps from softmax output
+    heatmaps_dict = heatmaps_to_dict(output, classes, inference=inference_input_path,
+                                     debug=debug)  # Prepare heatmaps from softmax output
 
     # Convert output and label, if provided, to RGB with matplotlib's colormap object
     output_argmax_color = cmap(output_argmax)
@@ -185,7 +187,7 @@ def vis(vis_params,
             if not inference_input_path and label is not None:
                 label_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_label.png'))  # save label
         output_argmax_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_output_ep{ep_num:03d}.png'))
-        if vis_params['heatmaps']: # TODO: test this.
+        if vis_params['heatmaps']:  # TODO: test this.
             for key in heatmaps_dict.keys():
                 heatmap = heatmaps_dict[key]['heatmap_PIL']
                 class_name = heatmaps_dict[key]['class_name']
