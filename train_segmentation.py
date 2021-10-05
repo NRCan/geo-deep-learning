@@ -241,7 +241,7 @@ def vis_from_dataloader(vis_params,
                         labels = data['map_img'].to(device)
                     except RuntimeError:
                         logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-                        device = torch.device('cuda:0')
+                        device = torch.device('cuda')
                         inputs = data['sat_img'].to(device)
                         labels = data['map_img'].to(device)
 
@@ -301,7 +301,7 @@ def train(train_loader,
             labels = data['map_img'].to(device)
         except RuntimeError:
             logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-            device = torch.device('cuda:0')
+            device = torch.device('cuda')
             inputs = data['sat_img'].to(device)
             labels = data['map_img'].to(device)
 
@@ -320,13 +320,14 @@ def train(train_loader,
             if batch_index in range(min_vis_batch, max_vis_batch, increment):
                 vis_path = progress_log.parent.joinpath('visualization')
                 if ep_idx == 0:
-                    logging.info(f'Visualizing on train outputs for batches in range {vis_params["vis_batch_range"]}. All images will be saved to {vis_path}\n')
+                    logging.info(f'Visualizing on train outputs for batches in range {vis_params["vis_batch_range"]}. '
+                                 f'All images will be saved to {vis_path}\n')
                 vis_from_batch(vis_params, inputs, outputs,
                                batch_index=batch_index,
                                vis_path=vis_path,
                                labels=labels,
                                dataset='trn',
-                               ep_num=ep_idx+1,
+                               ep_num=ep_idx + 1,
                                scale=scale)
 
         loss = criterion(outputs, labels)
@@ -336,14 +337,14 @@ def train(train_loader,
         if device.type == 'cuda' and debug:
             res, mem = gpu_stats(device=device.index)
             logging.debug(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
-                                          gpu_perc=f'{res.gpu} %',
-                                          gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
-                                          lr=optimizer.param_groups[0]['lr'],
-                                          img=data['sat_img'].numpy().shape,
-                                          smpl=data['map_img'].numpy().shape,
-                                          bs=batch_size,
-                                          out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy()),
-                                          gt_vals=np.unique(labels[0].detach().cpu().numpy())))
+                                      gpu_perc=f'{res.gpu} %',
+                                      gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+                                      lr=optimizer.param_groups[0]['lr'],
+                                      img=data['sat_img'].numpy().shape,
+                                      smpl=data['map_img'].numpy().shape,
+                                      bs=batch_size,
+                                      out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy()),
+                                      gt_vals=np.unique(labels[0].detach().cpu().numpy())))
 
         loss.backward()
         optimizer.step()
@@ -388,7 +389,7 @@ def evaluation(eval_loader,
     model.eval()
 
     for batch_index, data in enumerate(tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} '
-                                                                                  f'batches with {device.type}')):
+    f'batches with {device.type}')):
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
         with torch.no_grad():
@@ -397,7 +398,7 @@ def evaluation(eval_loader,
                 labels = data['map_img'].to(device)
             except RuntimeError:
                 logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-                device = torch.device('cuda:0')
+                device = torch.device('cuda')
                 inputs = data['sat_img'].to(device)
                 labels = data['map_img'].to(device)
 
@@ -414,14 +415,15 @@ def evaluation(eval_loader,
                 if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0 and batch_index == min_vis_batch:
-                        logging.info(f'Visualizing on {dataset} outputs for batches in range {vis_params["vis_batch_range"]}. All '
-                                   f'images will be saved to {vis_path}\n')
+                        logging.info(
+                            f'Visualizing on {dataset} outputs for batches in range {vis_params["vis_batch_range"]} '
+                                     f'images will be saved to {vis_path}\n')
                     vis_from_batch(vis_params, inputs, outputs,
                                    batch_index=batch_index,
                                    vis_path=vis_path,
                                    labels=labels,
                                    dataset=dataset,
-                                   ep_num=ep_idx+1,
+                                   ep_num=ep_idx + 1,
                                    scale=scale)
 
             outputs_flatten = flatten_outputs(outputs, num_classes)
@@ -435,7 +437,7 @@ def evaluation(eval_loader,
                 if not batch_metrics <= len(eval_loader):
                     logging.error(f"Batch_metrics ({batch_metrics}) is smaller than batch size "
                                   f"{len(eval_loader)}. Metrics in validation loop won't be computed")
-                if (batch_index+1) % batch_metrics == 0:   # +1 to skip val loop at very beginning
+                if (batch_index + 1) % batch_metrics == 0:  # +1 to skip val loop at very beginning
                     a, segmentation = torch.max(outputs_flatten, dim=1)
                     eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
@@ -451,7 +453,7 @@ def evaluation(eval_loader,
             if debug and device.type == 'cuda':
                 res, mem = gpu_stats(device=device.index)
                 logging.debug(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
-                                              gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
+                                          gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB'))
 
     logging.info(f"{dataset} Loss: {eval_metrics['loss'].avg}")
     if batch_metrics is not None:
@@ -497,6 +499,7 @@ def main(params, config_path):
 
     # MANDATORY PARAMETERS
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
+    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
     batch_size = get_key_def('batch_size', params['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', params['training'], expected_type=int, default=batch_size)
@@ -523,7 +526,7 @@ def main(params, config_path):
     loss_fn = get_key_def('loss_fn', params['training'], default='CrossEntropy', expected_type=str)
     class_weights = get_key_def('class_weights', params['training'], default=None, expected_type=Sequence)
     if class_weights:
-        verify_weights(num_classes, class_weights)
+        verify_weights(num_classes_corrected, class_weights)
     optimizer = get_key_def('optimizer', params['training'], default='adam', expected_type=str)
     pretrained = get_key_def('pretrained', params['training'], default=True, expected_type=bool)
     train_state_dict_path = get_key_def('state_dict_path', params['training'], default=None, expected_type=str)
@@ -538,9 +541,6 @@ def main(params, config_path):
     num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
     if num_devices and not num_devices >= 0:
         raise ValueError("missing mandatory num gpus parameter")
-    default_max_used_ram = 15
-    max_used_ram = get_key_def('max_used_ram', params['global'], default=default_max_used_ram, expected_type=int)
-    max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
 
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
@@ -606,12 +606,6 @@ def main(params, config_path):
                                                          'logfilename_error': logfile_error,
                                                          'console_level': console_level_logging})
 
-    # now that we know where logs will be saved, we can start logging!
-    if not (0 <= max_used_ram <= 100):
-        logging.warning(f'Max used ram parameter should be a percentage. Got {max_used_ram}. '
-                        f'Will set default value of {default_max_used_ram} %')
-        max_used_ram = default_max_used_ram
-
     logging.info(f'Model and log files will be saved to: {output_path}\n\n')
     if debug:
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
@@ -619,16 +613,6 @@ def main(params, config_path):
     if dontcare_val < 0 and vis_batch_range:
         logging.warning(f'Visualization: expected positive value for ignore_index, got {dontcare_val}.'
                         f'Will be overridden to 255 during visualization only. Problems may occur.')
-
-    # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    gpu_devices_dict = get_device_ids(num_devices,
-                                      max_used_ram_perc=max_used_ram,
-                                      max_used_perc=max_used_perc)
-    logging.info(f'GPUs devices available: {gpu_devices_dict}')
-    num_devices = len(gpu_devices_dict.keys())
-    device = torch.device(f'cuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
-
-    logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
 
     # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
     dontcare2backgr = False
@@ -640,6 +624,26 @@ def main(params, config_path):
     # Will check if batch size needs to be a lower value only if cropping samples during training
     calc_eval_bs = True if crop_size else False
 
+    # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
+    model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict = \
+        net(model_name=model_name,
+            num_bands=num_bands,
+            num_channels=num_classes_corrected,
+            dontcare_val=dontcare_val,
+            num_devices=num_devices,
+            train_state_dict_path=train_state_dict_path,
+            pretrained=pretrained,
+            dropout_prob=dropout_prob,
+            loss_fn=loss_fn,
+            class_weights=class_weights,
+            optimizer=optimizer,
+            net_params=params,
+            conc_point=conc_point,
+            coordconv_params=coordconv_params)
+
+    logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
+
+    logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
                                                                        eval_batch_size=eval_batch_size,
@@ -655,24 +659,7 @@ def main(params, config_path):
                                                                        dontcare2backgr=dontcare2backgr,
                                                                        calc_eval_bs=calc_eval_bs,
                                                                        debug=debug)
-    # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
-    model, model_name, criterion, optimizer, lr_scheduler = net(model_name=model_name,
-                                                                num_bands=num_bands,
-                                                                num_channels=num_classes_corrected,
-                                                                dontcare_val=dontcare_val,
-                                                                num_devices=num_devices,
-                                                                train_state_dict_path=train_state_dict_path,
-                                                                pretrained=pretrained,
-                                                                dropout_prob=dropout_prob,
-                                                                loss_fn=loss_fn,
-                                                                class_weights=class_weights,
-                                                                optimizer=optimizer,
-                                                                net_params=params,
-                                                                conc_point=conc_point,
-                                                                coordconv_params=coordconv_params)
 
-    logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
 
     # mlflow tracking path + parameters logging
     set_tracking_uri(mlflow_uri)
@@ -772,8 +759,6 @@ def main(params, config_path):
                         'model': state_dict,
                         'best_loss': best_loss,
                         'optimizer': optimizer.state_dict()}, filename)
-            # if epoch == 0:
-            #     log_artifact(filename)
             if bucket_name:
                 bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
@@ -801,7 +786,7 @@ def main(params, config_path):
         logging.info(f'Current elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if num_epochs > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
+    if num_epochs > 0:  # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
 
@@ -826,9 +811,10 @@ def main(params, config_path):
             bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
+    log_params({'checkpoint path': filename})
     logging.info('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-    log_artifact(logfile)
-    log_artifact(logfile_debug)
+    # log_artifact(logfile)
+    # log_artifact(logfile_debug)
 
 
 if __name__ == '__main__':

@@ -11,6 +11,7 @@ from torch import nn
 import numpy as np
 import scipy.signal
 import warnings
+import requests
 import collections
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
@@ -18,6 +19,7 @@ from rasterio.crs import CRS
 from affine import Affine
 
 from utils.readers import read_parameters
+from urllib.parse import urlparse
 
 try:
     from ruamel_yaml import YAML
@@ -50,7 +52,7 @@ class Interpolate(torch.nn.Module):
         return x
 
 
-def load_from_checkpoint(checkpoint, model, optimizer=None, inference:str=''):
+def load_from_checkpoint(checkpoint, model, optimizer=None, inference: str = ''):
     """Load weights from a previous checkpoint
     Args:
         checkpoint: (dict) checkpoint
@@ -71,8 +73,8 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference:str=''):
     strict_loading = False if not inference else True
     model.load_state_dict(checkpoint['model'], strict=strict_loading)
     logging.info(f"=> loaded model\n")
-    if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-        optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
+    # if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
+    #     optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
     return model, optimizer
 
 
@@ -113,7 +115,8 @@ def get_device_ids(number_requested: int,
                 used_ram = mem.used / (1024 ** 2)
                 max_ram = mem.total / (1024 ** 2)
                 used_ram_perc = used_ram / max_ram * 100
-                logging.debug(f'GPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
+                logging.debug(
+                    f'GPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
                 if used_ram_perc < max_used_ram_perc:
                     if res.gpu < max_used_perc:
                         lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}
@@ -129,7 +132,7 @@ def get_device_ids(number_requested: int,
                     break
             if len(lst_free_devices.keys()) < number_requested:
                 logging.warning(f"You requested {number_requested} devices. {device_count} devices are available and "
-                                f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
+                                f"other processes are using {device_count - len(lst_free_devices.keys())} device(s).")
         else:
             logging.error('No gpu devices requested. Will run on cpu')
     except NameError as error:
@@ -301,7 +304,34 @@ def ind2rgb(arr, color):
     return rgb
 
 
-def list_input_images(img_dir_or_csv: str,
+def is_url(url):
+    if urlparse(url).scheme in ('http', 'https', 's3'):
+        return True
+    else:
+        return False
+
+
+def checkpoint_url_download(url: str):
+    mime_type = ('application/tar', 'application/x-tar', 'applicaton/x-gtar',
+                 'multipart/x-tar', 'application/x-compress', 'application/x-compressed')
+    try:
+        response = requests.head(url)
+        if response.headers['content-type'] in mime_type:
+            working_folder = Path.cwd().joinpath('inference_out')
+            Path.mkdir(working_folder, parents=True, exist_ok=True)
+            checkpoint_path = working_folder.joinpath(Path(url).name)
+            r = requests.get(url)
+            checkpoint_path.write_bytes(r.content)
+            print(checkpoint_path)
+            return checkpoint_path
+        else:
+            raise SystemExit('Invalid Url, checkpoint content not detected')
+
+    except requests.exceptions.RequestException as e:
+        raise SystemExit(e)
+
+
+def list_input_images(img_dir_or_csv: Union[str, Path],
                       bucket_name: str = None,
                       glob_patterns: List = None):
     """
@@ -327,15 +357,25 @@ def list_input_images(img_dir_or_csv: str,
     else:
         if str(img_dir_or_csv).endswith('.csv'):
             list_img = read_csv(img_dir_or_csv)
+
+        elif is_url(img_dir_or_csv):
+            list_img = []
+            img_path = Path(img_dir_or_csv)
+            img = {}
+            img['tif'] = img_path
+            list_img.append(img)
+
         else:
             img_dir = Path(img_dir_or_csv)
-            assert img_dir.is_dir(), f'Could not find directory "{img_dir_or_csv}"'
+            assert img_dir.exists(), f'Could not find directory/file "{img_dir_or_csv}"'
 
             list_img_paths = set()
-            for glob_pattern in glob_patterns:
-                assert isinstance(glob_pattern, str), f'Invalid glob pattern: "{glob_pattern}"'
-                list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
-
+            if img_dir.is_dir():
+                for glob_pattern in glob_patterns:
+                    assert isinstance(glob_pattern, str), f'Invalid glob pattern: "{glob_pattern}"'
+                    list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
+            else:
+                list_img_paths.update(img_dir)
             list_img = []
             for img_path in list_img_paths:
                 img = {}
@@ -426,10 +466,10 @@ def _spline_window(window_size, power=2):
     https://www.wolframalpha.com/input/?i=y%3Dx**2,+y%3D-(x-2)**2+%2B2,+y%3D(x-4)**2,+from+y+%3D+0+to+2
     """
     intersection = int(window_size/4)
-    wind_outer = (abs(2*(scipy.signal.triang(window_size))) ** power)/2
+    wind_outer = (abs(2 * (scipy.signal.windows.triang(window_size))) ** power) / 2
     wind_outer[intersection:-intersection] = 0
 
-    wind_inner = 1 - (abs(2*(scipy.signal.triang(window_size) - 1)) ** power)/2
+    wind_inner = 1 - (abs(2 * (scipy.signal.windows.triang(window_size) - 1)) ** power) / 2
     wind_inner[:intersection] = 0
     wind_inner[-intersection:] = 0
 
@@ -492,39 +532,6 @@ def ordereddict_eval(str_to_eval: str):
         return str_to_eval
 
 
-def defaults_from_params(params, key=None):
-    d = {}
-    data_path = get_key_def('data_path', params['global'], '')
-    preprocessing_path = get_key_def('preprocessing_path', params['global'], '')
-    mlflow_experiment_name = get_key_def('mlflow_experiment_name', params['global'], 'gdl-training')
-    d['prep_csv_file'] = Path(preprocessing_path, mlflow_experiment_name,
-                              f"images_to_samples_{mlflow_experiment_name}.csv")
-    d['img_dir_or_csv_file'] = Path(preprocessing_path, mlflow_experiment_name,
-                                    f"inference_sem_seg_{mlflow_experiment_name}.csv")
-    samples_size = params["global"]["samples_size"]
-    if 'self' in params.keys():
-        config_file_name = Path(get_key_def('config_file', params['self'], '')).stem
-    else:
-        config_file_name = Path('')
-    if params['global']['task'] == 'segmentation':
-        if 'sample' in params.keys():
-            min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
-                                         expected_type=int)
-        else:
-            min_annot_perc = 0
-        num_bands = params['global']['number_of_bands']
-        d['samples_dir_name'] = (f'tiles{samples_size}_min-annot{min_annot_perc}_{num_bands}bands'
-                           f'_{mlflow_experiment_name}')
-        d['state_dict_path'] = Path(data_path, d['samples_dir_name'], 'model', config_file_name, 'checkpoint.pth.tar')
-    elif params['global']['task'] == 'classification':
-        d['state_dict_path'] = Path(data_path, 'model', config_file_name, 'checkpoint.pth.tar')
-    else:
-        raise NotImplementedError
-    if key is None:
-        return d
-    return d[key]
-
-  
 def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -> List:
     """
     Checks if values for same keys or subkeys (max depth of 2) of two dictionaries match.

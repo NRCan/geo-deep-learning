@@ -1,10 +1,8 @@
 import logging
 
 import numpy as np
-try:
-    from ruamel_yaml import YAML
-except ModuleNotFoundError:
-    from ruamel.yaml import YAML
+import rasterio
+from ruamel_yaml import YAML
 from tqdm import tqdm
 from pathlib import Path
 from skimage import morphology
@@ -54,7 +52,9 @@ def image_reader_as_array(input_image,
     """
     if clip_gpkg:
         try:
-            np_array, input_image = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
+            clipped_img_pth = clip_raster_with_gpkg(input_image, clip_gpkg, debug=debug)
+            input_image = rasterio.open(clipped_img_pth, 'r')
+            np_array = input_image.read()
         except ValueError:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
             logging.exception(f'Problem clipping raster with geopackage {clip_gpkg}')
             np_array = input_image.read()

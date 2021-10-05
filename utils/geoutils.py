@@ -5,7 +5,8 @@ from pathlib import Path
 import numpy as np
 
 import fiona
-
+import os
+import warnings
 import rasterio
 from rasterio.features import is_valid_geom
 from rasterio.mask import mask
@@ -63,15 +64,18 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     """
     from shapely.geometry import box  # geopandas and shapely become a project dependency only during sample creation
     import geopandas as gpd
+    import fiona
     # Get extent of gpkg data with fiona
     with fiona.open(gpkg, 'r') as src:
+        gpkg_crs = src.crs
+        assert gpkg_crs == raster.crs
         minx, miny, maxx, maxy = src.bounds  # ouest, nord, est, sud
 
     # Create a bounding box with Shapely
     bbox = box(minx, miny, maxx, maxy)
 
     # Insert the bbox into a GeoDataFrame
-    geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0]) #, crs=gpkg_crs['init'])
+    geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0])  # , crs=gpkg_crs['init'])
 
     # Re-project into the same coordinate system as the raster data
     # geo = geo.to_crs(crs=raster.crs.data)
@@ -80,21 +84,24 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     coords = getFeatures(geo)
 
     # clip the raster with the polygon
-    out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
-
-    out_meta = raster.meta.copy()
-    out_meta.update({"driver": "GTiff",
-                     "height": out_img.shape[1],
-                     "width": out_img.shape[2],
-                     "transform": out_transform})
-
-    out_tif = f"{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
-    with rasterio.open(out_tif, "w", **out_meta) as dest:
-        if debug:
-            logging.debug(f"writing clipped raster to {out_tif}")
-            dest.write(out_img)
-
-    return out_img, dest
+    out_tif = Path(raster.name).parent / f"{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
+    if os.path.isfile(out_tif):
+        return out_tif
+    else:
+        try:
+            out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
+            out_meta = raster.meta.copy()
+            out_meta.update({"driver": "GTiff",
+                             "height": out_img.shape[1],
+                             "width": out_img.shape[2],
+                             "transform": out_transform})
+            with rasterio.open(out_tif, "w", **out_meta) as dest:
+                print(f"writing clipped raster to {out_tif}")
+                dest.write(out_img)
+            return out_tif
+        except ValueError as e:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
+            # TODO: warning or exception? if warning, except must be set in images_to_samples
+            warnings.warn(f"e\n {raster.name}\n{gpkg}")
 
 
 def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0, target_ids=None, merge_all=True):
@@ -142,7 +149,7 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
     # overwritte label values to make sure they are continuous
     if target_ids:
         for index, target_id in enumerate(target_ids):
-            np_label_raster[np_label_raster == target_id] = (index+1)
+            np_label_raster[np_label_raster == target_id] = (index + 1)
 
     return np_label_raster
 

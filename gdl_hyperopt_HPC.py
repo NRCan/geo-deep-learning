@@ -22,9 +22,15 @@ from utils.readers import read_parameters
 from train_segmentation import main as train_main
 
 # This is the hyperparameter space to explore
-my_space = {'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3_resnet101']),
-            'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
+# my_space = {'target_size': hp.choice('target_size', [512, 636]),
+#             'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3_resnet101']),
+#             'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
+#             'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
+#             'learning_rate': hp.loguniform('learning_rate', np.log(1e-7), np.log(0.1))}
+
+my_space = {'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
             'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
+            'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3_resnet101']),
             'learning_rate': hp.loguniform('learning_rate', np.log(1e-7), np.log(0.1))}
 
 
@@ -62,7 +68,6 @@ def objective_with_args(hparams, params, config_path):
 
     # ToDo: This is dependent on the specific structure of the GDL config file
     params['global']['model_name'] = hparams['model_name']
-    # params['training']['target_size'] = hparams['target_size']
     params['training']['loss_fn '] = hparams['loss_fn']
     params['training']['optimizer'] = hparams['optimizer']
     params['training']['learning_rate'] = hparams['learning_rate']
@@ -73,6 +78,12 @@ def objective_with_args(hparams, params, config_path):
         params['global']['mlflow_run_name'] = run_name_split[0] + f'_{int(run_name_split[1]) + 1}'
     except:
         pass
+
+    if params['global']['model_name'] == "unet_pretrained":
+        params['training']['state_dict_path'] = params['training']['dict_unet']
+    elif params['global']['model_name'] == "deeplabv3_resnet101":
+        params['training']['state_dict_path'] = params['training']['dict_deeplab']
+
     train_main(params, config_path)
     torch.cuda.empty_cache()
 
@@ -111,7 +122,6 @@ def trials_to_csv(trials, csv_pth):
 
 
 def main(params, config_path):
-    # ToDo: Customize where the trials file is
     # ToDo: Customize where the trials file is
     root_path = Path(params['global']['assets_path'])
     pkl_file = root_path.joinpath('hyperopt_trials.pkl')

@@ -89,7 +89,7 @@ class LayersEnsemble(nn.Module):
 
         # Conv Layer to fit the size of the next layer
         self.conv1x1 = nn.Conv2d(
-                in_channels=out_channels*2, out_channels=out_channels, kernel_size=1
+            in_channels=out_channels * 2, out_channels=out_channels, kernel_size=1
         )
 
         del model_nir, model_rgb, conv1_w, green_weight
