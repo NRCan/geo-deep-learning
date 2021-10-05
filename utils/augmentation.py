@@ -92,8 +92,6 @@ def compose_transforms(params,
 
         if input_space:
             lst_trans.append(BgrToRgb(input_space))
-        else:
-            logging.info(f'Channels will be fed to model as is. First 3 bands of imagery should be RGB, not BGR.')
 
         if scale:
             lst_trans.append(Scale(scale))  # TODO: assert coherence with below normalization

@@ -34,7 +34,7 @@ This project comprises a set of commands to be run at a shell command prompt.  E
 
 - [Python 3.7.6](https://www.python.org/downloads/release/python-376/), see the full list of dependencies in [environment.yml](environment.yml)
 - [mlflow](https://mlflow.org/)
-- [minicanda](https://docs.conda.io/en/latest/miniconda.html) (highly recommended)
+- [miniconda](https://docs.conda.io/en/latest/miniconda.html) (highly recommended)
 - nvidia GPU (highly recommended)
 
 > The system can be used on your workstation or cluster and on [AWS](https://aws.amazon.com/).

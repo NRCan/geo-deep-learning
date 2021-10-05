@@ -316,8 +316,8 @@ def train(train_loader,
             if batch_index in range(min_vis_batch, max_vis_batch, increment):
                 vis_path = progress_log.parent.joinpath('visualization')
                 if ep_idx == 0:
-                    logging.info(f'Visualizing on train outputs for batches in range {vis_params[
-                        "vis_batch_range"]}. All images will be saved to {vis_path}\n')
+                    logging.info(f'Visualizing on train outputs for batches in range {vis_params["vis_batch_range"]}. '
+                                 f'All images will be saved to {vis_path}\n')
                 vis_from_batch(vis_params, inputs, outputs,
                                batch_index=batch_index,
                                vis_path=vis_path,
@@ -411,8 +411,8 @@ def evaluation(eval_loader,
                 if batch_index in range(min_vis_batch, max_vis_batch, increment):
                     vis_path = progress_log.parent.joinpath('visualization')
                     if ep_idx == 0 and batch_index == min_vis_batch:
-                        logging.info(f'Visualizing on {dataset} outputs for batches in range {vis_params[
-                            "vis_batch_range"]}. All '
+                        logging.info(
+                            f'Visualizing on {dataset} outputs for batches in range {vis_params["vis_batch_range"]} '
                                      f'images will be saved to {vis_path}\n')
                     vis_from_batch(vis_params, inputs, outputs,
                                    batch_index=batch_index,
@@ -537,9 +537,6 @@ def main(params, config_path):
     num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
     if num_devices and not num_devices >= 0:
         raise ValueError("missing mandatory num gpus parameter")
-    default_max_used_ram = 15
-    max_used_ram = get_key_def('max_used_ram', params['global'], default=default_max_used_ram, expected_type=int)
-    max_used_perc = get_key_def('max_used_perc', params['global'], default=15, expected_type=int)
 
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
@@ -604,12 +601,6 @@ def main(params, config_path):
                                                          'logfilename_debug': logfile_debug,
                                                          'console_level': console_level_logging})
 
-    # now that we know where logs will be saved, we can start logging!
-    if not (0 <= max_used_ram <= 100):
-        logging.warning(f'Max used ram parameter should be a percentage. Got {max_used_ram}. '
-                        f'Will set default value of {default_max_used_ram} %')
-        max_used_ram = default_max_used_ram
-
     logging.info(f'Model and log files will be saved to: {output_path}\n\n')
     if debug:
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
@@ -617,16 +608,6 @@ def main(params, config_path):
     if dontcare_val < 0 and vis_batch_range:
         logging.warning(f'Visualization: expected positive value for ignore_index, got {dontcare_val}.'
                         f'Will be overridden to 255 during visualization only. Problems may occur.')
-
-    # list of GPU devices that are available and unused. If no GPUs, returns empty list
-    gpu_devices_dict = get_device_ids(num_devices,
-                                      max_used_ram_perc=max_used_ram,
-                                      max_used_perc=max_used_perc)
-    logging.info(f'GPUs devices available: {gpu_devices_dict}')
-    num_devices = len(gpu_devices_dict.keys())
-    device = torch.device(f'cuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
-
-    logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
 
     # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
     dontcare2backgr = False
@@ -638,6 +619,26 @@ def main(params, config_path):
     # Will check if batch size needs to be a lower value only if cropping samples during training
     calc_eval_bs = True if crop_size else False
 
+    # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
+    model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict = \
+        net(model_name=model_name,
+            num_bands=num_bands,
+            num_channels=num_classes_corrected,
+            dontcare_val=dontcare_val,
+            num_devices=num_devices,
+            train_state_dict_path=train_state_dict_path,
+            pretrained=pretrained,
+            dropout_prob=dropout_prob,
+            loss_fn=loss_fn,
+            class_weights=class_weights,
+            optimizer=optimizer,
+            net_params=params,
+            conc_point=conc_point,
+            coordconv_params=coordconv_params)
+
+    logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
+
+    logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
                                                                        eval_batch_size=eval_batch_size,
@@ -653,23 +654,7 @@ def main(params, config_path):
                                                                        dontcare2backgr=dontcare2backgr,
                                                                        calc_eval_bs=calc_eval_bs,
                                                                        debug=debug)
-    # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    model, model_name, criterion, optimizer, lr_scheduler = net(model_name=model_name,
-                                                                num_bands=num_bands,
-                                                                num_channels=num_classes_corrected,
-                                                                dontcare_val=dontcare_val,
-                                                                num_devices=num_devices,
-                                                                train_state_dict_path=train_state_dict_path,
-                                                                pretrained=pretrained,
-                                                                dropout_prob=dropout_prob,
-                                                                loss_fn=loss_fn,
-                                                                class_weights=class_weights,
-                                                                optimizer=optimizer,
-                                                                net_params=params,
-                                                                conc_point=conc_point,
-                                                                coordconv_params=coordconv_params)
 
-    logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
 
     # mlflow tracking path + parameters logging
     set_tracking_uri(mlflow_uri)
@@ -821,6 +806,7 @@ def main(params, config_path):
             bucket.upload_file(filename, bucket_filename)
 
     time_elapsed = time.time() - since
+    log_params({'checkpoint path': filename})
     logging.info('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
     # log_artifact(logfile)
     # log_artifact(logfile_debug)
