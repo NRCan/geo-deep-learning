@@ -435,9 +435,10 @@ if __name__ == '__main__':
     input_type.add_argument('-c', '--csv', metavar='csv_file', help='Path to csv containing listed geodata with columns'
                                                                     ' as expected by geo-deep-learning. See README')
     input_type.add_argument('-p', '--param', metavar='yaml_file', help='Path to parameters stored in yaml')
-    parser.add_argument('--debug', metavar='debug_mode', action=argparse.BooleanOptionalAction,
+    # FIXME: enable BooleanOptionalAction only when GDL has moved to Python 3.8
+    parser.add_argument('--debug', metavar='debug_mode', #action=argparse.BooleanOptionalAction,
                         default=False)
-    parser.add_argument('--parallel', metavar='multiprocessing', action=argparse.BooleanOptionalAction,
+    parser.add_argument('--parallel', metavar='multiprocessing', #action=argparse.BooleanOptionalAction,
                         default=False,
                         help="Boolean. If activated, will use python's multiprocessing package to parallelize")
     args = parser.parse_args()
