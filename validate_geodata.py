@@ -22,13 +22,14 @@ if __name__ == '__main__':
     input_type.add_argument('-d', '--dir', metavar='directory', help='Directory where geodata will be validated. '
                                                                      'Recursive search is performed. All rasters that '
                                                                      'can be read by GDAL will be included')
-    parser.add_argument('--debug', metavar='debug_mode', action=argparse.BooleanOptionalAction,
+    # FIXME: add BooleanOptionalAction when python >=3.8
+    parser.add_argument('--debug', metavar='debug_mode', #action=argparse.BooleanOptionalAction,
                         default=False)
     # Not yet implemented
     # parser.add_argument('--parallel', metavar='multiprocessing', action=argparse.BooleanOptionalAction,
     #                     default=False,
     #                     help="Boolean. If activated, will use python's multiprocessing package to parallelize")
-    parser.add_argument('-e', '--extended', metavar='extended_check', action=argparse.BooleanOptionalAction,
+    parser.add_argument('-e', '--extended', metavar='extended_check', #action=argparse.BooleanOptionalAction,
                         default=False,
                         help="Boolean. If activated, will perform extended check on data. "
                              "WARNING: This will be require more ressources")
