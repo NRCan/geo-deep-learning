@@ -2,12 +2,8 @@ import os
 import time
 import hydra
 import logging
-
 from omegaconf import DictConfig, OmegaConf
-
-# GDL import
-from utils.hydra_utils import save_useful_info
-from utils.utils import load_obj
+from utils.utils import load_obj, save_useful_info
 
 
 @hydra.main(config_path="config", config_name="gdl_config_template")
@@ -63,7 +59,7 @@ def run_gdl(cfg: DictConfig) -> None:
     start_time = time.time()
     # Read the task and execute it
     task = load_obj(cfg.task.path_task_function)
-    task(cfg, logging)
+    task(cfg)
 
     # End --------------------------------
     msg = "End of {} !!!".format(cfg.mode)

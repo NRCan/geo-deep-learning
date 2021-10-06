@@ -1,0 +1,72 @@
+2021-08-25 15:59:39,971 root 549 [INFO][main] 
+Preparing samples 
+	Samples_size: 256 
+	Overlap: 0 
+	Validation set: 20.0 % of created training samples
+2021-08-25 15:59:39,971 root 567 [INFO][main] 
+Reading as array: ./data/22978945_15.tif
+2021-08-25 15:59:40,010 shapely.geos 32 [DEBUG][load_dll] Trying `CDLL(/home/charles/miniconda3/envs/geo_deep_env/lib/libgeos_c.so.1)`
+2021-08-25 15:59:40,011 shapely.geos 49 [DEBUG][load_dll] Library path: '/home/charles/miniconda3/envs/geo_deep_env/lib/libgeos_c.so.1'
+2021-08-25 15:59:40,011 shapely.geos 50 [DEBUG][load_dll] DLL: <CDLL '/home/charles/miniconda3/envs/geo_deep_env/lib/libgeos_c.so.1', handle 555a2e83bc10 at 0x7fcf44871e90>
+2021-08-25 15:59:40,025 shapely.geos 32 [DEBUG][load_dll] Trying `CDLL(libc.so.6)`
+2021-08-25 15:59:40,025 shapely.geos 49 [DEBUG][load_dll] Library path: 'libc.so.6'
+2021-08-25 15:59:40,025 shapely.geos 50 [DEBUG][load_dll] DLL: <CDLL 'libc.so.6', handle 7fcfd6e0c500 at 0x7fcf448717d0>
+2021-08-25 15:59:40,381 root 588 [INFO][main] 
+Rasterizing vector file (attribute: properties/class): ./data/massachusetts_buildings.gpkg
+2021-08-25 15:59:40,441 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=1/20, Excld samps=0/20, Target annot perc=0.2
+2021-08-25 15:59:40,455 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=2/20, Excld samps=0/20, Target annot perc=4.3
+2021-08-25 15:59:40,471 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=3/20, Excld samps=0/20, Target annot perc=4.5
+2021-08-25 15:59:40,487 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=4/20, Excld samps=0/20, Target annot perc=0.5
+2021-08-25 15:59:40,502 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=5/20, Excld samps=0/20, Target annot perc=1.8
+2021-08-25 15:59:40,517 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=6/20, Excld samps=0/20, Target annot perc=9.8
+2021-08-25 15:59:40,539 root 316 [DEBUG][samples_preparation] Dset=val, Added samps=7/20, Excld samps=0/20, Target annot perc=11.2
+2021-08-25 15:59:40,554 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=8/20, Excld samps=0/20, Target annot perc=12.9
+2021-08-25 15:59:40,569 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=9/20, Excld samps=0/20, Target annot perc=7.8
+2021-08-25 15:59:40,584 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=10/20, Excld samps=0/20, Target annot perc=0.7
+2021-08-25 15:59:40,599 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=11/20, Excld samps=0/20, Target annot perc=13.0
+2021-08-25 15:59:40,614 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=12/20, Excld samps=0/20, Target annot perc=8.3
+2021-08-25 15:59:40,629 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=13/20, Excld samps=0/20, Target annot perc=1.0
+2021-08-25 15:59:40,643 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=14/20, Excld samps=0/20, Target annot perc=3.8
+2021-08-25 15:59:40,658 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=15/20, Excld samps=0/20, Target annot perc=4.7
+2021-08-25 15:59:40,673 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=16/20, Excld samps=0/20, Target annot perc=3.1
+2021-08-25 15:59:40,688 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=17/20, Excld samps=0/20, Target annot perc=0.0
+2021-08-25 15:59:40,703 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=18/20, Excld samps=0/20, Target annot perc=0.0
+2021-08-25 15:59:40,718 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=19/20, Excld samps=0/20, Target annot perc=1.6
+2021-08-25 15:59:40,733 root 316 [DEBUG][samples_preparation] Dset=trn, Added samps=20/20, Excld samps=0/20, Target annot perc=3.3
+2021-08-25 15:59:40,733 root 664 [INFO][main] 
+Number of samples={'trn': 19, 'val': 1, 'tst': 0}
+2021-08-25 15:59:40,734 root 567 [INFO][main] 
+Reading as array: ./data/23429155_15.tif
+2021-08-25 15:59:40,803 root 588 [INFO][main] 
+Rasterizing vector file (attribute: properties/class): ./data/massachusetts_buildings.gpkg
+2021-08-25 15:59:40,855 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=1/15, Excld samps=0/15, Target annot perc=10.3
+2021-08-25 15:59:40,871 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=2/15, Excld samps=0/15, Target annot perc=10.1
+2021-08-25 15:59:40,887 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=3/15, Excld samps=0/15, Target annot perc=10.7
+2021-08-25 15:59:40,902 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=4/15, Excld samps=0/15, Target annot perc=9.3
+2021-08-25 15:59:40,918 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=5/15, Excld samps=0/15, Target annot perc=0.0
+2021-08-25 15:59:40,933 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=6/15, Excld samps=0/15, Target annot perc=13.9
+2021-08-25 15:59:40,948 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=7/15, Excld samps=0/15, Target annot perc=9.6
+2021-08-25 15:59:40,964 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=8/15, Excld samps=0/15, Target annot perc=12.2
+2021-08-25 15:59:40,979 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=9/15, Excld samps=0/15, Target annot perc=9.3
+2021-08-25 15:59:40,994 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=10/15, Excld samps=0/15, Target annot perc=0.4
+2021-08-25 15:59:41,009 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=11/15, Excld samps=0/15, Target annot perc=10.6
+2021-08-25 15:59:41,025 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=12/15, Excld samps=0/15, Target annot perc=11.1
+2021-08-25 15:59:41,040 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=13/15, Excld samps=0/15, Target annot perc=10.3
+2021-08-25 15:59:41,055 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=14/15, Excld samps=0/15, Target annot perc=8.7
+2021-08-25 15:59:41,070 root 316 [DEBUG][samples_preparation] Dset=tst, Added samps=15/15, Excld samps=0/15, Target annot perc=0.4
+2021-08-25 15:59:41,070 root 664 [INFO][main] 
+Number of samples={'trn': 19, 'val': 1, 'tst': 15}
+2021-08-25 15:59:41,071 root 683 [INFO][main] 
+Pixels from class 1: 6.3 %
+2021-08-25 15:59:41,071 root 683 [INFO][main] 
+Pixels from class 0: 74.4 %
+2021-08-25 15:59:41,071 root 683 [INFO][main] 
+Pixels from class -1: 19.3 %
+2021-08-25 15:59:41,071 root 685 [INFO][main] 
+Number of samples created: 
+2021-08-25 15:59:41,072 root 73 [INFO][run_gdl] 
+-------------------
+End of sampling !!!
+Elapsed time: 1.33s
+-------------------
+

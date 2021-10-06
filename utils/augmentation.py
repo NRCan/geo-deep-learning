@@ -13,8 +13,6 @@ import random
 import numpy as np
 from skimage import transform, exposure
 from torchvision import transforms
-
-from utils.hydra_utils import get_hydra_key
 from utils.utils import get_key_def, pad, minmax_scale, BGR_to_RGB
 
 logging.getLogger(__name__)
@@ -45,23 +43,23 @@ def compose_transforms(params,
     :return: (obj) PyTorch's compose object of the transformations to be applied.
     """
     lst_trans = []
-    norm_mean = get_hydra_key('mean', params.augmentation.normalization)
-    norm_std = get_hydra_key('std', params.augmentation.normalization)
-    random_radiom_trim_range = get_hydra_key('random_radiom_trim_range', params.augmentation, None)
+    norm_mean = get_key_def('mean', params['augmentation']['normalization'])
+    norm_std = get_key_def('std', params['augmentation']['normalization'])
+    random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['augmentation'], None)
 
     if dataset == 'trn':
         if aug_type == 'radiometric':
-            noise = get_hydra_key('noise', params.augmentation, None)
+            noise = get_key_def('noise', params['augmentation'], None)
             if random_radiom_trim_range:  # Contrast stretching
                 # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
                 lst_trans.append(RadiometricTrim(random_range=random_radiom_trim_range))
             if noise:
                 lst_trans.append(AddGaussianNoise(std=noise))
         elif aug_type == 'geometric':
-            geom_scale_range = get_hydra_key('geom_scale_range', params.augmentation, None)
-            hflip = get_hydra_key('hflip_prob', params.augmentation, None)
-            rotate_prob = get_hydra_key('rotate_prob', params.augmentation, None)
-            rotate_limit = get_hydra_key('rotate_limit', params.augmentation, None)
+            geom_scale_range = get_key_def('geom_scale_range', params['augmentation'], None)
+            hflip = get_key_def('hflip_prob', params['augmentation'], None)
+            rotate_prob = get_key_def('rotate_prob', params['augmentation'], None)
+            rotate_limit = get_key_def('rotate_limit', params['augmentation'], None)
             if geom_scale_range:  # TODO: test this.
                 lst_trans.append(GeometricScale(range=geom_scale_range))
             if hflip:

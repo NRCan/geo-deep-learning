@@ -3,7 +3,7 @@ import h5py
 import torch
 import shutil
 import logging
-import argparse
+import logging.config
 import warnings
 import functools
 import numpy as np
@@ -28,7 +28,6 @@ from torch.utils.data import DataLoader
 from PIL import Image
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
-from utils.hydra_utils import get_hydra_key
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
@@ -182,8 +181,8 @@ def get_num_samples(samples_path, params, dontcare):
     weights = []
     samples_weight = None
     for i in ['trn', 'val', 'tst']:
-        if get_hydra_key(f"num_{i}_samples", params.training, None) is not None:
-            num_samples[i] = get_hydra_key(f"num_{i}_samples", params.training)
+        if get_key_def(f"num_{i}_samples", params['training'], None) is not None:
+            num_samples[i] = get_key_def(f"num_{i}_samples", params['training'])
             with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), 'r') as hdf5_file:
                 file_num_samples = len(hdf5_file['map_img'])
             if num_samples[i] > file_num_samples:
@@ -463,7 +462,7 @@ def evaluation(eval_loader,
     return eval_metrics
 
 
-def train(cfg: DictConfig, log: logging) -> None:
+def train(cfg: DictConfig) -> None:
     """
     Function to train and validate a model for semantic segmentation.
 
@@ -491,47 +490,46 @@ def train(cfg: DictConfig, log: logging) -> None:
 
     -------
     :param cfg: (dict) Parameters found in the yaml config file.
-    :param log: (logging) Logging module from the main code.
     """
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     # MANDATORY PARAMETERS
-    num_classes = len(get_hydra_key('classes_dict', cfg.dataset).keys())
+    num_classes = len(get_key_def('classes_dict', cfg['dataset']).keys())
     num_bands = len(read_modalities(cfg.dataset.modalities))
-    batch_size = get_hydra_key('batch_size', cfg.trainer)
-    eval_batch_size = get_hydra_key('eval_batch_size', cfg.trainer, default=batch_size)
-    num_epochs = get_hydra_key('max_epochs', cfg.trainer)
-    model_name = get_hydra_key('name', cfg.model).lower()
+    batch_size = get_key_def('batch_size', cfg['trainer'])
+    eval_batch_size = get_key_def('eval_batch_size', cfg['trainer'], default=batch_size)
+    num_epochs = get_key_def('max_epochs', cfg['trainer'])
+    model_name = get_key_def('name', cfg['model']).lower()
     # TODO need to keep in parameters? see victor stuff
-    # BGR_to_RGB = get_hydra_key('BGR_to_RGB', params['global'], expected_type=bool)
+    # BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
     BGR_to_RGB = False
 
     # OPTIONAL PARAMETERS
-    debug = get_hydra_key('debug', cfg)
-    task = get_hydra_key('name',  cfg.task, default='segmentation')
-    dontcare_val = get_hydra_key("ignore_index", cfg.dataset, default=-1)
-    bucket_name = get_hydra_key('bucket_name', cfg.AWS)
-    scale = get_hydra_key('scale_data', cfg.augmentation, default=[0, 1])
-    batch_metrics = get_hydra_key('batch_metrics', cfg.training, default=None)
-    meta_map = get_hydra_key("meta_map", cfg.training, default=None)  # TODO what is that?
-    crop_size = get_hydra_key('target_size', cfg.training, default=None)
+    debug = get_key_def('debug', cfg)
+    task = get_key_def('name',  cfg['task'], default='segmentation')
+    dontcare_val = get_key_def("ignore_index", cfg['dataset'], default=-1)
+    bucket_name = get_key_def('bucket_name', cfg['AWS'])
+    scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
+    batch_metrics = get_key_def('batch_metrics', cfg['training'], default=None)
+    meta_map = get_key_def("meta_map", cfg['training'], default=None)  # TODO what is that?
+    crop_size = get_key_def('target_size', cfg['training'], default=None)
     # if error
     if meta_map and not Path(meta_map).is_file():
-        raise log.critical(FileNotFoundError(f'Couldn\'t locate {meta_map}'))
+        raise logging.critical(FileNotFoundError(f'\nCouldn\'t locate {meta_map}'))
     if task != 'segmentation':
-        raise log.critical(ValueError(f"The task should be segmentation. The provided value is {task}"))
+        raise logging.critical(ValueError(f"\nThe task should be segmentation. The provided value is {task}"))
 
     # MODEL PARAMETERS
-    class_weights = get_hydra_key('class_weights', cfg.dataset, default=None)
-    loss_fn = get_hydra_key('loss_fn', cfg.training, default='CrossEntropy')
-    optimizer = get_hydra_key('name', cfg.optimizer, default='adam')  # TODO change something to call the function
-    pretrained = get_hydra_key('pretrained', cfg.model, default=True)
-    train_state_dict_path = get_hydra_key('state_dict_path', cfg.general, default=None)
-    dropout_prob = get_hydra_key('factor', cfg.scheduler.params, default=None)
+    class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
+    loss_fn = get_key_def('loss_fn', cfg['training'], default='CrossEntropy')
+    optimizer = get_key_def('name', cfg['optimizer'], default='adam')  # TODO change something to call the function
+    pretrained = get_key_def('pretrained', cfg['model'], default=True)
+    train_state_dict_path = get_key_def('state_dict_path', cfg['general'], default=None)
+    dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None)
     # if error
     if train_state_dict_path and not Path(train_state_dict_path).is_file():
-        raise log.critical(
-            FileNotFoundError(f'Could not locate pretrained checkpoint for training: {train_state_dict_path}')
+        raise logging.critical(
+            FileNotFoundError(f'\nCould not locate pretrained checkpoint for training: {train_state_dict_path}')
         )
     if class_weights:
         verify_weights(num_classes, class_weights)
@@ -541,44 +539,44 @@ def train(cfg: DictConfig, log: logging) -> None:
     #conc_point = get_key_def('concatenate_depth', params['global'], None)
 
     # GPU PARAMETERS
-    num_devices = get_hydra_key('num_gpus', cfg.trainer, default=0)
+    num_devices = get_key_def('num_gpus', cfg['trainer'], default=0)
     if num_devices and not num_devices >= 0:
-        raise log.critical(ValueError("missing mandatory num gpus parameter"))
+        raise logging.critical(ValueError("\nmissing mandatory num gpus parameter"))
     default_max_used_ram = 15
-    max_used_ram = get_hydra_key('max_used_ram', cfg.trainer, default=default_max_used_ram)
-    max_used_perc = get_hydra_key('max_used_perc', cfg.trainer, default=15)
+    max_used_ram = get_key_def('max_used_ram', cfg['trainer'], default=default_max_used_ram)
+    max_used_perc = get_key_def('max_used_perc', cfg['trainer'], default=15)
 
     # LOGGING PARAMETERS TODO
-    mlflow_uri = get_hydra_key('uri', cfg.logging, default="./mlruns")
+    mlflow_uri = get_key_def('uri', cfg['logging'], default="./mlruns")
     Path(mlflow_uri).mkdir(exist_ok=True)
-    experiment_name = get_hydra_key('experiment_name', cfg.logging, default='gdl-training')
-    run_name = get_hydra_key('name', cfg.logging, default='gdl')
+    experiment_name = get_key_def('experiment_name', cfg['logging'], default='gdl-training')
+    run_name = get_key_def('name', cfg['logging'], default='gdl')
 
     # PARAMETERS FOR hdf5 SAMPLES
-    data_path = Path(get_hydra_key('sample_data_dir', cfg.dataset, './data'))
-    samples_size = get_hydra_key("input_dim", cfg.dataset, default=256)
-    overlap = get_hydra_key("overlap", cfg.dataset, default=0)
-    min_annot_perc = get_hydra_key('min_annotated_percent', cfg.dataset, default=0)
+    data_path = Path(get_key_def('sample_data_dir', cfg['dataset'], './data'))
+    samples_size = get_key_def("input_dim", cfg['dataset'], default=256)
+    overlap = get_key_def("overlap", cfg['dataset'], default=0)
+    min_annot_perc = get_key_def('min_annotated_percent', cfg['dataset'], default=0)
     if not data_path.is_dir():
-        raise log.critical(FileNotFoundError(f'Could not locate data path {data_path}'))
+        raise logging.critical(FileNotFoundError(f'\nCould not locate data path {data_path}'))
     samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
                            f'_{experiment_name}')
     samples_folder = data_path.joinpath(samples_folder_name)
 
     # visualization parameters
-    vis_at_train = get_hydra_key('vis_at_train', cfg.visualization, default=False)
-    vis_at_eval = get_hydra_key('vis_at_evaluation', cfg.visualization, default=False)
-    vis_batch_range = get_hydra_key('vis_batch_range', cfg.visualization, default=None)
-    vis_at_checkpoint = get_hydra_key('vis_at_checkpoint', cfg.visualization, default=False)
-    ep_vis_min_thresh = get_hydra_key('vis_at_ckpt_min_ep_diff', cfg.visualization, default=1)
-    vis_at_ckpt_dataset = get_hydra_key('vis_at_ckpt_dataset', cfg.visualization, 'val')
+    vis_at_train = get_key_def('vis_at_train', cfg['visualization'], default=False)
+    vis_at_eval = get_key_def('vis_at_evaluation', cfg['visualization'], default=False)
+    vis_batch_range = get_key_def('vis_batch_range', cfg['visualization'], default=None)
+    vis_at_checkpoint = get_key_def('vis_at_checkpoint', cfg['visualization'], default=False)
+    ep_vis_min_thresh = get_key_def('vis_at_ckpt_min_ep_diff', cfg['visualization'], default=1)
+    vis_at_ckpt_dataset = get_key_def('vis_at_ckpt_dataset', cfg['visualization'], 'val')
 
     # coordconv parameters TODO
     # coordconv_params = {}
     # for param, val in params['global'].items():
     #     if 'coordconv' in param:
     #         coordconv_params[param] = val
-    coordconv_params = get_hydra_key('coordconv', cfg.model)
+    coordconv_params = get_key_def('coordconv', cfg['model'])
 
     # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to hdf5s).
     with open_dict(cfg):
@@ -598,7 +596,7 @@ def train(cfg: DictConfig, log: logging) -> None:
         last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
         archive_output_path = Path(cfg.general.save_dir).joinpath('model') / f"{model_id}_{last_mod_time_suffix}"
         shutil.move(output_path, archive_output_path)
-        log.warning(f"\n'{output_path}' already exist, the contents will be move to '{archive_output_path}'")
+        logging.warning(f"\n'{output_path}' already exist, the contents will be move to '{archive_output_path}'")
         # change the path for the new one
         # output_path = archive_output_path
     output_path.mkdir(parents=True, exist_ok=False)
@@ -610,45 +608,45 @@ def train(cfg: DictConfig, log: logging) -> None:
     # TODO copy the config file in .hydra/config.yaml anf rename it
 
     # import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
-    log.info(f'\nModel and log files will be saved to: {output_path}')
+    logging.info(f'\nModel and log files will be saved to: {output_path}')
     log_config_path = Path('utils/logging.conf').absolute()
     logfile = f'{output_path}/{model_id}.log'
     logfile_debug = f'{output_path}/{model_id}_debug.log'
     console_level_logging = 'INFO' if not debug else 'DEBUG'
-    log.config.fileConfig(log_config_path,
-                          defaults={
-                              'logfilename': logfile,
-                              'logfilename_debug': logfile_debug,
-                              'console_level': console_level_logging}
-                          )
+    logging.config.fileConfig(log_config_path,
+                              defaults={
+                                  'logfilename': logfile,
+                                  'logfilename_debug': logfile_debug,
+                                  'console_level': console_level_logging}
+                              )
     # TODO just copy the GDL.log (get the name GDL by hydra:run...) and join the 2 logs
 
     # now that we know where logs will be saved, we can start logging!
     if not (0 <= max_used_ram <= 100):
-        log.warning(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}. '
-                    f'Will set default value of {default_max_used_ram} %')
+        logging.warning(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}. '
+                        f'Will set default value of {default_max_used_ram} %')
         max_used_ram = default_max_used_ram
     if debug:
-        log.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
-                    f'cause delays in execution.')
+        logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
+                        f'cause delays in execution.')
     if dontcare_val < 0 and vis_batch_range:
-        log.warning(f'\nVisualization: expected positive value for ignore_index, got {dontcare_val}.'
-                    f'Will be overridden to 255 during visualization only. Problems may occur.')
+        logging.warning(f'\nVisualization: expected positive value for ignore_index, got {dontcare_val}.'
+                        f'Will be overridden to 255 during visualization only. Problems may occur.')
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty list
     gpu_devices_dict = get_device_ids(num_devices,
                                       max_used_ram_perc=max_used_ram,
                                       max_used_perc=max_used_perc)
-    log.info(f'\nGPUs devices available: {gpu_devices_dict}')
+    logging.info(f'\nGPUs devices available: {gpu_devices_dict}')
     num_devices = len(gpu_devices_dict.keys())
     device = torch.device(f'\ncuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
-    log.info(f'\nCreating dataloader from data in {samples_folder}...')
+    logging.info(f'\nCreating dataloader from data in {samples_folder}...')
 
     # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
     dontcare2backgr = False
     if loss_fn not in ['Lovasz', 'CrossEntropy', 'OhemCrossEntropy']:
         dontcare2backgr = True
-        log.warning(f'\nDontcare is not implemented for loss function "{loss_fn}". '
+        logging.warning(f'\nDontcare is not implemented for loss function "{loss_fn}". '
                     f'Dontcare values ({dontcare_val}) in label will be replaced with background value (0)')
 
     # Will check if batch size needs to be a lower value only if cropping samples during training
@@ -686,7 +684,7 @@ def train(cfg: DictConfig, log: logging) -> None:
                                                                 conc_point=conc_point,
                                                                 coordconv_params=coordconv_params)
 
-    log.info(f'\nInstantiated {model_name} model with {num_classes_corrected} output channels.')
+    logging.info(f'\nInstantiated {model_name} model with {num_classes_corrected} output channels.')
 
     # mlflow tracking path + parameters logging
     set_tracking_uri(mlflow_uri)
@@ -727,13 +725,13 @@ def train(cfg: DictConfig, log: logging) -> None:
                 ValueError(f'\nVis_batch_range expects three integers in a list: start batch, end batch, increment.'
                            f'Got {vis_batch_range}')
             )
-        vis_at_init_dataset = get_key_def('vis_at_init_dataset', params['visualization'], 'val')
+        vis_at_init_dataset = get_key_def('vis_at_init_dataset', cfg['visualization'], 'val')
 
         # Visualization at initialization. Visualize batch range before first eopch.
-        if get_key_def('vis_at_init', params['visualization'], False):
+        if get_key_def('vis_at_init', cfg['visualization'], False):
             logging.info(f'Visualizing initialized model on batch range {vis_batch_range} '
                          f'from {vis_at_init_dataset} dataset...\n')
-            vis_from_dataloader(params=params,
+            vis_from_dataloader(params=cfg,
                                 eval_loader=val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader,
                                 model=model,
                                 ep_num=0,
@@ -852,21 +850,21 @@ def train(cfg: DictConfig, log: logging) -> None:
     log_artifact(logfile_debug)
 
 
-def main(cfg: DictConfig, log: logging) -> None:
+def main(cfg: DictConfig) -> None:
     """
-    Function to manage details about the segmentation task.
+    Function to manage details about the training on segmentation task.
 
     -------
 
-    1. TODO
+    1. Pre-processing
+    2. Training process
 
     -------
     :param cfg: (dict) Parameters found in the yaml config file.
-    :param log: (logging) Logging module from the main code.
     """
     # Limit of the NIR implementation TODO: Update after each version
     if 'deeplabv3' not in cfg.model.name and 'IR' in read_modalities(cfg.dataset.modalities):
-        log.info(
+        logging.info(
             '\nThe NIR modality will only be concatenate at the beginning,'
             '\nthe implementation of the concatenation point is only available'
             '\nfor the deeplabv3 model for now. \nMore will follow on demand.'
@@ -876,26 +874,26 @@ def main(cfg: DictConfig, log: logging) -> None:
     # HERE the code to do for the preprocessing
 
     # execute the name mode (need to be in this file for now)
-    train(cfg, log)
+    train(cfg)
     # globals()[cfg.mode](cfg, log)
 
 
-if __name__ == '__main__':
-    print(f'Start\n')
-    parser = argparse.ArgumentParser(description='Training execution')
-    parser.add_argument('param_file', help='Path to training parameters stored in yaml')
-    args = parser.parse_args()
-    config_path = Path(args.param_file)
-    params = read_parameters(args.param_file)
-
-    # Limit of the NIR implementation TODO: Update after each version
-    modalities = None if 'modalities' not in params['global'] else params['global']['modalities']
-    if 'deeplabv3' not in params['global']['model_name'] and modalities == 'RGBN':
-        print(
-            '\n The NIR modality will only be concatenate at the begining,' /
-            ' the implementation of the concatenation point is only available' /
-            ' for the deeplabv3 model for now. \n More will follow on demande.\n'
-        )
-
-    main(params, config_path)
-    print('End of training')
+# if __name__ == '__main__':
+#     print(f'Start\n')
+#     parser = argparse.ArgumentParser(description='Training execution')
+#     parser.add_argument('param_file', help='Path to training parameters stored in yaml')
+#     args = parser.parse_args()
+#     config_path = Path(args.param_file)
+#     params = read_parameters(args.param_file)
+#
+#     # Limit of the NIR implementation TODO: Update after each version
+#     modalities = None if 'modalities' not in params['global'] else params['global']['modalities']
+#     if 'deeplabv3' not in params['global']['model_name'] and modalities == 'RGBN':
+#         print(
+#             '\n The NIR modality will only be concatenate at the begining,' /
+#             ' the implementation of the concatenation point is only available' /
+#             ' for the deeplabv3 model for now. \n More will follow on demande.\n'
+#         )
+#
+#     main(params, config_path)
+#     print('End of training')

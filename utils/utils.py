@@ -1,3 +1,5 @@
+import hydra
+import shutil
 import csv
 import logging
 import numbers
@@ -133,14 +135,14 @@ def get_device_ids(
                 logging.warning(f"\nYou requested {number_requested} devices. {device_count} devices are available and "
                             f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
         else:
-            logging.error('No gpu devices requested. Will run on cpu')
+            logging.error('\nNo gpu devices requested. Will run on cpu')
     except NameError as error:
         raise logging.critical(
-            NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
+            NameError(f"\n{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
         )
     except NVMLError as error:
         raise logging.critical(
-            ValueError(f"{error}. Make sure that the latest NVIDIA driver is installed and running.")
+            ValueError(f"\n{error}. Make sure that the latest NVIDIA driver is installed and running.")
         )
     return lst_free_devices
 
@@ -165,6 +167,7 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
     :param default: default value assigned if no value found with provided key
     :param msg: message returned with AssertionError si length of key is smaller or equal to 1
     :param delete: (bool) if True, deletes parameter, e.g. for one-time use.
+    :param expected_type: (type) type of the expected variable.
     :return:
     """
     if not config:
@@ -172,9 +175,9 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
     elif isinstance(key, list):  # is key a list?
         if len(key) <= 1:  # is list of length 1 or shorter? else --> default
             if msg is not None:
-                raise AssertionError(msg)
+                raise logging.critical(AssertionError(msg))
             else:
-                raise AssertionError("Must provide at least two valid keys to test")
+                raise logging.critical(AssertionError("Must provide at least two valid keys to test"))
         for k in key:  # iterate through items in list
             if k in config:  # if item is a key in config, set value.
                 val = config[k]
@@ -191,6 +194,7 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
             if delete:
                 del config[key]
     return val
+
 
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     """
@@ -593,3 +597,14 @@ def find_first_file(name, list_path):
                 # print("file:", filename)
                 if filename == name:
                     return os.path.join(dirname, name)
+
+
+def save_useful_info():
+    shutil.copytree(
+        os.path.join(hydra.utils.get_original_cwd(), 'src'),
+        os.path.join(os.getcwd(), 'code/src')
+    )
+    shutil.copy2(
+        os.path.join(hydra.utils.get_original_cwd(), 'hydra_run.py'),
+        os.path.join(os.getcwd(), 'code')
+    )

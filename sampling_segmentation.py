@@ -1,13 +1,11 @@
-import time
 import shutil
 import logging
-import argparse
+import logging.config
 import rasterio
 import numpy as np
 
 from os import path
 from tqdm import tqdm
-from typing import List
 from pathlib import Path
 from datetime import datetime
 from omegaconf import DictConfig, open_dict
@@ -17,7 +15,6 @@ from hydra.core.hydra_config import HydraConfig
 from utils.geoutils import vector_to_raster
 from utils.readers import read_parameters, image_reader_as_array
 from utils.create_dataset import create_files_and_datasets, append_to_dataset
-from utils.hydra_utils import get_hydra_key
 from utils.utils import (
     get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash,
     read_modalities,
@@ -28,6 +25,8 @@ from utils.verifications import (
 
 # Set random seed for reproducibility
 np.random.seed(1234)
+# Set the logging
+logging.getLogger(__name__)
 
 
 def mask_image(arrayA, arrayB):
@@ -75,7 +74,7 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
     if not config_dict:
         return None
     elif not isinstance(config_dict, dict):
-        logging.warning(f"Class_proportion parameter should be a dictionary. Got type {type(config_dict)}")
+        logging.warning(f"\nClass_proportion parameter should be a dictionary. Got type {type(config_dict)}")
         return None
 
     for key, value in config_dict.items():
@@ -93,7 +92,7 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
         if int(key) in actual_classes_dict.keys():
             actual_classes_dict[int(key)] = value
         else:
-            logging.warning(f"Class {key} not found in provided vector data.")
+            logging.warning(f"\nClass {key} not found in provided vector data.")
 
     return actual_classes_dict.copy()
 
@@ -213,7 +212,7 @@ def samples_preparation(in_img_array,
 
     if overlap > 25:
          logging.warning(
-             "high overlap >25%, note that automatic train/val split creates very similar samples in both sets"
+             "\nhigh overlap >25%, note that automatic train/val split creates very similar samples in both sets"
          )
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
@@ -329,7 +328,7 @@ def samples_preparation(in_img_array,
     return samples_count, num_classes
 
 
-def main(cfg: DictConfig, log: logging) -> None:
+def main(cfg: DictConfig) -> None:
     """
     Function that create training, validation and testing datasets preparation.
 
@@ -363,13 +362,12 @@ def main(cfg: DictConfig, log: logging) -> None:
 
     -------
     :param cfg: (dict) Parameters found in the yaml config file.
-    :param log: (logging) Logging module from the main code.
     """
 
     try:
         import boto3
     except ModuleNotFoundError:
-        log.warning(
+        logging.warning(
             "\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets",
             ImportWarning
         )
@@ -384,41 +382,40 @@ def main(cfg: DictConfig, log: logging) -> None:
 
     # RAW DATA PARAMETERS
     if path.exists(cfg.dataset.raw_data_dir):
-        log.info("\nImage directory used '{}'".format(cfg.dataset.raw_data_dir))
+        logging.info("\nImage directory used '{}'".format(cfg.dataset.raw_data_dir))
         # TODO list all images use in the folder
         # logging.info(f'\n\tSuccessfully read csv file: {Path(csv_file).stem}\n'
         #              f'\tNumber of rows: {len(list_data_prep)}\n'
         #              f'\tCopying first entry:\n{list_data_prep[0]}\n')
         data_path = Path(cfg.dataset.raw_data_dir)
     else:
-        raise log.critical(
+        raise logging.critical(
             "\nImage directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
         )
     if path.exists(cfg.dataset.raw_data_csv):
-        log.info("\nImage csv: '{}'".format(cfg.dataset.raw_data_csv))
+        logging.info("\nImage csv: '{}'".format(cfg.dataset.raw_data_csv))
         csv_file = cfg.dataset.raw_data_csv
     else:
-        raise log.critical(
+        raise logging.critical(
             "\nImage csv '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_csv)
         )
 
     # HDF5 DATA PARAMETERS
     if path.exists(cfg.dataset.sample_data_dir):
-        log.info("\nThe HDF5 directory used '{}'".format(cfg.dataset.sample_data_dir))
+        logging.info("\nThe HDF5 directory used '{}'".format(cfg.dataset.sample_data_dir))
         Path.mkdir(Path(cfg.dataset.sample_data_dir), exist_ok=True, parents=True)  # TODO test if none what append
     else:
-        log.critical(
+        logging.critical(
             "\nThe HDF5 directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
         )
-        log.info("\nThe HDF5 directory use will be './data'")
+        logging.info("\nThe HDF5 directory use will be './data'")
         cfg.dataset.sample_data_dir = Path('./data')
-    # logging.info(f'Samples will be written to {smpls_dir}\n\n')
 
     # SAMPLE PARAMETERS
-    samples_size = get_hydra_key('input_dim', cfg.dataset, default=256)
-    overlap = get_hydra_key('overlap', cfg.dataset, default=0)
-    min_annot_perc = get_hydra_key('min_annot_perc', cfg.dataset, default=0)
-    val_percent = get_hydra_key('train_val_percent', cfg.dataset, default=0.3)['val'] * 100
+    samples_size = get_key_def('input_dim', cfg['dataset'], default=256, expected_type=int)
+    overlap = get_key_def('overlap', cfg['dataset'], default=0)
+    min_annot_perc = get_key_def('min_annot_perc', cfg['dataset'], default=0)
+    val_percent = get_key_def('train_val_percent', cfg['dataset'], default=0.3)['val'] * 100
     samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' \
                           f'_{num_bands}bands_{cfg.general.project_name}'
     smpls_dir = data_path.joinpath(samples_folder_name)
@@ -429,7 +426,7 @@ def main(cfg: DictConfig, log: logging) -> None:
             shutil.move(smpls_dir, data_path.joinpath(f'{str(smpls_dir)}_{last_mod_time_suffix}'))
         else:
             # raise FileExistsError()
-            raise log.critical(
+            raise logging.critical(
                 f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.'
             )
     Path.mkdir(smpls_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
@@ -447,7 +444,7 @@ def main(cfg: DictConfig, log: logging) -> None:
     # set dontcare (aka ignore_index) value
     dontcare = cfg.dataset.ignore_index if cfg.dataset.ignore_index is not None else -1
     if dontcare == 0:
-        log.warning(
+        logging.warning(
             "\nThe 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero."
             " All valid class indices should be consecutive, and start at 0. The 'dontcare' value"
             " will be remapped to -1 while loading the dataset, and inside the config from now on."
@@ -458,7 +455,7 @@ def main(cfg: DictConfig, log: logging) -> None:
     if targ_ids is list:
         for item in targ_ids:
             if not isinstance(item, int):
-                raise log.critical(ValueError(f'\nTarget id "{item}" in target_ids is {type(item)}, expected int.'))
+                raise logging.critical(ValueError(f'\nTarget id "{item}" in target_ids is {type(item)}, expected int.'))
 
     # OPTIONAL
     use_stratification = cfg.dataset.use_stratification if cfg.dataset.use_stratification is not None else False
@@ -489,7 +486,7 @@ def main(cfg: DictConfig, log: logging) -> None:
         list_data_prep = read_csv(csv_file)
 
     # MORE PARAMETERS
-    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
+    # import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     log_config_path = Path('utils/logging.conf').absolute()
     console_level_logging = 'INFO' if not debug else 'DEBUG'
     logging.config.fileConfig(
@@ -503,7 +500,7 @@ def main(cfg: DictConfig, log: logging) -> None:
 
     # IF DEBUG IS ACTIVATE
     if debug:
-        log.warning(
+        logging.warning(
             f'\nDebug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.'
         )
 
@@ -545,7 +542,7 @@ def main(cfg: DictConfig, log: logging) -> None:
     pixel_classes[dontcare] = 0
 
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
-    log.info(
+    logging.info(
         f"\nPreparing samples \n\tSamples_size: {samples_size} \n\tOverlap: {overlap} "
         f"\n\tValidation set: {val_percent} % of created training samples"
     )
@@ -564,28 +561,22 @@ def main(cfg: DictConfig, log: logging) -> None:
                         bucket.download_file(info['meta'], info['meta'].split('/')[-1])
                     info['meta'] = info['meta'].split('/')[-1]
 
-            log.info(f"\nReading as array: {info['tif']}")
+            logging.info(f"\nReading as array: {info['tif']}")
             with rasterio.open(info['tif'], 'r') as raster:
                 # 1. Read the input raster image
                 np_input_image, raster, dataset_nodata = image_reader_as_array(
                     input_image=raster,
                     clip_gpkg=info['gpkg'],
-                    aux_vector_file=get_hydra_key('aux_vector_file', cfg.dataset, None),
-                    # aux_vector_file = get_key_def('aux_vector_file', params['global'], None),
-                    aux_vector_attrib=get_hydra_key('aux_vector_attrib', cfg.dataset, None),
-                    # aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
-                    aux_vector_ids=get_hydra_key('aux_vector_ids', cfg.dataset, None),
-                    # aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
-                    aux_vector_dist_maps=get_hydra_key('aux_vector_dist_maps', cfg.dataset, True),
-                    # aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
-                    aux_vector_dist_log=get_hydra_key('aux_vector_dist_log', cfg.dataset, True),
-                    # aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
-                    aux_vector_scale=get_hydra_key('aux_vector_scale', cfg.dataset, None)
-                    # aux_vector_scale = get_key_def('aux_vector_scale', params['global'], None)
+                    aux_vector_file=get_key_def('aux_vector_file', cfg['dataset'], None),
+                    aux_vector_attrib=get_key_def('aux_vector_attrib', cfg['dataset'], None),
+                    aux_vector_ids=get_key_def('aux_vector_ids', cfg['dataset'], None),
+                    aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', cfg['dataset'], True),
+                    aux_vector_dist_log=get_key_def('aux_vector_dist_log', cfg['dataset'], True),
+                    aux_vector_scale=get_key_def('aux_vector_scale', cfg['dataset'], None)
                 )
 
                 # 2. Burn vector file in a raster file
-                log.info(f"\nRasterizing vector file (attribute: {info['attribute_name']}): {info['gpkg']}")
+                logging.info(f"\nRasterizing vector file (attribute: {info['attribute_name']}): {info['gpkg']}")
                 np_label_raster = vector_to_raster(vector_file=info['gpkg'],
                                                    input_image=raster,
                                                    out_shape=np_input_image.shape[:2],
@@ -615,7 +606,7 @@ def main(cfg: DictConfig, log: logging) -> None:
                                  "width": np_label_debug.shape[2],
                                  'count': 1})
                 out_tif = smpls_dir / f"{Path(info['gpkg']).stem}_clipped.tif"
-                log.debug(f"\nWriting final rasterized gpkg to {out_tif}")
+                logging.debug(f"\nWriting final rasterized gpkg to {out_tif}")
                 with rasterio.open(out_tif, "w", **out_meta) as dest:
                     dest.write(np_label_debug)
 
@@ -628,7 +619,7 @@ def main(cfg: DictConfig, log: logging) -> None:
             elif info['dataset'] == 'tst':
                 out_file = tst_hdf5
             else:
-                raise log.critical(
+                raise logging.critical(
                     ValueError(f"\nDataset value must be trn or tst. Provided value is {info['dataset']}")
                 )
             val_file = val_hdf5
@@ -661,11 +652,11 @@ def main(cfg: DictConfig, log: logging) -> None:
                                                                  class_prop=class_prop,
                                                                  stratd=stratd)
 
-            log.info(f'\nNumber of samples={number_samples}')
+            logging.info(f'\nNumber of samples={number_samples}')
             out_file.flush()
         except OSError:
-            log.exception(f'\nAn error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
-                          f'{Path(info["gpkg"]).stem} (gpkg).')
+            logging.exception(f'\nAn error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
+                              f'{Path(info["gpkg"]).stem} (gpkg).')
             continue
 
     trn_hdf5.close()
@@ -680,22 +671,22 @@ def main(cfg: DictConfig, log: logging) -> None:
     # prints the proportion of pixels of each class for the samples created
     for i in pixel_classes:
         prop = round((pixel_classes[i] / pixel_total) * 100, 1) if pixel_total > 0 else 0
-        log.info(f'\nPixels from class {i}: {prop} %')
+        logging.info(f'\nPixels from class {i}: {prop} %')
 
-    log.info("\nNumber of samples created: ", number_samples)
+    logging.info("\nNumber of samples created: ", number_samples)
 
     if bucket_name and final_samples_folder:  # FIXME: final_samples_folder always None in current implementation
-        log.info('\nTransfering Samples to the bucket')
+        logging.info('\nTransfering Samples to the bucket')
         bucket.upload_file(smpls_dir + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
         bucket.upload_file(smpls_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
         bucket.upload_file(smpls_dir + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Sample preparation')
-    parser.add_argument('ParamFile', metavar='DIR',
-                        help='Path to training parameters stored in yaml')
-    args = parser.parse_args()
-    params = read_parameters(args.ParamFile)
-    print(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
-    main(params)
+# if __name__ == '__main__':
+#     parser = argparse.ArgumentParser(description='Sample preparation')
+#     parser.add_argument('ParamFile', metavar='DIR',
+#                         help='Path to training parameters stored in yaml')
+#     args = parser.parse_args()
+#     params = read_parameters(args.ParamFile)
+#     print(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
+#     main(params)

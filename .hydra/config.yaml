@@ -69,7 +69,7 @@ data:
 dataset:
   name: null
   modalities: RGB
-  input_dim: 256
+  input_dim: 512
   overlap: null
   min_annot_perc: null
   raw_data_csv: ${general.raw_data_csv}
@@ -135,5 +135,5 @@ general:
   save_weights_dir: ./weights_saved
 AWS:
   bucket_name: null
-mode: inference
+mode: sampling
 debug: false

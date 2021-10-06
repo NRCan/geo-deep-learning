@@ -1,21 +1,16 @@
-import gc
 import logging
-import warnings
+import logging.config
 from math import sqrt
 from typing import List
 
-import h5py
 import torch
 import torch.nn.functional as F
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
 import numpy as np
 import os
 import csv
-import time
 import glob
-import argparse
 import heapq
-import fiona  # keep this import. it sets GDAL_DATA to right value
 import rasterio
 from PIL import Image
 import torchvision
@@ -27,9 +22,7 @@ import geopandas as gpd
 from tqdm import tqdm
 from shapely.geometry import Polygon, box
 from pathlib import Path
-
 from omegaconf.listconfig import ListConfig
-
 from utils.metrics import ComputePixelMetrics
 from models.model_choice import net, load_checkpoint
 from utils import augmentation
@@ -251,15 +244,16 @@ def classifier(params, img_list, model, device, working_folder):
                    delimiter=',')
 
 
-def main(params: dict, log: logging) -> None:
+def main(params: dict) -> None:
     """
     Function to manage details about the inference on segmentation task.
 
-    1. TODO
+    1. Read the parameters from the config given.
+    2. Read and load the state dict from the previous training or the given one.
+    3. Make the inference on the data specifies in the config.
 
     -------
     :param params: (dict) Parameters found in the yaml config file.
-    :param log: (logging) Logging module from the main code.
     """
     # since = time.time()
 
@@ -277,21 +271,21 @@ def main(params: dict, log: logging) -> None:
     # mlflow logging
     mlflow_uri = get_key_def('uri', params['logging'], default=None, expected_type=str)
     if mlflow_uri and not Path(mlflow_uri).is_dir():
-        log.warning(f'\nMlflow uri path is not valid: {mlflow_uri}')
+        logging.warning(f'\nMlflow uri path is not valid: {mlflow_uri}')
         mlflow_uri = None
     # SETUP LOGGING
-    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
-    log.info(f'\nInference and log files will be saved to: {working_folder}')
+    # import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
+    logging.info(f'\nInference and log files will be saved to: {working_folder}')
     log_config_path = Path('utils/logging.conf').absolute()
     logfile = f'{working_folder}/info.log'
     logfile_debug = f'{working_folder}/debug.log'
     console_level_logging = 'INFO' if not debug else 'DEBUG'
-    log.config.fileConfig(log_config_path,
-                          defaults={
-                              'logfilename': logfile,
-                              'logfilename_debug': logfile_debug,
-                              'console_level': console_level_logging}
-                          )
+    logging.config.fileConfig(log_config_path,
+                              defaults={
+                                  'logfilename': logfile,
+                                  'logfilename_debug': logfile_debug,
+                                  'console_level': console_level_logging}
+                              )
     if mlflow_uri:
         # log_config_path = Path('utils/logging.conf').absolute()
         # logfile = f'{working_folder}/info.log'
@@ -324,8 +318,8 @@ def main(params: dict, log: logging) -> None:
         'img_dir_or_csv_file', params['inference'], default=params['general']['raw_data_csv'], expected_type=str
     )
     if not (Path(img_dir_or_csv).is_dir() or Path(img_dir_or_csv).suffix == '.csv'):
-        raise log.critical(FileNotFoundError(f'\nCouldn\'t locate .csv file or directory "{img_dir_or_csv}" '
-                                             f'containing imagery for inference'))
+        raise logging.critical(FileNotFoundError(f'\nCouldn\'t locate .csv file or directory "{img_dir_or_csv}" '
+                                                 f'containing imagery for inference'))
     state_dict = get_key_def('state_dict_path', params['inference'], expected_type=str)
     if not Path(state_dict).is_file():
         # List all files in the home directory
@@ -333,7 +327,7 @@ def main(params: dict, log: logging) -> None:
         # Sort by modification time (mtime) descending
         sorted_by_mtime_descending = sorted(files, key=lambda t: -os.stat(t).st_mtime)
         last_checkpoint_save = find_first_file('checkpoint.pth.tar', sorted_by_mtime_descending)
-        log.warning(
+        logging.warning(
             FileNotFoundError(
                 f'\nCouldn\'t locate state_dict of model "{state_dict}" to be used for inference'
                 f'\nThe inference will use the last checkpoint save for the task:\n"{last_checkpoint_save}"'
@@ -345,7 +339,7 @@ def main(params: dict, log: logging) -> None:
     task = get_key_def('name', params['task'], expected_type=str)
     # TODO change it next version for all task
     if task not in ['classification', 'segmentation']:
-        raise log.critical(
+        raise logging.critical(
             ValueError(f'\nTask should be either "classification" or "segmentation". Got {task}')
         )
     # OPTIONAL PARAMETERS
@@ -529,55 +523,53 @@ def main(params: dict, log: logging) -> None:
             gdf_x.to_file(bench_gpkg, driver="GPKG", index=False)
             logging.info(f'\nSuccessfully wrote benchmark geopackage to: {bench_gpkg}')
         # log_artifact(working_folder)
-    # time_elapsed = time.time() - since
-    # logging.info('\nInference and Benchmarking completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
 
-if __name__ == '__main__':
-    print('\n\nStart:\n\n')
-    parser = argparse.ArgumentParser(usage="%(prog)s [-h] [-p YAML] [-i MODEL IMAGE] ",
-                                     description='Inference and Benchmark on images using trained model')
-
-    parser.add_argument('-p', '--param', metavar='yaml_file', nargs=1,
-                        help='Path to parameters stored in yaml')
-    parser.add_argument('-i', '--input', metavar='model_pth img_dir', nargs=2,
-                        help='model_path and image_dir')
-    args = parser.parse_args()
-
-    # if a yaml is inputted, get those parameters and get model state_dict to overwrite global parameters afterwards
-    if args.param:
-        input_params = read_parameters(args.param[0])
-        model_ckpt = get_key_def('state_dict_path', input_params['inference'], expected_type=str)
-        # load checkpoint
-        checkpoint = load_checkpoint(model_ckpt)
-        if 'params' in checkpoint.keys():
-            params = checkpoint['params']
-            # overwrite with inputted parameters
-            compare_config_yamls(yaml1=params, yaml2=input_params, update_yaml1=True)
-        else:
-            warnings.warn('No parameters found in checkpoint. Defaulting to parameters from inputted yaml.'
-                          'Use GDL version 1.3 or more.')
-            params = input_params
-        del checkpoint
-        del input_params
-
-    # elif input is a model checkpoint and an image directory, we'll rely on the yaml saved inside the model (pth.tar)
-    elif args.input:
-        model_ckpt = Path(args.input[0])
-        image = args.input[1]
-        # load checkpoint
-        checkpoint = load_checkpoint(model_ckpt)
-        if 'params' not in checkpoint.keys():
-            raise KeyError('No parameters found in checkpoint. Use GDL version 1.3 or more.')
-        else:
-            # set parameters for inference from those contained in checkpoint.pth.tar
-            params = checkpoint['params']
-            del checkpoint
-        # overwrite with inputted parameters
-        params['inference']['state_dict_path'] = args.input[0]
-        params['inference']['img_dir_or_csv_file'] = args.input[1]
-    else:
-        print('use the help [-h] option for correct usage')
-        raise SystemExit
-
-    main(params)
+# if __name__ == '__main__':
+#     print('\n\nStart:\n\n')
+#     parser = argparse.ArgumentParser(usage="%(prog)s [-h] [-p YAML] [-i MODEL IMAGE] ",
+#                                      description='Inference and Benchmark on images using trained model')
+#
+#     parser.add_argument('-p', '--param', metavar='yaml_file', nargs=1,
+#                         help='Path to parameters stored in yaml')
+#     parser.add_argument('-i', '--input', metavar='model_pth img_dir', nargs=2,
+#                         help='model_path and image_dir')
+#     args = parser.parse_args()
+#
+#     # if a yaml is inputted, get those parameters and get model state_dict to overwrite global parameters afterwards
+#     if args.param:
+#         input_params = read_parameters(args.param[0])
+#         model_ckpt = get_key_def('state_dict_path', input_params['inference'], expected_type=str)
+#         # load checkpoint
+#         checkpoint = load_checkpoint(model_ckpt)
+#         if 'params' in checkpoint.keys():
+#             params = checkpoint['params']
+#             # overwrite with inputted parameters
+#             compare_config_yamls(yaml1=params, yaml2=input_params, update_yaml1=True)
+#         else:
+#             warnings.warn('No parameters found in checkpoint. Defaulting to parameters from inputted yaml.'
+#                           'Use GDL version 1.3 or more.')
+#             params = input_params
+#         del checkpoint
+#         del input_params
+#
+#     # elif input is a model checkpoint and an image directory, we'll rely on the yaml saved inside the model (pth.tar)
+#     elif args.input:
+#         model_ckpt = Path(args.input[0])
+#         image = args.input[1]
+#         # load checkpoint
+#         checkpoint = load_checkpoint(model_ckpt)
+#         if 'params' not in checkpoint.keys():
+#             raise KeyError('No parameters found in checkpoint. Use GDL version 1.3 or more.')
+#         else:
+#             # set parameters for inference from those contained in checkpoint.pth.tar
+#             params = checkpoint['params']
+#             del checkpoint
+#         # overwrite with inputted parameters
+#         params['inference']['state_dict_path'] = args.input[0]
+#         params['inference']['img_dir_or_csv_file'] = args.input[1]
+#     else:
+#         print('use the help [-h] option for correct usage')
+#         raise SystemExit
+#
+#     main(params)

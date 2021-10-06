@@ -109,10 +109,10 @@ hydra:
   overrides:
     hydra: []
     task:
-    - mode=inference
+    - mode=sampling
   job:
     name: GDL
-    override_dirname: mode=inference
+    override_dirname: mode=sampling
     id: ???
     num: ???
     config_name: gdl_config_template
