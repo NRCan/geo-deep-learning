@@ -238,8 +238,8 @@ def main(params):
         if info['gpkg']:
             if info['gpkg'] not in valid_gpkg_set:
                 # FIXME: check/fix this validation and use it
-                gpkg_classes = validate_num_classes(info['gpkg'], num_classes, info['attribute_name'],
-                                                    target_ids=attr_vals)
+                #gpkg_classes = validate_num_classes(info['gpkg'], num_classes, info['attribute_name'],
+                #                                    target_ids=attr_vals)
                 assert_crs_match(info['tif'], info['gpkg'])
                 valid_gpkg_set.add(info['gpkg'])
         else:
