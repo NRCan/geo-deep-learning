@@ -11,7 +11,7 @@ from sklearn.metrics import classification_report
 
 import geopandas as gpd
 import pandas as pd
-from solaris.eval.base import Evaluator
+from solaris_gdl.eval.base import Evaluator
 from tqdm import tqdm
 
 from data_to_tiles import filter_gdf

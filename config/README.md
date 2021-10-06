@@ -49,7 +49,6 @@ global:
   num_gpus: 2
   max_used_ram: 2000
   max_used_perc: 15
-  BGR_to_RGB: True
   scale_data: [0,1]
   aux_vector_file:
   aux_vector_attrib:
@@ -61,25 +60,30 @@ global:
   coordconv_convert: False
   coordvonc_scale:
 ```
-- **`samples_size` (Mandatory):** Size of the tiles that you want to train/val/test with. We recommend `512` or `256` for the train/val task.
+***
+**Mandatory parameters:**
 
-- **`num_classes` (Mandatory):** Number of classes that your *ground truth* have and which you want to predict at the end.
+- **`samples_size` :** Size of the tiles that you want to train/val/test with. We recommend `512` or `256` for the train/val task.
+
+- **`num_classes` :** Number of classes that your *ground truth* have and which you want to predict at the end.
 
 - **`data_path` :** Path to the folder where samples folder will be automatically created and all the other informations will be stored. **add the link to the example of stucture**
 
-- **`number_of_bands` (Mandatory):** Number of bands in input images (RGB = 3 and RGBNir = 4).
+- **`number_of_bands` :** Number of bands in input images (RGB = 3 and RGBNir = 4).
 
-- **`model_name` (Mandatory):** Name of the model use to train the neural network, see the list of all the implemented models in [`/models`](../models#Models-available).
+- **`model_name` :** Name of the model use to train the neural network, see the list of all the implemented models in [`/models`](../models#Models-available).
+***
+**Optional parameters:**
 
 - **`mlflow_uri` :** Path where *mlflow* will store all the informations about the runs. By default the path is `./mlruns`.
 
-- **`mlflow_experiment_name` :** Experiment name in *mlflow*.
+- **`mlflow_experiment_name` :** Experiment name in *mlflow*. Defaults to name of csv file used to prepare tiles.
 
 - **`mlflow_run_name` :** Run name in *mlflow* and preprocessing identification tag.
 
-- **`bucket_name` (Optional) :** Name of the S3 bucket where the data is stored. Leave blank if using local files.
+- **`bucket_name` :** Name of the S3 bucket where the data is stored. Leave blank if using local files.
 
-- **`task` (Mandatory):** Task to perform, either segmentation or classification, but classification is no longer supported.
+- **`task` :** Task to perform, either segmentation or classification, but classification is no longer supported. Defaults to segmentation.
 
 - **`num_gpus` :** Number of **GPUs** that you want to use, `0` will use the **CPU**.
 
@@ -87,27 +91,25 @@ global:
 
 - **`max_used_perc` :** Maximum utilization rate (percent) of the **GPUs** to consider it available.
 
-- **`BGR_to_RGB` :**  [True/False] If set to True this parameter changes the band order of images from BGR to RGB.
+- **`scale_data` :** Min and Max for input data rescaling, by default: `[0, 1]` meaning a 255 value in 8 bit unsigned will become 1.
 
-- **`scale_data` :** Min and Max for input data rescaling, by default: `[0, 1]` meaning no rescaling.
+- **`aux_vector_file` :** A vector file from which to extract auxiliary shapes.
 
-- **`aux_vector_file` (Optional) :** A vector file from which to extract auxiliary shapes.
+- **`aux_vector_attrib` :** A vector file attribute name to parse in order to fetch ids.
 
-- **`aux_vector_attrib` (Optional) :** A vector file attribute name to parse in order to fetch ids.
+- **`aux_vector_ids` :** A vector ids to target in the vector file above.
 
-- **`aux_vector_ids` (Optional) :** A vector ids to target in the vector file above.
+- **`aux_vector_dist_maps` :** [True/False] Flag indicating whether aux vector bands should be distance maps or binary maps.
 
-- **`aux_vector_dist_maps` (Optional) :** [True/False] Flag indicating whether aux vector bands should be distance maps or binary maps.
+- **`aux_vector_dist_log` :** [True/False] Flag indicating whether log distances should be used in distance maps or not.
 
-- **`aux_vector_dist_log` (Optional) :** [True/False] Flag indicating whether log distances should be used in distance maps or not.
-
-- **`aux_vector_scale` (Optional) :** Floating point scale factor to multiply to rasterized vector maps.
+- **`aux_vector_scale` :** Floating point scale factor to multiply to rasterized vector maps.
 
 - **`debug_mode` :** Activates various debug features for example, details about intermediate outputs, detailed progress bars, etc. By default this mode is `False`.
 
-- **`coordconv_convert` (Optional):** [True/False] Activate (or not) the function [`swap_coordconv_layers`](../models/coordconv.py#L94).
+- **`coordconv_convert` :** [True/False] Activate (or not) the function [`swap_coordconv_layers`](../models/coordconv.py#L94).
 
-- **`coordvonc_scale` (Optional) :** Scale of the map.
+- **`coordvonc_scale` :** Scale of the map.
 
 ## **Data Analysis**
 The [data_analysis](data_analysis.py) module is used to visualize the composition of the sample's classes and see how it shapes the training dataset and can be  useful for balancing training data in which a class is under-represented. Using basic statistical analysis, the user can test multiple sampling parameters and immediately see their impact on the classes' distribution. It can also be used to automatically search optimal sampling parameters and obtain a more balanced class distribution in the dataset.
@@ -175,22 +177,24 @@ sample:
   prep_csv_file: path/to/images.csv
   val_percent: 5
   use_stratification: 2
-  overlap: 25
+  bands_idxs: [ 1,2 ]
+  resize: 2
   sampling_method:
     'min_annotated_percent': 0
     'class_proportion': {'1':0, '2':0, '3':0, '4':0}
   mask_reference: False
 ```
-- **`prep_csv_file` :** Path to your `csv` file with the information on the images.
-
-- **`val_percent` :** Percentage of validation samples created from train set (0 - 100), we recommend at least `5`, must be an integer (int).
+- **`prep_csv_file` (Mandatory) :** Path to your `csv` file with the information on the images.
+***
+*All sampling parameters below are optional:*
+- **`val_percent` :** Percentage of validation samples created from train set (0 - 100), we recommend at least `5`, must be an integer (int). Defaults to 10.
 
 - **`use_stratification` :** Added or substracted from val_percent to stratify samples. Should be less than val_percent.
-
-- **`overlap` :** Percentage of overlap between 2 chunks, must be an integer (int).
-
+   
+- **`bands_idxs` :** List of band indexes to read from source imagery (starting at 1 per rasterio convention). Order matters, i.e. [1,2,3] will not output the same as [3,2,1]. Use [3,2,1] to convert BGR imagery to RGB.
+- **`resize` :** Multiple by which source imagery must be resampled. Destination size must be divisible by this multiple without remainder. Rasterio will use bilinear resampling. Defaults to 1 (no resampling).
 - **`sampling_method` :** Chose one of the following method.
-  - `min_annotated_percent` is the percentage minimum of non background pixels in samples by default we chose `0`, must be an integer (int).
+  - `min_annotated_percent` is the percentage minimum of non background pixels in samples by default we chose `0`, must be an integer (int). Defaults to 0.
 
   - `class_proportion` is a dictionary (dict) where the keys (numerical values in 'string' format) represent class id and the values (int) represent the class minimum threshold targeted in samples. An example of four classes with no minimum: `{'1':0, '2':0, '3':0, '4':0}`.
 

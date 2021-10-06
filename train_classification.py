@@ -209,7 +209,6 @@ def main(params, config_path):
     batch_size = get_key_def('batch_size', params['training'], expected_type=int)
     num_epochs = get_key_def('num_epochs', params['training'], expected_type=int)
     model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
-    BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
 
     # parameters to find hdf5 samples
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))

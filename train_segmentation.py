@@ -1,4 +1,5 @@
 import logging
+import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
 from typing import List, Sequence
 
 import rasterio
@@ -14,6 +15,8 @@ from tqdm import tqdm
 from collections import OrderedDict
 import shutil
 import numpy as np
+
+from data_to_tiles import set_logging
 
 try:
     from pynvml import *
@@ -61,7 +64,6 @@ def create_dataloader(samples_folder: Path,
                       crop_size: int,
                       meta_map,
                       num_bands: int,
-                      BGR_to_RGB: bool,
                       scale: Sequence,
                       params: dict,
                       dontcare2backgr: bool = False,
@@ -76,7 +78,6 @@ def create_dataloader(samples_folder: Path,
     :param dontcare_val: (int) value in label to be ignored during loss calculation
     :param meta_map: metadata mapping object
     :param num_bands: (int) number of bands in imagery
-    :param BGR_to_RGB: (bool) if True, BGR channels will be flipped to RGB
     :param scale: (List) imagery data will be scaled to this min and max value (ex.: 0 to 1)
     :param params: (dict) Parameters found in the yaml config file.
     :param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
@@ -113,7 +114,6 @@ def create_dataloader(samples_folder: Path,
                                                                              crop_size=crop_size),
                                        totensor_transform=aug.compose_transforms(params=params,
                                                                                  dataset=subset,
-                                                                                 input_space=BGR_to_RGB,
                                                                                  scale=scale,
                                                                                  dontcare2backgr=dontcare2backgr,
                                                                                  dontcare=dontcare_val,
@@ -505,7 +505,8 @@ def main(params, config_path):
     eval_batch_size = get_key_def('eval_batch_size', params['training'], expected_type=int, default=batch_size)
     num_epochs = get_key_def('num_epochs', params['training'], expected_type=int)
     model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
-    BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
+    # FIXME: should this parameter be in global section?
+    csv_file = get_key_def('prep_csv_file', params['sample'], expected_type=str)
 
     # OPTIONAL PARAMETERS
     # basics
@@ -545,7 +546,7 @@ def main(params, config_path):
     # mlflow logging
     mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
     Path(mlflow_uri).mkdir(exist_ok=True)
-    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
+    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default=f'{Path(csv_file).stem}', expected_type=str)
     run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
 
     # parameters to find hdf5 samples
@@ -595,16 +596,10 @@ def main(params, config_path):
     output_path.mkdir(parents=True, exist_ok=False)
     shutil.copy(str(config_path), str(output_path))  # copy yaml to output path where model will be saved
 
-    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
-    log_config_path = Path('utils/logging.conf').absolute()
-    logfile = f'{output_path}/{model_id}.log'
-    logfile_debug = f'{output_path}/{model_id}_debug.log'
-    logfile_error = f'{output_path}/{model_id}_error.log'
+    # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     console_level_logging = 'INFO' if not debug else 'DEBUG'
-    logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile,
-                                                         'logfilename_debug': logfile_debug,
-                                                         'logfilename_error': logfile_error,
-                                                         'console_level': console_level_logging})
+    logfile_pref = f'{output_path}/{model_id}'
+    set_logging(console_level=console_level_logging, logfiles_dir=output_path, logfiles_prefix=logfile_pref)
 
     logging.info(f'Model and log files will be saved to: {output_path}\n\n')
     if debug:
@@ -653,7 +648,6 @@ def main(params, config_path):
                                                                        crop_size=crop_size,
                                                                        meta_map=meta_map,
                                                                        num_bands=num_bands,
-                                                                       BGR_to_RGB=BGR_to_RGB,
                                                                        scale=scale,
                                                                        params=params,
                                                                        dontcare2backgr=dontcare2backgr,

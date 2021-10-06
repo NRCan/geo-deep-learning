@@ -140,7 +140,6 @@ global:
   bucket_name:
   task: segmentation               # <-- must be a segmentation task
   num_gpus: 2
-  BGR_to_RGB: False                # <-- must be already in RGB
   scale_data: [0,1]
   aux_vector_file:
   aux_vector_attrib:

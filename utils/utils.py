@@ -185,7 +185,8 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
         else:
             val = config[key] if config[key] != 'None' else None
             if expected_type and val is not False:
-                assert isinstance(val, expected_type), f"{val} is of type {type(val)}, expected {expected_type}"
+                if not isinstance(val, expected_type):
+                    raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
             if delete:
                 del config[key]
     return val
@@ -280,14 +281,6 @@ def unnormalize(input_img, mean, std):
     :return: (numpy_array) "Unnormalized" image
     """
     return (input_img * std) + mean
-
-
-def BGR_to_RGB(array):
-    assert array.shape[2] >= 3, f"Not enough channels in array of shape {array.shape}"
-    BGR_channels = array[..., :3]
-    RGB_channels = np.ascontiguousarray(BGR_channels[..., ::-1])
-    array[:, :, :3] = RGB_channels
-    return array
 
 
 def ind2rgb(arr, color):

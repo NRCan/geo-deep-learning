@@ -3,27 +3,25 @@ import functools
 import math
 import multiprocessing
 from collections import OrderedDict
-from datetime import datetime
 import logging
 import logging.config
 from typing import List, Union
 
 import numpy as np
-from PIL import Image
 
 np.random.seed(1234)  # Set random seed for reproducibility
 import rasterio
 import time
-import shutil
 
 from pathlib import Path
 from tqdm import tqdm
-import solaris as sol
 import geopandas as gpd
 
 from utils.utils import get_key_def, read_csv, get_git_hash
 from utils.readers import read_parameters
-from utils.verifications import validate_num_classes, assert_crs_match, validate_features_from_gpkg, validate_raster
+from utils.verifications import assert_crs_match, validate_features_from_gpkg, validate_raster
+from solaris_gdl import tile
+from solaris_gdl import vector
 
 logging.getLogger(__name__)
 
@@ -85,27 +83,50 @@ def out_tiling_dir(root, dataset, aoi_name, category):
     return root / dataset.strip() / aoi_name.strip() / category
 
 
+def get_src_tile_size(dest_tile_size, resize_factor: float = None):
+    """
+    Outputs dimension of source tile if resizing, given destination size and resizing factor
+    @param dest_tile_size: (int) Size of tile that is expected as output
+    @param resize_factor: (float) Resize factor to apply to source imagery before outputting tiles
+    @return: (int) Source tile size
+    """
+    if resize_factor is not None and dest_tile_size % resize_factor != 0:
+        raise ValueError(f'Destination tile size "{dest_tile_size}" must be divisible by resize "{resize_factor}"')
+    elif resize_factor:
+        src_tile_size = int(dest_tile_size / resize_factor)
+    else:
+        src_tile_size = dest_tile_size
+    return src_tile_size
+
+
 def tiling(src_img: Union[str, Path],
            out_img_dir: Union[str, Path],
            tile_size: int = 1024,
+           bands_idxs: List = None,
+           resize: int = 1,
            out_label_dir: Union[str, Path] = None,
            src_label: Union[str, Path] = None):
     """
-    Calls solaris tiling function and outputs tiles in output directories
+    Calls solaris_gdl tiling function and outputs tiles in output directories
     @param src_img: path to source image
     @param out_img_dir: path to output tiled images directory
     @param tile_size: optional, size of tiles to output. Defaults to 1024
+    @param bands_idxs:
+    @param resize: (float) optional, Multiple by which source imagery must be resampled. Destination size must be divisible by this multiple without remainder. Rasterio will use bilinear resampling. Defaults to 1 (no resampling).
     @param out_label_dir: optional, path to output tiled images directory
     @param src_label: optional, path to source label (must be a geopandas compatible format like gpkg or geojson)
     @return: written tiles to output directories as .tif for imagery and .geojson for label.
     """
-    raster_tiler = sol.tile.raster_tile.RasterTiler(dest_dir=out_img_dir,
-                                                    src_tile_size=(tile_size, tile_size),
-                                                    alpha=False,
-                                                    verbose=True)
-    raster_bounds_crs = raster_tiler.tile(src_img)
+    src_tile_size = get_src_tile_size(tile_size, resize)
+    raster_tiler = tile.raster_tile.RasterTiler(dest_dir=out_img_dir,
+                                                src_tile_size=(src_tile_size, src_tile_size),
+                                                dest_tile_size=(tile_size, tile_size),
+                                                resize=resize,
+                                                alpha=False,
+                                                verbose=True)
+    raster_bounds_crs = raster_tiler.tile(src_img, channel_idxs=bands_idxs)
     if out_label_dir and src_label is not None:
-        vector_tiler = sol.tile.vector_tile.VectorTiler(dest_dir=out_label_dir, verbose=True)
+        vector_tiler = tile.vector_tile.VectorTiler(dest_dir=out_label_dir, verbose=True)
         vector_tiler.tile(src_label, tile_bounds=raster_tiler.tile_bounds, tile_bounds_crs=raster_bounds_crs)
 
 
@@ -181,6 +202,12 @@ def main(params):
     elif not task == 'segmentation':
         raise ValueError(f"images_to_samples.py isn't necessary for classification tasks")
     val_percent = get_key_def('val_percent', params['sample'], default=10, expected_type=int)
+    bands_idxs = get_key_def('bands_idxs', params['global'], default=None, expected_type=List)
+    if bands_idxs is not None and not len(bands_idxs) == num_bands:
+        raise ValueError(f"List of band indexes should be of same length as num_bands.\n"
+                         f"Bands_idxs: {bands_idxs}\n"
+                         f"num_bands: {num_bands}")
+    resize = get_key_def('resize', params['sample'], default=1)
     parallel = get_key_def('parallelize_tiling', params['sample'], default=False, expected_type=bool)
 
     # parameters to set output tiles directory
@@ -225,7 +252,7 @@ def main(params):
     if attr_vals:
         for item in attr_vals:
             if not isinstance(item, int):
-                raise ValueError(f'Target id "{item}" in target_ids is {type(item)}, expected int.')
+                raise logging.error(ValueError(f'Target id "{item}" in target_ids is {type(item)}, expected int.'))
 
     # TODO: move validation steps to validate_geodata.py
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
@@ -233,8 +260,12 @@ def main(params):
     no_gt = False
     for info in tqdm(list_data_prep, position=0):
         _, metadata = validate_raster(info['tif'])
-        if metadata['count'] != num_bands:
-            raise ValueError(f'Imagery contains {metadata["count"]} bands, expected {num_bands}')
+        if metadata['count'] > num_bands and not bands_idxs:
+            raise ValueError(f'Missing band indexes to keep. Imagery contains {metadata["count"]} bands. '
+                             f'Number of bands to be kept in tiles {num_bands}')
+        elif metadata['count'] < num_bands:
+            raise ValueError(f'Imagery contains {metadata["count"]} bands. "num_bands" is {num_bands}\n'
+                             f'Expected {num_bands} or more bands in source imagery')
         if info['gpkg']:
             if info['gpkg'] not in valid_gpkg_set:
                 # FIXME: check/fix this validation and use it
@@ -318,9 +349,10 @@ def main(params):
             # if no previous step has shown existence of all tiles, then go on and tile.
             if do_tile:
                 if parallel:
-                    input_args.append([tiling, info['tif'], out_img_dir, samples_size, out_gt_dir, info['gpkg']])
+                    input_args.append([tiling, info['tif'], out_img_dir, samples_size, bands_idxs, resize, out_gt_dir,
+                                       info['gpkg']])
                 else:
-                    tiling(info['tif'], out_img_dir, samples_size, out_gt_dir, info['gpkg'])
+                    tiling(info['tif'], out_img_dir, samples_size, bands_idxs, resize, out_gt_dir, info['gpkg'])
 
         except OSError:
             logging.exception(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
@@ -397,7 +429,7 @@ def main(params):
                     if annot_perc * 100 >= min_annot_perc:
                         random_val = np.random.randint(1, 100)
                         dataset = 'val' if random_val < val_percent else dataset
-                        sol.vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
+                        vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
                                                        reference_im=str(sat_img_tile),
                                                        burn_field=burn_field)
                         with open(dataset_files[dataset], 'a') as dataset_file:
@@ -406,7 +438,7 @@ def main(params):
                         datasets_kept[dataset] += 1
                     datasets_total[dataset] += 1
                 elif dataset in ['tst', 'test']:
-                    sol.vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
+                    vector.mask.footprint_mask(df=gdf_filtered, out_file=str(out_px_mask),
                                                    reference_im=str(sat_img_tile),
                                                    burn_field=burn_field)
                     with open(dataset_files[dataset], 'a') as dataset_file:
@@ -436,6 +468,9 @@ if __name__ == '__main__':
     input_type.add_argument('-c', '--csv', metavar='csv_file', help='Path to csv containing listed geodata with columns'
                                                                     ' as expected by geo-deep-learning. See README')
     input_type.add_argument('-p', '--param', metavar='yaml_file', help='Path to parameters stored in yaml')
+    # FIXME: use hydra to better function if yaml is also used.
+    parser.add_argument('--resize', default=1)
+    parser.add_argument('--bands', default=None)
     # FIXME: enable BooleanOptionalAction only when GDL has moved to Python 3.8
     parser.add_argument('--debug', metavar='debug_mode', #action=argparse.BooleanOptionalAction,
                         default=False)
@@ -475,6 +510,11 @@ if __name__ == '__main__':
         params['sample'] = OrderedDict()
         params['sample']['parallelize_tiling'] = args.parallel
         params['sample']['prep_csv_file'] = args.csv
+
+        if args.resize:
+            params['sample']['resize'] = args.resize
+        if args.bands:
+            params['global']['bands_idxs'] = args.bands
 
     print(f'\n\nStarting data to tiles preparation with {args}\n\n')
     main(params)

@@ -125,7 +125,9 @@ def vis(vis_params,
     vis_path.mkdir(exist_ok=True)
     if not vis_params[
         'inference_input_path']:  # FIXME: function parameters should not come in as different types if inference or not.
-        input_ = input_.cpu().permute(1, 2, 0).numpy()  # channels last
+        if input_.ndim == 3:
+            input_ = input_.permute(1, 2, 0)  # channels last
+        input_ = input_.cpu().numpy()
         output = F.softmax(output, dim=0)  # Inference output is already softmax
         output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
         if label is not None:
@@ -140,12 +142,14 @@ def vis(vis_params,
     if vis_params['mean'] and vis_params['std']:
         input_ = unnormalize(input_img=input_, mean=vis_params['mean'], std=vis_params['std'])
     input_ = unscale(img=input_, float_range=(scale[0], scale[1]), orig_range=(0, 255)) if scale else input_
-    if 1 <= input_.shape[2] <= 2:
+    if len(input_.shape) == 2:
+        pass
+    elif 1 <= input_.shape[2] <= 2:
         input_ = input_[:, :, :1]  # take first band (will become grayscale image)
         input_ = np.squeeze(input_)
     elif input_.shape[2] >= 3:
         input_ = input_[:, :, :3]  # take three first bands assuming they are RGB in correct order
-    mode = 'L' if input_.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
+    mode = 'L' if len(input_.shape) == 2 or input_.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
     input_PIL = Image.fromarray(input_.astype(np.uint8), mode=mode)  # TODO: test this with grayscale input.
 
     # Give value of class to band with highest value in final inference

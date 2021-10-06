@@ -15,6 +15,7 @@ global:
   num_classes: 1
   data_path: ./data  # path/to/data
   number_of_bands: 3
+  bands_idxs: [1,2,3] # (list) Indices of bands to keep (starting at 1 per rasterio convention). Must be <= to num bands
   # See models/README.md for all the available models.
   model_name: unet
   mlflow_uri: ./mlruns  # path/to/mlflow_tracking_uri
@@ -25,7 +26,6 @@ global:
   num_gpus: 0  # If 0, will run on CPU
   max_used_ram: 2000  # maximum currently used GPU memory (MB) to consider it available (only if num_gpus > 0)
   max_used_perc: 15  # maximum utilization rate (percent) of the GPU to consider it available (only if num_gpus > 0)
-  BGR_to_RGB: True
   scale_data: [0,1]
   aux_vector_file:
   aux_vector_attrib:
@@ -52,7 +52,7 @@ data_analysis:
 sample:
   prep_csv_file: .data/images_to_samples_ci_csv.csv  # /path/to/csv/images.csv
   val_percent: 20 # Percentage of validation samples created from train set (0 - 100)
-  overlap: 5 # (int) Percentage of overlap between 2 chunks.
+  resize: 2 # (int) multiple by which the source tile should be resampled, e.g. "2" will upsample a 512x512 to 1024x1024
   sampling_method: # class_proportion or min_annotated_percent
     'min_annotated_percent': 0  # Min % of non background pixels in samples. Default: 0
     'class_proportion': {'1':0, '2':0, '3':0, '4':0} # See below:

@@ -30,6 +30,7 @@ from rasterio.windows import Window
 from rasterio.plot import reshape_as_image
 from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_metrics
 
+from data_to_tiles import set_logging
 from metrics import ComputePixelMetrics
 from models.model_choice import net, load_checkpoint
 from utils import augmentation
@@ -97,7 +98,7 @@ def ras2vec(raster_file, output_path):
     class_value_domain = set()
     out_features = []
 
-    print("   - Processing raster file: {}".format(raster_file))
+    logging.info("   - Processing raster file: {}".format(raster_file))
     with rasterio.open(raster_file, 'r') as src:
         raster = src.read(1)
     mask = raster != 0
@@ -136,13 +137,14 @@ def ras2vec(raster_file, output_path):
     print("Number of features written: {}".format(i))
 
 
-def gen_img_samples(src, chunk_size, *band_order):
+def gen_img_samples(src, chunk_size, channel_idxs: List = None):
     """
 
     Args:
         src: input image (rasterio object)
         chunk_size: image tile size
-        *band_order: ignore
+        channels_idxs: (list) List of band indexes to keep (starting at 1 per rasterio convention). Order matters, i.e.
+        [3,2,1] is not equal to [1,2,3].
 
     Returns: generator object
 
@@ -153,10 +155,7 @@ def gen_img_samples(src, chunk_size, *band_order):
         for column in range(0, src.width, step):
             window = Window.from_slices(slice(row, row + chunk_size),
                                         slice(column, column + chunk_size))
-            if band_order:
-                window_array = reshape_as_image(src.read(band_order[0], window=window))
-            else:
-                window_array = reshape_as_image(src.read(window=window))
+            window_array = reshape_as_image(src.read(window=window, indexes=channel_idxs))
             if window_array.shape[0] < chunk_size or window_array.shape[1] < chunk_size:
                 window_array = _pad_diff(window_array, window_array.shape[0], window_array.shape[1], chunk_size)
             window_array = _pad(window_array, chunk_size)
@@ -174,8 +173,8 @@ def segmentation(param,
                  chunk_size: int,
                  device,
                  scale: List,
-                 BGR_to_RGB: bool,
                  tp_mem,
+                 bands_idxs : List = None,
                  debug=False,
                  ):
     """
@@ -190,8 +189,8 @@ def segmentation(param,
         chunk_size: image tile size
         device: cuda/cpu device
         scale: scale range
-        BGR_to_RGB: True/False
         tp_mem: memory temp file for saving numpy array to disk
+        List of band indexes to read from source imagery (starting at 1 per rasterio convention). Order matters.
         debug: True/False
 
     Returns:
@@ -224,7 +223,7 @@ def segmentation(param,
     fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(h_, w_, num_classes))
     sample = {'sat_img': None, 'map_img': None, 'metadata': None}
     cnt = 0
-    img_gen = gen_img_samples(input_image, chunk_size)
+    img_gen = gen_img_samples(input_image, chunk_size, bands_idxs)
     start_seg = time.time()
     for img in tqdm(img_gen, position=1, leave=False, desc='inferring on window slices'):
         row = img[1]
@@ -238,7 +237,6 @@ def segmentation(param,
         sample['metadata'] = image_metadata
         totensor_transform = augmentation.compose_transforms(param,
                                                              dataset="tst",
-                                                             input_space=BGR_to_RGB,
                                                              scale=scale,
                                                              aug_type='totensor')
         sample['sat_img'] = sub_image
@@ -424,9 +422,9 @@ def main(params: dict):
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
     chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
-    BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
 
     # OPTIONAL PARAMETERS
+    bands_idxs = get_key_def('bands_idxs', params['global'], default=None, expected_type=List)
     dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
     num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
     default_max_used_ram = 25
@@ -452,13 +450,10 @@ def main(params: dict):
     # SETUP LOGGING
     import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     if mlflow_uri:
-        log_config_path = Path('utils/logging.conf').absolute()
-        logfile = f'{working_folder}/info.log'
-        logfile_debug = f'{working_folder}/debug.log'
+        # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
         console_level_logging = 'INFO' if not debug else 'DEBUG'
-        logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile,
-                                                             'logfilename_debug': logfile_debug,
-                                                             'console_level': console_level_logging})
+        logfile_pref = f'{working_folder.name}'
+        set_logging(console_level=console_level_logging, logfiles_dir=working_folder, logfiles_prefix=logfile_pref)
 
         # import only if mlflow uri is set
         if not Path(mlflow_uri).is_dir():
@@ -503,7 +498,7 @@ def main(params: dict):
                                       max_used_perc=max_used_perc)
     # TODO: test this thumbrule on different GPUs
     if gpu_devices_dict:
-        chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=350)
+        chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=50)
     else:
         chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
 
@@ -615,8 +610,8 @@ def main(params: dict):
                                          chunk_size=chunk_size,
                                          device=device,
                                          scale=scale,
-                                         BGR_to_RGB=BGR_to_RGB,
                                          tp_mem=temp_file,
+                                         bands_idxs=bands_idxs,
                                          debug=debug)
                 if gdf is not None:
                     gdf_.append(gdf)
