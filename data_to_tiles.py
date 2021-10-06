@@ -227,6 +227,7 @@ def main(params):
             if not isinstance(item, int):
                 raise ValueError(f'Target id "{item}" in target_ids is {type(item)}, expected int.')
 
+    # TODO: move validation steps to validate_geodata.py
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
     no_gt = False

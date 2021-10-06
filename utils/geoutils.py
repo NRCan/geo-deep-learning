@@ -195,7 +195,8 @@ def get_key_recursive(key, config):
     """Returns a value recursively given a dictionary key that may contain multiple subkeys."""
     if not isinstance(key, list):
         key = key.split("/")  # subdict indexing split using slash
-    assert key[0] in config, f"missing key '{key[0]}' in metadata dictionary: {config}"
+    if not key[0] in config:
+        logging.error(f"missing key '{key[0]}' in metadata dictionary: {config}")
     val = config[key[0]]
     if isinstance(val, (dict, collections.OrderedDict)):
         assert len(key) > 1, "missing keys to index metadata subdictionaries"

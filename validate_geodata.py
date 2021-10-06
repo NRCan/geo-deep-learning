@@ -47,7 +47,8 @@ if __name__ == '__main__':
     set_logging(console_level=console_lvl, logfiles_dir=working_dir, logfiles_prefix='validate_geodata')
 
     if csv_file:
-        raise logging.error(NotImplementedError)
+        # FIXME: implement!
+        raise NotImplementedError
     else:
         logging.info(f'Searching for GDAL readable rasters in {dir}...')
         rasters_to_validate = []
