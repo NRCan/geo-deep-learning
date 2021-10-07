@@ -338,11 +338,11 @@ class RasterTiler(object):
                     height=self.src_tile_size[0])
 
                 if self.dest_crs != self.src.crs and self.resampling is None:
-                    logging.warning("Warning: You've set resampling to None but your "
+                    logging.debug("Warning: You've set resampling to None but your "
                                     "destination projection differs from the source "
                                     "projection. Using bilinear resampling by default.")
                 elif self.src_tile_size != self.dest_tile_size and self.resampling is None:
-                    logging.warning("Warning: You've set resampling to None but your "
+                    logging.debug("Warning: You've set resampling to None but your "
                                     "destination tile size differs from the source "
                                     "tile size. Using bilinear resampling by default.")
                 self.resampling = 'bilinear' if self.resampling is None else self.resampling

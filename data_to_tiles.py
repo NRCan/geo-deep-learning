@@ -253,7 +253,7 @@ def main(params):
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
     no_gt = False
-    for info in tqdm(list_data_prep, position=0):
+    for info in tqdm(list_data_prep, position=0, desc=f'Asserting number of bands in imagery is {num_bands}'):
         metadata = rasterio.open(info['tif']).meta
         if metadata['count'] > num_bands and not bands_idxs:
             raise ValueError(f'Missing band indexes to keep. Imagery contains {metadata["count"]} bands. '
@@ -495,5 +495,6 @@ if __name__ == '__main__':
         if args.bands:
             params['global']['bands_idxs'] = args.bands
 
-    print(f'\n\nStarting data to tiles preparation with {args}\n\n')
+    print(f'\n\nStarting data to tiles preparation with {args}\n'
+          f'These parameters may be overwritten by a yaml\n\n')
     main(params)

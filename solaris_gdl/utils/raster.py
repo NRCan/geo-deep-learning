@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-import tensorflow as tf
+# import tensorflow as tf
 
 
 def reorder_axes(arr, target='tensorflow'):
@@ -22,8 +22,8 @@ def reorder_axes(arr, target='tensorflow'):
 
     if isinstance(arr, torch.Tensor) or isinstance(arr, np.ndarray):
         axes = list(arr.shape)
-    elif isinstance(arr, tf.Tensor):
-        axes = arr.get_shape().as_list()
+    # elif isinstance(arr, tf.Tensor):
+    #     axes = arr.get_shape().as_list()
 
     if isinstance(arr, torch.Tensor):
         if len(axes) == 3:
@@ -49,11 +49,11 @@ def reorder_axes(arr, target='tensorflow'):
             elif target == 'torch' and axes[3] < axes[2]:
                 arr = np.moveaxis(arr, 3, 1)
 
-    elif isinstance(arr, tf.Tensor):
-        # permutation is obnoxious in tensorflow; convert to numpy, permute,
-        # convert back.
-        np_version = arr.eval()
-        np_version = reorder_axes(np_version, target=target)
-        arr = tf.convert_to_tensor(np_version)
+    # elif isinstance(arr, tf.Tensor):
+    #     # permutation is obnoxious in tensorflow; convert to numpy, permute,
+    #     # convert back.
+    #     np_version = arr.eval()
+    #     np_version = reorder_axes(np_version, target=target)
+    #     arr = tf.convert_to_tensor(np_version)
 
     return arr
