@@ -274,6 +274,7 @@ def main(params):
     logging.info(f"Preparing samples \n\tSamples_size: {samples_size} ")
     for info in tqdm(list_data_prep, position=0, leave=False):
         try:
+            # FIXME: when aoi_name is same for multiple lines, data is being overwritten... check with SN7
             aoi_name = Path(info['tif']).stem if not info['aoi'] else info['aoi']
             # FIXME: why does output dir change whether GT is present or not?
             out_img_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'sat_img')
@@ -291,6 +292,8 @@ def main(params):
                                      f'Expected: {exp_tiles}\n'
                                      f'Actual image tiles: {act_img_tiles}\n'
                                      f'Skipping tiling.')
+                    # FIXME: this broke with resizing feature
+                    #do_tile = False
                 elif act_img_tiles > 0:
                     logging.critical(f'Missing tiles for {info["tif"]}. \n'
                                      f'Expected: {exp_tiles}\n'
