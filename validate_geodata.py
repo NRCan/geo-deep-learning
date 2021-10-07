@@ -69,6 +69,7 @@ if __name__ == '__main__':
 
     logging.info(f'Will validate {len(data_list)} rasters...')
     report_lines = []
+    validated_gts = set()
     header = ['raster_root', 'raster_path', 'metadata', 'is_valid']
     for i, aoi in tqdm(enumerate(data_list), desc='Checking geodata'):
         is_valid_raster, meta = validate_raster(raster_path=aoi['tif'], verbose=True, extended=True)
@@ -76,19 +77,28 @@ if __name__ == '__main__':
         line = [Path(aoi['tif']).parent.absolute(), Path(aoi['tif']).name, meta, is_valid_raster]
         if 'gpkg' in aoi.keys():
             if i == 0:
-                gt_header = ['gt_root', 'gt_path', 'att_fields', 'is_valid', 'invalid_feat_ids', 'raster_gt_crs_match']
-            gt = _check_gdf_load(aoi['gpkg'])
-            crs_match, _, crs_gt = assert_crs_match(raster, gt)
-            fields = gt.columns
-            logging.info(f"Checking validity of features in vector files. This may take time.")
-            if 'attribute_name' in aoi:
-                is_valid_gt, invalid_features = validate_features_from_gpkg(gt, aoi['attribute_name'])
+                gt_header = ['gt_root', 'gt_path', 'att_fields', 'is_valid', 'invalid_feat_ids', 'raster_gt_crs_match',
+                             'epsg_raster', 'epsg_gt']
+                header.extend(gt_header)
+            if aoi['gpkg'] in validated_gts:
+                gt_line = [Path(aoi['gpkg']).parent.absolute(), Path(aoi['gpkg']).name]
+                line.extend(gt_line)
+                logging.info(f"Already checked ground truth vector file: {Path(aoi['gpkg']).name}")
             else:
-                is_valid_gt = f'Geometry check not implement if attribute name omitted'
-                invalid_features = []
-                logging.error(is_valid_gt)
-            gt_line = [Path(aoi['gpkg']).parent.absolute(), Path(aoi['gpkg']).name, fields, is_valid_gt, invalid_features, crs_match]
-            line.append(gt_line)
+                validated_gts.add(aoi['gpkg'])
+                gt = _check_gdf_load(aoi['gpkg'])
+                crs_match, epsg_raster, epsg_gt = assert_crs_match(raster, gt)
+                fields = gt.columns
+                logging.info(f"Checking validity of features in vector files. This may take time.")
+                if 'attribute_name' in aoi:
+                    is_valid_gt, invalid_features = validate_features_from_gpkg(gt, aoi['attribute_name'])
+                else:
+                    is_valid_gt = f'Geometry check not implement if attribute name omitted'
+                    invalid_features = []
+                    logging.error(is_valid_gt)
+                gt_line = [Path(aoi['gpkg']).parent.absolute(), Path(aoi['gpkg']).name, fields, is_valid_gt,
+                           invalid_features, crs_match, epsg_raster, epsg_gt]
+                line.extend(gt_line)
         report_lines.append(line)
 
     logging.info(f'Writing geodata validation report...')

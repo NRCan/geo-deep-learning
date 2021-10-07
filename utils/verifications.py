@@ -96,10 +96,17 @@ def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path])
     :param gpkg_path: (str or Path) path to gpkg file
     """
     raster = _check_rasterio_im_load(raster_path)
-    epsg_raster = _check_crs(raster.crs.to_epsg())
-
+    raster_crs = raster.crs
     gt = _check_gdf_load(gpkg_path)
-    epsg_gt = _check_crs(gt.crs.to_epsg())
+    gt_crs = gt.crs
+
+    epsg_gt = _check_crs(gt_crs.to_epsg())
+    if raster_crs.is_epsg_code:
+        epsg_raster = _check_crs(raster_crs.to_epsg())
+    else:
+        logging.warning(f"Cannot parse epsg code from raster's crs '{raster.name}'")
+        return False, None, epsg_gt
+
     if epsg_raster != epsg_gt:
         logging.error(f"CRS mismatch: \n"
                       f"TIF file \"{raster_path}\" has {epsg_raster} CRS; \n"
