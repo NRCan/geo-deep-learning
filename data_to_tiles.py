@@ -254,21 +254,14 @@ def main(params):
     valid_gpkg_set = set()
     no_gt = False
     for info in tqdm(list_data_prep, position=0):
-        _, metadata = validate_raster(info['tif'])
+        metadata = rasterio.open(info['tif']).meta
         if metadata['count'] > num_bands and not bands_idxs:
             raise ValueError(f'Missing band indexes to keep. Imagery contains {metadata["count"]} bands. '
                              f'Number of bands to be kept in tiles {num_bands}')
         elif metadata['count'] < num_bands:
             raise ValueError(f'Imagery contains {metadata["count"]} bands. "num_bands" is {num_bands}\n'
                              f'Expected {num_bands} or more bands in source imagery')
-        if info['gpkg']:
-            if info['gpkg'] not in valid_gpkg_set:
-                # FIXME: check/fix this validation and use it
-                #gpkg_classes = validate_num_classes(info['gpkg'], num_classes, info['attribute_name'],
-                #                                    target_ids=attr_vals)
-                assert_crs_match(info['tif'], info['gpkg'])
-                valid_gpkg_set.add(info['gpkg'])
-        else:
+        if not info['gpkg']:
             logging.warning(f"No ground truth data found for {info['tif']}. Only imagery will be processed from now on")
             no_gt = True
         if not info['dataset'] in ['trn', 'tst']:
