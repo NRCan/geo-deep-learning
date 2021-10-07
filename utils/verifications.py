@@ -133,7 +133,7 @@ def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
         logging.error(f"{gpkg}: Invalid geometry object(s) '{invalid_features_list}'")
         return False, invalid_features_list
     else:
-        logging.info(f"{gpkg}: Valid")
+        logging.debug(f"Valid: {gpkg}")
         return True, invalid_features_list
 
 
@@ -150,12 +150,12 @@ def validate_raster(raster_path: Union[str, Path], verbose: bool = True, extende
     raster_path = Path(raster_path) if isinstance(raster_path, str) else raster_path
     metadata = {}
     try:
-        logging.info(f'Raster to validate: {raster_path}\n'
+        logging.debug(f'Raster to validate: {raster_path}\n'
                      f'Size: {raster_path.stat().st_size}\n'
                      f'Extended check: {extended}')
         metadata = get_raster_meta(raster_path)
         if extended:
-            logging.info(f'Will perform extended check\n'
+            logging.debug(f'Will perform extended check\n'
                          f'Will read first band: {raster_path}')
             with rasterio.open(raster_path, 'r') as raster:
                 raster_np = raster.read(1)
