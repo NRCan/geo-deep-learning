@@ -87,7 +87,7 @@ if __name__ == '__main__':
             else:
                 validated_gts.add(aoi['gpkg'])
                 gt = _check_gdf_load(aoi['gpkg'])
-                crs_match, epsg_raster, epsg_gt = assert_crs_match(raster, gt)
+                crs_match, epsg_raster, epsg_gt = assert_crs_match(raster, aoi['gpkg'])
                 fields = gt.columns
                 logging.info(f"Checking validity of features in vector files. This may take time.")
                 if 'attribute_name' in aoi:

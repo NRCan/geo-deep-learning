@@ -127,7 +127,7 @@ def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
     # Validate vector features to burn in the raster image
     src = _check_gdf_load(gpkg)
     for geom in tqdm(src.iterfeatures(), desc=f'Checking features'):
-        if not is_valid_geom(geom['geometry']):
+        if not geom or is_valid_geom(geom['geometry']):
             invalid_features_list.append(geom['id'])
     if len(invalid_features_list) > 0:
         logging.error(f"{gpkg}: Invalid geometry object(s) '{invalid_features_list}'")
