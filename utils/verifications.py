@@ -8,6 +8,7 @@ from PIL import Image
 from rasterio.features import is_valid_geom
 from tqdm import tqdm
 
+from solaris_gdl.utils.core import _check_gdf_load, _check_crs, _check_rasterio_im_load
 from utils.utils import subprocess_cmd
 from utils.geoutils import lst_ids, get_key_recursive
 
@@ -94,16 +95,18 @@ def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path])
     :param raster_path: (str or Path) path to raster file
     :param gpkg_path: (str or Path) path to gpkg file
     """
-    with fiona.open(gpkg_path, 'r') as src:
-        gpkg_crs = src.crs
+    raster = _check_rasterio_im_load(raster_path)
+    epsg_raster = _check_crs(raster.crs.to_epsg())
 
-    with rasterio.open(raster_path, 'r') as raster:
-        raster_crs = raster.crs
-
-    if not gpkg_crs == raster_crs:
+    gt = _check_gdf_load(gpkg_path)
+    epsg_gt = _check_crs(gt.crs.to_epsg())
+    if epsg_raster != epsg_gt:
         logging.error(f"CRS mismatch: \n"
-                      f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n"
-                      f"GPKG file \"{gpkg_path}\" has {src.crs} CRS.")
+                      f"TIF file \"{raster_path}\" has {epsg_raster} CRS; \n"
+                      f"GPKG file \"{gpkg_path}\" has {epsg_gt} CRS.")
+        return False, epsg_raster, epsg_gt
+    else:
+        return True, epsg_raster, epsg_gt
 
 
 def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
@@ -115,17 +118,16 @@ def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
     # TODO: test this with invalid features.
     invalid_features_list = []
     # Validate vector features to burn in the raster image
-    with fiona.open(gpkg, 'r') as src:  # TODO: refactor as independent function
-        lst_vector = [vector for vector in src]
-    shapes = lst_ids(list_vector=lst_vector, attr_name=attribute_name)
-    for index, item in enumerate(tqdm([v for vecs in shapes.values() for v in vecs], leave=False, position=1)):
-        # geom must be a valid GeoJSON geometry type and non-empty
-        geom, value = item
-        geom = getattr(geom, '__geo_interface__', None) or geom
-        if not is_valid_geom(geom):
-            if lst_vector[index]["id"] not in invalid_features_list:  # ignore if feature is already appended
-                invalid_features_list.append(lst_vector[index]["id"])
-    return invalid_features_list
+    src = _check_gdf_load(gpkg)
+    for geom in tqdm(src.iterfeatures(), desc=f'Checking features'):
+        if not is_valid_geom(geom['geometry']):
+            invalid_features_list.append(geom['id'])
+    if len(invalid_features_list) > 0:
+        logging.error(f"{gpkg}: Invalid geometry object(s) '{invalid_features_list}'")
+        return False, invalid_features_list
+    else:
+        logging.info(f"{gpkg}: Valid")
+        return True, invalid_features_list
 
 
 def validate_raster(raster_path: Union[str, Path], verbose: bool = True, extended: bool = False):

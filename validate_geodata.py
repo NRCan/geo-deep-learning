@@ -4,15 +4,18 @@ from datetime import datetime
 import logging.config
 
 import numpy as np
+import rasterio
+from tqdm import tqdm
 
 from data_to_tiles import set_logging
+from solaris_gdl.utils.core import _check_crs, _check_gdf_load
 from utils.utils import read_csv
 
 np.random.seed(1234)  # Set random seed for reproducibility
 
 from pathlib import Path
 
-from utils.verifications import validate_raster, is_gdal_readable
+from utils.verifications import validate_raster, is_gdal_readable, assert_crs_match, validate_features_from_gpkg
 
 if __name__ == '__main__':
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
@@ -41,9 +44,9 @@ if __name__ == '__main__':
     extended = args.extended
     csv_file = Path(args.csv) if args.csv else args.csv
     dir = Path(args.dir) if args.dir else args.dir
-    
+
     working_dir = csv_file.parent if csv_file else dir
-    report_path = working_dir / f'validate_geo_data_report_{now}.csv'
+    report_path = working_dir / f'validate_geodata_report_{now}.csv'
     console_lvl = 'INFO' if not debug else 'DEBUG'
     set_logging(console_level=console_lvl, logfiles_dir=working_dir, logfiles_prefix='validate_geodata')
 
@@ -51,25 +54,41 @@ if __name__ == '__main__':
         logging.info(f'Rasters from csv will be checked\n'
                      f'Csv file: {csv_file}')
         data_list = read_csv(args.csv)
-        img_list = [data['tif'] for data in data_list]
     else:
         logging.info(f'Searching for GDAL readable rasters in {dir}...')
-        img_list = []
+        data_list = []
         non_rasters = []
         for file in dir.glob('**/*'):
             logging.debug(file)
             if is_gdal_readable(file):
                 logging.debug(f'Found raster: {file}')
-                img_list.append(file)
+                data_list.append({'tif': {file.absolute()}})
             else:
+                # for debugging purposes
                 non_rasters.append(file)
 
-    logging.info(f'Will validate {len(img_list)} rasters...')
+    logging.info(f'Will validate {len(data_list)} rasters...')
     report_lines = []
-    header = ['raster_path', 'metadata', 'is_valid']
-    for raster_path in img_list:
-        is_valid, meta = validate_raster(raster_path=raster_path, verbose=True, extended=True)
-        line = [raster_path, meta, is_valid]
+    header = ['raster_root', 'raster_path', 'metadata', 'is_valid']
+    for i, aoi in tqdm(enumerate(data_list), desc='Checking geodata'):
+        is_valid_raster, meta = validate_raster(raster_path=aoi['tif'], verbose=True, extended=True)
+        raster = rasterio.open(aoi['tif'])
+        line = [Path(aoi['tif']).parent.absolute(), Path(aoi['tif']).name, meta, is_valid_raster]
+        if 'gpkg' in aoi.keys():
+            if i == 0:
+                gt_header = ['gt_root', 'gt_path', 'att_fields', 'is_valid', 'invalid_feat_ids', 'raster_gt_crs_match']
+            gt = _check_gdf_load(aoi['gpkg'])
+            crs_match, _, crs_gt = assert_crs_match(raster, gt)
+            fields = gt.columns
+            logging.info(f"Checking validity of features in vector files. This may take time.")
+            if 'attribute_name' in aoi:
+                is_valid_gt, invalid_features = validate_features_from_gpkg(gt, aoi['attribute_name'])
+            else:
+                is_valid_gt = f'Geometry check not implement if attribute name omitted'
+                invalid_features = []
+                logging.error(is_valid_gt)
+            gt_line = [Path(aoi['gpkg']).parent.absolute(), Path(aoi['gpkg']).name, fields, is_valid_gt, invalid_features, crs_match]
+            line.append(gt_line)
         report_lines.append(line)
 
     logging.info(f'Writing geodata validation report...')

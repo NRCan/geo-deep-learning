@@ -279,15 +279,6 @@ def main(params):
         if not info['dataset'] in ['trn', 'tst']:
             raise ValueError(f'Dataset value must be "trn" or "tst". Got: {info["dataset"]}')
 
-    if debug:
-        # VALIDATION (debug only): Checking validity of features in vector files
-        for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
-            # TODO: make unit to test this with invalid features.
-            if not no_gt:
-                invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])
-                if invalid_features:
-                    logging.critical(f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'")
-
     datasets = ['trn', 'val', 'tst']
 
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
