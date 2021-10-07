@@ -336,9 +336,6 @@ class RasterTiler(object):
                     *tb, transform=self.src.transform,
                     width=self.src_tile_size[1],
                     height=self.src_tile_size[0])
-                #print('reading data from window')
-                #print(self.nodata)
-
 
                 if self.dest_crs != self.src.crs and self.resampling is None:
                     logging.warning("Warning: You've set resampling to None but your "
@@ -350,6 +347,7 @@ class RasterTiler(object):
                                     "tile size. Using bilinear resampling by default.")
                 self.resampling = 'bilinear' if self.resampling is None else self.resampling
 
+                # About resampling: https://rasterio.readthedocs.io/en/latest/topics/resampling.html
                 src_data = self.src.read(
                     window=window,
                     indexes=channel_idxs,
@@ -379,7 +377,6 @@ class RasterTiler(object):
                         resampling=getattr(Resampling, self.resampling))
 
                 else:  # for the case where there is no resampling and no dest_crs specified, no need to reproject or resample
-
                     tile_data = src_data
 
                 if self.nodata:

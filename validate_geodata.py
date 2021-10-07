@@ -6,6 +6,7 @@ import logging.config
 import numpy as np
 
 from data_to_tiles import set_logging
+from utils.utils import read_csv
 
 np.random.seed(1234)  # Set random seed for reproducibility
 
@@ -38,46 +39,48 @@ if __name__ == '__main__':
     debug = args.debug
     # parallel = args.parallel
     extended = args.extended
-    csv_file = Path(args.csv[0]) if args.csv else args.csv
+    csv_file = Path(args.csv) if args.csv else args.csv
     dir = Path(args.dir) if args.dir else args.dir
     
     working_dir = csv_file.parent if csv_file else dir
-    report_path = working_dir / f'report_{now}.csv'
+    report_path = working_dir / f'validate_geo_data_report_{now}.csv'
     console_lvl = 'INFO' if not debug else 'DEBUG'
     set_logging(console_level=console_lvl, logfiles_dir=working_dir, logfiles_prefix='validate_geodata')
 
     if csv_file:
-        # FIXME: implement!
-        raise NotImplementedError
+        logging.info(f'Rasters from csv will be checked\n'
+                     f'Csv file: {csv_file}')
+        data_list = read_csv(args.csv)
+        img_list = [data['tif'] for data in data_list]
     else:
         logging.info(f'Searching for GDAL readable rasters in {dir}...')
-        rasters_to_validate = []
+        img_list = []
         non_rasters = []
         for file in dir.glob('**/*'):
             logging.debug(file)
             if is_gdal_readable(file):
                 logging.debug(f'Found raster: {file}')
-                rasters_to_validate.append(file)
+                img_list.append(file)
             else:
                 non_rasters.append(file)
 
-        logging.info(f'Will validate {len(rasters_to_validate)} rasters...')
-        report_lines = []
-        header = ['raster_path', 'metadata', 'is_valid']
-        for raster_path in rasters_to_validate:
-            is_valid, meta = validate_raster(raster_path=raster_path, verbose=True, extended=True)
-            line = [raster_path, meta, is_valid]
-            report_lines.append(line)
+    logging.info(f'Will validate {len(img_list)} rasters...')
+    report_lines = []
+    header = ['raster_path', 'metadata', 'is_valid']
+    for raster_path in img_list:
+        is_valid, meta = validate_raster(raster_path=raster_path, verbose=True, extended=True)
+        line = [raster_path, meta, is_valid]
+        report_lines.append(line)
 
-        logging.info(f'Writing geodata validation report to: \n{report_path}')
-        with open(report_path, 'w') as out:
-            write = csv.writer(out)
-            write.writerow(header)
-            write.writerows(report_lines)
+    logging.info(f'Writing geodata validation report...')
+    with open(report_path, 'w') as out:
+        write = csv.writer(out)
+        write.writerow(header)
+        write.writerows(report_lines)
 
-        logging.info('Done')
+    logging.info(f'Done. See reports: {report_path.absolute()}')
 
-        # TODO: merge with verifications.py
+    # TODO: merge with verifications.py
 
 
 
