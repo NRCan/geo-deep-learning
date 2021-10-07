@@ -580,3 +580,8 @@ def subprocess_cmd(cmd, success_msg='Success', failure_msg='Failed', use_spcall=
     else:
         logging.error(failure_msg)
     return subproc
+
+
+def map_wrapper(x):
+    '''For multi-threading'''
+    return x[0](*(x[1:]))

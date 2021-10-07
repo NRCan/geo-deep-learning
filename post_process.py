@@ -10,7 +10,6 @@ from skimage import measure
 from skimage.transform import rescale
 from torch import nn
 
-from data_to_tiles import map_wrapper
 from utils.verifications import validate_raster
 
 np.random.seed(1234)  # Set random seed for reproducibility
@@ -20,7 +19,7 @@ import time
 from pathlib import Path
 from tqdm import tqdm
 
-from utils.utils import get_key_def, read_csv, get_git_hash, defaults_from_params, subprocess_cmd
+from utils.utils import get_key_def, read_csv, get_git_hash, defaults_from_params, subprocess_cmd, map_wrapper
 from utils.readers import read_parameters
 
 logging.getLogger(__name__)

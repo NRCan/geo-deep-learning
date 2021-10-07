@@ -17,9 +17,9 @@ from pathlib import Path
 from tqdm import tqdm
 import geopandas as gpd
 
-from utils.utils import get_key_def, read_csv, get_git_hash
+from utils.utils import get_key_def, read_csv, get_git_hash, map_wrapper
 from utils.readers import read_parameters
-from utils.verifications import assert_crs_match, validate_features_from_gpkg, validate_raster
+from utils.verifications import assert_crs_match, validate_raster
 from solaris_gdl import tile
 from solaris_gdl import vector
 
@@ -71,11 +71,6 @@ def tiling_checker(src_img: Union[str, Path],
         logging.info(f'Number of actual tiles with suffix "{out_suffix}": {nb_act_tiles}\n'
                      f'Number of expected tiles : {nb_exp_tiles}\n')
     return nb_act_tiles, nb_exp_tiles
-
-
-def map_wrapper(x):
-    '''For multi-threading'''
-    return x[0](*(x[1:]))
 
 
 def out_tiling_dir(root, dataset, aoi_name, category):
