@@ -1,9 +1,6 @@
 import shutil
-import logging
-import logging.config
 import rasterio
 import numpy as np
-
 from os import path
 from tqdm import tqdm
 from pathlib import Path
@@ -22,11 +19,11 @@ from utils.utils import (
 from utils.verifications import (
     validate_num_classes, validate_raster, assert_crs_match, validate_features_from_gpkg
 )
-
+# Set the logging file
+from utils import utils
+logging = utils.get_logger(__name__)  # import logging
 # Set random seed for reproducibility
 np.random.seed(1234)
-# Set the logging
-logging.getLogger(__name__)
 
 
 def mask_image(arrayA, arrayB):
@@ -211,17 +208,17 @@ def samples_preparation(in_img_array,
     metadata_idx = append_to_dataset(samples_file["metadata"], repr(image_metadata))
 
     if overlap > 25:
-         logging.warning(
-             "\nhigh overlap >25%, note that automatic train/val split creates very similar samples in both sets"
-         )
+        logging.warning(
+            "\nhigh overlap >25%, note that automatic train/val split creates very similar samples in both sets"
+        )
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
     excl_samples = 0
 
-    with tqdm(range(0, h, dist_samples), position=1, leave=True,
-              desc=f'Writing samples. Dataset currently contains {idx_samples} '
-                   f'samples') as _tqdm:
-
+    # with tqdm(range(0, h, dist_samples), position=1, leave=True,
+    #           desc=f'Writing samples. Dataset currently contains {idx_samples} '
+    #                f'samples') as _tqdm:
+    with tqdm(range(0, h, dist_samples), position=1, leave=True) as _tqdm:
         for row in _tqdm:
             for column in range(0, w, dist_samples):
                 data = (in_img_array[row:row + sample_size, column:column + sample_size, :])
@@ -381,35 +378,37 @@ def main(cfg: DictConfig) -> None:
     task = cfg.task.name
 
     # RAW DATA PARAMETERS
-    if path.exists(cfg.dataset.raw_data_dir):
-        logging.info("\nImage directory used '{}'".format(cfg.dataset.raw_data_dir))
-        # TODO list all images use in the folder
-        # logging.info(f'\n\tSuccessfully read csv file: {Path(csv_file).stem}\n'
-        #              f'\tNumber of rows: {len(list_data_prep)}\n'
-        #              f'\tCopying first entry:\n{list_data_prep[0]}\n')
-        data_path = Path(cfg.dataset.raw_data_dir)
-    else:
+    # Data folder
+    try:
+        # check if the folder exist
+        my_data_path = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
+        logging.info("\nImage directory used '{}'".format(my_data_path))
+        data_path = Path(my_data_path)
+    except FileNotFoundError:
         raise logging.critical(
             "\nImage directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
         )
-    if path.exists(cfg.dataset.raw_data_csv):
-        logging.info("\nImage csv: '{}'".format(cfg.dataset.raw_data_csv))
-        csv_file = cfg.dataset.raw_data_csv
-    else:
+    # CSV file
+    try:
+        my_csv_path = Path(cfg.dataset.raw_data_csv).resolve(strict=True)
+        # path.exists(cfg.dataset.raw_data_csv)
+        logging.info("\nImage csv: '{}'".format(my_csv_path))
+        csv_file = my_csv_path
+    except FileNotFoundError:
         raise logging.critical(
             "\nImage csv '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_csv)
         )
-
-    # HDF5 DATA PARAMETERS
-    if path.exists(cfg.dataset.sample_data_dir):
-        logging.info("\nThe HDF5 directory used '{}'".format(cfg.dataset.sample_data_dir))
-        Path.mkdir(Path(cfg.dataset.sample_data_dir), exist_ok=True, parents=True)  # TODO test if none what append
-    else:
-        logging.critical(
-            "\nThe HDF5 directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
+    # HDF5 data
+    try:
+        my_hdf5_path = Path(str(cfg.dataset.sample_data_dir)).resolve(strict=True)
+        logging.info("\nThe HDF5 directory used '{}'".format(my_hdf5_path))
+        Path.mkdir(Path(my_hdf5_path), exist_ok=True, parents=True)
+    except FileNotFoundError:
+        logging.info(
+            "\nThe HDF5 directory '{}' doesn't exist, please change the path.".format(cfg.dataset.sample_data_dir) +
+            "\nFor now the HDF5 directory use will be change for '{}'".format(data_path)
         )
-        logging.info("\nThe HDF5 directory use will be './data'")
-        cfg.dataset.sample_data_dir = Path('./data')
+        cfg.general.sample_data_dir = str(data_path)
 
     # SAMPLE PARAMETERS
     samples_size = get_key_def('input_dim', cfg['dataset'], default=256, expected_type=int)
@@ -418,18 +417,18 @@ def main(cfg: DictConfig) -> None:
     val_percent = get_key_def('train_val_percent', cfg['dataset'], default=0.3)['val'] * 100
     samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' \
                           f'_{num_bands}bands_{cfg.general.project_name}'
-    smpls_dir = data_path.joinpath(samples_folder_name)
-    if smpls_dir.is_dir():
+    samples_dir = data_path.joinpath(samples_folder_name)
+    if samples_dir.is_dir():
         if debug:
             # Move existing data folder with a random suffix.
-            last_mod_time_suffix = datetime.fromtimestamp(smpls_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-            shutil.move(smpls_dir, data_path.joinpath(f'{str(smpls_dir)}_{last_mod_time_suffix}'))
+            last_mod_time_suffix = datetime.fromtimestamp(samples_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+            shutil.move(samples_dir, data_path.joinpath(f'{str(samples_dir)}_{last_mod_time_suffix}'))
         else:
             # raise FileExistsError()
             raise logging.critical(
-                f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.'
+                f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.'
             )
-    Path.mkdir(smpls_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
+    Path.mkdir(samples_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
 
     # LOGGING PARAMETERS  TODO see logging yaml
     experiment_name = cfg.general.project_name
@@ -481,22 +480,9 @@ def main(cfg: DictConfig) -> None:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
         bucket.download_file(csv_file, 'samples_prep.csv')
-        list_data_prep = read_csv('samples_prep.csv')
+        list_data_prep = read_csv('samples_prep.csv', data_path)
     else:
-        list_data_prep = read_csv(csv_file)
-
-    # MORE PARAMETERS
-    # import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
-    log_config_path = Path('utils/logging.conf').absolute()
-    console_level_logging = 'INFO' if not debug else 'DEBUG'
-    logging.config.fileConfig(
-        log_config_path,
-        defaults={
-            'logfilename': f'{smpls_dir}/{samples_folder_name}.log',
-            'logfilename_debug': f'{smpls_dir}/{samples_folder_name}_debug.log',
-            'console_level': console_level_logging
-        }
-    )
+        list_data_prep = read_csv(csv_file, data_path)
 
     # IF DEBUG IS ACTIVATE
     if debug:
@@ -531,7 +517,7 @@ def main(cfg: DictConfig) -> None:
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
                                                              number_of_bands=num_bands,
                                                              meta_map=meta_map,
-                                                             samples_folder=smpls_dir,
+                                                             samples_folder=samples_dir,
                                                              cfg=cfg)
 
     # creates pixel_classes dict and keys
@@ -543,8 +529,8 @@ def main(cfg: DictConfig) -> None:
 
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
     logging.info(
-        f"\nPreparing samples \n\tSamples_size: {samples_size} \n\tOverlap: {overlap} "
-        f"\n\tValidation set: {val_percent} % of created training samples"
+        f"\nPreparing samples \n  Samples_size: {samples_size} \n  Overlap: {overlap} "
+        f"\n  Validation set: {val_percent} % of created training samples"
     )
     for info in tqdm(list_data_prep, position=0, leave=False):
         try:
@@ -594,7 +580,7 @@ def main(cfg: DictConfig) -> None:
                 out_meta.update({"driver": "GTiff",
                                  "height": np_image_debug.shape[1],
                                  "width": np_image_debug.shape[2]})
-                out_tif = smpls_dir / f"{Path(info['tif']).stem}_clipped.tif"
+                out_tif = samples_dir / f"{Path(info['tif']).stem}_clipped.tif"
                 logging.debug(f"Writing clipped raster to {out_tif}")
                 with rasterio.open(out_tif, "w", **out_meta) as dest:
                     dest.write(np_image_debug)
@@ -605,7 +591,7 @@ def main(cfg: DictConfig) -> None:
                                  "height": np_label_debug.shape[1],
                                  "width": np_label_debug.shape[2],
                                  'count': 1})
-                out_tif = smpls_dir / f"{Path(info['gpkg']).stem}_clipped.tif"
+                out_tif = samples_dir / f"{Path(info['gpkg']).stem}_clipped.tif"
                 logging.debug(f"\nWriting final rasterized gpkg to {out_tif}")
                 with rasterio.open(out_tif, "w", **out_meta) as dest:
                     dest.write(np_label_debug)
@@ -652,7 +638,7 @@ def main(cfg: DictConfig) -> None:
                                                                  class_prop=class_prop,
                                                                  stratd=stratd)
 
-            logging.info(f'\nNumber of samples={number_samples}')
+            # logging.info(f'\nNumber of samples={number_samples}')
             out_file.flush()
         except OSError:
             logging.exception(f'\nAn error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
@@ -667,19 +653,22 @@ def main(cfg: DictConfig) -> None:
     # adds up the number of pixels for each class in pixel_classes dict
     for i in pixel_classes:
         pixel_total += pixel_classes[i]
-
-    # prints the proportion of pixels of each class for the samples created
+    # calculate the proportion of pixels of each class for the samples created
+    pixel_classes_dict = {}
     for i in pixel_classes:
-        prop = round((pixel_classes[i] / pixel_total) * 100, 1) if pixel_total > 0 else 0
-        logging.info(f'\nPixels from class {i}: {prop} %')
+        # prop = round((pixel_classes[i] / pixel_total) * 100, 1) if pixel_total > 0 else 0
+        pixel_classes_dict[i] = round((pixel_classes[i] / pixel_total) * 100, 1) if pixel_total > 0 else 0
+    # prints the proportion of pixels of each class for the samples created
+    msg_pixel_classes = "\n".join("Pixels from class {}: {}%".format(k, v) for k, v in pixel_classes_dict.items())
+    logging.info("\n" + msg_pixel_classes)
 
-    logging.info("\nNumber of samples created: ", number_samples)
+    logging.info(f"\nNumber of samples created: {number_samples}")
 
     if bucket_name and final_samples_folder:  # FIXME: final_samples_folder always None in current implementation
         logging.info('\nTransfering Samples to the bucket')
-        bucket.upload_file(smpls_dir + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
-        bucket.upload_file(smpls_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
-        bucket.upload_file(smpls_dir + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
+        bucket.upload_file(samples_dir + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
+        bucket.upload_file(samples_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
+        bucket.upload_file(samples_dir + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
 
 
 # if __name__ == '__main__':

@@ -1,12 +1,16 @@
-import hydra
-import shutil
 import csv
 import logging
 import numbers
 import importlib
 import subprocess
+from functools import reduce
 from pathlib import Path
 from typing import Sequence, List
+from pytorch_lightning.utilities import rank_zero_only
+
+import rich.syntax
+import rich.tree
+from omegaconf import DictConfig, OmegaConf
 
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
@@ -26,19 +30,35 @@ try:
     from ruamel_yaml import YAML
 except ImportError:
     from ruamel.yaml import YAML
-
+# NVIDIA library
 try:
     from pynvml import *
 except ModuleNotFoundError:
     warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
-
+# AWS module
 try:
     import boto3
 except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
 
-logging.getLogger(__name__)
+
+def get_logger(name=__name__, level=logging.INFO) -> logging.Logger:
+    """Initializes multi-GPU-friendly python logger."""
+
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    # this ensures all logging levels get marked with the rank zero decorator
+    # otherwise logs would get multiplied for each GPU process in multi-GPU setup
+    for level in ("debug", "info", "warning", "error", "exception", "fatal", "critical"):
+        setattr(logger, level, rank_zero_only(getattr(logger, level)))
+
+    return logger
+
+
+# Set the logging file
+log = get_logger(__name__)  # need to be different from logging in this case
 
 
 class Interpolate(torch.nn.Module):
@@ -73,7 +93,7 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference:str=''):
 
     strict_loading = False if not inference else True
     model.load_state_dict(checkpoint['model'], strict=strict_loading)
-    logging.info(f"\n=> loaded model")
+    log.info(f"\n=> loaded model")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
         optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
     return model, optimizer
@@ -103,10 +123,10 @@ def get_device_ids(
     """
     lst_free_devices = {}
     if not number_requested:
-        logging.warning(f'\nNo GPUs requested. This training will run on CPU')
+        log.warning(f'\nNo GPUs requested. This training will run on CPU')
         return lst_free_devices
     if not torch.cuda.is_available():
-        logging.error(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
+        log.error(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
         return lst_free_devices
     try:
         nvmlInit()
@@ -117,31 +137,31 @@ def get_device_ids(
                 used_ram = mem.used / (1024 ** 2)
                 max_ram = mem.total / (1024 ** 2)
                 used_ram_perc = used_ram / max_ram * 100
-                logging.debug(f'\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
+                log.debug(f'\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
                 if used_ram_perc < max_used_ram_perc:
                     if res.gpu < max_used_perc:
                         lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}
                     else:
-                        logging.warning(f'\nGpu #{i} filtered out based on usage % threshold.\n'
+                        log.warning(f'\nGpu #{i} filtered out based on usage % threshold.\n'
                                     f'Current % usage: {res.gpu}\n'
                                     f'Max % usage allowed by user: {max_used_perc}.')
                 else:
-                    logging.warning(f'\nGpu #{i} filtered out based on RAM threshold.\n'
+                    log.warning(f'\nGpu #{i} filtered out based on RAM threshold.\n'
                                 f'Current RAM usage: {used_ram}/{max_ram}\n'
                                 f'Max used RAM allowed by user: {max_used_ram_perc}.')
                 if len(lst_free_devices.keys()) == number_requested:
                     break
             if len(lst_free_devices.keys()) < number_requested:
-                logging.warning(f"\nYou requested {number_requested} devices. {device_count} devices are available and "
+                log.warning(f"\nYou requested {number_requested} devices. {device_count} devices are available and "
                             f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
         else:
-            logging.error('\nNo gpu devices requested. Will run on cpu')
+            log.error('\nNo gpu devices requested. Will run on cpu')
     except NameError as error:
-        raise logging.critical(
+        raise log.critical(
             NameError(f"\n{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
         )
     except NVMLError as error:
-        raise logging.critical(
+        raise log.critical(
             ValueError(f"\n{error}. Make sure that the latest NVIDIA driver is installed and running.")
         )
     return lst_free_devices
@@ -175,9 +195,9 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
     elif isinstance(key, list):  # is key a list?
         if len(key) <= 1:  # is list of length 1 or shorter? else --> default
             if msg is not None:
-                raise logging.critical(AssertionError(msg))
+                raise log.critical(AssertionError(msg))
             else:
-                raise logging.critical(AssertionError("Must provide at least two valid keys to test"))
+                raise log.critical(AssertionError("Must provide at least two valid keys to test"))
         for k in key:  # iterate through items in list
             if k in config:  # if item is a key in config, set value.
                 val = config[k]
@@ -355,7 +375,25 @@ def list_input_images(img_dir_or_csv: str,
     return list_img
 
 
-def read_csv(csv_file_name):
+def try2read_csv(path_file, in_case_of_path, msg):
+    """
+    TODO
+    """
+    try:
+        Path(path_file).resolve(strict=True)
+    except FileNotFoundError:
+        if in_case_of_path:
+            path_file = os.path.join(in_case_of_path, os.path.basename(path_file))
+            try:
+                Path(path_file).resolve(strict=True)
+            except FileNotFoundError:
+                raise log.critical(f'\n{msg} "{path_file}"')
+        else:
+            raise log.critical(f'\n{msg} "{path_file}"')
+    return path_file
+
+
+def read_csv(csv_file_name, data_path=None):
     """
     Open csv file and parse it, returning a list of dict.
     - tif full path
@@ -371,16 +409,20 @@ def read_csv(csv_file_name):
             row_length = len(row) if index == 0 else row_length
             assert len(row) == row_length, "Rows in csv should be of same length"
             row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
-            list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]})
-            assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
+            # verify if the path is correct, change it if not and raise error msg if not existing
+            row[0] = try2read_csv(row[0], data_path, 'Tif raster not found:')
             if row[2]:
-                assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'
+                row[2] = try2read_csv(row[2], data_path, 'Gpkg not found:')
                 assert isinstance(row[3], str)
+            # save all values
+            list_values.append(
+                {'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]}
+            )
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
         list_values = sorted(list_values, key=lambda k: k['dataset'])
     except TypeError:
-        logging.warning('Unable to sort csv rows')
+        log.warning('Unable to sort csv rows')
     return list_values
 
 
@@ -476,7 +518,7 @@ def get_git_hash():
     # when code not executed from git repo, subprocess outputs return code #128. This has been tested.
     # Reference: https://stackoverflow.com/questions/58575970/subprocess-call-with-exit-status-128
     if subproc.returncode == 128:
-        logging.warning(f'No git repo associated to this code.')
+        log.warning(f'No git repo associated to this code.')
         return None
     return git_hash
 
@@ -493,7 +535,7 @@ def ordereddict_eval(str_to_eval: str):
         str_to_eval = str_to_eval.replace("ordereddict", "collections.OrderedDict")
         return eval(str_to_eval)
     except Exception:
-        logging.exception(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
+        log.exception(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
         return str_to_eval
 
 
@@ -532,18 +574,18 @@ def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -
                     subval1 = get_key_def(subparam, yaml1[section][param], default=None)
                     if subval2 != subval1:
                         # if value doesn't match between yamls, emit warning
-                        logging.warning(f"\nYAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
+                        log.warning(f"\nYAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
                                         f"Current yaml value: \"{subval1}\"\nHDF5s yaml value: \"{subval2}\"\n")
                         if update_yaml1:  # update yaml1 with subvalue of yaml2
                             yaml1[section][param][subparam] = subval2
-                            logging.info(f'Value in yaml1 updated')
+                            log.info(f'Value in yaml1 updated')
             elif val2 != val1:
-                logging.warning(f"\nYAML value mismatch: section \"{section}\", key \"{param}\"\n"
+                log.warning(f"\nYAML value mismatch: section \"{section}\", key \"{param}\"\n"
                                 f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val1}\"\n"
                                 f"Problems may occur.")
                 if update_yaml1:  # update yaml1 with value of yaml2
                     yaml1[section][param] = val2
-                    logging.info(f'Value in yaml1 updated')
+                    log.info(f'Value in yaml1 updated')
 
 
 def load_obj(obj_path: str, default_obj_path: str = '') -> any:
@@ -599,12 +641,98 @@ def find_first_file(name, list_path):
                     return os.path.join(dirname, name)
 
 
-def save_useful_info():
-    shutil.copytree(
-        os.path.join(hydra.utils.get_original_cwd(), 'src'),
-        os.path.join(os.getcwd(), 'code/src')
-    )
-    shutil.copy2(
-        os.path.join(hydra.utils.get_original_cwd(), 'hydra_run.py'),
-        os.path.join(os.getcwd(), 'code')
-    )
+def getpath(d, path):
+    """
+    TODO
+    """
+    return reduce(lambda acc, i: acc[i], path.split('.'), d)
+
+
+@rank_zero_only
+def print_config(
+    config: DictConfig,
+    fields: Sequence[str] = (
+        "task",
+        "mode",
+        "dataset",
+        "general.work_dir",
+        "general.config_name",
+        "general.config_path",
+        "general.project_name",
+        "general.workspace",
+        "general.device",
+    ),
+    resolve: bool = True,
+) -> None:
+    """
+    Prints content of DictConfig using Rich library and its tree structure.
+
+    Args:
+        config (DictConfig): Configuration composed by Hydra.
+        fields (Sequence[str], optional): Determines which main fields from config will
+        be printed and in what order.
+        resolve (bool, optional): Whether to resolve reference fields of DictConfig.
+    """
+    style = "dim"
+    tree = rich.tree.Tree("CONFIG", style=style, guide_style=style)
+    save_dir = tree.add('Saving directory', style=style, guide_style=style)
+    save_dir.add(os.getcwd())
+
+    if config.get('mode') == 'sampling':
+        fields += (
+            "general.raw_data_dir",
+            "general.raw_data_csv",
+            "general.sample_data_dir",
+        )
+    elif config.get('mode') == 'train':
+        fields += (
+            "model",
+            "data",
+            "trainer",
+            "training",
+            'optimizer',
+            'callbacks',
+            'scheduler',
+            'augmentation',
+            "general.sample_data_dir",
+            "general.state_dict_path",
+            "general.save_weights_dir",
+        )
+    elif config.get('mode') == 'inference':
+        fields += (
+            "model",
+            "general.sample_data_dir",
+            "general.state_dict_path",
+        )
+
+    if getpath(config, 'AWS.bucket_name'):
+        fields += "AWS"
+
+    if config.get('logging'):
+        fields += "logging"
+
+    for field in fields:
+        branch = tree.add(field, style=style, guide_style=style)
+        # config_section = config.get(field)
+        config_section = getpath(config, field)
+        branch_content = str(config_section)
+        if isinstance(config_section, DictConfig):
+            branch_content = OmegaConf.to_yaml(config_section, resolve=resolve)
+        branch.add(rich.syntax.Syntax(branch_content, "yaml", word_wrap=True))
+
+    if config.get('debug'):
+        rich.print(tree, flush=False)
+
+    with open("run_config.config", "w") as fp:
+        rich.print(tree, file=fp)
+
+
+# def save_useful_info():
+#     shutil.copytree(
+#         os.path.join(hydra.utils.get_original_cwd(), 'src'),
+#         os.path.join(os.getcwd(), 'code/src')
+#     )
+#     shutil.copy2(
+#         os.path.join(hydra.utils.get_original_cwd(), 'hydra_run.py'),
+#         os.path.join(os.getcwd(), 'code')
+#     )

@@ -1,8 +1,7 @@
-import logging
-import logging.config
+# import logging
+# import logging.config
 from math import sqrt
 from typing import List
-
 import torch
 import torch.nn.functional as F
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
@@ -33,13 +32,14 @@ from utils.utils import (
 )
 from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import add_background_to_num_class, validate_raster, validate_num_classes, assert_crs_match
-
+# AWS library
 try:
     import boto3
 except ModuleNotFoundError:
     pass
-
-logging.getLogger(__name__)
+# Set the logging file
+from utils import utils
+logging = utils.get_logger(__name__)  # import logging
 
 
 def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 350):

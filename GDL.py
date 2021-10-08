@@ -3,7 +3,7 @@ import time
 import hydra
 import logging
 from omegaconf import DictConfig, OmegaConf
-from utils.utils import load_obj, save_useful_info
+from utils.utils import load_obj, print_config, getpath
 
 
 @hydra.main(config_path="config", config_name="gdl_config_template")
@@ -30,14 +30,10 @@ def run_gdl(cfg: DictConfig) -> None:
     """
     cfg = OmegaConf.create(cfg)
 
-    # save the code and other stuffs when hydra=save
-    if os.getcwd() != hydra.utils.get_original_cwd():
-        save_useful_info()
-
     # debug config
     if cfg.debug:
         cfg.trainer.num_sanity_val_steps = 1  # only work with pytorch lightning
-        logging.info(OmegaConf.to_yaml(cfg, resolve=True))
+        # logging.info(OmegaConf.to_yaml(cfg, resolve=True))
 
     # check if the mode is chosen
     if type(cfg.mode) is DictConfig:
@@ -60,6 +56,10 @@ def run_gdl(cfg: DictConfig) -> None:
     # Read the task and execute it
     task = load_obj(cfg.task.path_task_function)
     task(cfg)
+
+    # Pretty print config using Rich library
+    if cfg.get("print_config"):
+        print_config(cfg, resolve=True)
 
     # End --------------------------------
     msg = "End of {} !!!".format(cfg.mode)

@@ -1,14 +1,10 @@
-import collections
-import logging
 import os
-import warnings
-from typing import List
-
 import h5py
-from pathlib import Path
-from omegaconf import OmegaConf
-from torch.utils.data import Dataset
+import collections
 import numpy as np
+from pathlib import Path
+from omegaconf import OmegaConf, DictConfig
+from torch.utils.data import Dataset
 
 import models.coordconv
 from utils.utils import get_key_def, ordereddict_eval, compare_config_yamls
@@ -18,7 +14,9 @@ from utils.geoutils import get_key_recursive
 from rasterio.crs import CRS
 from affine import Affine
 
-logging.getLogger(__name__)
+# Set the logging file
+from utils import utils
+logging = utils.get_logger(__name__)  # import logging
 
 
 def append_to_dataset(dataset, sample):
@@ -34,7 +32,7 @@ def append_to_dataset(dataset, sample):
     return old_size
 
 
-def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: Path, cfg: dict):
+def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: Path, cfg: DictConfig):
     """
     Function to create the hdfs files (trn, val and tst).
     :param samples_size: size of individual hdf5 samples to be created

@@ -2,8 +2,8 @@ import time
 import h5py
 import torch
 import shutil
-import logging
-import logging.config
+# import logging
+# import logging.config
 import warnings
 import functools
 import numpy as np
@@ -35,6 +35,9 @@ from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key
 from utils.visualization import vis_from_batch
 from utils.readers import read_parameters
 from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact, start_run
+# Set the logging file
+from utils import utils
+logging = utils.get_logger(__name__)  # import logging
 
 
 def flatten_labels(annotations):
@@ -855,7 +858,6 @@ def main(cfg: DictConfig) -> None:
     Function to manage details about the training on segmentation task.
 
     -------
-
     1. Pre-processing
     2. Training process
 

@@ -1,6 +1,0 @@
-# hydra
-run:
-  dir: '.'
-sweep:
-  dir: '.'
-  # subdir: {general.project_name}_${mode}_${now:%Y_%m_%d_%H_%M_%S}

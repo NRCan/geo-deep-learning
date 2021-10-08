@@ -1,6 +1,12 @@
-# hydra
+# output paths for hydra logs
 run:
-  dir: outputs/${general.project_name}_${mode}_${now:%Y_%m_%d_%H_%M_%S}
+  dir: logs/runs/${now:%Y-%m-%d}/${now:%H-%M-%S}
 sweep:
-  dir: outputs/
-  subdir: ${general.project_name}_${mode}_${now:%Y_%m_%d_%H_%M_%S}
+  dir: logs/multiruns/${now:%Y-%m-%d_%H-%M-%S}
+  subdir: ${hydra.job.num}
+
+# you can set here environment variables that are universal for all users
+# for system specific variables (like data paths) it's better to use .env file!
+job:
+  env_set:
+    EXAMPLE_VAR: "example_value"
