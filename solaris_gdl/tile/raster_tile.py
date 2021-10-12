@@ -1,5 +1,7 @@
 import logging
 import os
+from pathlib import Path
+
 import rasterio
 from rasterio.warp import Resampling, calculate_default_transform
 from rasterio.vrt import WarpedVRT
@@ -113,9 +115,12 @@ class RasterTiler(object):
         # set up attributes
         if verbose:
             logging.info("Initializing Tiler...")
-        self.dest_dir = dest_dir
-        if not os.path.exists(self.dest_dir):
-            os.makedirs(self.dest_dir)
+        try:
+            self.dest_dir = Path(dest_dir)
+            self.dest_dir.mkdir(exist_ok=True, parents=True)
+        except TypeError as e:
+            logging.critical(f'Tiling destination directory cannot be created: {self.dest_dir}')
+            raise e
         if dest_crs is not None:
             self.dest_crs = _check_crs(dest_crs)
         else:

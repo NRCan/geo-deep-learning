@@ -9,6 +9,8 @@ from typing import List, Union
 
 import numpy as np
 
+from solaris_gdl.utils.core import _check_rasterio_im_load
+
 np.random.seed(1234)  # Set random seed for reproducibility
 import rasterio
 import time
@@ -47,31 +49,45 @@ def set_logging(console_level: str = 'WARNING', logfiles_dir=[str, Path], logfil
 
 
 def tiling_checker(src_img: Union[str, Path],
-                   out_tiled_dir: Union[str, Path],
+                   dest_img_tiles_dir: Union[str, Path],
+                   dest_gt_tiles_dir: Union[str, Path] = None,
                    tile_size: int = 1024,
                    tile_stride: int = None,
-                   out_suffix: str = '.tif',
                    resizing_fact = 1,
                    verbose: bool = True):
     """
     Checks how many tiles should be created and compares with number of tiles already written to output directory
     @param src_img: path to source image
-    @param out_tiled_dir: optional, path to output directory where tiles will be created
+    @param dest_img_tiles_dir: optional, path to output directory where imagery tiles will be created
+    @param dest_gt_tiles_dir: optional, path to output directory where ground truth tiles will be created
     @param tile_size: (int) optional, size of tile. Defaults to 1024.
     @param tile_stride: (int) optional, stride to use during tiling. Defaults to tile_size.
-    @param out_suffix: optional, suffix of output tiles (ex.: ".tif" or ".geojson"). Defaults to ".tif"
     @return: number of actual tiles in output directory, number of expected tiles
     """
     tile_stride = tile_size if not tile_stride else tile_stride
-    metadata = rasterio.open(src_img).meta
+    metadata = _check_rasterio_im_load(src_img).meta
     tiles_x = 1 + math.ceil((metadata['width'] - tile_size) / tile_stride)
     tiles_y = 1 + math.ceil((metadata['height'] - tile_size) / tile_stride)
     nb_exp_tiles = tiles_x * tiles_y * resizing_fact**2
-    nb_act_tiles = len(list(out_tiled_dir.glob(f'*{out_suffix}')))
+    # glob for tiles of the vector ground truth if 'geojson' is in the suffix
+    act_img_tiles = list(dest_img_tiles_dir.glob(f'{Path(src_img).stem}*.tif'))
+    nb_act_img_tiles = len(act_img_tiles)
+    nb_act_gt_tiles = 0
+    if dest_gt_tiles_dir:
+        # check if all imagery tiles have a matching ground truth tile
+        for img_tile in act_img_tiles:
+            gt_tile_name = img_tile.stem.split('_')
+            gt_tile = dest_gt_tiles_dir / f'geoms_{gt_tile_name[-2]}_{gt_tile_name[-1]}.geojson'
+            if gt_tile.is_file():
+                nb_act_gt_tiles += 1
+            elif verbose:
+                logging.error(f'Missing ground truth tile {gt_tile}')
+
     if verbose:
-        logging.info(f'Number of actual tiles with suffix "{out_suffix}": {nb_act_tiles}\n'
+        logging.info(f'Number of actual imagery tiles : {nb_act_img_tiles}\n'
+                     f'Number of actual ground truth tiles : {nb_act_gt_tiles}\n'
                      f'Number of expected tiles : {nb_exp_tiles}\n')
-    return nb_act_tiles, nb_exp_tiles
+    return nb_act_img_tiles, nb_act_gt_tiles, nb_exp_tiles
 
 
 def out_tiling_dir(root, dataset, aoi_name, category):
@@ -274,55 +290,32 @@ def main(params):
             out_gt_dir = out_tiling_dir(smpls_dir, info['dataset'], aoi_name, 'map_img') if not no_gt else None
 
             do_tile = True
-            act_img_tiles, exp_tiles = tiling_checker(info['tif'], out_img_dir,
+            act_img_tiles, act_gt_tiles, exp_tiles = tiling_checker(info['tif'],
+                                                      dest_img_tiles_dir=out_img_dir,
+                                                      dest_gt_tiles_dir=out_gt_dir,
                                                       tile_size=samples_size,
-                                                      out_suffix=('.tif'),
                                                       resizing_fact=resize)
-            if no_gt:
-                if act_img_tiles == exp_tiles:
-                    logging.info(f'All {exp_tiles} tiles exist. Skipping tiling.\n')
-                    do_tile = False
-                elif act_img_tiles > exp_tiles:
-                    logging.critical(f'\nToo many tiles for "{info["tif"]}". \n'
-                                     f'Expected: {exp_tiles}\n'
-                                     f'Actual image tiles: {act_img_tiles}\n'
-                                     f'Skipping tiling.')
-                    do_tile = False
-                elif act_img_tiles > 0:
-                    logging.critical(f'Missing tiles for {info["tif"]}. \n'
-                                     f'Expected: {exp_tiles}\n'
-                                     f'Actual image tiles: {act_img_tiles}\n'
-                                     f'Starting tiling from scratch...')
-                else:
-                    logging.debug(f'Expected: {exp_tiles}\n'
-                                  f'Actual image tiles: {act_img_tiles}\n'
-                                  f'Starting tiling from scratch...')
+            if act_img_tiles == exp_tiles == act_gt_tiles or no_gt and act_img_tiles == exp_tiles:
+                logging.info('All tiles exist. Skipping tiling.\n')
+                do_tile = False
+            elif act_img_tiles > exp_tiles and act_gt_tiles > exp_tiles or no_gt and act_img_tiles > exp_tiles:
+                logging.critical(f'\nToo many tiles for "{info["tif"]}". \n'
+                                 f'Expected: {exp_tiles}\n'
+                                 f'Actual image tiles: {act_img_tiles}\n'
+                                 f'Actual label tiles: {act_gt_tiles}\n'
+                                 f'Skipping tiling.')
+                do_tile = False
+            elif act_img_tiles > 0 or act_gt_tiles > 0:
+                logging.critical('Missing tiles for {info["tif"]}. \n'
+                                 f'Expected: {exp_tiles}\n'
+                                 f'Actual image tiles: {act_img_tiles}\n'
+                                 f'Actual label tiles: {act_gt_tiles}\n'
+                                 f'Starting tiling from scratch...')
             else:
-                act_gt_tiles, _ = tiling_checker(info['tif'], out_gt_dir,
-                                                 tile_size=samples_size,
-                                                 out_suffix=('.geojson'),
-                                                 resizing_fact=resize)
-                if act_img_tiles == act_gt_tiles == exp_tiles:
-                    logging.info('All tiles exist. Skipping tiling.\n')
-                    do_tile = False
-                elif act_img_tiles > exp_tiles and act_gt_tiles > exp_tiles:
-                    logging.critical(f'\nToo many tiles for "{info["tif"]}". \n'
-                                     f'Expected: {exp_tiles}\n'
-                                     f'Actual image tiles: {act_img_tiles}\n'
-                                     f'Actual label tiles: {act_gt_tiles}\n'
-                                     f'Skipping tiling.')
-                    do_tile = False
-                elif act_img_tiles > 0 or act_gt_tiles > 0:
-                    logging.critical('Missing tiles for {info["tif"]}. \n'
-                                     f'Expected: {exp_tiles}\n'
-                                     f'Actual image tiles: {act_img_tiles}\n'
-                                     f'Actual label tiles: {act_gt_tiles}\n'
-                                     f'Starting tiling from scratch...')
-                else:
-                    logging.debug(f'Expected: {exp_tiles}\n'
-                                  f'Actual image tiles: {act_img_tiles}\n'
-                                  f'Actual label tiles: {act_gt_tiles}\n'
-                                  f'Starting tiling from scratch...')
+                logging.debug(f'Expected: {exp_tiles}\n'
+                              f'Actual image tiles: {act_img_tiles}\n'
+                              f'Actual label tiles: {act_gt_tiles}\n'
+                              f'Starting tiling from scratch...')
 
             # if no previous step has shown existence of all tiles, then go on and tile.
             if do_tile:
