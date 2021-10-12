@@ -59,7 +59,7 @@ class RasterTiler(object):
         defining the boundaries of the tiles to create. If not provided, they
         will be generated from the `aoi_boundary` based on `src_tile_size`.
     verbose : bool, optional
-        Verbose text output. By default, verbose text is not printed.
+        Verbose text output. By default, verbose text is not logging.infoed.
 
     Attributes
     ----------
@@ -112,7 +112,7 @@ class RasterTiler(object):
                  verbose=False):
         # set up attributes
         if verbose:
-            print("Initializing Tiler...")
+            logging.info("Initializing Tiler...")
         self.dest_dir = dest_dir
         if not os.path.exists(self.dest_dir):
             os.makedirs(self.dest_dir)
@@ -138,18 +138,19 @@ class RasterTiler(object):
 #        self.cog_output = cog_output
         self.verbose = verbose
         if self.verbose:
-            print('Tiler initialized.')
-            print('dest_dir: {}'.format(self.dest_dir))
+            logging.info('Tiler initialized.')
+            logging.info(f'dest_dir: {self.dest_dir}')
             if dest_crs is not None:
-                print('dest_crs: {}'.format(self.dest_crs))
+                logging.info(f'dest_crs: {self.dest_crs}')
             else:
-                print('dest_crs will be inferred from source data.')
-            print('src_tile_size: {}'.format(self.src_tile_size))
-            print('tile size units metric: {}'.format(self.use_src_metric_size))
+                logging.info('dest_crs will be inferred from source data.')
+            logging.info('src_tile_size: {}'.format(self.src_tile_size))
+            logging.info(f'resize factor: {self.resize}')
+            logging.info(f'tile size units metric: {self.use_src_metric_size}')
             if self.resampling is not None:
-                print('Resampling is set to {}'.format(self.resampling))
+                logging.info(f'Resampling is set to {self.resampling}')
             else:
-                print('Resampling is set to None')
+                logging.info('Resampling is set to None. Will default to "bilinear".')
 
     def tile(self, src, dest_dir=None, channel_idxs=None, nodata=None,
              alpha=None, restrict_to_aoi=False,
@@ -187,12 +188,12 @@ class RasterTiler(object):
                                        alpha, self.aoi_boundary, restrict_to_aoi)
 
         if self.verbose:
-            print('Beginning tiling...')
+            logging.info('Beginning tiling...')
         self.tile_paths = []
         if nodata_threshold is not None:
             if nodata_threshold > 1:
                 raise ValueError("nodata_threshold should be expressed as a float less than 1.")
-            print("nodata value threshold supplied, filtering based on this percentage.")
+            logging.info("nodata value threshold supplied, filtering based on this percentage.")
             new_tile_bounds = []
             for tile_data, mask, profile, tb in tqdm(tile_gen):
                 nodata_count = np.logical_or.reduce((tile_data == profile['nodata']), axis=0).sum()
@@ -203,7 +204,7 @@ class RasterTiler(object):
                     self.tile_paths.append(dest_path)
                     new_tile_bounds.append(tb)
                 else:
-                    print("{} of nodata is over the nodata_threshold, tile not saved.".format(nodata_perc))
+                    logging.info("{} of nodata is over the nodata_threshold, tile not saved.".format(nodata_perc))
             self.tile_bounds = new_tile_bounds # only keep the tile bounds that make it past the nodata threshold
         else:
             for tile_data, mask, profile, tb in tqdm(tile_gen):
@@ -211,14 +212,14 @@ class RasterTiler(object):
                     tile_data, mask, profile, dest_fname_base)
                 self.tile_paths.append(dest_path)
         if self.verbose:
-            print('Tiling complete. Cleaning up...')
+            logging.info('Tiling complete. Cleaning up...')
         self.src.close()
         if os.path.exists(os.path.join(self.dest_dir, 'tmp.tif')):
             os.remove(os.path.join(self.dest_dir, 'tmp.tif'))
         if os.path.exists(restricted_im_path):
             os.remove(restricted_im_path)
         if self.verbose:
-            print("Done. CRS returned for vector tiling.")
+            logging.info("Done. CRS returned for vector tiling.")
         return _check_crs(profile['crs'])  # returns the crs to be used for vector tiling
 
     def tile_generator(self, src, dest_dir=None, channel_idxs=None,
@@ -276,41 +277,41 @@ class RasterTiler(object):
         """
         # parse arguments
         if self.verbose:
-            print("Checking input data...")
+            logging.info("Checking input data...")
         # if isinstance(src, str):
         #     self.is_cog = cog_validate(src)
         # else:
         # self.is_cog = cog_validate(src.name)
         # if self.verbose:
-        #     print('COG: {}'.format(self.is_cog))
+        #     logging.info('COG: {}'.format(self.is_cog))
         self.src = _check_rasterio_im_load(src)
         if channel_idxs is None:  # if not provided, include them all
             channel_idxs = list(range(1, self.src.count + 1))
-            print(channel_idxs)
+            logging.info(channel_idxs)
         self.src_crs = _check_crs(self.src.crs, return_rasterio=True) # necessary to use rasterio crs for reproject
         if self.verbose:
-            print('Source CRS: EPSG:{}'.format(self.src_crs.to_epsg()))
+            logging.info('Source CRS: EPSG:{}'.format(self.src_crs.to_epsg()))
         if self.dest_crs is None:
             self.dest_crs = self.src_crs
         if self.verbose:
-            print('Destination CRS: EPSG:{}'.format(self.dest_crs.to_epsg()))
+            logging.info('Destination CRS: EPSG:{}'.format(self.dest_crs.to_epsg()))
         self.src_path = self.src.name
         self.proj_unit = raster_get_projection_unit(self.src)  # for rounding
         if self.verbose:
-            print("Inputs OK.")
+            logging.info("Inputs OK.")
         if self.use_src_metric_size:
             if self.verbose:
-                print("Checking if inputs are in metric units...")
+                logging.info("Checking if inputs are in metric units...")
             if self.project_to_meters:
                 if self.verbose:
-                    print("Input CRS is not metric. "
+                    logging.info("Input CRS is not metric. "
                           "Reprojecting the input to UTM.")
                 self.src = reproject(self.src,
                                      resampling_method=self.resampling,
                                      dest_path=os.path.join(self.dest_dir,
                                                             'tmp.tif'))
                 if self.verbose:
-                    print('Done reprojecting.')
+                    logging.info('Done reprojecting.')
         if nodata is None and self.nodata is None:
             self.nodata = self.src.nodata
         elif nodata is not None:
@@ -473,10 +474,10 @@ class RasterTiler(object):
             arr = src.read()
             arr_nan = np.where(arr!=src.nodata, arr, np.nan)
             fill_values = np.nanmean(arr_nan, axis=tuple(range(1, arr_nan.ndim)))
-            print('Fill values set to {}'.format(fill_values))
+            logging.info('Fill values set to {}'.format(fill_values))
         elif isinstance(nodata_fill, (float, int)):
             fill_values = src.meta['count'] * [nodata_fill]
-            print('Fill values set to {}'.format(fill_values))
+            logging.info('Fill values set to {}'.format(fill_values))
         else:
             raise TypeError('nodata_fill must be "mean", int, or float. {} was supplied.'.format(nodata_fill))
         src.close()

@@ -19,7 +19,7 @@ import geopandas as gpd
 
 from utils.utils import get_key_def, read_csv, get_git_hash, map_wrapper
 from utils.readers import read_parameters
-from utils.verifications import assert_crs_match, validate_raster
+from utils.verifications import validate_raster, validate_num_bands
 from solaris_gdl import tile
 from solaris_gdl import vector
 
@@ -51,6 +51,7 @@ def tiling_checker(src_img: Union[str, Path],
                    tile_size: int = 1024,
                    tile_stride: int = None,
                    out_suffix: str = '.tif',
+                   resizing_fact = 1,
                    verbose: bool = True):
     """
     Checks how many tiles should be created and compares with number of tiles already written to output directory
@@ -65,7 +66,7 @@ def tiling_checker(src_img: Union[str, Path],
     metadata = rasterio.open(src_img).meta
     tiles_x = 1 + math.ceil((metadata['width'] - tile_size) / tile_stride)
     tiles_y = 1 + math.ceil((metadata['height'] - tile_size) / tile_stride)
-    nb_exp_tiles = tiles_x * tiles_y
+    nb_exp_tiles = tiles_x * tiles_y * resizing_fact**2
     nb_act_tiles = len(list(out_tiled_dir.glob(f'*{out_suffix}')))
     if verbose:
         logging.info(f'Number of actual tiles with suffix "{out_suffix}": {nb_act_tiles}\n'
@@ -249,18 +250,10 @@ def main(params):
             if not isinstance(item, int):
                 raise logging.error(ValueError(f'Target id "{item}" in target_ids is {type(item)}, expected int.'))
 
-    # TODO: move validation steps to validate_geodata.py
-    # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
-    valid_gpkg_set = set()
+    # VALIDATION: Assert number of bands in imagery is {num_bands}
     no_gt = False
     for info in tqdm(list_data_prep, position=0, desc=f'Asserting number of bands in imagery is {num_bands}'):
-        metadata = rasterio.open(info['tif']).meta
-        if metadata['count'] > num_bands and not bands_idxs:
-            raise ValueError(f'Missing band indexes to keep. Imagery contains {metadata["count"]} bands. '
-                             f'Number of bands to be kept in tiles {num_bands}')
-        elif metadata['count'] < num_bands:
-            raise ValueError(f'Imagery contains {metadata["count"]} bands. "num_bands" is {num_bands}\n'
-                             f'Expected {num_bands} or more bands in source imagery')
+        validate_num_bands(raster=info['tif'], num_bands=num_bands, bands_idxs=bands_idxs)
         if not info['gpkg']:
             logging.warning(f"No ground truth data found for {info['tif']}. Only imagery will be processed from now on")
             no_gt = True
@@ -282,7 +275,9 @@ def main(params):
 
             do_tile = True
             act_img_tiles, exp_tiles = tiling_checker(info['tif'], out_img_dir,
-                                                      tile_size=samples_size, out_suffix=('.tif'))
+                                                      tile_size=samples_size,
+                                                      out_suffix=('.tif'),
+                                                      resizing_fact=resize)
             if no_gt:
                 if act_img_tiles == exp_tiles:
                     logging.info(f'All {exp_tiles} tiles exist. Skipping tiling.\n')
@@ -292,8 +287,7 @@ def main(params):
                                      f'Expected: {exp_tiles}\n'
                                      f'Actual image tiles: {act_img_tiles}\n'
                                      f'Skipping tiling.')
-                    # FIXME: this broke with resizing feature
-                    #do_tile = False
+                    do_tile = False
                 elif act_img_tiles > 0:
                     logging.critical(f'Missing tiles for {info["tif"]}. \n'
                                      f'Expected: {exp_tiles}\n'
@@ -305,7 +299,9 @@ def main(params):
                                   f'Starting tiling from scratch...')
             else:
                 act_gt_tiles, _ = tiling_checker(info['tif'], out_gt_dir,
-                                                 tile_size=samples_size, out_suffix=('.geojson'))
+                                                 tile_size=samples_size,
+                                                 out_suffix=('.geojson'),
+                                                 resizing_fact=resize)
                 if act_img_tiles == act_gt_tiles == exp_tiles:
                     logging.info('All tiles exist. Skipping tiling.\n')
                     do_tile = False
