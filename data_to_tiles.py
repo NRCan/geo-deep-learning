@@ -77,7 +77,7 @@ def tiling_checker(src_img: Union[str, Path],
         # check if all imagery tiles have a matching ground truth tile
         for img_tile in act_img_tiles:
             gt_tile_name = img_tile.stem.split('_')
-            gt_tile = dest_gt_tiles_dir / f'geoms_{gt_tile_name[-2]}_{gt_tile_name[-1]}.geojson'
+            gt_tile = dest_gt_tiles_dir / f'geoms_*{gt_tile_name[-2]}*_*{gt_tile_name[-1]}*.geojson'
             if gt_tile.is_file():
                 nb_act_gt_tiles += 1
             elif verbose:
@@ -306,7 +306,7 @@ def main(params):
                                  f'Skipping tiling.')
                 do_tile = False
             elif act_img_tiles > 0 or act_gt_tiles > 0:
-                logging.critical('Missing tiles for {info["tif"]}. \n'
+                logging.critical(f'Missing tiles for {info["tif"]}. \n'
                                  f'Expected: {exp_tiles}\n'
                                  f'Actual image tiles: {act_img_tiles}\n'
                                  f'Actual label tiles: {act_gt_tiles}\n'
