@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 import numpy as np
 from shapely.geometry import box, Polygon
 import geopandas as gpd
@@ -24,9 +26,8 @@ class VectorTiler(object):
                  verbose=False, super_verbose=False):
         if verbose or super_verbose:
             print('Preparing the tiler...')
-        self.dest_dir = dest_dir
-        if not os.path.isdir(self.dest_dir):
-            os.makedirs(self.dest_dir)
+        self.dest_dir = Path(dest_dir)
+        self.dest_dir.mkdir(exist_ok=True)
         if dest_crs is not None:
             self.dest_crs = _check_crs(dest_crs)
         self.output_format = output_format
@@ -44,7 +45,7 @@ class VectorTiler(object):
 
         Arguments
         ---------
-        src : `str` or :class:`geopandas.GeoDataFrame`
+        src : `str`, :class:`geopandas.GeoDataFrame` or :class:`Path`
             The source vector data to tile. Must either be a path to a GeoJSON
             or a :class:`geopandas.GeoDataFrame`.
         tile_bounds : list
@@ -94,17 +95,10 @@ class VectorTiler(object):
         self.tile_paths = []
         for tile_gdf, tb in tqdm(tile_gen):
             if self.proj_unit not in ['meter', 'metre']:
-                dest_path = os.path.join(
-                    self.dest_dir, '{}_{}_{}{}'.format(dest_fname_base,
-                                                       np.round(tb[0], 3),
-                                                       np.round(tb[3], 3),
-                                                       output_ext))
+                dest_path = self.dest_dir / f'{dest_fname_base}_{np.round(tb[0], 3)}_{np.round(tb[3], 3)}{output_ext}'
             else:
-                dest_path = os.path.join(
-                    self.dest_dir, '{}_{}_{}{}'.format(dest_fname_base,
-                                                       int(tb[0]),
-                                                       int(tb[3]),
-                                                       output_ext))
+                dest_path = self.dest_dir / f'{dest_fname_base}_{int(tb[0])}_{int(tb[3])}{output_ext}'
+
             self.tile_paths.append(dest_path)
             if len(tile_gdf) > 0:
                 tile_gdf.to_file(dest_path, driver='GeoJSON')

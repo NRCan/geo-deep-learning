@@ -164,7 +164,7 @@ class RasterTiler(object):
 
         Arguments
         ---------
-        src : :class:`rasterio.io.DatasetReader` or str
+        src : :class:`rasterio.io.DatasetReader`, :class:`Path` or str
             The source dataset to tile.
         nodata_threshold : float, optional
             Nodata percentages greater than this threshold will not be saved as tiles.
@@ -434,7 +434,7 @@ class RasterTiler(object):
         # if self.cog_output:
         #     dest_path = os.path.join(self.dest_dir, 'tmp.tif')
         # else:
-        dest_path = os.path.join(self.dest_dir, dest_fname)
+        dest_path = self.dest_dir / dest_fname
 
         with rasterio.open(dest_path, 'w',
                            **profile) as dest:

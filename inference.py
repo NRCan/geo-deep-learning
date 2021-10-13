@@ -30,7 +30,7 @@ from rasterio.windows import Window
 from rasterio.plot import reshape_as_image
 from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_metrics
 
-from data_to_tiles import set_logging
+from utils.logger import set_logging
 from metrics import ComputePixelMetrics
 from models.model_choice import net, load_checkpoint
 from utils import augmentation

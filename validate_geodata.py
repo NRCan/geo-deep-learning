@@ -8,7 +8,7 @@ import numpy as np
 import rasterio
 from tqdm import tqdm
 
-from data_to_tiles import set_logging
+from utils.logger import set_logging
 from solaris_gdl.utils.core import _check_crs, _check_gdf_load
 from utils.utils import read_csv, map_wrapper
 

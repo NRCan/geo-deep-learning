@@ -16,8 +16,6 @@ from collections import OrderedDict
 import shutil
 import numpy as np
 
-from data_to_tiles import set_logging
-
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -27,7 +25,7 @@ from torch.utils.data import DataLoader
 from PIL import Image
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
-from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
+from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, set_logging
 from metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
 from utils.utils import load_from_checkpoint, gpu_stats, get_key_def, get_git_hash
