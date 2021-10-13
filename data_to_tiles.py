@@ -77,11 +77,18 @@ def tiling_checker(src_img: Union[str, Path],
         # check if all imagery tiles have a matching ground truth tile
         for img_tile in act_img_tiles:
             gt_tile_name = img_tile.stem.split('_')
-            gt_tile = dest_gt_tiles_dir / f'geoms_*{gt_tile_name[-2]}*_*{gt_tile_name[-1]}*.geojson'
+            gt_tile_glob = list(dest_gt_tiles_dir.glob(f'geoms_*{gt_tile_name[-2]}*_*{gt_tile_name[-1]}*.geojson'))
+            if len(gt_tile_glob) == 1:
+                gt_tile = gt_tile_glob[0]
+            else:
+                raise ValueError(f'There should be one ground truth tile for each imagery tile.\n'
+                                 f'Got {len(gt_tile_glob)}.\n'
+                                 f'Imagery tile: {img_tile}\n'
+                                 f'Ground truth match: {gt_tile_glob}')
             if gt_tile.is_file():
                 nb_act_gt_tiles += 1
             elif verbose:
-                logging.error(f'Missing ground truth tile {gt_tile}')
+                raise FileNotFoundError(f'Missing ground truth tile {gt_tile}')
 
     if verbose:
         logging.info(f'Number of actual imagery tiles : {nb_act_img_tiles}\n'
