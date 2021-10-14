@@ -6,10 +6,9 @@ defaults:
   - optimizer: adamw
   - callbacks: default_callbacks
   - scheduler: plateau
-  - data: data
   - dataset: test_ci_segmentation_dataset
   - augmentation: basic_augmentation_segmentation
-  - logging: # set logger here or use command line (e.g. `python run.py logger=mlflow`)
+  - tracker: # set logger here or use command line (e.g. `python run.py tracker=mlflow`)
   - visualization: default_visualization
   - inference: default_inference
   - hydra: default
@@ -28,11 +27,11 @@ general:
   project_name: template_project
   workspace: your_name
   device: cuda
-  max_epochs: 10 # for train only
+  max_epochs: 2 # for train only
   min_epochs: 1 # for train only
   raw_data_dir: ${general.work_dir}/data
   raw_data_csv: ${general.work_dir}/data/images_to_samples_ci_csv.csv
-  sample_data_dir: # where the hdf5 will be saved
+  sample_data_dir: ${general.work_dir}/data # where the hdf5 will be saved
   state_dict_path:
   save_weights_dir: '/weights_saved'
 

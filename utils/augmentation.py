@@ -88,20 +88,23 @@ def compose_transforms(params,
             lst_trans.append(BgrToRgb(input_space))
         else:
             if print_log:
-                logging.info(f'\nChannels will be fed to model as is. First 3 bands of imagery should be RGB, not BGR.')
+                logging.info(
+                    f"\nThe '{dataset}' images will be fed to model as is. "
+                    f'First 3 bands of imagery should be RGB, not BGR.'
+                )
 
         if scale:
             lst_trans.append(Scale(scale))  # TODO: assert coherence with below normalization
         else:
             if print_log:
-                logging.warning(f'\nNo scaling of raster values will be performed.')
+                logging.warning(f"\nNo scaling of raster values will be performed on the '{dataset} 'images.")
 
         if norm_mean and norm_std:
             lst_trans.append(Normalize(mean=params.augmentation.normalization.mean,
                                        std=params.augmentation.normalization.std))
         else:
             if print_log:
-                logging.warning(f'\nNo normalization of raster values will be performed.')
+                logging.warning(f"\nNo normalization of raster values will be performed on the '{dataset}' images.")
 
         # Send channels first, convert numpy array to torch tensor
         lst_trans.append(ToTensorTarget(dontcare2backgr=dontcare2backgr, dontcare_val=dontcare))
@@ -355,6 +358,7 @@ class Normalize(object):
             return sample
         else:
             return sample
+
 
 class BgrToRgb(object):
     """Normalize Image with Mean and STD and similar to Pytorch(transform.Normalize) function """

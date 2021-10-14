@@ -1,6 +1,6 @@
 # @package _global_
 model:
-  name: unet
+  model_name: unet
   pretrained: True
 #  get_fct: src.utils.get_model.get_od_model
 #  classes_reader: src.lightning_classes.LitOD

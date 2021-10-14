@@ -1,8 +1,8 @@
 import csv
 import logging
 import numbers
-import importlib
 import subprocess
+import importlib as imp
 from functools import reduce
 from pathlib import Path
 from typing import Sequence, List
@@ -81,7 +81,8 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference:str=''):
         optimizer: optimiser to be used
         inference: (str) path to inference state_dict. If given, loading will be strict (see pytorch doc)
     """
-    # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model	    model.load_state_dict(checkpoint['model'])
+    # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
+    # model.load_state_dict(checkpoint['model'])
     # https://github.com/bearpaw/pytorch-classification/issues/27
     # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
     if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
@@ -126,7 +127,7 @@ def get_device_ids(
         log.warning(f'\nNo GPUs requested. This training will run on CPU')
         return lst_free_devices
     if not torch.cuda.is_available():
-        log.error(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
+        log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
         return lst_free_devices
     try:
         nvmlInit()
@@ -137,7 +138,7 @@ def get_device_ids(
                 used_ram = mem.used / (1024 ** 2)
                 max_ram = mem.total / (1024 ** 2)
                 used_ram_perc = used_ram / max_ram * 100
-                log.debug(f'\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
+                log.info(f'\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
                 if used_ram_perc < max_used_ram_perc:
                     if res.gpu < max_used_perc:
                         lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}
@@ -155,7 +156,8 @@ def get_device_ids(
                 log.warning(f"\nYou requested {number_requested} devices. {device_count} devices are available and "
                             f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
         else:
-            log.error('\nNo gpu devices requested. Will run on cpu')
+            log.warning('\nNo gpu devices requested. Will run on cpu')
+            return lst_free_devices
     except NameError as error:
         raise log.critical(
             NameError(f"\n{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
@@ -164,6 +166,7 @@ def get_device_ids(
         raise log.critical(
             ValueError(f"\n{error}. Make sure that the latest NVIDIA driver is installed and running.")
         )
+    logging.info(f'\nGPUs devices available: {lst_free_devices}')
     return lst_free_devices
 
 
@@ -548,8 +551,9 @@ def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -
                          if the latters are different
     :return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
     """
-    # TODO need to be change if the training or testing config are note the same as when the sampling have been create
+    # TODO need to be change if the training or testing config are not the same as when the sampling have been create
     # TODO maybe only check and save a small part of the config like the model or something
+
     if not (isinstance(yaml1, dict) or isinstance(yaml2, dict)):
         raise TypeError(f"\nExpected both yamls to be dictionaries. \n"
                         f"Yaml1's type is  {type(yaml1)}\n"
@@ -602,7 +606,7 @@ def load_obj(obj_path: str, default_obj_path: str = '') -> any:
     obj_path_list = obj_path.rsplit('.', 1)
     obj_path = obj_path_list.pop(0) if len(obj_path_list) > 1 else default_obj_path
     obj_name = obj_path_list[0]
-    module_obj = importlib.import_module(obj_path)
+    module_obj = imp.import_module(obj_path)
     if not hasattr(module_obj, obj_name):
         raise AttributeError(f"Object `{obj_name}` cannot be loaded from from `{obj_path}`.")
     return getattr(module_obj, obj_name)
@@ -675,6 +679,8 @@ def print_config(
     """
     style = "dim"
     tree = rich.tree.Tree("CONFIG", style=style, guide_style=style)
+    save_git_hash = tree.add('Git hash', style=style, guide_style=style)
+    save_git_hash.add(str(getpath(config, 'general.git_hash')))
     save_dir = tree.add('Saving directory', style=style, guide_style=style)
     save_dir.add(os.getcwd())
 
@@ -687,7 +693,6 @@ def print_config(
     elif config.get('mode') == 'train':
         fields += (
             "model",
-            "data",
             "trainer",
             "training",
             'optimizer',
@@ -706,10 +711,10 @@ def print_config(
         )
 
     if getpath(config, 'AWS.bucket_name'):
-        fields += "AWS"
+        fields += ("AWS",)
 
-    if config.get('logging'):
-        fields += "logging"
+    if config.get('tracker'):
+        fields += ("tracker",)
 
     for field in fields:
         branch = tree.add(field, style=style, guide_style=style)

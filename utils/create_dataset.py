@@ -103,18 +103,12 @@ class SegmentationDataset(Dataset):
             hdf5_params = hdf5_file['params'][0, 0]
             hdf5_params = ordereddict_eval(hdf5_params)
 
-            if dataset_type == 'trn' and isinstance(hdf5_params, dict) and isinstance(metadata, dict):
-                # check match between current yaml and sample yaml for crucial parameters
-                try:
-                    compare_config_yamls(hdf5_params, params)
-                except TypeError:
-                    logging.exception("\nCouldn't compare current yaml with hdf5 yaml")
-
     def __len__(self):
         return self.max_sample_count
 
     def _remap_labels(self, map_img):
-        # note: will do nothing if 'dontcare' is not set in constructor, or set to non-zero value # TODO: seems like a temporary patch... dontcare should never be == 0, right ?
+        # note: will do nothing if 'dontcare' is not set in constructor, or set to non-zero value
+        # TODO: seems like a temporary patch... dontcare should never be == 0, right ?
         if self.dontcare is None or self.dontcare != 0:
             return map_img
         # for now, the current implementation only handles the original 'dontcare' value as zero

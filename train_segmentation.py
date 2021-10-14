@@ -1,24 +1,17 @@
 import time
 import h5py
 import torch
-import shutil
-# import logging
-# import logging.config
 import warnings
 import functools
 import numpy as np
-
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
-from typing import List, Sequence
+from typing import Sequence
 from collections import OrderedDict
-from omegaconf import DictConfig, open_dict
+from omegaconf import DictConfig, OmegaConf
+from omegaconf.errors import ConfigKeyError
 
-# Our modules
-from sampling_segmentation import main as segmentation_sampling
-
-# -------------------------
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -28,13 +21,12 @@ from torch.utils.data import DataLoader
 from PIL import Image
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
-from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line
+from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, get_git_hash, read_modalities
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, read_modalities
 from utils.visualization import vis_from_batch
-from utils.readers import read_parameters
-from mlflow import log_params, set_tracking_uri, set_experiment, log_artifact, start_run
+from mlflow import log_params, set_tracking_uri, set_experiment, start_run
 # Set the logging file
 from utils import utils
 logging = utils.get_logger(__name__)  # import logging
@@ -70,7 +62,7 @@ def create_dataloader(samples_folder: Path,
                       num_bands: int,
                       BGR_to_RGB: bool,
                       scale: Sequence,
-                      cfg: dict,
+                      cfg: DictConfig,
                       dontcare2backgr: bool = False,
                       calc_eval_bs: bool = False,
                       debug: bool = False):
@@ -127,8 +119,11 @@ def create_dataloader(samples_folder: Path,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
-    # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
-    num_workers = len(gpu_devices_dict.keys()) * 4 if len(gpu_devices_dict.keys()) > 1 else 4
+    # Number of workers
+    if cfg.trainer.num_workers:
+        num_workers = cfg.trainer.num_workers
+    else:  # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
+        num_workers = len(gpu_devices_dict.keys()) * 4 if len(gpu_devices_dict.keys()) > 1 else 4
 
     samples_weight = torch.from_numpy(samples_weight)
     sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
@@ -352,8 +347,8 @@ def training(train_loader,
         optimizer.step()
 
     scheduler.step()
-    if train_metrics["loss"].avg is not None:
-        logging.info(f'Training Loss: {train_metrics["loss"].avg:.4f}')
+    # if train_metrics["loss"].avg is not None:
+    #     logging.info(f'Training Loss: {train_metrics["loss"].avg:.4f}')
     return train_metrics
 
 
@@ -442,7 +437,7 @@ def evaluation(eval_loader,
                     eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
                                                          ignore_index=eval_loader.dataset.dontcare)
-            elif dataset == 'tst':
+            elif (dataset == 'tst') and (batch_metrics is not None):
                 a, segmentation = torch.max(outputs_flatten, dim=1)
                 eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                 eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
@@ -452,10 +447,12 @@ def evaluation(eval_loader,
 
             if debug and device.type == 'cuda':
                 res, mem = gpu_stats(device=device.index)
-                logging.debug(OrderedDict(device=device, gpu_perc=f'{res.gpu} %',
-                                              gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'))
+                logging.debug(OrderedDict(
+                    device=device, gpu_perc=f'{res.gpu} %',
+                    gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'
+                ))
 
-    logging.info(f"\n{dataset} Loss: {eval_metrics['loss'].avg}")
+    # logging.info(f"\n{dataset} Loss: {eval_metrics['loss'].avg}")
     if batch_metrics is not None:
         logging.info(f"\n{dataset} precision: {eval_metrics['precision'].avg}")
         logging.info(f"\n{dataset} recall: {eval_metrics['recall'].avg}")
@@ -502,14 +499,14 @@ def train(cfg: DictConfig) -> None:
     batch_size = get_key_def('batch_size', cfg['trainer'])
     eval_batch_size = get_key_def('eval_batch_size', cfg['trainer'], default=batch_size)
     num_epochs = get_key_def('max_epochs', cfg['trainer'])
-    model_name = get_key_def('name', cfg['model']).lower()
+    model_name = get_key_def('model_name', cfg['model']).lower()
     # TODO need to keep in parameters? see victor stuff
     # BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
     BGR_to_RGB = False
 
     # OPTIONAL PARAMETERS
     debug = get_key_def('debug', cfg)
-    task = get_key_def('name',  cfg['task'], default='segmentation')
+    task = get_key_def('task_name',  cfg['task'], default='segmentation')
     dontcare_val = get_key_def("ignore_index", cfg['dataset'], default=-1)
     bucket_name = get_key_def('bucket_name', cfg['AWS'])
     scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
@@ -525,7 +522,7 @@ def train(cfg: DictConfig) -> None:
     # MODEL PARAMETERS
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
     loss_fn = get_key_def('loss_fn', cfg['training'], default='CrossEntropy')
-    optimizer = get_key_def('name', cfg['optimizer'], default='adam')  # TODO change something to call the function
+    optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam')  # TODO change something to call the function
     pretrained = get_key_def('pretrained', cfg['model'], default=True)
     train_state_dict_path = get_key_def('state_dict_path', cfg['general'], default=None)
     dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None)
@@ -539,7 +536,7 @@ def train(cfg: DictConfig) -> None:
     # Read the concatenation point
     # TODO: find a way to maybe implement it in classification one day
     conc_point = None
-    #conc_point = get_key_def('concatenate_depth', params['global'], None)
+    # conc_point = get_key_def('concatenate_depth', params['global'], None)
 
     # GPU PARAMETERS
     num_devices = get_key_def('num_gpus', cfg['trainer'], default=0)
@@ -549,22 +546,47 @@ def train(cfg: DictConfig) -> None:
     max_used_ram = get_key_def('max_used_ram', cfg['trainer'], default=default_max_used_ram)
     max_used_perc = get_key_def('max_used_perc', cfg['trainer'], default=15)
 
-    # LOGGING PARAMETERS TODO
-    mlflow_uri = get_key_def('uri', cfg['logging'], default="./mlruns")
-    Path(mlflow_uri).mkdir(exist_ok=True)
-    experiment_name = get_key_def('experiment_name', cfg['logging'], default='gdl-training')
-    run_name = get_key_def('name', cfg['logging'], default='gdl')
+    # LOGGING PARAMETERS TODO put option not just mlflow
+    experiment_name = get_key_def('project_name', cfg['general'], default='gdl-training')
+    try:
+        tracker_uri = get_key_def('uri', cfg['tracker'])
+        Path(tracker_uri).mkdir(exist_ok=True)
+        run_name = get_key_def('run_name', cfg['tracker'], default='gdl')  # TODO change for something meaningful
+    # meaning no logging tracker as been assigned or it doesnt exist in config/logging
+    except ConfigKeyError:
+        logging.info(
+            "\nNo logging tracker as been assigned or the yaml config doesnt exist in 'config/tracker'."
+            "\nNo tracker file will be save in that case."
+        )
 
     # PARAMETERS FOR hdf5 SAMPLES
-    data_path = Path(get_key_def('sample_data_dir', cfg['dataset'], './data'))
+    # info on the hdf5 name
     samples_size = get_key_def("input_dim", cfg['dataset'], default=256)
     overlap = get_key_def("overlap", cfg['dataset'], default=0)
     min_annot_perc = get_key_def('min_annotated_percent', cfg['dataset'], default=0)
-    if not data_path.is_dir():
-        raise logging.critical(FileNotFoundError(f'\nCould not locate data path {data_path}'))
-    samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
-                           f'_{experiment_name}')
-    samples_folder = data_path.joinpath(samples_folder_name)
+    samples_folder_name = (
+        f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{experiment_name}'
+    )
+    try:
+        my_hdf5_path = Path(str(cfg.dataset.sample_data_dir)).resolve(strict=True)
+        samples_folder = Path(my_hdf5_path.joinpath(samples_folder_name)).resolve(strict=True)
+        logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
+    except FileNotFoundError:
+        samples_folder = Path(str(cfg.dataset.sample_data_dir)).joinpath(samples_folder_name)
+        logging.info(
+            f"\nThe HDF5 directory '{samples_folder}' doesn't exist, please change the path." +
+            f"\nWe will try to find '{samples_folder_name}' in '{cfg.dataset.raw_data_dir}'."
+        )
+        try:
+            my_data_path = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
+            samples_folder = Path(my_data_path.joinpath(samples_folder_name)).resolve(strict=True)
+            logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
+            cfg.general.sample_data_dir = str(my_data_path)  # need to be done for when the config will be saved
+        except FileNotFoundError:
+            raise logging.critical(
+                f"\nThe HDF5 directory '{samples_folder_name}' doesn't exist in '{cfg.dataset.raw_data_dir}'" +
+                f"\n or in '{cfg.dataset.sample_data_dir}', please verify the location of your HDF5."
+            )
 
     # visualization parameters
     vis_at_train = get_key_def('vis_at_train', cfg['visualization'], default=False)
@@ -581,10 +603,6 @@ def train(cfg: DictConfig) -> None:
     #         coordconv_params[param] = val
     coordconv_params = get_key_def('coordconv', cfg['model'])
 
-    # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to hdf5s).
-    with open_dict(cfg):
-        cfg.general.git_hash = get_git_hash()
-
     # automatic model naming with unique id for each training
     config_path = None
     for list_path in cfg.general.config_path:
@@ -593,36 +611,17 @@ def train(cfg: DictConfig) -> None:
     config_name = str(cfg.general.config_name)
     # model_id = os.path.join(cfg.general.save_dir, config_name)
     model_id = config_name
-    output_path = Path(cfg.general.save_dir).joinpath('model') / model_id
-    # output_path = Path(model_id)
-    if output_path.is_dir():
-        last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-        archive_output_path = Path(cfg.general.save_dir).joinpath('model') / f"{model_id}_{last_mod_time_suffix}"
-        shutil.move(output_path, archive_output_path)
-        logging.warning(f"\n'{output_path}' already exist, the contents will be move to '{archive_output_path}'")
-        # change the path for the new one
-        # output_path = archive_output_path
+    output_path = Path(f'model/{model_id}')
+    # # output_path = Path(model_id)
+    # if output_path.is_dir():
+    #     last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+    #     archive_output_path = Path(cfg.general.save_dir).joinpath('model') / f"{model_id}_{last_mod_time_suffix}"
+    #     shutil.move(output_path, archive_output_path)
+    #     logging.warning(f"\n'{output_path}' already exist, the contents will be move to '{archive_output_path}'")
+    #     # change the path for the new one
+    #     # output_path = archive_output_path
     output_path.mkdir(parents=True, exist_ok=False)
-
-    # copy yaml to output path where model will be saved
-    shutil.copy(
-        os.path.join(str(config_path), config_name + '.yaml'), str(output_path)
-    )
-    # TODO copy the config file in .hydra/config.yaml anf rename it
-
-    # import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
-    logging.info(f'\nModel and log files will be saved to: {output_path}')
-    log_config_path = Path('utils/logging.conf').absolute()
-    logfile = f'{output_path}/{model_id}.log'
-    logfile_debug = f'{output_path}/{model_id}_debug.log'
-    console_level_logging = 'INFO' if not debug else 'DEBUG'
-    logging.config.fileConfig(log_config_path,
-                              defaults={
-                                  'logfilename': logfile,
-                                  'logfilename_debug': logfile_debug,
-                                  'console_level': console_level_logging}
-                              )
-    # TODO just copy the GDL.log (get the name GDL by hydra:run...) and join the 2 logs
+    logging.info(f'\nModel and log files will be saved to: {os.getcwd()}/{output_path}')
 
     # now that we know where logs will be saved, we can start logging!
     if not (0 <= max_used_ram <= 100):
@@ -640,21 +639,24 @@ def train(cfg: DictConfig) -> None:
     gpu_devices_dict = get_device_ids(num_devices,
                                       max_used_ram_perc=max_used_ram,
                                       max_used_perc=max_used_perc)
-    logging.info(f'\nGPUs devices available: {gpu_devices_dict}')
     num_devices = len(gpu_devices_dict.keys())
     device = torch.device(f'\ncuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
-    logging.info(f'\nCreating dataloader from data in {samples_folder}...')
+
+    # Creating dataloader
+    logging.info(f'\nCreating dataloader from data from {samples_folder}...')
 
     # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
     dontcare2backgr = False
     if loss_fn not in ['Lovasz', 'CrossEntropy', 'OhemCrossEntropy']:
         dontcare2backgr = True
-        logging.warning(f'\nDontcare is not implemented for loss function "{loss_fn}". '
-                    f'Dontcare values ({dontcare_val}) in label will be replaced with background value (0)')
+        logging.warning(
+            f'\nDontcare is not implemented for loss function "{loss_fn}". '
+            f'\nDontcare values ({dontcare_val}) in label will be replaced with background value (0)'
+        )
 
     # Will check if batch size needs to be a lower value only if cropping samples during training
     calc_eval_bs = True if crop_size else False
-
+    # Create dataloader
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
                                                                        eval_batch_size=eval_batch_size,
@@ -676,7 +678,7 @@ def train(cfg: DictConfig) -> None:
                                                                 num_bands=num_bands,
                                                                 num_channels=num_classes_corrected,
                                                                 dontcare_val=dontcare_val,
-                                                                num_devices=num_devices,
+                                                                devices=[num_devices, device, gpu_devices_dict],
                                                                 train_state_dict_path=train_state_dict_path,
                                                                 pretrained=pretrained,
                                                                 dropout_prob=dropout_prob,
@@ -689,15 +691,24 @@ def train(cfg: DictConfig) -> None:
 
     logging.info(f'\nInstantiated {model_name} model with {num_classes_corrected} output channels.')
 
-    # mlflow tracking path + parameters logging
-    set_tracking_uri(mlflow_uri)
-    set_experiment(experiment_name)
-    start_run(run_name=run_name)
-    log_params(cfg['training'])
-    log_params(cfg['trainer'])
-    log_params(cfg['general'])
-    log_params(cfg['dataset'])
-    log_params(cfg['data'])
+    # Save tracking TODO put option not just mlflow
+    if 'tracker_uri' in locals() and 'run_name' in locals():
+        # mlflow tracking path + parameters logging
+        set_tracking_uri(tracker_uri)
+        set_experiment(experiment_name)
+        start_run(run_name=run_name)
+
+        log_params(dict_path(cfg, 'training'))
+        log_params(dict_path(cfg, 'trainer'))
+        log_params(dict_path(cfg, 'dataset'))
+        log_params(dict_path(cfg, 'model'))
+        log_params(dict_path(cfg, 'optimizer'))
+        log_params(dict_path(cfg, 'scheduler'))
+        log_params(dict_path(cfg, 'augmentation'))
+        # TODO change something to not only have the mlflow option
+        trn_log = InformationLogger('trn')
+        val_log = InformationLogger('val')
+        tst_log = InformationLogger('tst')
 
     if bucket_name:
         from utils.aws import download_s3_files
@@ -713,9 +724,7 @@ def train(cfg: DictConfig) -> None:
     if not progress_log.exists():
         progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))  # Add header
 
-    trn_log = InformationLogger('trn')
-    val_log = InformationLogger('val')
-    tst_log = InformationLogger('tst')
+    # create the checkpoint file
     filename = output_path.joinpath('checkpoint.pth.tar')
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
@@ -732,7 +741,7 @@ def train(cfg: DictConfig) -> None:
 
         # Visualization at initialization. Visualize batch range before first eopch.
         if get_key_def('vis_at_init', cfg['visualization'], False):
-            logging.info(f'Visualizing initialized model on batch range {vis_batch_range} '
+            logging.info(f'\nVisualizing initialized model on batch range {vis_batch_range} '
                          f'from {vis_at_init_dataset} dataset...\n')
             vis_from_dataloader(params=cfg,
                                 eval_loader=val_dataloader if vis_at_init_dataset == 'val' else tst_dataloader,
@@ -746,7 +755,7 @@ def train(cfg: DictConfig) -> None:
 
     for epoch in range(0, num_epochs):
         logging.info(f'\nEpoch {epoch}/{num_epochs - 1}\n' + "-" * len(f'Epoch {epoch}/{num_epochs - 1}'))
-
+        # creating trn_report
         trn_report = training(train_loader=trn_dataloader,
                               model=model,
                               criterion=criterion,
@@ -761,8 +770,9 @@ def train(cfg: DictConfig) -> None:
                               device=device,
                               scale=scale,
                               debug=debug)
-        trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
-
+        if 'trn_log' in locals():  # only save the value if a tracker is setup
+            trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
+        # creating val_report
         val_report = evaluation(eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
@@ -778,15 +788,17 @@ def train(cfg: DictConfig) -> None:
                                 scale=scale,
                                 debug=debug)
         val_loss = val_report['loss'].avg
-        if batch_metrics is not None:
-            val_log.add_values(val_report, epoch)
-        else:
-            val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
+        if 'val_log' in locals():  # only save the value if a tracker is setup
+            if batch_metrics is not None:
+                val_log.add_values(val_report, epoch)
+            else:
+                val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         if val_loss < best_loss:
-            logging.info("\nsave checkpoint")
+            logging.info("\nSave checkpoint with a validation loss of {:.4f}".format(val_loss))  # only allow 4 decimals
             best_loss = val_loss
-            # More info: https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
+            # More info:
+            # https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
             torch.save({'epoch': epoch,
                         'params': cfg,
@@ -819,7 +831,7 @@ def train(cfg: DictConfig) -> None:
             save_logs_to_bucket(bucket, bucket_output_path, output_path, now, cfg['training']['batch_metrics'])
 
         cur_elapsed = time.time() - since
-        logging.info(f'\nCurrent elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
+        # logging.info(f'\nCurrent elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
     if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
@@ -840,17 +852,16 @@ def train(cfg: DictConfig) -> None:
                                 dataset='tst',
                                 scale=scale,
                                 device=device)
-        tst_log.add_values(tst_report, num_epochs)
+        if 'tst_log' in locals():  # only save the value if a tracker is setup
+            tst_log.add_values(tst_report, num_epochs)
 
         if bucket_name:
             bucket_filename = bucket_output_path.joinpath('last_epoch.pth.tar')
             bucket.upload_file("output.txt", bucket_output_path.joinpath(f"Logs/{now}_output.txt"))
             bucket.upload_file(filename, bucket_filename)
 
-    # time_elapsed = time.time() - since
-    # logging.info('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-    log_artifact(logfile)
-    log_artifact(logfile_debug)
+    # log_artifact(logfile)
+    # log_artifact(logfile_debug)
 
 
 def main(cfg: DictConfig) -> None:
@@ -858,14 +869,14 @@ def main(cfg: DictConfig) -> None:
     Function to manage details about the training on segmentation task.
 
     -------
-    1. Pre-processing
+    1. Pre-processing TODO
     2. Training process
 
     -------
     :param cfg: (dict) Parameters found in the yaml config file.
     """
     # Limit of the NIR implementation TODO: Update after each version
-    if 'deeplabv3' not in cfg.model.name and 'IR' in read_modalities(cfg.dataset.modalities):
+    if 'deeplabv3' not in cfg.model.model_name and 'IR' in read_modalities(cfg.dataset.modalities):
         logging.info(
             '\nThe NIR modality will only be concatenate at the beginning,'
             '\nthe implementation of the concatenation point is only available'
@@ -873,29 +884,9 @@ def main(cfg: DictConfig) -> None:
         )
 
     # Preprocessing
-    # HERE the code to do for the preprocessing
+    # HERE the code to do for the preprocessing for the segmentation
 
     # execute the name mode (need to be in this file for now)
     train(cfg)
     # globals()[cfg.mode](cfg, log)
 
-
-# if __name__ == '__main__':
-#     print(f'Start\n')
-#     parser = argparse.ArgumentParser(description='Training execution')
-#     parser.add_argument('param_file', help='Path to training parameters stored in yaml')
-#     args = parser.parse_args()
-#     config_path = Path(args.param_file)
-#     params = read_parameters(args.param_file)
-#
-#     # Limit of the NIR implementation TODO: Update after each version
-#     modalities = None if 'modalities' not in params['global'] else params['global']['modalities']
-#     if 'deeplabv3' not in params['global']['model_name'] and modalities == 'RGBN':
-#         print(
-#             '\n The NIR modality will only be concatenate at the begining,' /
-#             ' the implementation of the concatenation point is only available' /
-#             ' for the deeplabv3 model for now. \n More will follow on demande.\n'
-#         )
-#
-#     main(params, config_path)
-#     print('End of training')

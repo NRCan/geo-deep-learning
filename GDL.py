@@ -2,8 +2,8 @@ import os
 import time
 import hydra
 import logging
-from omegaconf import DictConfig, OmegaConf
-from utils.utils import load_obj, print_config, getpath
+from omegaconf import DictConfig, OmegaConf, open_dict
+from utils.utils import load_obj, print_config, get_git_hash, getpath
 
 
 @hydra.main(config_path="config", config_name="gdl_config_template")
@@ -44,7 +44,7 @@ def run_gdl(cfg: DictConfig) -> None:
     logging.info('\nOverwritten parameters in the config: \n' + cfg.general.config_override_dirname)
 
     # Start -----------------------------------
-    msg = "Let's start {} for {} !!!".format(cfg.mode, cfg.task.name)
+    msg = "Let's start {} for {} !!!".format(cfg.mode, cfg.task.task_name)
     logging.info(
         "\n" + "-" * len(msg) + "\n" + msg +
         "\n" + "-" * len(msg)
@@ -56,6 +56,10 @@ def run_gdl(cfg: DictConfig) -> None:
     # Read the task and execute it
     task = load_obj(cfg.task.path_task_function)
     task(cfg)
+
+    # Add git hash from current commit to parameters.
+    with open_dict(cfg):
+        cfg.general.git_hash = get_git_hash()
 
     # Pretty print config using Rich library
     if cfg.get("print_config"):

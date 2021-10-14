@@ -1,5 +1,6 @@
 # @package _global_
 optimizer:
+  optimizer_name: 'sgd'
   class_name: torch.optim.SGD
   params:
     lr: ${training.lr}

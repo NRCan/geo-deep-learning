@@ -148,7 +148,7 @@ def net(model_name: str,
         num_bands: int,
         num_channels: int,
         dontcare_val: int,
-        num_devices: int,
+        devices: list,
         train_state_dict_path: str = None,
         pretrained: bool = True,
         dropout_prob: float = False,
@@ -255,11 +255,8 @@ def net(model_name: str,
         else:
             checkpoint = None
         # list of GPU devices that are available and unused. If no GPUs, returns empty list
-        gpu_devices_dict = get_device_ids(num_devices)
-        num_devices = len(gpu_devices_dict.keys())
-        device = torch.device(f'\ncuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
-        logging.info(f"\nNumber of cuda devices requested: {num_devices}. "
-                     f"Cuda devices available: {list(gpu_devices_dict.keys())}")
+        num_devices, device, gpu_devices_dict = devices
+
         if num_devices == 1:
             logging.info(f"\nUsing Cuda device 'cuda:0'")
         elif num_devices > 1:
@@ -273,8 +270,6 @@ def net(model_name: str,
                                 f"Trying devices {list(range(len(gpu_devices_dict.keys())))}")
                 device = torch.device(f'cuda:0')
                 model = nn.DataParallel(model, device_ids=list(range(len(gpu_devices_dict.keys()))))
-        else:
-            logging.warning(f"\nNo Cuda device available. This process will only run on CPU")
         logging.info(f'\nSetting model, criterion, optimizer and learning rate scheduler...')
         try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
             model.to(device)
