@@ -1,5 +1,6 @@
 import logging
 import os
+from omegaconf import OmegaConf
 from mlflow import log_metric, exceptions
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ class InformationLogger(object):
                 try:
                     log_metric(key=f"{self.mode}_{composite_name}", value=value.avg, step=epoch)
                 except exceptions.MlflowException:
-                    logging.exception(f'Unable to log {value.avg}')
+                    logging.error(f'Unable to log {composite_name} with the value {value.avg}')
 
 
 def save_logs_to_bucket(bucket, bucket_output_path, output_path, now, batch_metrics=None):
@@ -50,3 +51,22 @@ def save_logs_to_bucket(bucket, bucket_output_path, output_path, now, batch_metr
             log_file = os.path.join(output_path, f"{i}.log")
             bucket.upload_file(log_file, f"Logs/{now}_{i}.log")
     bucket.upload_file("output.txt", os.path.join(bucket_output_path, f"Logs/{now}_output.txt"))
+
+
+def dict2path(my_dict, path=None):
+    if path is None:
+        path = []
+    for k, v in my_dict.items():
+        newpath = path + [k]
+        if isinstance(v, dict):
+            for u in dict2path(v, newpath):
+                yield u
+        else:
+            yield newpath, v
+
+
+def dict_path(param_dict, param_name):
+    d2p = OmegaConf.to_container(param_dict[param_name], resolve=True)
+    return {
+        param_name + '.' + '.'.join(path): v for path, v in dict2path(d2p)
+    }
