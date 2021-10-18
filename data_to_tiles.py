@@ -132,7 +132,7 @@ class AOI(object):
         if not aoi_dict['aoi']:
             aoi_dict['aoi'] = Path(aoi_dict['tif']).stem
         # attribute field will be set from tiler if attribute field in csv is empty
-        aoi_dict['attribute_name'] = attr_field if aoi_dict['attribute_name'] is None else aoi_dict['attribute_name']
+        aoi_dict['attribute_name'] = attr_field if not aoi_dict['attribute_name'] else aoi_dict['attribute_name']
         new_aoi = cls(img=aoi_dict['tif'],
                       gt=aoi_dict['gpkg'],
                       dataset=aoi_dict['dataset'],
@@ -481,7 +481,7 @@ class Tiler(object):
         """
         if not self.with_gt:
             dataset_line = f'{img_tile.absolute()}\n'
-            return dataset_line
+            return dataset_line, aoi.dataset
         else:
             gdf_tile = aoi.filter_gdf_tile(gt_tile)
             suffix = "_feat" + "-".join([str(val) for val in aoi.attr_vals]) if aoi.attr_vals else ""
@@ -497,21 +497,22 @@ class Tiler(object):
                     vector.mask.footprint_mask(df=gdf_tile, out_file=str(out_px_mask),
                                                reference_im=str(img_tile),
                                                burn_field=burn_field)
-                return dataset_line
+                return dataset_line, aoi.dataset
             elif annot_perc * 100 >= self.min_annot_perc:
                 random_val = np.random.randint(1, 100)
                 # for trn tiles, sort between trn and val based on random number
-                aoi.dataset = 'val' if random_val < self.val_percent else aoi.dataset
+                dataset = 'val' if random_val < self.val_percent else aoi.dataset
                 if not dry_run:
                     vector.mask.footprint_mask(df=gdf_tile, out_file=str(out_px_mask),
                                                reference_im=str(img_tile),
                                                burn_field=burn_field)
-                return dataset_line
+                return dataset_line, dataset
             else:
                 logging.debug(f"Ground truth tile in training dataset doesn't reach minimum annotated percentage.\n"
                               f"Ground truth tile: {gt_tile}\n"
                               f"Annotated percentage: {annot_perc}\n"
                               f"Minimum annotated percentage: {self.min_annot_perc}")
+                return None, None
 
 
 def main(params):
@@ -708,11 +709,14 @@ def main(params):
             if sat_size < tiler.min_img_tile_size:
                 logging.debug(f'File {aoi.img} below minimum size ({tiler.min_img_tile_size}): {sat_size}')
                 continue
-            dataset_line = tiler.tiles_to_dataset(aoi, img_tile=sat_img_tile, gt_tile=map_img_tile, dry_run=dry_run)
+            if not aoi.attr_field and aoi.attr_vals is not None:
+                raise ValueError(f'Values for an attribute field have been provided, but no attribute field is set.\n'
+                                 f'Attribute values: {aoi.attr_vals}')
+            dataset_line, dataset = tiler.tiles_to_dataset(aoi, img_tile=sat_img_tile, gt_tile=map_img_tile, dry_run=dry_run)
             if dataset_line is not None:
-                with open(dataset_files[aoi.dataset], 'a') as dataset_file:
+                with open(dataset_files[dataset], 'a') as dataset_file:
                     dataset_file.write(dataset_line)
-                    datasets_kept[aoi.dataset] += 1
+                    datasets_kept[dataset] += 1
             datasets_total[aoi.dataset] += 1
 
     for dataset in datasets:

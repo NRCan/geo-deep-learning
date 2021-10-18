@@ -397,7 +397,7 @@ def read_csv(csv_file_name):
         for index, row in enumerate(reader):
             row_length = len(row) if index == 0 else row_length
             assert len(row) == row_length, "Rows in csv should be of same length"
-            row.extend([None] * (6 - len(row)))  # fill row with None values to obtain row of length == 5
+            row.extend([None] * (6 - len(row)))  # fill row with None values to obtain row of length == 6
             list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3],
                                 'dataset': row[4], 'aoi': row[5]})
             assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
