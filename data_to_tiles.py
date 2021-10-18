@@ -41,6 +41,7 @@ class AOI(object):
                  attr_field: str = None,
                  attr_vals: str = None,
                  name: str = None,
+                 index: str = None,
                  tiles_dir: Union[Path, str] = None):
         """
         
@@ -104,6 +105,10 @@ class AOI(object):
             # Defaults to name of image without suffix
             name = self.img.stem
         self.name = name
+
+        if index and not isinstance(index, int):
+            raise TypeError(f'AOI name should be a integer. Got {index} of type {type(index)}')
+        self.index = index
         
         if tiles_dir and not isinstance(tiles_dir, (Path, str)):
             raise TypeError(f'Experiment directory should be of class pathlib.Path or string.\n'
@@ -114,7 +119,7 @@ class AOI(object):
         self.tiles_pairs_list = []
 
     @classmethod
-    def from_dict(cls, aoi_dict, tiles_dir: Union[Path, str] = None, attr_vals: list = None):
+    def from_dict(cls, aoi_dict, tiles_dir: Union[Path, str] = None, attr_vals: list = None, index: int = None):
         if not isinstance(aoi_dict, dict):
             raise TypeError('Input data should be a list of dictionaries.')
         if not {'tif', 'meta', 'gpkg', 'attribute_name', 'dataset', 'aoi'}.issubset(set(aoi_dict.keys())):
@@ -132,6 +137,7 @@ class AOI(object):
                       attr_field=aoi_dict['attribute_name'],
                       attr_vals=attr_vals,
                       name=aoi_dict['aoi'],
+                      index=index,
                       tiles_dir=tiles_dir)
         return new_aoi
 
@@ -139,7 +145,7 @@ class AOI(object):
 class Tiler(object):
     def __init__(self,
                  experiment_root_dir: Union[Path, str],
-                 src_data_list: list = None,
+                 src_data_by_index: dict = None,
                  tile_size: int = 1024,
                  tile_stride: int = None,
                  resizing_factor: Union[int, float] = 1,
@@ -149,8 +155,9 @@ class Tiler(object):
         """
         @param experiment_root_dir: pathlib.Path or str
             Root directory under which all tiles will written (in subfolders)
-        @param src_data_list: list of objects of class AOI
-            List of AOI objects referring to paths of source data and other data-related info.
+        @param src_data_by_index: dictionary
+            Dictionary where keys are indices and values are objects of class AOI.
+            AOI objects contain properties including paths of source data and other data-related info.
         @param tile_size: int, optional
             Size of tiles to output. Defaults to 1024
         @param tile_stride: int, optional
@@ -168,9 +175,9 @@ class Tiler(object):
             If not provided, all channels will be included. *Note:* per
             ``rasterio`` convention, indexing starts at ``1``, not ``0``.
         """
-        if src_data_list and not isinstance(src_data_list, list):
+        if src_data_by_index and not isinstance(src_data_by_index, dict):
             raise TypeError('Input data should be a List')
-        self.src_data_list = src_data_list
+        self.src_data_dict = src_data_by_index
         if not isinstance(experiment_root_dir, (Path, str)):
             raise TypeError(f'Tiles root directory should be a of class pathlib.Path or a string.\n'
                             f'Got {experiment_root_dir} of type {type(experiment_root_dir)}')
@@ -207,7 +214,7 @@ class Tiler(object):
                             f'Got {num_bands} of type {type(num_bands)}')
         elif not num_bands:
             logging.warning(f'Number of bands not defined. Defaulting to number of bands in imagery.')
-            num_bands_set = set([aoi.meta['count'] for aoi in src_data_list])
+            num_bands_set = set([aoi.meta['count'] for aoi in src_data_by_index.values()])
             if len(num_bands_set) > 1:
                 raise ValueError(f'Not all imagery has equal number of bands. '
                                  f'Check imagery or define bands indexes to keep. \n'
@@ -234,7 +241,7 @@ class Tiler(object):
         self.with_gt = True
 
     def with_gt_checker(self):
-        for aoi in self.src_data_list:
+        for aoi in self.src_data_dict.values():
             if not aoi.gt:
                 self.with_gt = False
                 logging.warning(f"No ground truth data found for {aoi.img}. Only imagery will be processed from now on")
@@ -246,14 +253,14 @@ class Tiler(object):
         @param csv_path: path to csv file 
         @return: Tiler instance
         """
-        aois = []
+        aois = {}
         data_list = read_csv(csv_path)
         logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
                      f'\tNumber of rows: {len(data_list)}\n'
                      f'\tCopying first row:\n{data_list[0]}\n')
-        for aoi_dict in data_list:
-            new_aoi = AOI.from_dict(aoi_dict=aoi_dict, tiles_dir=self.tiles_root_dir, attr_vals=attr_vals)
-            aois.append(new_aoi)
+        for i, aoi_dict in enumerate(data_list):
+            new_aoi = AOI.from_dict(aoi_dict=aoi_dict, tiles_dir=self.tiles_root_dir, attr_vals=attr_vals, index=i)
+            aois[new_aoi.index] = new_aoi
 
         return aois
 
@@ -270,7 +277,12 @@ class Tiler(object):
         @return: path to matching ground truth tile, if no more and no less than one gt tile is found.
         """
         gt_tile_splits = img_tile_path.stem.split('_')
-        gt_tile_glob = list(dest_gt_tiles_dir.glob(f'{gt_tile_splits[0]}_{gt_tile_splits[-2]}*_{gt_tile_splits[-1]}*.geojson'))
+        gt_glob_pat = f'{gt_tile_splits[0]}_{gt_tile_splits[-2]}*_{gt_tile_splits[-1]}*.geojson'
+        logging.debug(f'Finding ground truth tile to match imagery:\n'
+                      f'Image tile {img_tile_path}\n'
+                      f'Destination ground truth directory: {dest_gt_tiles_dir}\n'
+                      f'Glob pattern to find ground truth tile: {gt_glob_pat}\n')
+        gt_tile_glob = list(dest_gt_tiles_dir.glob(gt_glob_pat))
         if len(gt_tile_glob) == 1:
             gt_tile = gt_tile_glob[0]
         elif len(gt_tile_glob) > 1:
@@ -300,6 +312,7 @@ class Tiler(object):
         @param tile_stride: (int) optional, stride to use during tiling. Defaults to tile_size.
         @return: number of actual tiles in output directory, number of expected tiles
         """
+        act_data_tiles = []
         metadata = _check_rasterio_im_load(src_img).meta
         tiles_x = 1 + math.ceil((metadata['width'] - self.dest_tile_size) / self.tile_stride)
         tiles_y = 1 + math.ceil((metadata['height'] - self.dest_tile_size) / self.tile_stride)
@@ -314,13 +327,16 @@ class Tiler(object):
                 gt_tile = self.find_gt_tile_match(img_tile, dest_gt_tiles_dir)
                 # if no errors are raised, then the gt tile was found, we can increment our counter
                 if gt_tile:
+                    act_data_tiles.append((img_tile, gt_tile))
                     nb_act_gt_tiles += 1
+        else:
+            act_data_tiles = [(img_tile, None) for img_tile in act_img_tiles]
 
         if verbose:
             logging.info(f'Number of actual imagery tiles : {nb_act_img_tiles}\n'
                          f'Number of actual ground truth tiles : {nb_act_gt_tiles}\n'
                          f'Number of expected tiles : {nb_exp_tiles}\n')
-        return nb_act_img_tiles, nb_act_gt_tiles, nb_exp_tiles
+        return act_data_tiles, nb_act_img_tiles, nb_act_gt_tiles, nb_exp_tiles
 
     def get_src_tile_size(self):
         """
@@ -351,8 +367,9 @@ class Tiler(object):
                                                     alpha=False,
                                                     verbose=True)
         raster_bounds_crs = raster_tiler.tile(aoi.img, channel_idxs=self.bands_idxs)
-        # FIXME: this list won't build if tiles are already created (tiling_per_aoi only called if they don't exist)
-        aoi.tiles_pairs_list = [(img_tile_path, None) for img_tile_path in sorted(raster_tiler.tile_paths)]
+        # TODO: check if tiles pairs list updates well
+        self.src_data_dict[aoi.index].tiles_pairs_list = [(img_tile_path, None) for img_tile_path in
+                                                          sorted(raster_tiler.tile_paths)]
         if self.with_gt:
             vector_tiler = tile.vector_tile.VectorTiler(dest_dir=aoi.tiles_dir_gt, verbose=True)
             vector_tiler.tile(src=aoi.gt,
@@ -363,7 +380,7 @@ class Tiler(object):
             updated_list = []
             for pairs_list, gt_tile_path in zip(aoi.tiles_pairs_list, sorted(vector_tiler.tile_paths)):
                 updated_list.append((pairs_list[0], gt_tile_path))
-            aoi.tiles_pairs_list = updated_list
+            self.src_data_dict[aoi.index].tiles_pairs_list = updated_list
 
     @staticmethod
     def filter_gdf(gdf: gpd.GeoDataFrame, aoi: AOI):
@@ -440,6 +457,8 @@ def main(params):
     bands_idxs = get_key_def('bands_idxs', params['global'], default=None, expected_type=List)
     resize = get_key_def('resize', params['sample'], default=1)
     parallel = get_key_def('parallelize_tiling', params['sample'], default=False, expected_type=bool)
+    dry_run = get_key_def('dry_run', params['global'], default=False, expected_type=bool)
+
 
     # parameters to set output tiles directory
     data_path = Path(get_key_def('data_path', params['global'], f'./data', expected_type=str))
@@ -477,11 +496,11 @@ def main(params):
                   min_annot_perc=min_annot_perc,
                   num_bands=num_bands,
                   bands_idxs=bands_idxs)
-    tiler.src_data_list = tiler.aois_from_csv(csv_path=csv_file, attr_vals=attr_vals)
+    tiler.src_data_dict = tiler.aois_from_csv(csv_path=csv_file, attr_vals=attr_vals)
     tiler.with_gt_checker()
 
     # VALIDATION: Assert number of bands in imagery is {num_bands}
-    for aoi in tqdm(tiler.src_data_list, desc=f'Asserting number of bands in imagery is {tiler.num_bands}'):
+    for aoi in tqdm(tiler.src_data_dict.values(), desc=f'Asserting number of bands in imagery is {tiler.num_bands}'):
         validate_num_bands(raster=aoi.img, num_bands=tiler.num_bands, bands_idxs=tiler.bands_idxs)
 
     datasets = ['trn', 'val', 'tst']
@@ -489,38 +508,40 @@ def main(params):
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
     input_args = []
     logging.info(f"Preparing samples \n\tSamples_size: {samples_size} ")
-    for aoi in tqdm(tiler.src_data_list, position=0, leave=False):
+    for aoi in tqdm(tiler.src_data_dict.values(), position=0, leave=False):
         try:
             # TODO: does output dir change whether GT is present or not?
             out_img_dir = aoi.tiles_dir / 'sat_img'
             out_gt_dir = aoi.tiles_dir / 'map_img' if tiler.with_gt else None
             do_tile = True
-            act_img_tiles, act_gt_tiles, exp_tiles = tiler.tiling_checker(aoi.img, out_img_dir, out_gt_dir)
-            if act_img_tiles == exp_tiles == act_gt_tiles or not tiler.with_gt and act_img_tiles == exp_tiles:
+            data_pairs, nb_act_img_t, nb_act_gt_t, nb_exp_t = tiler.tiling_checker(aoi.img, out_img_dir, out_gt_dir)
+            # add info about found tiles for each aoi by aoi's index
+            tiler.src_data_dict[aoi.index].tiles_pairs_list = data_pairs
+            if nb_act_img_t == nb_exp_t == nb_act_gt_t or not tiler.with_gt and nb_act_img_t == nb_exp_t:
                 logging.info('All tiles exist. Skipping tiling.\n')
                 do_tile = False
-            elif act_img_tiles > exp_tiles and act_gt_tiles > exp_tiles or \
-                    not tiler.with_gt and act_img_tiles > exp_tiles:
+            elif nb_act_img_t > nb_exp_t and nb_act_gt_t > nb_exp_t or \
+                    not tiler.with_gt and nb_act_img_t > nb_exp_t:
                 logging.error(f'\nToo many tiles for "{aoi.img}". \n'
-                                 f'Expected: {exp_tiles}\n'
-                                 f'Actual image tiles: {act_img_tiles}\n'
-                                 f'Actual label tiles: {act_gt_tiles}\n'
+                                 f'Expected: {nb_exp_t}\n'
+                                 f'Actual image tiles: {nb_act_img_t}\n'
+                                 f'Actual label tiles: {nb_act_gt_t}\n'
                                  f'Skipping tiling.')
                 do_tile = False
-            elif act_img_tiles > 0 or act_gt_tiles > 0:
+            elif nb_act_img_t > 0 or nb_act_gt_t > 0:
                 logging.error(f'Missing tiles for {aoi.img}. \n'
-                                 f'Expected: {exp_tiles}\n'
-                                 f'Actual image tiles: {act_img_tiles}\n'
-                                 f'Actual label tiles: {act_gt_tiles}\n'
-                                 f'Starting tiling from scratch...')
+                              f'Expected: {nb_exp_t}\n'
+                              f'Actual image tiles: {nb_act_img_t}\n'
+                              f'Actual label tiles: {nb_act_gt_t}\n'
+                              f'Starting tiling from scratch...')
             else:
-                logging.debug(f'Expected: {exp_tiles}\n'
-                              f'Actual image tiles: {act_img_tiles}\n'
-                              f'Actual label tiles: {act_gt_tiles}\n'
+                logging.debug(f'Expected: {nb_exp_t}\n'
+                              f'Actual image tiles: {nb_act_img_t}\n'
+                              f'Actual label tiles: {nb_act_gt_t}\n'
                               f'Starting tiling from scratch...')
 
             # if no previous step has shown existence of all tiles, then go on and tile.
-            if do_tile:
+            if do_tile and not dry_run:
                 if parallel:
                     input_args.append([tiler.tiling_per_aoi, aoi])
                 else:
@@ -549,7 +570,7 @@ def main(params):
     datasets_total = {dataset: 0 for dataset in datasets}
     # TODO: clean up the second loop using tielr and aoi objects
     # loop through line of csv again
-    for aoi in tqdm(tiler.src_data_list, position=0, desc='Filtering tiles and writing list to dataset text files'):
+    for aoi in tqdm(tiler.src_data_dict, position=0, desc='Filtering tiles and writing list to dataset text files'):
         # TODO: replace with aoi.tiles_pairs_list (check FIXMEs first)
         imgs_tiled = sorted(list(aoi.tiles_dir_img.glob('*.tif')))
         if debug:
@@ -642,11 +663,11 @@ if __name__ == '__main__':
     parser.add_argument('--resize', default=1)
     parser.add_argument('--bands', default=None)
     # FIXME: enable BooleanOptionalAction only when GDL has moved to Python 3.8
-    parser.add_argument('--debug', metavar='debug_mode', #action=argparse.BooleanOptionalAction,
-                        default=False)
-    parser.add_argument('--parallel', metavar='multiprocessing', #action=argparse.BooleanOptionalAction,
-                        default=False,
+    parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--parallel', action='store_true',
                         help="Boolean. If activated, will use python's multiprocessing package to parallelize")
+    parser.add_argument('--dry-run', action='store_true',
+                        help="Boolean. If activated, no data will be written. Serves when debugging")
     args = parser.parse_args()
     if args.param:
         params = read_parameters(args.param)
@@ -678,13 +699,19 @@ if __name__ == '__main__':
                       f'Number of classes will be set to max value.')
         params['global']['num_classes'] = max(classes_per_gt_file) if classes_per_gt_file else None
         params['sample'] = OrderedDict()
-        params['sample']['parallelize_tiling'] = args.parallel
         params['sample']['prep_csv_file'] = args.csv
 
         if args.resize:
             params['sample']['resize'] = args.resize
         if args.bands:
             params['global']['bands_idxs'] = args.bands
+
+    # overwrite yaml if inputted from commandline
+    if args.parallel:
+        params['sample']['parallelize_tiling'] = args.parallel
+
+    if args.dry_run:
+        params['global']['dry_run'] = args.dry_run
 
     print(f'\n\nStarting data to tiles preparation with {args}\n'
           f'These parameters may be overwritten by a yaml\n\n')
