@@ -277,7 +277,8 @@ class Tiler(object):
         @return: path to matching ground truth tile, if no more and no less than one gt tile is found.
         """
         gt_tile_splits = img_tile_path.stem.split('_')
-        gt_glob_pat = f'{gt_tile_splits[0]}_{gt_tile_splits[-2]}*_{gt_tile_splits[-1]}*.geojson'
+        img_tile_prefix = "_".join(gt_tile_splits[:-2])
+        gt_glob_pat = f'{img_tile_prefix}_{gt_tile_splits[-2]}*_{gt_tile_splits[-1]}*.geojson'
         logging.debug(f'Finding ground truth tile to match imagery:\n'
                       f'Image tile {img_tile_path}\n'
                       f'Destination ground truth directory: {dest_gt_tiles_dir}\n'
