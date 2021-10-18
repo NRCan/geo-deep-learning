@@ -675,7 +675,6 @@ if __name__ == '__main__':
         data_list = read_csv(args.csv)
         params = OrderedDict()
         params['global'] = OrderedDict()
-        params['global']['debug_mode'] = args.debug
         bands_per_imagery = []
         classes_per_gt_file = []
         for data in data_list:
@@ -706,10 +705,11 @@ if __name__ == '__main__':
         if args.bands:
             params['global']['bands_idxs'] = args.bands
 
+    if args.debug:
+        params['global']['debug_mode'] = args.debug
     # overwrite yaml if inputted from commandline
     if args.parallel:
         params['sample']['parallelize_tiling'] = args.parallel
-
     if args.dry_run:
         params['global']['dry_run'] = args.dry_run
 
