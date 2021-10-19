@@ -74,10 +74,11 @@ class AOI(object):
             raise FileNotFoundError(f'{gt} is not a valid file')
         elif gt:
             self.gt = Path(gt)
-            self.crs_match, self.epsg_raster, self.epsg_gt = assert_crs_match(self.img, self.gt)
+            # creating overhead and has caused pyproj.exceptions.CRSError. Try/except needed minimally.
+            #self.crs_match, self.epsg_raster, self.epsg_gt = assert_crs_match(self.img, self.gt)
         else:
             self.gt = gt
-            self.crs_match = self.epsg_raster = self.epsg_gt = None
+            #self.crs_match = self.epsg_raster = self.epsg_gt = None
         
         # TODO: CRIM's original implementation may have expected a file directly
         if img_meta and not isinstance(img_meta, dict):
@@ -348,7 +349,7 @@ class Tiler(object):
         logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
                      f'\tNumber of rows: {len(data_list)}\n'
                      f'\tCopying first row:\n{data_list[0]}\n')
-        for i, aoi_dict in enumerate(data_list):
+        for i, aoi_dict in tqdm(enumerate(data_list), desc="Creating AOI's"):
             new_aoi = AOI.from_dict(aoi_dict=aoi_dict,
                                     tiles_dir=self.tiles_root_dir,
                                     attr_field=self.attr_field_exp,
