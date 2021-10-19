@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+import shapely.errors
 from shapely.geometry import box, Polygon
 import geopandas as gpd
 from ..utils.core import _check_gdf_load, _check_crs
@@ -298,7 +299,11 @@ def clip_gdf(gdf, tile_bounds, min_partial_perc=0.0, geom_type="Polygon",
     cut_gdf.geometry = gdf.intersection(tb)
 
     if geom_type == 'Polygon':
-        cut_gdf['partialDec'] = cut_gdf.area / cut_gdf['origarea']
+        try:
+            cut_gdf['partialDec'] = cut_gdf.area / cut_gdf['origarea']
+        # if invalid feature (e.g. empty geometry)
+        except shapely.errors.TopologicalError:
+            cut_gdf['partialDec'] = 1
         cut_gdf = cut_gdf.loc[cut_gdf['partialDec'] > min_partial_perc, :]
         cut_gdf['truncated'] = (cut_gdf['partialDec'] != 1.0).astype(int)
     else:

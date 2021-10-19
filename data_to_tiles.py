@@ -23,7 +23,7 @@ import geopandas as gpd
 
 from utils.utils import get_key_def, read_csv, get_git_hash, map_wrapper
 from utils.readers import read_parameters
-from utils.verifications import validate_raster, validate_num_bands
+from utils.verifications import validate_raster, validate_num_bands, assert_crs_match
 from solaris_gdl import tile
 from solaris_gdl import vector
 
@@ -70,11 +70,16 @@ class AOI(object):
         if gt and not isinstance(gt, (Path, str)):
             raise TypeError(f'Ground truth path should be a of class pathlib.Path or a string.\n'
                             f'Got {gt} of type {type(gt)}')
-        if not Path(gt).is_file():
+        elif gt and not Path(gt).is_file():
             raise FileNotFoundError(f'{gt} is not a valid file')
-        self.gt = Path(gt)
+        elif gt:
+            self.gt = Path(gt)
+            self.crs_match, self.epsg_raster, self.epsg_gt = assert_crs_match(self.img, self.gt)
+        else:
+            self.gt = gt
+            self.crs_match = self.epsg_raster = self.epsg_gt = None
         
-        # TODO: original implementation may have expected a file directly
+        # TODO: CRIM's original implementation may have expected a file directly
         if img_meta and not isinstance(img_meta, dict):
             raise TypeError(f'Image metadata should be a dictionary.\n'
                             f'Got {img_meta} of type {type(img_meta)}')
@@ -184,6 +189,7 @@ class AOI(object):
         """
         gdf_tile = _check_gdf_load(gdf_tile)
         img_tile_dataset = _check_rasterio_im_load(img_tile)
+
         sat_tile_ext = abs(img_tile_dataset.bounds.right - img_tile_dataset.bounds.left) * \
                        abs(img_tile_dataset.bounds.top - img_tile_dataset.bounds.bottom)
         annot_ct_vec = gdf_tile.area.sum()
@@ -284,6 +290,7 @@ class Tiler(object):
                                  f'Number of bands found: {num_bands_set}')
         self.num_bands = num_bands
 
+        # TODO: min_annot_perc doesn't need to be in tiles name. It only has an impact once the labels are burned to raster
         self.tiles_dir_name = self.make_tiles_dir_name(self.dest_tile_size, self.min_annot_perc, self.num_bands)
 
         self.tiles_root_dir = experiment_root_dir / self.tiles_dir_name
@@ -488,7 +495,7 @@ class Tiler(object):
             out_px_mask = Path(gt_tile).parent / f'{Path(gt_tile).stem}{suffix}.tif'
             # Burn value of attribute field from which features are being filtered. If single value is filtered
             # burn 255 value (easier for quick visualization in file manager)
-            burn_field = aoi.attr_field if len(aoi.attr_vals) > 1 else None
+            burn_field = aoi.attr_field if aoi.attr_vals and len(aoi.attr_vals) > 1 else None
             annot_perc = aoi.annot_percent(img_tile, gdf_tile)
             dataset_line = f'{aoi.img.absolute()} {out_px_mask.absolute()} {int(annot_perc * 100)}\n'
             # if dataset is test or annotated percent is above minimum threshold for train and validation tiles
@@ -740,6 +747,7 @@ if __name__ == '__main__':
     input_type.add_argument('-p', '--param', metavar='yaml_file', help='Path to parameters stored in yaml')
     # FIXME: use hydra to better function if yaml is also used.
     parser.add_argument('--resize', default=1)
+    parser.add_argument('--min-annot', default=0)
     parser.add_argument('--bands', default=None)
     # FIXME: enable BooleanOptionalAction only when GDL has moved to Python 3.8
     parser.add_argument('--debug', action='store_true')
@@ -769,18 +777,24 @@ if __name__ == '__main__':
             if data['gpkg']:
                 attr_field = data['attribute_name'].split('/')[-1]
                 gdf = gpd.read_file(data['gpkg'])
-                classes_per_gt_file.append(len(set(gdf[f'{attr_field}'])))
-                print(f'Number of classes in ground truth files for attribute {attr_field}:'
-                      f'\n{classes_per_gt_file}\n'
-                      f'Min: {min(classes_per_gt_file)}\n'
-                      f'Max: {max(classes_per_gt_file)}\n'
-                      f'Number of classes will be set to max value.')
+                if attr_field:
+                    classes_per_gt_file.append(len(set(gdf[f'{attr_field}'])))
+                else:
+                    classes_per_gt_file = [1]
+        print(f'Number of classes in ground truth files for attribute {attr_field}:'
+              f'\n{classes_per_gt_file}\n'
+              f'Min: {min(classes_per_gt_file)}\n'
+              f'Max: {max(classes_per_gt_file)}\n'
+              f'Number of classes will be set to max value.')
         params['global']['num_classes'] = max(classes_per_gt_file) if classes_per_gt_file else None
         params['sample'] = OrderedDict()
         params['sample']['prep_csv_file'] = args.csv
 
         if args.resize:
-            params['sample']['resize'] = args.resize
+            params['sample']['resize'] = int(args.resize)
+        if args.min_annot:
+            params['sample']['sampling_method'] = OrderedDict()
+            params['sample']['sampling_method']['min_annotated_percent'] = int(args.min_annot)
         if args.bands:
             params['global']['bands_idxs'] = args.bands
 
