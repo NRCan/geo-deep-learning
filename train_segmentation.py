@@ -4,8 +4,10 @@ import torch
 import warnings
 import functools
 import numpy as np
+from PIL import Image
 from tqdm import tqdm
 from pathlib import Path
+from shutil import copy
 from datetime import datetime
 from typing import Sequence
 from collections import OrderedDict
@@ -18,7 +20,6 @@ except ModuleNotFoundError:
     warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 from torch.utils.data import DataLoader
-from PIL import Image
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path
@@ -693,11 +694,13 @@ def train(cfg: DictConfig) -> None:
 
     # Save tracking TODO put option not just mlflow
     if 'tracker_uri' in locals() and 'run_name' in locals():
-        # mlflow tracking path + parameters logging
+        mode = get_key_def('mode', cfg, expected_type=str)
+        task = get_key_def('task_name', cfg['task'], expected_type=str)
+        run_name = '{}_{}_{}'.format(run_name, mode, task)
+        # tracking path + parameters logging
         set_tracking_uri(tracker_uri)
         set_experiment(experiment_name)
         start_run(run_name=run_name)
-
         log_params(dict_path(cfg, 'training'))
         log_params(dict_path(cfg, 'trainer'))
         log_params(dict_path(cfg, 'dataset'))
@@ -832,6 +835,10 @@ def train(cfg: DictConfig) -> None:
 
         cur_elapsed = time.time() - since
         # logging.info(f'\nCurrent elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
+
+    # copy the checkpoint in 'save_weights_dir'
+    Path(cfg['general']['save_weights_dir']).mkdir(parents=True, exist_ok=True)
+    copy(filename, cfg['general']['save_weights_dir'])
 
     # load checkpoint model and evaluate it on test dataset.
     if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set

@@ -1,6 +1,6 @@
 # @package _global_
 inference:
-  img_dir_or_csv_file:
+  img_dir_or_csv_file: ${general.raw_data_csv}
   state_dict_path: ${general.save_weights_dir}
   chunk_size: 256
   # Visualization parameters

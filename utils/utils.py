@@ -337,14 +337,16 @@ def ind2rgb(arr, color):
 
 def list_input_images(img_dir_or_csv: str,
                       bucket_name: str = None,
-                      glob_patterns: List = None):
+                      glob_patterns: List = None,
+                      in_case_of_path: str = None):
     """
     Create list of images from given directory or csv file.
 
     :param img_dir_or_csv: (str) directory containing input images or csv with list of images
     :param bucket_name: (str, optional) name of aws s3 bucket
-    :param glob_patterns: (list of str) if directory is given as input (not csv), these are the glob patterns that will be used
-                        to find desired images
+    :param glob_patterns: (list of str) if directory is given as input (not csv),
+                           these are the glob patterns that will be used to find desired images
+    :param in_case_of_path: (str) directory that can contain the images if not the good one in the csv
 
     returns list of dictionaries where keys are "tif" and values are paths to found images. "meta" key is also added
         if input is csv and second column contains a metadata file. Then, value is path to metadata file.
@@ -360,7 +362,7 @@ def list_input_images(img_dir_or_csv: str,
                 'Specify a csv file containing images for inference. Directory input not implemented yet')
     else:
         if img_dir_or_csv.endswith('.csv'):
-            list_img = read_csv(img_dir_or_csv)
+            list_img = read_csv(img_dir_or_csv, in_case_of_path)
         else:
             img_dir = Path(img_dir_or_csv)
             assert img_dir.is_dir(), f'Could not find directory "{img_dir_or_csv}"'
@@ -638,11 +640,13 @@ def find_first_file(name, list_path):
     """
     for dirname in list_path:
         # print("dir:", dirname)
-        for root, dirs, files in os.walk(dirname):
+        for root, dirs, files in os.walk(os.path.dirname(dirname)):
+            # print(root, dirs, files)
             for filename in files:
                 # print("file:", filename)
                 if filename == name:
-                    return os.path.join(dirname, name)
+                    return dirname
+                    # return os.path.join(dirname, name)
 
 
 def getpath(d, path):

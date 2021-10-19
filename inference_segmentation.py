@@ -1,5 +1,3 @@
-# import logging
-# import logging.config
 from math import sqrt
 from typing import List
 import torch
@@ -17,6 +15,7 @@ import ttach as tta
 from collections import OrderedDict, defaultdict
 import pandas as pd
 import geopandas as gpd
+from omegaconf.errors import ConfigKeyError
 
 from tqdm import tqdm
 from shapely.geometry import Polygon, box
@@ -26,6 +25,7 @@ from utils.metrics import ComputePixelMetrics
 from models.model_choice import net, load_checkpoint
 from utils import augmentation
 from utils.geoutils import vector_to_raster
+from utils.logger import dict_path
 from utils.utils import (
     load_from_checkpoint, get_device_ids, get_key_def, find_first_file, read_modalities,
     list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D, compare_config_yamls
@@ -258,85 +258,87 @@ def main(params: dict) -> None:
     # since = time.time()
 
     # PARAMETERS
-    model_name = get_key_def('name', params['model'], expected_type=str).lower()
+    mode = get_key_def('mode', params, expected_type=str)
+    task = get_key_def('task_name', params['task'], expected_type=str)
+    model_name = get_key_def('model_name', params['model'], expected_type=str).lower()
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
     modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
     BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
     num_bands = len(modalities)
     debug = get_key_def('debug', params, default=False, expected_type=bool)
     # SETTING OUTPUT DIRECTORY
+    try:
+        state_dict = Path(params['inference']['state_dict_path']).resolve(strict=True)
+    except FileNotFoundError:
+        logging.info(
+            f"\nThe state dict path directory '{params['inference']['state_dict_path']}' don't seem to be find," +
+            f"we will try to locate a state dict path in the '{params['general']['save_weights_dir']}' " +
+            f"specify during the training phase"
+        )
+        try:
+            state_dict = Path(params['general']['save_weights_dir']).resolve(strict=True)
+        except FileNotFoundError:
+            raise logging.critical(
+                f"\nThe state dict path directory '{params['general']['save_weights_dir']}'" +
+                f" don't seem to be find either, please specify the path to a state dict"
+            )
     # TODO add more detail in the parent folder
-    working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
+    working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
+    logging.info("\nThe state dict path directory used '{}'".format(working_folder))
     Path.mkdir(working_folder, parents=True, exist_ok=True)
-    # mlflow logging
-    mlflow_uri = get_key_def('uri', params['logging'], default=None, expected_type=str)
-    if mlflow_uri and not Path(mlflow_uri).is_dir():
-        logging.warning(f'\nMlflow uri path is not valid: {mlflow_uri}')
-        mlflow_uri = None
-    # SETUP LOGGING
-    # import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
-    logging.info(f'\nInference and log files will be saved to: {working_folder}')
-    log_config_path = Path('utils/logging.conf').absolute()
-    logfile = f'{working_folder}/info.log'
-    logfile_debug = f'{working_folder}/debug.log'
-    console_level_logging = 'INFO' if not debug else 'DEBUG'
-    logging.config.fileConfig(log_config_path,
-                              defaults={
-                                  'logfilename': logfile,
-                                  'logfilename_debug': logfile_debug,
-                                  'console_level': console_level_logging}
-                              )
-    if mlflow_uri:
-        # log_config_path = Path('utils/logging.conf').absolute()
-        # logfile = f'{working_folder}/info.log'
-        # logfile_debug = f'{working_folder}/debug.log'
-        # print(logfile)
-        # console_level_logging = 'INFO' if not debug else 'DEBUG'
-        # logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile,
-        #                                                      'logfilename_debug': logfile_debug,
-        #                                                      'console_level': console_level_logging})
-        # import only if mlflow uri is set
+
+    # LOGGING PARAMETERS TODO put option not just mlflow
+    experiment_name = get_key_def('project_name', params['general'], default='gdl-training')
+    try:
+        tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str)
+        Path(tracker_uri).mkdir(exist_ok=True)
+        run_name = get_key_def('run_name', params['tracker'], default='gdl')  # TODO change for something meaningful
+        run_name = '{}_{}_{}'.format(run_name, mode, task)
+        logging.info(f'\nInference and log files will be saved to: {working_folder}')
+        # TODO change to fit whatever inport
         from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
-        if not Path(mlflow_uri).is_dir():
-            logging.warning(f"\nCouldn't locate mlflow uri directory {mlflow_uri}. Directory will be created.")
-            Path(mlflow_uri).mkdir()
-        set_tracking_uri(mlflow_uri)
-        exp_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-inference', expected_type=str)
-        set_experiment(f'{exp_name}/{working_folder.name}')
-        run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
+        # tracking path + parameters logging
+        set_tracking_uri(tracker_uri)
+        set_experiment(experiment_name)
         start_run(run_name=run_name)
-        log_params(params['general'])
-        log_params(params['dataset'])
-        log_params(params['data'])
-        log_params(params['inference'])
-    else:
-        # set a console logger as default
-        logging.basicConfig(level=logging.DEBUG)
-        logging.info('\nNo logging folder set for mlflow. Logging will be limited to console')
+        log_params(dict_path(params, 'general'))
+        log_params(dict_path(params, 'dataset'))
+        log_params(dict_path(params, 'data'))
+        log_params(dict_path(params, 'model'))
+        log_params(dict_path(params, 'inference'))
+    # meaning no logging tracker as been assigned or it doesnt exist in config/logging
+    except ConfigKeyError:
+        logging.info(
+            "\nNo logging tracker as been assigned or the yaml config doesnt exist in 'config/tracker'."
+            "\nNo tracker file will be save in that case."
+        )
+
     # MANDATORY PARAMETERS
     img_dir_or_csv = get_key_def(
         'img_dir_or_csv_file', params['inference'], default=params['general']['raw_data_csv'], expected_type=str
     )
     if not (Path(img_dir_or_csv).is_dir() or Path(img_dir_or_csv).suffix == '.csv'):
-        raise logging.critical(FileNotFoundError(f'\nCouldn\'t locate .csv file or directory "{img_dir_or_csv}" '
-                                                 f'containing imagery for inference'))
-    state_dict = get_key_def('state_dict_path', params['inference'], expected_type=str)
-    if not Path(state_dict).is_file():
-        # List all files in the home directory
-        files = glob.glob(str(Path(params['general']['save_dir']).joinpath('model/*')))
-        # Sort by modification time (mtime) descending
-        sorted_by_mtime_descending = sorted(files, key=lambda t: -os.stat(t).st_mtime)
-        last_checkpoint_save = find_first_file('checkpoint.pth.tar', sorted_by_mtime_descending)
-        logging.warning(
+        raise logging.critical(
             FileNotFoundError(
-                f'\nCouldn\'t locate state_dict of model "{state_dict}" to be used for inference'
-                f'\nThe inference will use the last checkpoint save for the task:\n"{last_checkpoint_save}"'
+                f'\nCouldn\'t locate .csv file or directory "{img_dir_or_csv}" containing imagery for inference'
             )
         )
+    # load the checkpoint
+    try:
+        # Sort by modification time (mtime) descending
+        sorted_by_mtime_descending = sorted(
+            [os.path.join(state_dict, x) for x in os.listdir(state_dict)], key=lambda t: -os.stat(t).st_mtime
+        )
+        last_checkpoint_save = find_first_file('checkpoint.pth.tar', sorted_by_mtime_descending)
+        if last_checkpoint_save is None:
+            raise FileNotFoundError
         # change the state_dict
         state_dict = last_checkpoint_save
+    except FileNotFoundError as e:
+        logging.error(f"\nNo file name 'checkpoint.pth.tar' as been found at '{state_dict}'")
+        raise e
 
-    task = get_key_def('name', params['task'], expected_type=str)
+    task = get_key_def('task_name', params['task'], expected_type=str)
     # TODO change it next version for all task
     if task not in ['classification', 'segmentation']:
         raise logging.critical(
@@ -401,7 +403,7 @@ def main(params: dict) -> None:
                                                num_bands=num_bands,
                                                num_channels=num_classes_backgr,
                                                dontcare_val=dontcare_val,
-                                               num_devices=1,
+                                               devices=[num_devices, device, gpu_devices_dict],
                                                net_params=params,
                                                inference_state_dict=state_dict)
     try:
@@ -412,7 +414,20 @@ def main(params: dict) -> None:
         model.to(device)
 
     # CREATE LIST OF INPUT IMAGES FOR INFERENCE
-    list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
+    try:
+        # check if the data folder exist
+        raw_data_dir = get_key_def('raw_data_dir', params['dataset'])
+        my_data_path = Path(raw_data_dir).resolve(strict=True)
+        logging.info("\nImage directory used '{}'".format(my_data_path))
+        data_path = Path(my_data_path)
+    except FileNotFoundError:
+        raw_data_dir = get_key_def('raw_data_dir', params['dataset'])
+        raise logging.critical(
+            "\nImage directory '{}' doesn't exist, please change the path".format(raw_data_dir)
+        )
+    list_img = list_input_images(
+        img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"], in_case_of_path=str(data_path)
+    )
 
     # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
     valid_gpkg_set = set()
@@ -498,7 +513,7 @@ def main(params: dict) -> None:
                 if gdf is not None:
                     gdf_.append(gdf)
                     gpkg_name_.append(gpkg_name)
-                if local_gpkg and mlflow_uri:
+                if local_gpkg and 'tracker_uri' in locals():
                     with start_run(run_name=img_name, nested=True):
                         pixelMetrics= ComputePixelMetrics(label, pred, num_classes_backgr)
                         log_metrics(pixelMetrics.update(pixelMetrics.iou))
@@ -523,53 +538,3 @@ def main(params: dict) -> None:
             gdf_x.to_file(bench_gpkg, driver="GPKG", index=False)
             logging.info(f'\nSuccessfully wrote benchmark geopackage to: {bench_gpkg}')
         # log_artifact(working_folder)
-
-
-# if __name__ == '__main__':
-#     print('\n\nStart:\n\n')
-#     parser = argparse.ArgumentParser(usage="%(prog)s [-h] [-p YAML] [-i MODEL IMAGE] ",
-#                                      description='Inference and Benchmark on images using trained model')
-#
-#     parser.add_argument('-p', '--param', metavar='yaml_file', nargs=1,
-#                         help='Path to parameters stored in yaml')
-#     parser.add_argument('-i', '--input', metavar='model_pth img_dir', nargs=2,
-#                         help='model_path and image_dir')
-#     args = parser.parse_args()
-#
-#     # if a yaml is inputted, get those parameters and get model state_dict to overwrite global parameters afterwards
-#     if args.param:
-#         input_params = read_parameters(args.param[0])
-#         model_ckpt = get_key_def('state_dict_path', input_params['inference'], expected_type=str)
-#         # load checkpoint
-#         checkpoint = load_checkpoint(model_ckpt)
-#         if 'params' in checkpoint.keys():
-#             params = checkpoint['params']
-#             # overwrite with inputted parameters
-#             compare_config_yamls(yaml1=params, yaml2=input_params, update_yaml1=True)
-#         else:
-#             warnings.warn('No parameters found in checkpoint. Defaulting to parameters from inputted yaml.'
-#                           'Use GDL version 1.3 or more.')
-#             params = input_params
-#         del checkpoint
-#         del input_params
-#
-#     # elif input is a model checkpoint and an image directory, we'll rely on the yaml saved inside the model (pth.tar)
-#     elif args.input:
-#         model_ckpt = Path(args.input[0])
-#         image = args.input[1]
-#         # load checkpoint
-#         checkpoint = load_checkpoint(model_ckpt)
-#         if 'params' not in checkpoint.keys():
-#             raise KeyError('No parameters found in checkpoint. Use GDL version 1.3 or more.')
-#         else:
-#             # set parameters for inference from those contained in checkpoint.pth.tar
-#             params = checkpoint['params']
-#             del checkpoint
-#         # overwrite with inputted parameters
-#         params['inference']['state_dict_path'] = args.input[0]
-#         params['inference']['img_dir_or_csv_file'] = args.input[1]
-#     else:
-#         print('use the help [-h] option for correct usage')
-#         raise SystemExit
-#
-#     main(params)
