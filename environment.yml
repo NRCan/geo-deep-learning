@@ -100,7 +100,6 @@ dependencies:
   - libgfortran-ng=9.3.0=hff62375_18
   - libiconv=1.16=h516909a_0
   - libkml=1.3.0=h590aaf7_4
-  - liblapack=3.8.0=17_openblas
   - liblapack=3.9.0=3_h92ddd45_netlib
   - libnetcdf=4.6.1=h11d0813_2
   - libopenblas=0.3.10=pthreads_hb3c22a3_4
