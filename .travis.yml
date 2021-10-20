@@ -10,8 +10,9 @@ install:
   - conda config --set changeps1 no
   - conda update -q conda
   - conda info -a
-  - conda env create -f ./config/travis_CI/environment.yml
-  - source activate ci_env
+#  - conda env create -f ./config/travis_CI/environment.yml
+  - conda env create environment.yml
+  - source activate geo_deep_env
 
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
