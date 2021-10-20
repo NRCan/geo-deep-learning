@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from ..utils.tile import save_empty_geojson
 from ..utils.geo import get_projection_unit, split_multi_geometries
 from ..utils.geo import reproject_geometry
 from tqdm.auto import tqdm
+
+logging.getLogger(__name__)
 
 
 class VectorTiler(object):
@@ -34,7 +37,10 @@ class VectorTiler(object):
         self.output_format = output_format
         self.verbose = verbose
         self.super_verbose = super_verbose
-        self.tile_paths = [] # retains the paths of the last call to .tile()
+        self.tile_paths = []  # retains the paths of the last call to .tile()
+        # retains the reprojected bounds of src raster tile from the last call to .tile().
+        # if no reprojection is done, original bounds are appended.
+        self.tile_bds_reprojtd = []
         if self.verbose or self.super_verbose:
             print('Initialization done.')
 
@@ -94,7 +100,9 @@ class VectorTiler(object):
                                        min_partial_perc,
                                        obj_id_col=obj_id_col)
         self.tile_paths = []
-        for tile_gdf, tb in tqdm(tile_gen):
+        self.tile_bds_reprojtd = []
+        for tile_gdf, tb, tb_geom_reproj in tqdm(tile_gen):
+            self.tile_bds_reprojtd.append(tb_geom_reproj)
             if self.proj_unit not in ['meter', 'metre']:
                 dest_path = self.dest_dir / f'{dest_fname_base}_{np.round(tb[0], 3)}_{np.round(tb[3], 3)}{output_ext}'
             else:
@@ -174,20 +182,22 @@ class VectorTiler(object):
             if self.super_verbose:
                 print("\n", i, "/", len(tile_bounds))
             if reproject_bounds:
+                tb_geom_reproj = reproject_geometry(box(*tb),
+                                   tile_bounds_crs,
+                                   self.src_crs)
                 tile_gdf = clip_gdf(self.src,
-                                    reproject_geometry(box(*tb),
-                                                       tile_bounds_crs,
-                                                       self.src_crs),
+                                    tb_geom_reproj,
                                     min_partial_perc,
                                     geom_type, verbose=self.super_verbose)
             else:
+                tb_geom_reproj = box(*tb)
                 tile_gdf = clip_gdf(self.src, tb, min_partial_perc, geom_type,
                                     verbose=self.super_verbose)
             if self.src_crs != self.dest_crs:
                 tile_gdf = tile_gdf.to_crs(crs=self.dest_crs.to_wkt())
             if split_multi_geoms:
                 split_multi_geometries(tile_gdf, obj_id_col=obj_id_col)
-            yield tile_gdf, tb
+            yield tile_gdf, tb, tb_geom_reproj
 
 
 def search_gdf_polygon(gdf, tile_polygon):
@@ -296,13 +306,17 @@ def clip_gdf(gdf, tile_bounds, min_partial_perc=0.0, geom_type="Polygon",
     # (Assume RTree is already performed)
 
     cut_gdf = gdf.copy()
-    cut_gdf.geometry = gdf.intersection(tb)
+    try:
+        cut_gdf.geometry = gdf.intersection(tb)
+    except shapely.errors.TopologicalError as e:
+        logging.error(e)
 
     if geom_type == 'Polygon':
         try:
             cut_gdf['partialDec'] = cut_gdf.area / cut_gdf['origarea']
         # if invalid feature (e.g. empty geometry)
-        except shapely.errors.TopologicalError:
+        except shapely.errors.TopologicalError as e:
+            logging.error(e)
             cut_gdf['partialDec'] = 1
         cut_gdf = cut_gdf.loc[cut_gdf['partialDec'] > min_partial_perc, :]
         cut_gdf['truncated'] = (cut_gdf['partialDec'] != 1.0).astype(int)
