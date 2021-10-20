@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import List, Union
 
 import numpy as np
+from ruamel_yaml import YAML
 from shapely.geometry import Polygon, box
 
 from solaris_gdl.utils.core import _check_rasterio_im_load, _check_gdf_load, _check_crs
@@ -645,6 +646,10 @@ def main(params):
     console_level_logging = 'INFO' if not debug else 'DEBUG'
     set_logging(console_level=console_level_logging, logfiles_dir=exp_dir, logfiles_prefix=f'data_to_tiles_{now}')
 
+    # save parameters in new yaml for further modification
+    with open(exp_dir / f'{exp_name}.yaml', 'w') as yamlfile:
+        YAML().dump(params, yamlfile)
+
     if debug:
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
@@ -836,6 +841,7 @@ if __name__ == '__main__':
         data_list = read_csv(args.csv)
         params = OrderedDict()
         params['global'] = OrderedDict()
+        params['global']['mlflow_experiment_name'] = f'{Path(args.csv).stem}'
         bands_per_imagery = []
         classes_per_gt_file = []
         for data in data_list:
