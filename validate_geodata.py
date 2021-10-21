@@ -24,6 +24,8 @@ def validate_geodata(aoi: dict, validate_gt = True, extended: bool = False):
     is_valid_raster, meta = validate_raster(raster_path=aoi['tif'], verbose=True, extended=extended)
     raster = rasterio.open(aoi['tif'])
     line = [Path(aoi['tif']).parent.absolute(), Path(aoi['tif']).name, meta, is_valid_raster]
+    invalid_features = []
+    is_valid_gt = None
     if 'gpkg' in aoi.keys():
         if not validate_gt:
             gt_line = [Path(aoi['gpkg']).parent.absolute(), Path(aoi['gpkg']).name]
@@ -34,11 +36,10 @@ def validate_geodata(aoi: dict, validate_gt = True, extended: bool = False):
             crs_match, epsg_raster, epsg_gt = assert_crs_match(raster, aoi['gpkg'])
             fields = gt.columns
             logging.info(f"Checking validity of features in vector files. This may take time.")
-            if 'attribute_name' in aoi:
+            if 'attribute_name' in aoi and extended:
                 is_valid_gt, invalid_features = validate_features_from_gpkg(gt, aoi['attribute_name'])
-            else:
+            elif extended:
                 is_valid_gt = f'Geometry check not implement if attribute name omitted'
-                invalid_features = []
                 logging.error(is_valid_gt)
             gt_line = [Path(aoi['gpkg']).parent.absolute(), Path(aoi['gpkg']).name, fields, is_valid_gt,
                        invalid_features, crs_match, epsg_raster, epsg_gt]
@@ -123,9 +124,7 @@ if __name__ == '__main__':
             header.extend(gt_header)
 
         # process ground truth data only if it hasn't been processed yet
-        if not extended:
-            validate_gt = False
-        elif aoi['gpkg'] in validated_gts:
+        if aoi['gpkg'] in validated_gts:
             validate_gt = False
         else:
             validate_gt = True
