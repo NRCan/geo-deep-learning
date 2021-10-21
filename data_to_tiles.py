@@ -841,7 +841,7 @@ if __name__ == '__main__':
     parser.add_argument('--min-annot', default=0)
     parser.add_argument('--bands', default=None)
     # FIXME: enable BooleanOptionalAction only when GDL has moved to Python 3.8
-    exec_type = parser.add_mutually_exclusive_group(required=True)
+    exec_type = parser.add_mutually_exclusive_group(required=False)
     exec_type.add_argument('--debug', action='store_true')
     exec_type.add_argument('--parallel', action='store_true',
                         help="Boolean. If activated, will use python's multiprocessing package to parallelize")

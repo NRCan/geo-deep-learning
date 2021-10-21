@@ -95,6 +95,7 @@ class VectorTiler(object):
         if isinstance(src, gpd.GeoDataFrame) and src.crs is None:
             raise ValueError("If the src input is a geopandas.GeoDataFrame, it must have a crs attribute.")
 
+        logging.debug(f'Source vector file: {src}')
         tile_gen = self.tile_generator(src, tile_bounds, tile_bounds_crs,
                                        geom_type, split_multi_geoms,
                                        min_partial_perc,

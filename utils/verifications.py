@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 def validate_num_bands(raster, num_bands, bands_idxs: List = None):
     metadata = _check_rasterio_im_load(raster).meta
+    logging.debug(f'Raster: {raster}\n'
+                  f'Metadata: {metadata}')
     # TODO: raise errors or log errors? Non matching number of bands is major. Leaving as errors for now.
     if metadata['count'] > num_bands and not bands_idxs:
         raise ValueError(f'Missing band indexes to keep. Imagery contains {metadata["count"]} bands. '
