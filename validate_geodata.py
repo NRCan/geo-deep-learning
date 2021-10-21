@@ -57,11 +57,11 @@ if __name__ == '__main__':
     input_type.add_argument('-d', '--dir', metavar='directory', help='Directory where geodata will be validated. '
                                                                      'Recursive search is performed. All rasters that '
                                                                      'can be read by GDAL will be included')
-    parser.add_argument('--debug', metavar='debug_mode', action='store_true')
-    parser.add_argument('-e', '--extended', metavar='extended_check', action='store_true',
+    parser.add_argument('--debug', action='store_true')
+    parser.add_argument('-e', '--extended', action='store_true',
                         help="If activated, will perform extended check on data. "
                              "WARNING: This will be require more ressources")
-    parser.add_argument('--parallel', metavar='multiprocessing', action='store_true',
+    parser.add_argument('--parallel', action='store_true',
                         help="If activated, will use python's multiprocessing package to parallelize")
     args = parser.parse_args()
 
