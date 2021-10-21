@@ -720,8 +720,14 @@ def main(params):
                 if parallel:
                     input_args.append([tiler.tiling_per_aoi, aoi])
                 else:
-                    tiler_pair = tiler.tiling_per_aoi(aoi)
-                    tilers.append(tiler_pair)
+                    try:
+                        tiler_pair = tiler.tiling_per_aoi(aoi)
+                        tilers.append(tiler_pair)
+                    except ValueError as e:
+                        logging.debug(f'Failed\n'
+                                      f'Img: {aoi.img}\n'
+                                      f'GT: {aoi.gt}')
+                        raise e
             elif dry_run:
                 logging.warning(f'DRY RUN. No tiles will be written')
 
@@ -835,8 +841,9 @@ if __name__ == '__main__':
     parser.add_argument('--min-annot', default=0)
     parser.add_argument('--bands', default=None)
     # FIXME: enable BooleanOptionalAction only when GDL has moved to Python 3.8
-    parser.add_argument('--debug', action='store_true')
-    parser.add_argument('--parallel', action='store_true',
+    exec_type = parser.add_mutually_exclusive_group(required=True)
+    exec_type.add_argument('--debug', action='store_true')
+    exec_type.add_argument('--parallel', action='store_true',
                         help="Boolean. If activated, will use python's multiprocessing package to parallelize")
     parser.add_argument('--dry-run', action='store_true',
                         help="Boolean. If activated, no data will be written. Serves when debugging")

@@ -19,14 +19,21 @@ from pathlib import Path
 
 from utils.verifications import validate_raster, is_gdal_readable, assert_crs_match, validate_features_from_gpkg
 
+logging.getLogger(__name__)
+
 
 def validate_geodata(aoi: dict, validate_gt = True, extended: bool = False):
+    # FIXME: why is this not logging?
+    logging.info(f"Validating raster {aoi['tif']}\n"
+                 f"Will read raster data, not just metadata: {extended}")
     is_valid_raster, meta = validate_raster(raster_path=aoi['tif'], verbose=True, extended=extended)
     raster = rasterio.open(aoi['tif'])
     line = [Path(aoi['tif']).parent.absolute(), Path(aoi['tif']).name, meta, is_valid_raster]
     invalid_features = []
     is_valid_gt = None
     if 'gpkg' in aoi.keys():
+        logging.info(f"Validating ground truth {aoi['gpkg']}\n"
+                     f"Will validate features: {extended}")
         if not validate_gt:
             gt_line = [Path(aoi['gpkg']).parent.absolute(), Path(aoi['gpkg']).name]
             line.extend(gt_line)
@@ -109,6 +116,7 @@ if __name__ == '__main__':
     validated_gts = set()
     header = ['raster_root', 'raster_path', 'metadata', 'is_valid']
     input_args = []
+    # TODO: use AOI objects in data_to_tiles
     for i, aoi in tqdm(enumerate(data_list), desc='Checking geodata'):
         if i == 0:
             gt_header = ['gt_root', 'gt_path', 'att_fields', 'is_valid', 'invalid_feat_ids', 'raster_gt_crs_match',
