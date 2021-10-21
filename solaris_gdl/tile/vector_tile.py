@@ -200,6 +200,7 @@ class VectorTiler(object):
                 tb_geom_reproj = box(*tb)
                 tile_gdf = clip_gdf(self.src, tb, min_partial_perc, geom_type,
                                     verbose=self.super_verbose)
+            logging.debug(f'Tile gdf: {tile_gdf.info}')
             if self.src_crs != self.dest_crs:
                 tile_gdf = tile_gdf.to_crs(crs=self.dest_crs.to_wkt())
             if split_multi_geoms:

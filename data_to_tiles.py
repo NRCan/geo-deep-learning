@@ -229,7 +229,8 @@ class Tiler(object):
                  min_img_tile_size: int = None,
                  val_percent: int = None,
                  attr_field_exp: str = None,
-                 attr_vals_exp: list = None):
+                 attr_vals_exp: list = None,
+                 debug: bool = False):
         """
         @param experiment_root_dir: pathlib.Path or str
             Root directory under which all tiles will written (in subfolders)
@@ -347,6 +348,8 @@ class Tiler(object):
             raise TypeError(f'Attribute values should be a list.\n'
                             f'Got {attr_vals_exp} of type {type(attr_vals_exp)}')
         self.attr_vals_exp = attr_vals_exp
+
+        self.debug = debug
 
     def with_gt_checker(self):
         for aoi in self.src_data_dict.values():
@@ -485,8 +488,9 @@ class Tiler(object):
 
         if self.with_gt:
             vec_tler = tile.vector_tile.VectorTiler(dest_dir=aoi.tiles_dir_gt,
-                                                        dest_crs=raster_tiler.dest_crs,
-                                                        verbose=True)
+                                                    dest_crs=raster_tiler.dest_crs,
+                                                    verbose=True,
+                                                    super_verbose=self.debug)
             vec_tler.tile(src=aoi.gt,
                               tile_bounds=raster_tiler.tile_bounds,
                               tile_bounds_crs=raster_bounds_crs,
@@ -671,7 +675,8 @@ def main(params):
                   min_img_tile_size=min_raster_tile_size,
                   val_percent=val_percent,
                   attr_field_exp=attr_field,
-                  attr_vals_exp=attr_vals)
+                  attr_vals_exp=attr_vals,
+                  debug=debug)
     tiler.src_data_dict = tiler.aois_from_csv(csv_path=csv_file)
     tiler.with_gt_checker()
 
