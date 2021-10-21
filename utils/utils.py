@@ -1,4 +1,3 @@
-import csv
 import logging
 import numbers
 import subprocess
@@ -12,13 +11,10 @@ import numpy as np
 import scipy.signal
 import warnings
 import requests
-import collections
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
-from rasterio.crs import CRS
-from affine import Affine
 
-from utils.readers import read_parameters
+from utils.readers import read_parameters, read_gdl_csv
 from urllib.parse import urlparse
 
 try:
@@ -343,13 +339,13 @@ def list_input_images(img_dir_or_csv: str,
         bucket = s3.Bucket(bucket_name)
         if img_dir_or_csv.endswith('.csv'):
             bucket.download_file(img_dir_or_csv, 'img_csv_file.csv')
-            list_img = read_csv('img_csv_file.csv')
+            list_img = read_gdl_csv('img_csv_file.csv')
         else:
             raise NotImplementedError(
                 'Specify a csv file containing images for inference. Directory input not implemented yet')
     else:
         if str(img_dir_or_csv).endswith('.csv'):
-            list_img = read_csv(img_dir_or_csv)
+            list_img = read_gdl_csv(img_dir_or_csv)
 
         elif is_url(img_dir_or_csv):
             list_img = []
@@ -376,40 +372,6 @@ def list_input_images(img_dir_or_csv: str,
                 list_img.append(img)
             assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
     return list_img
-
-
-def read_csv(csv_file_name):
-    """
-    Open csv file and parse it, returning a list of dict.
-    - tif full path
-    - metadata yml full path (may be empty string if unavailable)
-    - gpkg full path
-    - attribute_name
-    - dataset (trn or tst)
-    """
-    list_values = []
-    csv_file_name = Path(csv_file_name)
-    if not csv_file_name.suffix == '.csv' and not csv_file_name.is_file():
-        raise FileNotFoundError(f"Couldn't locate geodata csv: {csv_file_name}")
-
-    with open(csv_file_name, 'r') as f:
-        reader = csv.reader(f)
-        for index, row in enumerate(reader):
-            row_length = len(row) if index == 0 else row_length
-            assert len(row) == row_length, "Rows in csv should be of same length"
-            row.extend([None] * (6 - len(row)))  # fill row with None values to obtain row of length == 6
-            list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3],
-                                'dataset': row[4], 'aoi': row[5]})
-            assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
-            if row[2]:
-                assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'
-                assert isinstance(row[3], str)
-    try:
-        # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
-        list_values = sorted(list_values, key=lambda k: k['dataset'])
-    except TypeError:
-        logging.warning('Unable to sort csv rows')
-    return list_values
 
 
 def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,

@@ -14,10 +14,9 @@ import pandas as pd
 from solaris_gdl.eval.base import Evaluator
 from tqdm import tqdm
 
-from data_to_tiles import filter_gdf
-from utils.readers import read_parameters
-from utils.utils import get_git_hash, get_key_def, read_csv
-
+from data_to_tiles import AOI
+from utils.readers import read_parameters, read_gdl_csv
+from utils.utils import get_git_hash, get_key_def
 
 min_val = 1e-6
 def create_metrics_dict(num_classes):
@@ -190,7 +189,7 @@ def iou_per_obj(pred: Union[str, Path], gt:Union[str, Path], attr_field: str = N
         aoi_id = Path(pred).stem
     # filter out non-buildings
     gt_gdf = gpd.read_file(gt, bbox=gt_clip_bounds)
-    gt_gdf_filtered = filter_gdf(gt_gdf, attr_field, attr_vals).copy(deep=True)
+    gt_gdf_filtered = AOI.filter_gdf_by_attribute(gt_gdf, attr_field, attr_vals).copy(deep=True)
     #
     evaluator = Evaluator(ground_truth_vector_file=gt_gdf_filtered)
 
@@ -261,7 +260,7 @@ def main(params):
                                                          'console_level': console_level_logging})
 
     if Path(img_dir_or_csv).suffix == '.csv':
-        inference_srcdata_list = read_csv(Path(img_dir_or_csv))
+        inference_srcdata_list = read_gdl_csv(Path(img_dir_or_csv))
     elif Path(img_dir_or_csv).is_dir():
         raise ValueError(f'Metrics.py requires csv list of images and ground truths. '
                          f'Got invalid "img_dir_or_csv" parameter: "{img_dir_or_csv}"')

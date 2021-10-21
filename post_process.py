@@ -19,8 +19,8 @@ import time
 from pathlib import Path
 from tqdm import tqdm
 
-from utils.utils import get_key_def, read_csv, get_git_hash, defaults_from_params, subprocess_cmd, map_wrapper
-from utils.readers import read_parameters
+from utils.utils import get_key_def, get_git_hash, subprocess_cmd, map_wrapper
+from utils.readers import read_parameters, read_gdl_csv
 
 logging.getLogger(__name__)
 
@@ -389,8 +389,7 @@ def main(params):
     default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''),
                             exp_name, f"inference_sem_seg_{exp_name}.csv")
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default_csv_file, expected_type=str)
-    state_dict = get_key_def('state_dict_path', params['inference'],
-                             defaults_from_params(params, 'state_dict_path'), expected_type=str)
+    state_dict = get_key_def('state_dict_path', params['inference'], expected_type=str)
     num_classes = get_key_def('num_classes', params['global'], expected_type=int)
     num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
 
@@ -437,7 +436,7 @@ def main(params):
                                                          'console_level': console_level_logging})
 
     if tiles_dir and Path(img_dir_or_csv).suffix == '.csv':
-        inference_srcdata_list = read_csv(Path(img_dir_or_csv))
+        inference_srcdata_list = read_gdl_csv(Path(img_dir_or_csv))
     elif tiles_dir and Path(img_dir_or_csv).is_dir():
         # TODO: test this. Only tested csv for now
         inference_srcdata_list = [{'tif': raster} for raster in Path(img_dir_or_csv).glob(f'**/*.tif')]

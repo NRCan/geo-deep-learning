@@ -4,9 +4,9 @@ import os
 from pathlib import Path
 from typing import List
 
-from utils.utils import get_key_def, read_csv
+from utils.utils import get_key_def
 from utils.geoutils import vector_to_raster
-from utils.readers import read_parameters, image_reader_as_array
+from utils.readers import read_parameters, image_reader_as_array, read_gdl_csv
 from utils.verifications import validate_num_classes
 import time
 import rasterio
@@ -32,7 +32,7 @@ def create_csv():
     data_path = params['global']['data_path']
     Path.mkdir(Path(data_path), exist_ok=True)
     num_classes = params['global']['num_classes']
-    data_prep_csv = read_csv(prep_csv_path)
+    data_prep_csv = read_gdl_csv(prep_csv_path)
 
     csv_prop_data = params['global']['data_path'] + '/prop_data.csv'
     if os.path.isfile(csv_prop_data):

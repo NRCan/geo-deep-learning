@@ -7,10 +7,13 @@ from collections import OrderedDict
 import logging
 import logging.config
 from datetime import datetime
-from typing import List, Union
+from typing import List, Union, Sequence
 
 import numpy as np
-from ruamel_yaml import YAML
+try:
+    from ruamel_yaml import YAML
+except ImportError:
+    from ruamel.yaml import YAML
 from shapely.geometry import Polygon, box
 
 from solaris_gdl.utils.core import _check_rasterio_im_load, _check_gdf_load, _check_crs
@@ -25,8 +28,8 @@ from pathlib import Path
 from tqdm import tqdm
 import geopandas as gpd
 
-from utils.utils import get_key_def, read_csv, get_git_hash, map_wrapper
-from utils.readers import read_parameters
+from utils.utils import get_key_def, get_git_hash, map_wrapper
+from utils.readers import read_parameters, read_gdl_csv
 from utils.verifications import validate_raster, validate_num_bands, assert_crs_match
 from solaris_gdl import tile
 from solaris_gdl import vector
@@ -154,31 +157,34 @@ class AOI(object):
                       tiles_dir=tiles_dir)
         return new_aoi
     
-    def filter_gdf_by_attribute(self, gdf_tile: Union[str, Path, gpd.GeoDataFrame]):
+    @staticmethod
+    def filter_gdf_by_attribute(gdf_tile: Union[str, Path, gpd.GeoDataFrame], attr_field: str = None,
+                                attr_vals: Sequence = None):
         """
-        Filter features from a geopandas.GeoDataFrame according to an aoi's attribute field and filtering values
+        Filter features from a geopandas.GeoDataFrame according to an attribute field and filtering values
         @param gdf_tile: str, Path or gpd.GeoDataFrame
             GeoDataFrame or path to GeoDataFrame to filter feature from
         @return: Subset of source GeoDataFrame with only filtered features (deep copy)
         """
         gdf_tile = _check_gdf_load(gdf_tile)
-        if not self.attr_field or not self.attr_vals:
+        if not attr_field or not attr_vals:
             return gdf_tile
-        if not self.attr_field in gdf_tile.columns:
-            self.attr_field = self.attr_field.split('/')[-1]
+        if not attr_field in gdf_tile.columns:
+            attr_field = attr_field.split('/')[-1]
+        # TODO: warn if no features with values in given attribute field. Values may be wrong.
         try:
-            condList = [gdf_tile[f'{self.attr_field}'] == val for val in self.attr_vals]
-            condList.extend([gdf_tile[f'{self.attr_field}'] == str(val) for val in self.attr_vals])
+            condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
+            condList.extend([gdf_tile[f'{attr_field}'] == str(val) for val in attr_vals])
             allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
             gdf_filtered = gdf_tile[allcond].copy(deep=True)
-            logging.debug(f'Successfully filtered features from GeoDataFrame read form "{self.gt}"\n'
+            logging.debug(f'Successfully filtered features from GeoDataFrame"\n'
                           f'Filtered features: {len(gdf_filtered)}\n'
                           f'Total features: {len(gdf_tile)}\n'
-                          f'Attribute field: "{self.attr_field}"\n'
-                          f'Filtered values: {self.attr_vals}')
+                          f'Attribute field: "{attr_field}"\n'
+                          f'Filtered values: {attr_vals}')
             return gdf_filtered
         except KeyError as e:
-            logging.critical(f'No attribute named {self.attr_field} in GeoDataFrame. \n'
+            logging.critical(f'No attribute named {attr_field} in GeoDataFrame. \n'
                              f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'
                              f'Attributes: {gdf.columns}\n'
                              f'GeoDataFrame: {gdf.info()}')
@@ -356,7 +362,7 @@ class Tiler(object):
         @return: Tiler instance
         """
         aois = {}
-        data_list = read_csv(csv_path)
+        data_list = read_gdl_csv(csv_path)
         logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
                      f'\tNumber of rows: {len(data_list)}\n'
                      f'\tCopying first row:\n{data_list[0]}\n')
@@ -838,7 +844,7 @@ if __name__ == '__main__':
     if args.param:
         params = read_parameters(args.param)
     elif args.csv:
-        data_list = read_csv(args.csv)
+        data_list = read_gdl_csv(args.csv)
         params = OrderedDict()
         params['global'] = OrderedDict()
         params['global']['mlflow_experiment_name'] = f'{Path(args.csv).stem}'

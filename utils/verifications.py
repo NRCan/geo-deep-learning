@@ -114,20 +114,24 @@ def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path])
     gt_crs = gt.crs
 
     epsg_gt = _check_crs(gt_crs.to_epsg())
-    if raster_crs.is_epsg_code:
-        epsg_raster = _check_crs(raster_crs.to_epsg())
-    else:
-        logging.warning(f"Cannot parse epsg code from raster's crs '{raster.name}'")
-        return False, None, epsg_gt
+    try:
+        if raster_crs.is_epsg_code:
+            epsg_raster = _check_crs(raster_crs.to_epsg())
+        else:
+            logging.warning(f"Cannot parse epsg code from raster's crs '{raster.name}'")
+            return False, raster_crs, gt_crs
 
-    if epsg_raster != epsg_gt:
-        logging.error(f"CRS mismatch: \n"
-                      f"TIF file \"{raster_path}\" has {epsg_raster} CRS; \n"
-                      f"GPKG file \"{gpkg_path}\" has {epsg_gt} CRS.")
-        return False, epsg_raster, epsg_gt
-    else:
-        return True, epsg_raster, epsg_gt
-
+        if epsg_raster != epsg_gt:
+            logging.error(f"CRS mismatch: \n"
+                          f"TIF file \"{raster_path}\" has {epsg_raster} CRS; \n"
+                          f"GPKG file \"{gpkg_path}\" has {epsg_gt} CRS.")
+            return False, raster_crs, gt_crs
+        else:
+            return True, raster_crs, gt_crs
+    except AttributeError as e:
+        logging.critical(f'Problem reading crs from image or label.')
+        logging.critical(e)
+        return False, raster_crs, gt_crs
 
 def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
     """

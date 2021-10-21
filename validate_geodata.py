@@ -10,7 +10,8 @@ from tqdm import tqdm
 
 from utils.logger import set_logging
 from solaris_gdl.utils.core import _check_crs, _check_gdf_load
-from utils.utils import read_csv, map_wrapper
+from utils.utils import map_wrapper
+from utils.readers import read_gdl_csv
 
 np.random.seed(1234)  # Set random seed for reproducibility
 
@@ -84,7 +85,7 @@ if __name__ == '__main__':
     if csv_file:
         logging.info(f'Rasters from csv will be checked\n'
                      f'Csv file: {csv_file}')
-        data_list = read_csv(args.csv)
+        data_list = read_gdl_csv(args.csv)
     else:
         logging.info(f'Searching for GDAL readable rasters in {dir}...')
         data_list = []

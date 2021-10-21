@@ -1,3 +1,4 @@
+import csv
 import logging
 
 import numpy as np
@@ -22,6 +23,10 @@ def read_parameters(param_file):
     Returns:
         YAML (Ruamel) CommentedMap dict-like object
     """
+    if not Path(param_file).suffix in ['.yaml', '.yml']:
+        raise ValueError(f'File is not a yaml: {param_file}')
+    elif not Path(param_file).is_file():
+        raise FileNotFoundError(f'Yaml file does not exist: {param_file}')
     yaml = YAML()
     with open(param_file) as yamlfile:
         params = yaml.load(yamlfile)
@@ -120,3 +125,37 @@ def image_reader_as_array(input_image,
         np_array = np.concatenate([np_array, vec_tensor], axis=2)
 
     return np_array, input_image, dataset_nodata
+
+
+def read_gdl_csv(csv_file_name):
+    """
+    Open csv file and parse it, returning a list of dict.
+    - tif full path
+    - metadata yml full path (may be empty string if unavailable)
+    - gpkg full path
+    - attribute_name
+    - dataset (trn or tst)
+    """
+    list_values = []
+    csv_file_name = Path(csv_file_name)
+    if not csv_file_name.suffix == '.csv' and not csv_file_name.is_file():
+        raise FileNotFoundError(f"Couldn't locate geodata csv: {csv_file_name}")
+
+    with open(csv_file_name, 'r') as f:
+        reader = csv.reader(f)
+        for index, row in enumerate(reader):
+            row_length = len(row) if index == 0 else row_length
+            assert len(row) == row_length, "Rows in csv should be of same length"
+            row.extend([None] * (6 - len(row)))  # fill row with None values to obtain row of length == 6
+            list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3],
+                                'dataset': row[4], 'aoi': row[5]})
+            assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
+            if row[2]:
+                assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'
+                assert isinstance(row[3], str)
+    try:
+        # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
+        list_values = sorted(list_values, key=lambda k: k['dataset'])
+    except TypeError:
+        logging.warning('Unable to sort csv rows')
+    return list_values
