@@ -20,8 +20,8 @@ from pathlib import Path
 from utils.verifications import validate_raster, is_gdal_readable, assert_crs_match, validate_features_from_gpkg
 
 
-def validate_geodata(aoi: dict, validate_gt = True):
-    is_valid_raster, meta = validate_raster(raster_path=aoi['tif'], verbose=True, extended=True)
+def validate_geodata(aoi: dict, validate_gt = True, extended: bool = False):
+    is_valid_raster, meta = validate_raster(raster_path=aoi['tif'], verbose=True, extended=extended)
     raster = rasterio.open(aoi['tif'])
     line = [Path(aoi['tif']).parent.absolute(), Path(aoi['tif']).name, meta, is_valid_raster]
     if 'gpkg' in aoi.keys():
@@ -123,16 +123,18 @@ if __name__ == '__main__':
             header.extend(gt_header)
 
         # process ground truth data only if it hasn't been processed yet
-        if aoi['gpkg'] in validated_gts:
+        if not extended:
+            validate_gt = False
+        elif aoi['gpkg'] in validated_gts:
             validate_gt = False
         else:
             validate_gt = True
             validated_gts.add(aoi['gpkg'])
 
         if parallel:
-            input_args.append([validate_geodata, aoi, validate_gt])
+            input_args.append([validate_geodata, aoi, validate_gt, extended])
         else:
-            line = validate_geodata(aoi, validate_gt)
+            line = validate_geodata(aoi, validate_gt, extended)
             report_lines.append(line)
 
     if parallel:
