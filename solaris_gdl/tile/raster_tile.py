@@ -224,7 +224,7 @@ class RasterTiler(object):
         if os.path.exists(restricted_im_path):
             os.remove(restricted_im_path)
         if self.verbose:
-            logging.info("Done. CRS returned for vector tiling.")
+            logging.info(f"Done. CRS returned for vector tiling: {profile['crs']}")
         return _check_crs(profile['crs'])  # returns the crs to be used for vector tiling
 
     def tile_generator(self, src, dest_dir=None, channel_idxs=None,

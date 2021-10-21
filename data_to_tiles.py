@@ -480,6 +480,8 @@ class Tiler(object):
                                                     alpha=False,
                                                     verbose=True)
         raster_bounds_crs = raster_tiler.tile(aoi.img, channel_idxs=self.bands_idxs)
+        logging.debug(f'Raster bounds crs: {raster_bounds_crs}\n'
+                      f'')
 
         if self.with_gt:
             vec_tler = tile.vector_tile.VectorTiler(dest_dir=aoi.tiles_dir_gt,
@@ -724,7 +726,7 @@ def main(params):
                         tiler_pair = tiler.tiling_per_aoi(aoi)
                         tilers.append(tiler_pair)
                     except ValueError as e:
-                        logging.debug(f'Failed\n'
+                        logging.debug(f'Failed to tile\n'
                                       f'Img: {aoi.img}\n'
                                       f'GT: {aoi.gt}')
                         raise e
