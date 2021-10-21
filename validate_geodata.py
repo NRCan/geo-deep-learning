@@ -10,8 +10,8 @@ from tqdm import tqdm
 
 from utils.logger import set_logging
 from solaris_gdl.utils.core import _check_crs, _check_gdf_load
-from utils.utils import map_wrapper
-from utils.readers import read_gdl_csv
+from utils.utils import map_wrapper, get_key_def
+from utils.readers import read_gdl_csv, read_parameters
 
 np.random.seed(1234)  # Set random seed for reproducibility
 
@@ -50,6 +50,7 @@ if __name__ == '__main__':
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
     parser = argparse.ArgumentParser(description='Validate geodata')
     input_type = parser.add_mutually_exclusive_group(required=True)
+    input_type.add_argument('-p', '--param', metavar='yaml_file', help='Path to parameters stored in yaml')
     input_type.add_argument('-c', '--csv', metavar='csv_file', help='Path to csv containing listed geodata with columns'
                                                                     ' as expected by geo-deep-learning. See README')
     input_type.add_argument('-d', '--dir', metavar='directory', help='Directory where geodata will be validated. '
@@ -74,15 +75,26 @@ if __name__ == '__main__':
     debug = args.debug
     parallel = args.parallel
     extended = args.extended
-    csv_file = Path(args.csv) if args.csv else args.csv
-    dir = Path(args.dir) if args.dir else args.dir
+    if args.csv:
+        working_dir = Path(args.csv).parent
+    elif args.param:
+        working_dir = Path(args.param).parent
+    else:
+        working_dir = Path(args.dir) if args.dir else args.dir
 
-    working_dir = csv_file.parent if csv_file else dir
     report_path = working_dir / f'validate_geodata_report_{now}.csv'
     console_lvl = 'INFO' if not debug else 'DEBUG'
     set_logging(console_level=console_lvl, logfiles_dir=working_dir, logfiles_prefix='validate_geodata')
 
-    if csv_file:
+    if args.param:
+        params = read_parameters(args.param)
+        csv_file = get_key_def('prep_csv_file', params['sample'], expected_type=str)
+
+        data_list = read_gdl_csv(csv_file)
+        logging.info(f'Found preprocessing csv file in yaml: {csv_file}\n'
+                     f'{len(data_list)} rasters from csv will be checked\n')
+    elif args.csv:
+        csv_file = Path(args.csv)
         logging.info(f'Rasters from csv will be checked\n'
                      f'Csv file: {csv_file}')
         data_list = read_gdl_csv(args.csv)
