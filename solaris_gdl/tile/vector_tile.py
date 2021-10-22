@@ -177,6 +177,7 @@ class VectorTiler(object):
             tile_bounds_crs = self.src_crs
         if self.src_crs != tile_bounds_crs:
             reproject_bounds = True  # used to transform tb for clip_gdf()
+            logging.debug(f'Will reproject bounds of imagery to fit vector data')
         else:
             reproject_bounds = False
 
@@ -313,6 +314,7 @@ def clip_gdf(gdf, tile_bounds, min_partial_perc=0.0, geom_type="Polygon",
     # TODO must implement different case for lines and for spatialIndex
     # (Assume RTree is already performed)
 
+    logging.debug(f'GeoDataFrame before clip: {gdf.info}')
     cut_gdf = gdf.copy()
     try:
         cut_gdf.geometry = gdf.intersection(tb)
