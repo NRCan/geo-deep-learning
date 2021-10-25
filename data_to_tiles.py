@@ -585,7 +585,26 @@ class Tiler(object):
             return (dataset, None)
 
 
-def csv_from_glob(img_glob, gt_dir_rel2img):
+def gt_from_img(img_path, gt_dir_rel2img):
+    image = Path(img_path)
+    gt_dir = image.parent / gt_dir_rel2img
+    if not gt_dir.is_dir():
+        logging.warning(f'Failed to find ground truth directory for image:\n'
+                        f'{image}\n'
+                        f'Ground truth directory should be: {gt_dir}')
+        return
+    gts = list(gt_dir.iterdir())
+    gts_names = [str(gt.name) for gt in gts]
+    gt_matches = difflib.get_close_matches(image.stem, gts_names)
+    if not gt_matches:
+        raise FileNotFoundError(f"Couldn't find a ground truth file to match imagery:\n"
+                                f"{image}")
+    gt = gt_dir / gt_matches[0]
+    csv_line = (image,gt.resolve(),'trn')
+    return csv_line
+
+
+def csv_from_glob(img_glob, gt_dir_rel2img, parallel=False):
     """
     Write a GDL csv from glob patterns to imagery and ground truth data
     @param img_glob: glob pattern to imagery
@@ -604,26 +623,22 @@ def csv_from_glob(img_glob, gt_dir_rel2img):
         images = [p]  # files
     else:
         raise Exception('ERROR: %s does not exist' % p)
-    last_gt_dir = None
     logging.warning(f"Dataset will only be 'trn' when creating csv from glob")
+    input_args = []
     for image in tqdm(images, desc=f'Searching for ground truth match to {len(images)} globbed images'):
-        image = Path(image)
-        gt_dir = image.parent / gt_dir_rel2img
-        if not gt_dir.is_dir():
-            logging.warning(f'Failed to find ground truth directory for image:\n'
-                            f'{image}\n'
-                            f'Ground truth directory should be: {gt_dir}')
-            continue
-        if gt_dir != last_gt_dir:
-            gts = list(gt_dir.iterdir())
-            gts_names = [str(gt.name) for gt in gts]
-        last_gt_dir = gt_dir
-        gt_matches = difflib.get_close_matches(image.stem, gts_names)
-        if not gt_matches:
-            raise FileNotFoundError(f"Couldn't find a ground truth file to match imagery:\n"
-                                    f"{image}")
-        gt = gt_dir / gt_matches[0]
-        csv_lines.append([image,gt.resolve(),'trn'])
+        if parallel:
+            input_args.append([gt_from_img, image, gt_dir_rel2img])
+        else:
+            csv_line = gt_from_img(image, gt_dir_rel2img)
+            csv_lines.append(csv_line)
+
+    if parallel:
+        logging.info(f'Parallelizing search for ground truth for {len(images)} globbed images...')
+        proc = multiprocessing.cpu_count()
+        with multiprocessing.get_context('spawn').Pool(processes=proc) as pool:
+            lines = pool.map_async(map_wrapper, input_args).get()
+        csv_lines = lines
+
     out_csv = Path(img_glob.split('/*')[0]) / f'{Path(img_glob.split("*")[0]).stem}.csv'
     with open(out_csv, 'w') as out:
         write = csv.writer(out)
@@ -915,7 +930,7 @@ if __name__ == '__main__':
                         help="Boolean. If activated, no data will be written. Serves when debugging")
     args = parser.parse_args()
     if args.glob:
-        out_csv_from_glob = csv_from_glob(args.glob[0], args.glob[1])
+        out_csv_from_glob = csv_from_glob(args.glob[0], args.glob[1], parallel=args.parallel)
         args.csv = out_csv_from_glob
     if args.param:
         params = read_parameters(args.param)
