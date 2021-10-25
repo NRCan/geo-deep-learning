@@ -200,7 +200,7 @@ class VectorTiler(object):
                 tb_geom_reproj = reproject_geometry(box(*tb),
                                    tile_bounds_crs,
                                    self.src_crs)
-                logging.debug(self.src.info())
+                logging.debug(self.src.info(), self.src.crs)
                 logging.debug(f'Reprojected bounds. \n'
                               f'Original bounds: {tb}\n'
                               f'After reprojection: {tb_geom_reproj.bounds}\n')
@@ -305,9 +305,9 @@ def clip_gdf(gdf, tile_bounds, min_partial_perc=0.0, geom_type="Polygon",
         tb = tile_bounds
     logging.debug(tb)
     if use_sindex and (geom_type == "Polygon"):
-        logging.debug(gdf.info())
+        logging.debug(gdf.info(), gdf.crs)
         gdf = search_gdf_polygon(gdf, tb)
-        logging.debug(gdf.info())
+        logging.debug(gdf.info(), gdf.crs)
 
     # if geom_type == "LineString":
     if 'origarea' in gdf.columns:
