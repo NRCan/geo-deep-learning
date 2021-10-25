@@ -245,7 +245,7 @@ def search_gdf_polygon(gdf, tile_polygon):
         possible_matches.intersects(tile_polygon)
         ]
     if precise_matches.empty:
-        precise_matches = gpd.GeoDataFrame(geometry=[])
+        precise_matches = gpd.GeoDataFrame(geometry=[], crs=gdf.crs)
     return precise_matches
 
 
