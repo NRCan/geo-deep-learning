@@ -282,7 +282,7 @@ class RasterTiler(object):
         """
         # parse arguments
         if self.verbose:
-            logging.info("Checking input data...")
+            logging.info(f"Source image: {self.src}\nChecking input data...")
         # if isinstance(src, str):
         #     self.is_cog = cog_validate(src)
         # else:
@@ -334,8 +334,10 @@ class RasterTiler(object):
 
         if getattr(self, 'tile_bounds', None) is None:
             self.get_tile_bounds()
+            if self.verbose:
+                logging.info(f'Will create {len(self.tile_bounds)} tiles\n')
 
-        for tb in self.tile_bounds:
+        for tb in tqdm(self.tile_bounds):
             # removing the following line until COG functionality implemented
             if True:  # not self.is_cog or self.force_load_cog:
                 window = rasterio.windows.from_bounds(
@@ -406,11 +408,15 @@ class RasterTiler(object):
             profile.update(width=self.dest_tile_size[1],
                            height=self.dest_tile_size[0],
                            crs=self.dest_crs,
-                           transform=dst_transform)
+                           transform=dst_transform,
+                           compress='lzw')
             if len(tile_data.shape) == 2:  # if there's no channel band
                 profile.update(count=1)
             else:
                 profile.update(count=tile_data.shape[0])
+
+            if not tile_data.any():
+                logging.warning(f'Tile contains no non-zero values')
 
             yield tile_data, mask, profile, tb
 
@@ -435,6 +441,9 @@ class RasterTiler(object):
         #     dest_path = os.path.join(self.dest_dir, 'tmp.tif')
         # else:
         dest_path = self.dest_dir / dest_fname
+
+        logging.debug(f'Writting tile with metadata profile:\n'
+                      f'{profile}')
 
         with rasterio.open(dest_path, 'w',
                            **profile) as dest:
@@ -519,7 +528,8 @@ class RasterTiler(object):
                 self.aoi_boundary = list(self.src.bounds)
 
         self.tile_bounds = split_geom(geometry=self.aoi_boundary, tile_size=self.src_tile_size, resolution=(
-            self.src.transform[0], -self.src.transform[4]), use_projection_units=self.use_src_metric_size, src_img=self.src)
+            self.src.transform[0], -self.src.transform[4]), use_projection_units=self.use_src_metric_size,
+                                      src_img=self.src)
 
     def load_src_vrt(self):
         """Load a source dataset's VRT into the destination CRS."""
