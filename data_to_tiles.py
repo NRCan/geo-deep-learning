@@ -605,6 +605,7 @@ def csv_from_glob(img_glob, gt_dir_rel2img):
     else:
         raise Exception('ERROR: %s does not exist' % p)
     last_gt_dir = None
+    logging.warning(f"Dataset will only be 'trn' when creating csv from glob")
     for image in tqdm(images, desc=f'Searching for ground truth match to {len(images)} globbed images'):
         image = Path(image)
         gt_dir = image.parent / gt_dir_rel2img
@@ -622,7 +623,6 @@ def csv_from_glob(img_glob, gt_dir_rel2img):
             raise FileNotFoundError(f"Couldn't find a ground truth file to match imagery:\n"
                                     f"{image}")
         gt = gt_dir / gt_matches[0]
-        logging.warning(f"Dataset will only be 'trn' when creating csv from glob")
         csv_lines.append([image,gt.resolve(),'trn'])
     out_csv = Path(img_glob.split('/*')[0]) / f'{Path(img_glob.split("*")[0]).stem}.csv'
     with open(out_csv, 'w') as out:
