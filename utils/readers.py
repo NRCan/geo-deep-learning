@@ -146,13 +146,24 @@ def read_gdl_csv(csv_file_name):
         for index, row in enumerate(reader):
             row_length = len(row) if index == 0 else row_length
             assert len(row) == row_length, "Rows in csv should be of same length"
-            row.extend([None] * (6 - len(row)))  # fill row with None values to obtain row of length == 6
-            list_values.append({'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3],
-                                'dataset': row[4], 'aoi': row[5]})
-            assert Path(row[0]).is_file(), f'Tif raster not found "{row[0]}"'
-            if row[2]:
-                assert Path(row[2]).is_file(), f'Gpkg not found "{row[2]}"'
-                assert isinstance(row[3], str)
+            if Path(row[0]).suffix.lower() in ['.tif', '.tiff'] and Path(row[1]).suffix.lower() in ['.geojson', '.gpkg'] and \
+                    row[2] in ['trn', 'train', 'tst', 'test']:
+                row_dict = {'tif': row[0], 'meta': None, 'gpkg': row[1], 'attribute_name': None,
+                                    'dataset': row[2], 'aoi': None}
+                list_values.append(row_dict)
+            else:
+                row.extend([None] * (6 - len(row)))  # fill row with None values to obtain row of length == 6
+                row_dict = {'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3],
+                                    'dataset': row[4], 'aoi': row[5]}
+                list_values.append(row_dict)
+            tif = Path(row_dict['tif'])
+            assert tif.is_file(), f'Tif raster not found "{tif}"'
+            if row_dict['gpkg']:
+                gpkg = Path(row_dict['gpkg'])
+                if not gpkg.is_file():
+                    raise FileNotFoundError(f'Gpkg not found "{gpkg}"')
+                if not isinstance(row_dict['dataset'], str):
+                    raise TypeError(f"Dataset should be a string. Ex.: 'trn'")
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
         list_values = sorted(list_values, key=lambda k: k['dataset'])

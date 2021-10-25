@@ -1,8 +1,12 @@
 import argparse
+import csv
+import difflib
 import functools
+import glob
 import math
 import multiprocessing
 import os
+import sys
 from collections import OrderedDict
 import logging
 import logging.config
@@ -564,6 +568,7 @@ class Tiler(object):
                                                                      img_tile=img_tile,
                                                                      gt_tile=gt_tile,
                                                                      tile_bounds=tile_bounds)
+        logging.debug(annot_perc)
         random_val = np.random.randint(1, 100)
         # for trn tiles, sort between trn and val based on random number
         dataset = 'val' if aoi.dataset == 'trn' and random_val < self.val_percent else aoi.dataset
@@ -574,10 +579,52 @@ class Tiler(object):
                                gt_tile=gt_tile,
                                out_px_mask=out_gt_burned_path,
                                dry_run=dry_run)
-            dataset_line = f'{aoi.img.absolute()} {out_gt_burned_path.absolute()} {int(annot_perc)}\n'
+            dataset_line = f'{aoi.img.absolute()} {out_gt_burned_path.absolute()} {round(annot_perc)}\n'
             return (dataset, dataset_line)
         else:
             return (dataset, None)
+
+
+def csv_from_glob(img_glob, gt_dir_rel2img):
+    """
+    Write a GDL csv from glob patterns to imagery and ground truth data
+    @param img_glob: glob pattern to imagery
+    @param gt_dir_rel2img: ground truth directory relative to imagery
+    @return: path to output csv
+    """
+    csv_lines = []
+    # 10 next lines from: https://github.com/WongKinYiu/yolor/blob/main/utils/datasets.py
+    p = str(Path(img_glob))  # os-agnostic
+    p = os.path.abspath(p)  # absolute path
+    if '*' in p:
+        images = sorted(glob.glob(p, recursive=True))  # glob
+    elif os.path.isdir(p):
+        images = sorted(glob.glob(os.path.join(p, '*.*')))  # dir
+    elif os.path.isfile(p):
+        images = [p]  # files
+    else:
+        raise Exception('ERROR: %s does not exist' % p)
+    last_gt_dir = None
+    for image in images:
+        image = Path(image)
+        gt_dir = image.parent / gt_dir_rel2img
+        if gt_dir != last_gt_dir:
+            gts = list(gt_dir.iterdir())
+            gts_names = [str(gt.name) for gt in gts]
+        last_gt_dir = gt_dir
+        gt_matches = difflib.get_close_matches(image.stem, gts_names)
+        if not gt_matches:
+            raise FileNotFoundError(f"Couldn't find a ground truth file to match imagery:\n"
+                                    f"{image}")
+        gt = gt_dir / gt_matches[0]
+        logging.warning(f"Dataset will only be 'trn' when creating csv from glob")
+        csv_lines.append([image,gt.resolve(),'trn'])
+    out_csv = Path(img_glob.split('/*')[0]) / f'{Path(img_glob.split("*")[0]).stem}.csv'
+    with open(out_csv, 'w') as out:
+        write = csv.writer(out)
+        write.writerows(csv_lines)
+    logging.info(f'Finished glob. Wrote to csv: {out_csv}')
+    return str(out_csv)
 
 
 def main(params):
@@ -840,11 +887,16 @@ def main(params):
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description='Sample preparation')
     input_type = parser.add_mutually_exclusive_group(required=True)
     input_type.add_argument('-c', '--csv', metavar='csv_file', help='Path to csv containing listed geodata with columns'
                                                                     ' as expected by geo-deep-learning. See README')
     input_type.add_argument('-p', '--param', metavar='yaml_file', help='Path to parameters stored in yaml')
+    input_type.add_argument('-g', '--glob', nargs=2,
+                            help='Glob pattern to imagery and relative path to ground truth')
+    # parser.add_argument('--img-glob', required='--glob' in sys.argv) #only required if --glob is given
+    # parser.add_argument('--img2gt', required='--glob' in sys.argv) #only required if --glob is given
     # FIXME: use hydra to better function if yaml is also used.
     parser.add_argument('--resize', default=1)
     parser.add_argument('--min-annot', default=0)
@@ -857,6 +909,9 @@ if __name__ == '__main__':
     parser.add_argument('--dry-run', action='store_true',
                         help="Boolean. If activated, no data will be written. Serves when debugging")
     args = parser.parse_args()
+    if args.glob:
+        out_csv_from_glob = csv_from_glob(args.glob[0], args.glob[1])
+        args.csv = out_csv_from_glob
     if args.param:
         params = read_parameters(args.param)
     elif args.csv:
@@ -877,7 +932,7 @@ if __name__ == '__main__':
             raise ValueError(f'Not all imagery has identical number of bands: {bands_per_imagery}')
         for data in data_list:
             if data['gpkg']:
-                attr_field = data['attribute_name'].split('/')[-1]
+                attr_field = data['attribute_name'].split('/')[-1] if data['attribute_name'] else None
                 gdf = gpd.read_file(data['gpkg'])
                 if attr_field:
                     classes_per_gt_file.append(len(set(gdf[f'{attr_field}'])))
