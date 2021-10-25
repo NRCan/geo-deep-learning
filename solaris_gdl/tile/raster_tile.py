@@ -529,6 +529,8 @@ class RasterTiler(object):
                 # set to the bounds of the image
                 # split_geom can take a list
                 self.aoi_boundary = list(self.src.bounds)
+                logging.debug(f"AOI boundary set from source imagery's bounds:\n"
+                              f"{self.aoi_boundary}")
 
         self.tile_bounds = split_geom(geometry=self.aoi_boundary, tile_size=self.src_tile_size, resolution=(
             self.src.transform[0], -self.src.transform[4]), use_projection_units=self.use_src_metric_size,
