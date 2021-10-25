@@ -947,14 +947,14 @@ if __name__ == '__main__':
                 bands_per_imagery.append(metadata['count'])
         if len(set(bands_per_imagery)) == 1:
             params['global']['number_of_bands'] = int(list(set(bands_per_imagery))[0])
-            print(f"Inputted imagery contains {params['global']['number_of_bands']} bands")
+            logging.info(f"Inputted imagery contains {params['global']['number_of_bands']} bands")
         else:
             raise ValueError(f'Not all imagery has identical number of bands: {bands_per_imagery}')
-        for data in data_list:
+        for data in tqdm(data_list):
             if data['gpkg']:
                 attr_field = data['attribute_name'].split('/')[-1] if data['attribute_name'] else None
-                gdf = gpd.read_file(data['gpkg'])
                 if attr_field:
+                    gdf = gpd.read_file(data['gpkg'])
                     classes_per_gt_file.append(len(set(gdf[f'{attr_field}'])))
                 else:
                     classes_per_gt_file = [1]
