@@ -282,7 +282,7 @@ class RasterTiler(object):
         """
         # parse arguments
         if self.verbose:
-            logging.info(f"Source image: {self.src}\nChecking input data...")
+            logging.info(f"Source image: {src}\nChecking input data...")
         # if isinstance(src, str):
         #     self.is_cog = cog_validate(src)
         # else:
