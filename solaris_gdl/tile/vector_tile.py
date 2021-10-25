@@ -170,6 +170,11 @@ class VectorTiler(object):
             print("Num tiles:", len(tile_bounds))
 
         self.src_crs = _check_crs(self.src.crs)
+        if self.src.empty:
+            logging.warning(f'Empty GeoDataFrame may cause problems:\n'
+                            f'{self.src}\n'
+                            f'CRS: {self.src_crs}'
+                            f'CRS type: {type(self.src_crs)}')
         # check if the tile bounds and vector are in the same crs
         if tile_bounds_crs is not None:
             tile_bounds_crs = _check_crs(tile_bounds_crs)
@@ -188,12 +193,15 @@ class VectorTiler(object):
             logging.debug(f'Destination CRS: {self.dest_crs}')
         for i, tb in enumerate(tile_bounds):
             if self.super_verbose:
-                print("\n", i, "/", len(tile_bounds))
+                print(f"\n{i}/{len(tile_bounds)}\n")
             logging.debug(f'{i}\n{tb}\n{self.src}\n{min_partial_perc}\n{geom_type}')
             if reproject_bounds:
                 tb_geom_reproj = reproject_geometry(box(*tb),
                                    tile_bounds_crs,
                                    self.src_crs)
+                logging.debug(f'Reprojected bounds. \n'
+                              f'Original bounds: {tb}\n'
+                              f'After reprojection: {tb_geom_reproj}\n')
                 tile_gdf = clip_gdf(self.src,
                                     tb_geom_reproj,
                                     min_partial_perc,
