@@ -144,7 +144,7 @@ def read_gdl_csv(csv_file_name):
     with open(csv_file_name, 'r') as f:
         reader = csv.reader(f)
         for index, row in tqdm(enumerate(reader),
-                               desc=f'Importing csv with to geo-deep-learning...'):
+                               desc=f'Importing csv to geo-deep-learning...'):
             row_length = len(row) if index == 0 else row_length
             assert len(row) == row_length, "Rows in csv should be of same length"
             if Path(row[0]).suffix.lower() in ['.tif', '.tiff'] and Path(row[1]).suffix.lower() in ['.geojson', '.gpkg'] and \

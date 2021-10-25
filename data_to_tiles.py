@@ -941,7 +941,7 @@ if __name__ == '__main__':
         params['global']['mlflow_experiment_name'] = f'{Path(args.csv).stem}'
         bands_per_imagery = []
         classes_per_gt_file = []
-        for data in data_list:
+        for data in tqdm(data_list, desc=f'Validating imagery and checking number of bands...'):
             with rasterio.open(data['tif'], 'r') as rdataset:
                 _, metadata = validate_raster(data['tif'])
                 bands_per_imagery.append(metadata['count'])
