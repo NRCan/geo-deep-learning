@@ -170,8 +170,8 @@ class VectorTiler(object):
             print("Num tiles:", len(tile_bounds))
 
         self.src_crs = _check_crs(self.src.crs)
-        logging.debug(f'Source: {self.src}\n'
-                      f'CRS: {self.src_crs}'
+        logging.debug(f'Source: \n{self.src.info()}\n'
+                      f'CRS: {self.src_crs}\n'
                       f'CRS type: {type(self.src_crs)}')
         if self.src.empty:
             logging.warning(f'Empty GeoDataFrame may cause problems:\n')
@@ -194,11 +194,13 @@ class VectorTiler(object):
         for i, tb in enumerate(tile_bounds):
             if self.super_verbose:
                 print(f"\n{i}/{len(tile_bounds)}\n")
-            logging.debug(f'{i}\n{tb}\n{self.src}\n{min_partial_perc}\n{geom_type}')
+            logging.debug(f'{i}\n{tb}\n{self.src.info()}\n{min_partial_perc}\n{geom_type}')
             if reproject_bounds:
+                logging.debug(self.src.info())
                 tb_geom_reproj = reproject_geometry(box(*tb),
                                    tile_bounds_crs,
                                    self.src_crs)
+                logging.debug(self.src.info())
                 logging.debug(f'Reprojected bounds. \n'
                               f'Original bounds: {tb}\n'
                               f'After reprojection: {tb_geom_reproj.bounds}\n')
@@ -303,7 +305,9 @@ def clip_gdf(gdf, tile_bounds, min_partial_perc=0.0, geom_type="Polygon",
         tb = tile_bounds
     logging.debug(tb)
     if use_sindex and (geom_type == "Polygon"):
+        logging.debug(gdf.info())
         gdf = search_gdf_polygon(gdf, tb)
+        logging.debug(gdf.info())
 
     # if geom_type == "LineString":
     if 'origarea' in gdf.columns:
