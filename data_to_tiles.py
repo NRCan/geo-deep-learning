@@ -605,9 +605,14 @@ def csv_from_glob(img_glob, gt_dir_rel2img):
     else:
         raise Exception('ERROR: %s does not exist' % p)
     last_gt_dir = None
-    for image in images:
+    for image in tqdm(images, desc=f'Searching for ground truth match to {len(images)} globbed images'):
         image = Path(image)
         gt_dir = image.parent / gt_dir_rel2img
+        if not gt_dir.is_dir():
+            logging.warning(f'Failed to find ground truth directory for image:\n'
+                            f'{image}\n'
+                            f'Ground truth directory should be: {gt_dir}')
+            continue
         if gt_dir != last_gt_dir:
             gts = list(gt_dir.iterdir())
             gts_names = [str(gt.name) for gt in gts]
