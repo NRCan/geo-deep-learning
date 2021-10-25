@@ -311,7 +311,7 @@ def samples_preparation(in_img_array,
                 final_dataset = 'val' if val else dataset
                 logging.debug(f'Dset={final_dataset}, '
                               f'Added samps={added_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}, '
-                              f'Excld samps={excl_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}, ' 
+                              f'Excld samps={excl_samples}/{len(_tqdm) * len(range(0, w, dist_samples))}, '
                               f'Target annot perc={100 - target_background_percent:.1f}')
 
     if added_samples == 0:
@@ -424,10 +424,10 @@ def main(cfg: DictConfig) -> None:
             last_mod_time_suffix = datetime.fromtimestamp(samples_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
             shutil.move(samples_dir, data_path.joinpath(f'{str(samples_dir)}_{last_mod_time_suffix}'))
         else:
-            # raise FileExistsError()
-            raise logging.critical(
+            logging.critical(
                 f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.'
             )
+            raise FileExistsError()
     Path.mkdir(samples_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
 
     # LOGGING PARAMETERS  TODO see logging yaml

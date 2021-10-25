@@ -1,3 +1,4 @@
+import os
 import time
 import h5py
 import torch
@@ -11,7 +12,7 @@ from shutil import copy
 from datetime import datetime
 from typing import Sequence
 from collections import OrderedDict
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 from omegaconf.errors import ConfigKeyError
 
 try:
@@ -610,17 +611,8 @@ def train(cfg: DictConfig) -> None:
         if list_path['provider'] == 'main':
             config_path = list_path['path']
     config_name = str(cfg.general.config_name)
-    # model_id = os.path.join(cfg.general.save_dir, config_name)
     model_id = config_name
     output_path = Path(f'model/{model_id}')
-    # # output_path = Path(model_id)
-    # if output_path.is_dir():
-    #     last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-    #     archive_output_path = Path(cfg.general.save_dir).joinpath('model') / f"{model_id}_{last_mod_time_suffix}"
-    #     shutil.move(output_path, archive_output_path)
-    #     logging.warning(f"\n'{output_path}' already exist, the contents will be move to '{archive_output_path}'")
-    #     # change the path for the new one
-    #     # output_path = archive_output_path
     output_path.mkdir(parents=True, exist_ok=False)
     logging.info(f'\nModel and log files will be saved to: {os.getcwd()}/{output_path}')
 
