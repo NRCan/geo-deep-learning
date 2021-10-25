@@ -1,4 +1,4 @@
-name: test_travis_env
+name: geo_deep_env
 channels:
   - conda-forge
   - defaults

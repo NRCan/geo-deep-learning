@@ -152,4 +152,9 @@ dependencies:
     - tifffile==2021.3.17
     - timm==0.3.2
     - ttach==0.0.3
-prefix: /home/remi/miniconda3/envs/ci_env
+    - rich
+    - pytorch-lightning
+    # --------- hydra --------- #
+    - hydra-core==1.1.0
+    - hydra-colorlog==1.1.0
+    - hydra-optuna-sweeper==1.1.0
