@@ -200,7 +200,7 @@ class VectorTiler(object):
                 tb_geom_reproj = reproject_geometry(box(*tb),
                                    tile_bounds_crs,
                                    self.src_crs)
-                logging.debug(self.src.info(), self.src.crs)
+                # logging.debug(self.src.info(), self.src.crs)
                 logging.debug(f'Reprojected bounds. \n'
                               f'Original bounds: {tb}\n'
                               f'After reprojection: {tb_geom_reproj.bounds}\n')
@@ -212,7 +212,6 @@ class VectorTiler(object):
                 tb_geom_reproj = box(*tb)
                 tile_gdf = clip_gdf(self.src, tb, min_partial_perc, geom_type,
                                     verbose=self.super_verbose)
-            logging.debug(f'Tile gdf: {tile_gdf.info}')
             if self.src_crs != self.dest_crs:
                 tile_gdf = tile_gdf.to_crs(crs=self.dest_crs.to_wkt())
             if split_multi_geoms:
@@ -303,11 +302,9 @@ def clip_gdf(gdf, tile_bounds, min_partial_perc=0.0, geom_type="Polygon",
         tb = box(*tile_bounds)
     elif isinstance(tile_bounds, Polygon):
         tb = tile_bounds
-    logging.debug(tb)
+    # logging.debug(tb)
     if use_sindex and (geom_type == "Polygon"):
-        logging.debug(gdf.info(), gdf.crs)
         gdf = search_gdf_polygon(gdf, tb)
-        logging.debug(gdf.info(), gdf.crs)
 
     # if geom_type == "LineString":
     if 'origarea' in gdf.columns:

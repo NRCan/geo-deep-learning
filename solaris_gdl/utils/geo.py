@@ -832,9 +832,17 @@ def split_geom(geometry, tile_size, resolution=None,
                        tmp_tile_size[1])
     y_mins = np.arange(ymin, ymin + tmp_tile_size[0]*y_steps,
                        tmp_tile_size[0])
-    tile_bounds = [
-        (i, j, i+tmp_tile_size[1], j+tmp_tile_size[0])
-        for i in x_mins for j in y_mins if not geometry.intersection(
-            box(*(i, j, i+tmp_tile_size[1], j+tmp_tile_size[0]))).is_empty
-        ]
+    tile_bounds = []
+    for i in x_mins:
+        for j in y_mins:
+            tbounds = (i, j, i + tmp_tile_size[1], j + tmp_tile_size[0])
+            if not geometry.intersection(
+                    box(*tbounds)).is_empty:
+                tile_bounds.append((i, j, i + tmp_tile_size[1], j + tmp_tile_size[0]))
+
+    # tile_bounds = [
+    #     (i, j, i+tmp_tile_size[1], j+tmp_tile_size[0])
+    #     for i in x_mins for j in y_mins if not geometry.intersection(
+    #         box(*(i, j, i+tmp_tile_size[1], j+tmp_tile_size[0]))).is_empty
+    #     ]
     return tile_bounds
