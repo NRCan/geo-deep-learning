@@ -417,7 +417,7 @@ class RasterTiler(object):
                 profile.update(count=tile_data.shape[0])
 
             if not tile_data.any():
-                logging.warning(f'Tile contains no non-zero values\n'
+                logging.error(f'Tile contains no non-zero values\n'
                                 f'Tile bounds: {tb}\n'
                                 f'Tile bounds area: {box(*tb).area}')
 
