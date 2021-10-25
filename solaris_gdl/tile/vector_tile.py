@@ -189,6 +189,7 @@ class VectorTiler(object):
         for i, tb in enumerate(tile_bounds):
             if self.super_verbose:
                 print("\n", i, "/", len(tile_bounds))
+            logging.debug(f'{i}\n{tb}\n{self.src}\n{min_partial_perc}\n{geom_type}')
             if reproject_bounds:
                 tb_geom_reproj = reproject_geometry(box(*tb),
                                    tile_bounds_crs,
@@ -292,6 +293,7 @@ def clip_gdf(gdf, tile_bounds, min_partial_perc=0.0, geom_type="Polygon",
         tb = box(*tile_bounds)
     elif isinstance(tile_bounds, Polygon):
         tb = tile_bounds
+    logging.debug(tb)
     if use_sindex and (geom_type == "Polygon"):
         gdf = search_gdf_polygon(gdf, tb)
 

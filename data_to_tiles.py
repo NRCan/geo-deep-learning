@@ -357,6 +357,8 @@ class Tiler(object):
                 self.with_gt = False
                 logging.warning(f"No ground truth data found for {aoi.img}. Only imagery will be processed from now on")
 
+    # TODO: add from glob pattern
+    # TODO: add from band separated imagery
     def aois_from_csv(self, csv_path):
         """
         Instantiate a Tiler object from a csv containing list of input data. 

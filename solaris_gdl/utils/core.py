@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -13,7 +14,6 @@ from distutils.version import LooseVersion
 import skimage
 from fiona._err import CPLE_OpenFailedError
 from fiona.errors import DriverError
-from warnings import warn
 
 
 def _check_rasterio_im_load(im):
@@ -64,7 +64,7 @@ def _check_gdf_load(gdf):
         try:
             return gpd.read_file(gdf)
         except (DriverError, CPLE_OpenFailedError):
-            warn(f"GeoDataFrame couldn't be loaded: either {gdf} isn't a valid"
+            logging.error(f"GeoDataFrame couldn't be loaded: either {gdf} isn't a valid"
                  " path or it isn't a valid vector file. Returning an empty"
                  " GeoDataFrame.")
             return gpd.GeoDataFrame()

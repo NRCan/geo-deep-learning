@@ -117,6 +117,8 @@ if __name__ == '__main__':
     header = ['raster_root', 'raster_path', 'metadata', 'is_valid']
     input_args = []
     # TODO: use AOI objects in data_to_tiles
+    # TODO: this should be in a main() function
+    # TODO: add validate tiles feature
     for i, aoi in tqdm(enumerate(data_list), desc='Checking geodata'):
         if i == 0:
             gt_header = ['gt_root', 'gt_path', 'att_fields', 'is_valid', 'invalid_feat_ids', 'raster_gt_crs_match',
