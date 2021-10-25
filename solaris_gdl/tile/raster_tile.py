@@ -336,6 +336,7 @@ class RasterTiler(object):
             self.get_tile_bounds()
             if self.verbose:
                 logging.info(f'Will create {len(self.tile_bounds)} tiles\n')
+            logging.debug(f'Tile bounds:\n{self.tile_bounds}')
 
         for tb in tqdm(self.tile_bounds):
             # removing the following line until COG functionality implemented
@@ -416,7 +417,9 @@ class RasterTiler(object):
                 profile.update(count=tile_data.shape[0])
 
             if not tile_data.any():
-                logging.warning(f'Tile contains no non-zero values')
+                logging.warning(f'Tile contains no non-zero values\n'
+                                f'Tile bounds: {tb}\n'
+                                f'Tile bounds area: {box(*tb).area}')
 
             yield tile_data, mask, profile, tb
 
