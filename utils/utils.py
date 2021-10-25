@@ -23,15 +23,14 @@ except ImportError:
     from ruamel.yaml import YAML
 
 try:
-    from pynvml import *
+    import pynvml
 except ModuleNotFoundError:
-    warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
+    logging.debug(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 try:
     import boto3
 except ModuleNotFoundError:
-    warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
-    pass
+    logging.debug('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
 
 logging.getLogger(__name__)
 
@@ -103,9 +102,9 @@ def get_device_ids(number_requested: int,
         logging.error(f'Requested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
         return lst_free_devices
     try:
-        nvmlInit()
+        pynvml.nvmlInit()
         if number_requested > 0:
-            device_count = nvmlDeviceGetCount()
+            device_count = pynvml.nvmlDeviceGetCount()
             for i in range(device_count):
                 res, mem = gpu_stats(i)
                 used_ram = mem.used / (1024 ** 2)
@@ -133,7 +132,7 @@ def get_device_ids(number_requested: int,
             logging.error('No gpu devices requested. Will run on cpu')
     except NameError as error:
         raise NameError(f"{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
-    except NVMLError as error:
+    except pynvml.NVMLError as error:
         raise ValueError(f"{error}. Make sure that the latest NVIDIA driver is installed and running.")
 
     return lst_free_devices
