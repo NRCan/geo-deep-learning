@@ -29,7 +29,7 @@ class VectorTiler(object):
     def __init__(self, dest_dir=None, dest_crs=None, output_format='GeoJSON',
                  verbose=False, super_verbose=False):
         if verbose or super_verbose:
-            print('Preparing the tiler...')
+            logging.info('Preparing the tiler...')
         self.dest_dir = Path(dest_dir)
         self.dest_dir.mkdir(exist_ok=True)
         if dest_crs is not None:
@@ -42,7 +42,7 @@ class VectorTiler(object):
         # if no reprojection is done, original bounds are appended.
         self.tile_bds_reprojtd = []
         if self.verbose or self.super_verbose:
-            print('Initialization done.')
+            logging.info('Initialization done.')
 
     def tile(self, src, tile_bounds, tile_bounds_crs=None, geom_type='Polygon',
              split_multi_geoms=True, min_partial_perc=0.0,
@@ -167,14 +167,15 @@ class VectorTiler(object):
         """
         self.src = _check_gdf_load(src)
         if self.verbose:
-            print("Num tiles:", len(tile_bounds))
+            logging.info("Num tiles:", len(tile_bounds))
 
         self.src_crs = _check_crs(self.src.crs)
         if not self.src_crs:
             logging.critical(f'No valid CRS was set for source ground truth:\n{self.src}')
-        logging.debug(f'Source: \n{self.src.info()}\n'
-                      f'CRS: {self.src_crs}\n'
-                      f'CRS type: {type(self.src_crs)}')
+        # this is outputting though level is not DEBUG...
+        # logging.debug(f'Source: {self.src.info()}\n'
+        #               f'CRS: {self.src_crs}\n'
+        #               f'CRS type: {type(self.src_crs)}')
         if self.src.empty:
             logging.warning(f'Empty GeoDataFrame may cause problems:\n')
         # check if the tile bounds and vector are in the same crs
@@ -195,7 +196,7 @@ class VectorTiler(object):
             logging.debug(f'Destination CRS: {self.dest_crs}')
         for i, tb in enumerate(tile_bounds):
             if self.super_verbose:
-                print(f"\n{i}/{len(tile_bounds)}\n")
+                logging.info(f"\n{i}/{len(tile_bounds)}\n")
             logging.debug(f'{i}\n{tb}\n{self.src.info()}\n{min_partial_perc}\n{geom_type}')
             if reproject_bounds:
                 logging.debug(self.src.info())
@@ -351,9 +352,9 @@ def clip_gdf(gdf, tile_bounds, min_partial_perc=0.0, geom_type="Polygon",
         cut_gdf['truncated'] = 0
         # cut_gdf = cut_gdf[cut_gdf.geom_type != "GeometryCollection"]
         if len(cut_gdf) > 0 and verbose:
-            print("clip_gdf() - gdf.iloc[0]:", gdf.iloc[0])
-            print("clip_gdf() - tb:", tb)
-            print("clip_gdf() - gdf_cut:", cut_gdf)
+            logging.info("clip_gdf() - gdf.iloc[0]:", gdf.iloc[0])
+            logging.info("clip_gdf() - tb:", tb)
+            logging.info("clip_gdf() - gdf_cut:", cut_gdf)
 
     # TODO: IMPLEMENT TRUNCATION MEASUREMENT FOR LINESTRINGS
 

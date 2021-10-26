@@ -38,8 +38,6 @@ from utils.verifications import validate_raster, validate_num_bands, assert_crs_
 from solaris_gdl import tile
 from solaris_gdl import vector
 
-logging.getLogger(__name__)
-
 
 class AOI(object):
     """
@@ -731,6 +729,8 @@ def main(params):
     # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     console_level_logging = 'INFO' if not debug else 'DEBUG'
     set_logging(console_level=console_level_logging, logfiles_dir=exp_dir, logfiles_prefix=f'data_to_tiles_{now}')
+    logging.info(f'Logging files will be written to experiment directory: {exp_dir}.\n'
+                 f'Inputted arguments: {args}')
 
     # save parameters in new yaml for further modification
     with open(exp_dir / f'{exp_name}.yaml', 'w') as yamlfile:
@@ -916,7 +916,7 @@ def main(params):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
+    set_logging(console_level='INFO')
     parser = argparse.ArgumentParser(description='Sample preparation')
     input_type = parser.add_mutually_exclusive_group(required=True)
     input_type.add_argument('-c', '--csv', metavar='csv_file',
@@ -1017,6 +1017,6 @@ if __name__ == '__main__':
     if args.subset:
         params['sample']['subset'] = int(args.subset)
 
-    print(f'\n\nStarting data to tiles preparation with {args}\n'
-          f'These parameters may be overwritten by a yaml\n\n')
+    logging.info(f'\n\nStarting data to tiles preparation with {args}\n'
+                 f'These parameters may be overwritten by a yaml\n\n')
     main(params)
