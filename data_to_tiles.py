@@ -915,15 +915,19 @@ if __name__ == '__main__':
     input_type.add_argument('-p', '--param', metavar='yaml_file', help='Path to parameters stored in yaml')
     input_type.add_argument('-g', '--glob', nargs=2,
                             help='Glob pattern to imagery and relative path to ground truth')
-    # parser.add_argument('--img-glob', required='--glob' in sys.argv) #only required if --glob is given
-    # parser.add_argument('--img2gt', required='--glob' in sys.argv) #only required if --glob is given
     # FIXME: use hydra to better function if yaml is also used.
-    parser.add_argument('--resize', default=1)
-    parser.add_argument('--min-annot', default=0)
-    parser.add_argument('--bands', default=None)
+    parser.add_argument('--resize', default=1, help='Resizing factor (aka rescaling) to apply from source imagery to '
+                                                    'tiles. Ex.: if resize = 2, then 50cm imagery will be rescaled to '
+                                                    '25 cm using bilinear interpolation')
+    parser.add_argument('--min-annot', default=0, help='Minimum annotated percentage of ground truth tile to use in '
+                                                       'final dataset')
+    parser.add_argument('--bands', default=None, help='Bands indices from source imagery to keep in outputted tiles. '
+                                                      'Ex.: [1,2,3] is imagery is RGBNir and user wants RGB only')
     # FIXME: enable BooleanOptionalAction only when GDL has moved to Python 3.8
     exec_type = parser.add_mutually_exclusive_group(required=False)
-    exec_type.add_argument('--debug', action='store_true')
+    exec_type.add_argument('--debug', action='store_true', help='If activated, logging will output all debug prints'
+                                                                'and additional functions will be executed to '
+                                                                'help the debugging process.')
     exec_type.add_argument('--parallel', action='store_true',
                         help="Boolean. If activated, will use python's multiprocessing package to parallelize")
     parser.add_argument('--dry-run', action='store_true',
@@ -973,7 +977,7 @@ if __name__ == '__main__':
             params['sample']['sampling_method'] = OrderedDict()
             params['sample']['sampling_method']['min_annotated_percent'] = int(args.min_annot)
         if args.bands:
-            params['global']['bands_idxs'] = args.bands
+            params['global']['bands_idxs'] = eval(args.bands)
 
     if args.debug:
         params['global']['debug_mode'] = args.debug
