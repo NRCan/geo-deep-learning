@@ -81,7 +81,7 @@ class AOI(object):
         if gt and not isinstance(gt, (Path, str)):
             raise TypeError(f'Ground truth path should be a of class pathlib.Path or a string.\n'
                             f'Got {gt} of type {type(gt)}')
-        elif gt and not Path(gt).is_file():
+        elif gt and not Path(gt).is_file() or os.stat(gt).st_size == 0:
             raise FileNotFoundError(f'{gt} is not a valid file')
         elif gt:
             self.gt = Path(gt)
