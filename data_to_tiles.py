@@ -992,7 +992,7 @@ if __name__ == '__main__':
             params['sample']['sampling_method']['min_annotated_percent'] = int(args.min_annot)
         if args.bands:
             params['global']['bands_idxs'] = eval(args.bands)
-            params['global']['number_of_bands'] = len(args.bands)
+            params['global']['number_of_bands'] = len(eval(args.bands))
         else:
             if not args.no_validate:
                 for data in tqdm(data_list, desc=f'Validating imagery and checking number of bands...'):
