@@ -363,7 +363,7 @@ class Tiler(object):
 
     # TODO: add from glob pattern
     # TODO: add from band separated imagery
-    def aois_from_csv(self, csv_path):
+    def aois_from_csv(self, csv_path, subset=None):
         """
         Instantiate a Tiler object from a csv containing list of input data. 
         See README for details on expected structure of csv. 
@@ -371,7 +371,7 @@ class Tiler(object):
         @return: Tiler instance
         """
         aois = {}
-        data_list = read_gdl_csv(csv_path)
+        data_list = read_gdl_csv(csv_path, subset=subset)
         logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
                      f'\tNumber of rows: {len(data_list)}\n'
                      f'\tCopying first row:\n{data_list[0]}\n')
@@ -699,7 +699,8 @@ def main(params):
     resize = get_key_def('resize', params['sample'], default=1)
     parallel = get_key_def('parallelize_tiling', params['sample'], default=False, expected_type=bool)
     dry_run = get_key_def('dry_run', params['global'], default=False, expected_type=bool)
-
+    no_val = get_key_def('no_val', params['sample'], default=False, expected_type=bool)
+    subset = get_key_def('subset', params['sample'], default=None, expected_type=int)
 
     # parameters to set output tiles directory
     data_path = Path(get_key_def('data_path', params['global'], f'./data', expected_type=str))
@@ -746,12 +747,14 @@ def main(params):
                   attr_field_exp=attr_field,
                   attr_vals_exp=attr_vals,
                   debug=debug)
-    tiler.src_data_dict = tiler.aois_from_csv(csv_path=csv_file)
+    tiler.src_data_dict = tiler.aois_from_csv(csv_path=csv_file, subset=subset)
     tiler.with_gt_checker()
 
     # VALIDATION: Assert number of bands in imagery is {num_bands}
-    for aoi in tqdm(tiler.src_data_dict.values(), desc=f'Asserting number of bands in imagery is {tiler.num_bands}'):
-        validate_num_bands(raster=aoi.img, num_bands=tiler.num_bands, bands_idxs=tiler.bands_idxs)
+    if not no_val:
+        for aoi in tqdm(tiler.src_data_dict.values(),
+                        desc=f'Asserting number of bands in imagery is {tiler.num_bands}'):
+            validate_num_bands(raster=aoi.img, num_bands=tiler.num_bands, bands_idxs=tiler.bands_idxs)
 
     datasets = ['trn', 'val', 'tst']
 
@@ -761,7 +764,6 @@ def main(params):
     logging.info(f"Preparing samples \n\tSamples_size: {samples_size} ")
     for aoi in tqdm(tiler.src_data_dict.values(), position=0, leave=False):
         try:
-            # TODO: does output dir change whether GT is present or not?
             out_img_dir = aoi.tiles_dir / 'images'
             out_gt_dir = aoi.tiles_dir / 'labels' if tiler.with_gt else None
             do_tile = True
@@ -910,24 +912,33 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description='Sample preparation')
     input_type = parser.add_mutually_exclusive_group(required=True)
-    input_type.add_argument('-c', '--csv', metavar='csv_file', help='Path to csv containing listed geodata with columns'
-                                                                    ' as expected by geo-deep-learning. See README')
-    input_type.add_argument('-p', '--param', metavar='yaml_file', help='Path to parameters stored in yaml')
+    input_type.add_argument('-c', '--csv', metavar='csv_file',
+                            help='Path to csv containing listed geodata with columns as expected by geo-deep-learning. '
+                                 'See README')
+    input_type.add_argument('-p', '--param', metavar='yaml_file',
+                            help='Path to parameters stored in yaml as expected by geo-deep-learning.'
+                                 'See README')
     input_type.add_argument('-g', '--glob', nargs=2,
                             help='Glob pattern to imagery and relative path to ground truth')
     # FIXME: use hydra to better function if yaml is also used.
-    parser.add_argument('--resize', default=1, help='Resizing factor (aka rescaling) to apply from source imagery to '
-                                                    'tiles. Ex.: if resize = 2, then 50cm imagery will be rescaled to '
-                                                    '25 cm using bilinear interpolation')
-    parser.add_argument('--min-annot', default=0, help='Minimum annotated percentage of ground truth tile to use in '
-                                                       'final dataset')
-    parser.add_argument('--bands', default=None, help='Bands indices from source imagery to keep in outputted tiles. '
-                                                      'Ex.: [1,2,3] is imagery is RGBNir and user wants RGB only')
-    # FIXME: enable BooleanOptionalAction only when GDL has moved to Python 3.8
+    parser.add_argument('--resize', default=1,
+                        help='Resizing factor (aka rescaling) to apply from source imagery to output tiles. '
+                             'Ex.: if resize = 2, then 50cm imagery will be upscaled to 25 cm using bilinear interpol.')
+    parser.add_argument('--min-annot', default=0,
+                        help='Minimum annotated percentage of ground truth tile to use in final dataset')
+    parser.add_argument('--bands', default=None,
+                        help='Bands indices from source imagery to keep in outputted tiles. Ex.: [1,2,3] is imagery is '
+                             'RGBNir and user wants RGB only')
+    parser.add_argument('--no-validate', action='store_true',
+                        help='If activated, execution will skip validation of imagery and correspondance between'
+                             'actual and expected number of bands. Use only is data has already been validated once.')
+    parser.add_argument('--subset',
+                        help='Subset of data from csv to create tiles from. Ex.: "10" will use only 10 first lines.'
+                             'If using glob as input, a full csv is created, but only subset will be used afterwards.')
     exec_type = parser.add_mutually_exclusive_group(required=False)
-    exec_type.add_argument('--debug', action='store_true', help='If activated, logging will output all debug prints'
-                                                                'and additional functions will be executed to '
-                                                                'help the debugging process.')
+    exec_type.add_argument('--debug', action='store_true',
+                           help='If activated, logging will output all debug prints and additional functions will be '
+                                'executed to help the debugging process.')
     exec_type.add_argument('--parallel', action='store_true',
                         help="Boolean. If activated, will use python's multiprocessing package to parallelize")
     parser.add_argument('--dry-run', action='store_true',
@@ -978,6 +989,8 @@ if __name__ == '__main__':
             params['sample']['sampling_method']['min_annotated_percent'] = int(args.min_annot)
         if args.bands:
             params['global']['bands_idxs'] = eval(args.bands)
+    else:
+        raise NotImplementedError(f'Currently accepting glob pattern, csv or yaml as input.')
 
     if args.debug:
         params['global']['debug_mode'] = args.debug
@@ -986,6 +999,10 @@ if __name__ == '__main__':
         params['sample']['parallelize_tiling'] = args.parallel
     if args.dry_run:
         params['global']['dry_run'] = args.dry_run
+    if args.no_validate:
+        params['sample']['no_val'] = args.no_validate
+    if args.subset:
+        params['sample']['subset'] = int(args.subset)
 
     print(f'\n\nStarting data to tiles preparation with {args}\n'
           f'These parameters may be overwritten by a yaml\n\n')
