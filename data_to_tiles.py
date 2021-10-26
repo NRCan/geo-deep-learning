@@ -755,6 +755,9 @@ def main(params):
         for aoi in tqdm(tiler.src_data_dict.values(),
                         desc=f'Asserting number of bands in imagery is {tiler.num_bands}'):
             validate_num_bands(raster=aoi.img, num_bands=tiler.num_bands, bands_idxs=tiler.bands_idxs)
+    else:
+        logging.warning(f"Skipping validation of imagery and correspondance between actual and expected number of "
+                        f"bands. Use only is data has already been validated once.")
 
     datasets = ['trn', 'val', 'tst']
 
@@ -956,9 +959,15 @@ if __name__ == '__main__':
         params['global']['mlflow_experiment_name'] = f'{Path(args.csv).stem}'
         bands_per_imagery = []
         classes_per_gt_file = []
-        for data in tqdm(data_list, desc=f'Validating imagery and checking number of bands...'):
-            with rasterio.open(data['tif'], 'r') as rdataset:
-                _, metadata = validate_raster(data['tif'])
+        if not args.no_validate:
+            for data in tqdm(data_list, desc=f'Validating imagery and checking number of bands...'):
+                with rasterio.open(data['tif'], 'r') as rdataset:
+                    _, metadata = validate_raster(data['tif'])
+                    bands_per_imagery.append(metadata['count'])
+        else:
+            logging.warning(f'Skipping imagery validation. Number of bands will be set from first image')
+            with rasterio.open(data_list[0]['tif'], 'r') as rdataset:
+                _, metadata = validate_raster(data_list[0]['tif'])
                 bands_per_imagery.append(metadata['count'])
         if len(set(bands_per_imagery)) == 1:
             params['global']['number_of_bands'] = int(list(set(bands_per_imagery))[0])
