@@ -376,13 +376,17 @@ class Tiler(object):
                      f'\tNumber of rows: {len(data_list)}\n'
                      f'\tCopying first row:\n{data_list[0]}\n')
         for i, aoi_dict in tqdm(enumerate(data_list), desc="Creating AOI's"):
-            new_aoi = AOI.from_dict(aoi_dict=aoi_dict,
-                                    tiles_dir=self.tiles_root_dir,
-                                    attr_field=self.attr_field_exp,
-                                    attr_vals=self.attr_vals_exp,
-                                    index=i)
-            aois[new_aoi.index] = new_aoi
-
+            try:
+                new_aoi = AOI.from_dict(aoi_dict=aoi_dict,
+                                        tiles_dir=self.tiles_root_dir,
+                                        attr_field=self.attr_field_exp,
+                                        attr_vals=self.attr_vals_exp,
+                                        index=i)
+                aois[new_aoi.index] = new_aoi
+            except FileNotFoundError as e:
+                logging.critical(f"{e}\nGround truth file may not exist or is empty.\n"
+                                 f"Failed to create AOI:\n{aoi_dict}\n"
+                                 f"Index: {i}")
         return aois
 
     @staticmethod
