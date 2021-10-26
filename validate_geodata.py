@@ -22,6 +22,20 @@ from utils.verifications import validate_raster, is_gdal_readable, assert_crs_ma
 logging.getLogger(__name__)
 
 
+def read_dataset_txtfile(file):
+    data_list = []
+    file = Path(file)
+    with open(file, 'r') as fh:
+        line = fh.readline()
+        while line:
+            if line:
+                splits = line.split(';')
+                data_list.append({'tif': splits[0]})
+                data_list.append({'tif': splits[1]})
+            line = fh.readline()
+    return data_list
+
+
 def validate_geodata(aoi: dict, validate_gt = True, extended: bool = False):
     # FIXME: why is this not logging?
     logging.info(f"Validating raster {aoi['tif']}\n"
@@ -61,6 +75,8 @@ if __name__ == '__main__':
     input_type.add_argument('-p', '--param', metavar='yaml_file', help='Path to parameters stored in yaml')
     input_type.add_argument('-c', '--csv', metavar='csv_file', help='Path to csv containing listed geodata with columns'
                                                                     ' as expected by geo-deep-learning. See README')
+    input_type.add_argument('-t', '--txt',
+                            help='Path to dataset text file containing all data tiles (image and ground truth)')
     input_type.add_argument('-d', '--dir', metavar='directory', help='Directory where geodata will be validated. '
                                                                      'Recursive search is performed. All rasters that '
                                                                      'can be read by GDAL will be included')
@@ -77,6 +93,8 @@ if __name__ == '__main__':
     extended = args.extended
     if args.csv:
         working_dir = Path(args.csv).parent
+    elif args.txt:
+        working_dir = Path(args.txt).parent
     elif args.param:
         working_dir = Path(args.param).parent
     else:
@@ -98,6 +116,8 @@ if __name__ == '__main__':
         logging.info(f'Rasters from csv will be checked\n'
                      f'Csv file: {csv_file}')
         data_list = read_gdl_csv(args.csv)
+    elif args.txt:
+        data_list = read_dataset_txtfile(args.txt)
     else:
         logging.info(f'Searching for GDAL readable rasters in {dir}...')
         data_list = []
@@ -126,11 +146,13 @@ if __name__ == '__main__':
             header.extend(gt_header)
 
         # process ground truth data only if it hasn't been processed yet
-        if aoi['gpkg'] in validated_gts:
-            validate_gt = False
-        else:
-            validate_gt = True
-            validated_gts.add(aoi['gpkg'])
+        validate_gt = False
+        if 'gpkg' in aoi.keys():
+            if aoi['gpkg'] in validated_gts:
+                validate_gt = False
+            else:
+                validate_gt = True
+                validated_gts.add(aoi['gpkg'])
 
         if parallel:
             input_args.append([validate_geodata, aoi, validate_gt, extended])

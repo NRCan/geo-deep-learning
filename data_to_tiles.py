@@ -583,7 +583,7 @@ class Tiler(object):
                                gt_tile=gt_tile,
                                out_px_mask=out_gt_burned_path,
                                dry_run=dry_run)
-            dataset_line = f'{img_tile.absolute()} {out_gt_burned_path.absolute()} {round(annot_perc)}\n'
+            dataset_line = f'{img_tile.absolute()};{out_gt_burned_path.absolute()};{round(annot_perc)}\n'
             return (dataset, dataset_line)
         else:
             return (dataset, None)
@@ -915,9 +915,10 @@ def main(params):
         elif dataset == 'tst':
             logging.info(f"\nDataset: {dataset}\n"
                          f"Total tiles: {datasets_total[dataset]}\n")
-    logging.info(f"End of process. See dataset files: \n"
-                 f"{[dataset_files.values()]}\n"
-                 f"Elapsed time: {int(time.time() - start_time)} seconds")
+    logging.info(f"End of process. See dataset files: \n")
+    for dataset, file in dataset_files.items():
+        logging.info(f"{dataset}: {str(file)}")
+    logging.info(f"Elapsed time: {int(time.time() - start_time)} seconds")
 
 
 if __name__ == '__main__':
