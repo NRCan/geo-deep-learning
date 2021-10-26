@@ -894,7 +894,7 @@ def main(params):
 
     # write to dataset text file the data that was kept after filtering
     datasets_kept = {dataset: 0 for dataset in datasets}
-    for line_tuple in dataset_lines:
+    for line_tuple in tqdm(dataset_lines, desc=f"Writing f{len(dataset_lines)} lines to dataset files"):
         dataset, dataset_line = line_tuple
         if dataset_line:
             with open(dataset_files[dataset], 'a') as dataset_file:
@@ -908,7 +908,8 @@ def main(params):
                          f"Tiles kept (with non-zero values above {min_annot_perc}%): \n"
                          f"\t Train set: {datasets_kept[dataset]}\n"
                          f"\t Validation set: {datasets_kept['val']}\n"
-                         f"Total tiles: {datasets_total[dataset]}\n")
+                         f"Total tiles: {datasets_total[dataset]}\n"
+                         f"Discarded tiles: {datasets_total[dataset]-datasets_kept['val']-datasets_kept['trn']}")
         elif dataset == 'tst':
             logging.info(f"\nDataset: {dataset}\n"
                          f"Total tiles: {datasets_total[dataset]}\n")
@@ -963,21 +964,6 @@ if __name__ == '__main__':
         params['global']['mlflow_experiment_name'] = f'{Path(args.csv).stem}'
         bands_per_imagery = []
         classes_per_gt_file = []
-        if not args.no_validate:
-            for data in tqdm(data_list, desc=f'Validating imagery and checking number of bands...'):
-                with rasterio.open(data['tif'], 'r') as rdataset:
-                    _, metadata = validate_raster(data['tif'])
-                    bands_per_imagery.append(metadata['count'])
-        else:
-            logging.warning(f'Skipping imagery validation. Number of bands will be set from first image')
-            with rasterio.open(data_list[0]['tif'], 'r') as rdataset:
-                _, metadata = validate_raster(data_list[0]['tif'])
-                bands_per_imagery.append(metadata['count'])
-        if len(set(bands_per_imagery)) == 1:
-            params['global']['number_of_bands'] = int(list(set(bands_per_imagery))[0])
-            logging.info(f"Inputted imagery contains {params['global']['number_of_bands']} bands")
-        else:
-            raise ValueError(f'Not all imagery has identical number of bands: {bands_per_imagery}')
         for data in tqdm(data_list):
             if data['gpkg']:
                 attr_field = data['attribute_name'].split('/')[-1] if data['attribute_name'] else None
@@ -1002,6 +988,23 @@ if __name__ == '__main__':
             params['sample']['sampling_method']['min_annotated_percent'] = int(args.min_annot)
         if args.bands:
             params['global']['bands_idxs'] = eval(args.bands)
+            params['global']['number_of_bands'] = len(args.bands)
+        else:
+            if not args.no_validate:
+                for data in tqdm(data_list, desc=f'Validating imagery and checking number of bands...'):
+                    with rasterio.open(data['tif'], 'r') as rdataset:
+                        _, metadata = validate_raster(data['tif'])
+                        bands_per_imagery.append(metadata['count'])
+            else:
+                logging.warning(f'Skipping imagery validation. Number of bands will be set from first image')
+                with rasterio.open(data_list[0]['tif'], 'r') as rdataset:
+                    _, metadata = validate_raster(data_list[0]['tif'])
+                    bands_per_imagery.append(metadata['count'])
+            if len(set(bands_per_imagery)) == 1:
+                params['global']['number_of_bands'] = int(list(set(bands_per_imagery))[0])
+                logging.info(f"Inputted imagery contains {params['global']['number_of_bands']} bands")
+            else:
+                raise ValueError(f'Not all imagery has identical number of bands: {bands_per_imagery}')
     else:
         raise NotImplementedError(f'Currently accepting glob pattern, csv or yaml as input.')
 
