@@ -167,7 +167,7 @@ class VectorTiler(object):
         """
         self.src = _check_gdf_load(src)
         if self.verbose:
-            logging.info("Num tiles:", len(tile_bounds))
+            logging.info(f"Num tiles: {len(tile_bounds)}")
 
         self.src_crs = _check_crs(self.src.crs)
         if not self.src_crs:
