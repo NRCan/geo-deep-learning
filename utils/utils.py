@@ -143,10 +143,10 @@ def gpu_stats(device=0):
     Provides GPU utilization (%) and RAM usage
     :return: res.gpu, res.memory
     """
-    nvmlInit()
-    handle = nvmlDeviceGetHandleByIndex(device)
-    res = nvmlDeviceGetUtilizationRates(handle)
-    mem = nvmlDeviceGetMemoryInfo(handle)
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(device)
+    res = pynvml.nvmlDeviceGetUtilizationRates(handle)
+    mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
 
     return res, mem
 

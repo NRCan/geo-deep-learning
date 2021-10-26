@@ -127,7 +127,7 @@ def image_reader_as_array(input_image,
     return np_array, input_image, dataset_nodata
 
 
-def read_gdl_csv(csv_file_name):
+def read_gdl_csv(csv_file_name, subset=None):
     """
     Open csv file and parse it, returning a list of dict.
     - tif full path
@@ -136,6 +136,8 @@ def read_gdl_csv(csv_file_name):
     - attribute_name
     - dataset (trn or tst)
     """
+    if subset and subset < 1:
+        raise ValueError(f'Subset should be a positive number.\nGot {subset}.\n')
     list_values = []
     csv_file_name = Path(csv_file_name)
     if not csv_file_name.suffix == '.csv' and not csv_file_name.is_file():
@@ -145,6 +147,8 @@ def read_gdl_csv(csv_file_name):
         reader = csv.reader(f)
         for index, row in tqdm(enumerate(reader),
                                desc=f'Importing csv to geo-deep-learning...'):
+            if subset and index == subset:  # at beginning of loop, assuming subset starts at 1, not 0.
+                break
             row_length = len(row) if index == 0 else row_length
             assert len(row) == row_length, "Rows in csv should be of same length"
             if Path(row[0]).suffix.lower() in ['.tif', '.tiff'] and Path(row[1]).suffix.lower() in ['.geojson', '.gpkg'] and \
