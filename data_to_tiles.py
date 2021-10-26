@@ -915,7 +915,9 @@ def main(params):
         elif dataset == 'tst':
             logging.info(f"\nDataset: {dataset}\n"
                          f"Total tiles: {datasets_total[dataset]}\n")
-    logging.info(f"End of process. Elapsed time: {int(time.time() - start_time)} seconds")
+    logging.info(f"End of process. See dataset files: \n"
+                 f"{[dataset_files.values()]}\n"
+                 f"Elapsed time: {int(time.time() - start_time)} seconds")
 
 
 if __name__ == '__main__':
