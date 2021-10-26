@@ -170,6 +170,8 @@ class VectorTiler(object):
             print("Num tiles:", len(tile_bounds))
 
         self.src_crs = _check_crs(self.src.crs)
+        if not self.src_crs:
+            logging.critical(f'No valid CRS was set for source ground truth:\n{self.src}')
         logging.debug(f'Source: \n{self.src.info()}\n'
                       f'CRS: {self.src_crs}\n'
                       f'CRS type: {type(self.src_crs)}')
