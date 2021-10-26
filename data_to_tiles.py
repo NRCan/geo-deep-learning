@@ -438,9 +438,11 @@ class Tiler(object):
         """
         act_data_tiles = []
         metadata = _check_rasterio_im_load(src_img).meta
-        tiles_x = 1 + math.ceil((metadata['width'] - self.dest_tile_size) / self.tile_stride)
-        tiles_y = 1 + math.ceil((metadata['height'] - self.dest_tile_size) / self.tile_stride)
-        nb_exp_tiles = tiles_x * tiles_y * self.resizing_factor**2
+        dest_width = metadata['width'] * self.resizing_factor
+        dest_height = metadata['height'] * self.resizing_factor
+        tiles_x = 1 + math.ceil((dest_width - self.dest_tile_size) / self.tile_stride)
+        tiles_y = 1 + math.ceil((dest_height - self.dest_tile_size) / self.tile_stride)
+        nb_exp_tiles = tiles_x * tiles_y
         # glob for tiles of the vector ground truth if 'geojson' is in the suffix
         act_img_tiles = list(dest_img_tiles_dir.glob(f'{Path(src_img).stem}*.tif'))
         nb_act_img_tiles = len(act_img_tiles)
@@ -519,7 +521,7 @@ class Tiler(object):
             logging.debug(f'File {aoi.img} below minimum size ({self.min_img_tile_size}): {sat_size}')
             return False, sat_size, annot_perc
         # Then filter by annotated percentage
-        if aoi.dataset == 'tst' or annot_perc > self.min_annot_perc:
+        if aoi.dataset == 'tst' or annot_perc >= self.min_annot_perc:
             return True, sat_size, annot_perc
         elif aoi.dataset == 'trn' and annot_perc < self.min_annot_perc:
             logging.debug(f"Ground truth tile in training dataset doesn't reach minimum annotated percentage.\n"
@@ -581,7 +583,7 @@ class Tiler(object):
                                gt_tile=gt_tile,
                                out_px_mask=out_gt_burned_path,
                                dry_run=dry_run)
-            dataset_line = f'{aoi.img.absolute()} {out_gt_burned_path.absolute()} {round(annot_perc)}\n'
+            dataset_line = f'{img_tile.absolute()} {out_gt_burned_path.absolute()} {round(annot_perc)}\n'
             return (dataset, dataset_line)
         else:
             return (dataset, None)
@@ -894,7 +896,7 @@ def main(params):
 
     # write to dataset text file the data that was kept after filtering
     datasets_kept = {dataset: 0 for dataset in datasets}
-    for line_tuple in tqdm(dataset_lines, desc=f"Writing f{len(dataset_lines)} lines to dataset files"):
+    for line_tuple in tqdm(dataset_lines, desc=f"Writing {len(dataset_lines)} lines to dataset files"):
         dataset, dataset_line = line_tuple
         if dataset_line:
             with open(dataset_files[dataset], 'a') as dataset_file:
