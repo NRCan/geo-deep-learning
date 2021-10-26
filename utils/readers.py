@@ -136,8 +136,12 @@ def read_gdl_csv(csv_file_name, subset=None):
     - attribute_name
     - dataset (trn or tst)
     """
-    if subset and subset < 1:
-        raise ValueError(f'Subset should be a positive number.\nGot {subset}.\n')
+    if subset:
+        if subset < 1:
+            raise ValueError(f'Subset should be a positive number.\nGot {subset}.\n')
+        else:
+            logging.warning(f"Subset of {subset} will be kept from csv.\n"
+                            f"Csv file name: {csv_file_name}")
     list_values = []
     csv_file_name = Path(csv_file_name)
     if not csv_file_name.suffix == '.csv' and not csv_file_name.is_file():
