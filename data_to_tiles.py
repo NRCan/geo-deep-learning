@@ -387,7 +387,7 @@ class Tiler(object):
                                  f"Index: {i}")
         return aois
 
-    @staticmethodbas
+    @staticmethod
     def make_tiles_dir_name(tile_size, num_bands):
         return f'tiles{tile_size}_{num_bands}bands'
 
