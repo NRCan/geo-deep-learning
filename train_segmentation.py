@@ -546,7 +546,7 @@ def main(params, config_path):
     conc_point = get_key_def('concatenate_depth', params['global'], None)
 
     # gpu parameters
-    num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
+    num_devices = get_key_def('num_gpus', params['global'], default=1, expected_type=int)
     if num_devices and not num_devices >= 0:
         raise ValueError("missing mandatory num gpus parameter")
 
