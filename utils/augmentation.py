@@ -40,14 +40,14 @@ def compose_transforms(params,
     :return: (obj) PyTorch's compose object of the transformations to be applied.
     """
     lst_trans = []
+    if not 'augmentation' in params['training']:
+        params['training']['augmentation'] = OrderedDict()
     norm_mean = get_key_def('mean', params['training']['normalization'])
     norm_std = get_key_def('std', params['training']['normalization'])
 
     if dataset == 'trn':
 
         if aug_type == 'radiometric':
-            if not 'augmentation' in params['training']:
-                params['training'] = OrderedDict()
             noise = get_key_def('noise', params['training']['augmentation'], None)
 
             if noise:
