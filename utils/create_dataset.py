@@ -73,6 +73,7 @@ class SegmentationDataset(Dataset):
                 metadata = sat_handle.meta
             with rasterio.open(data_line.split(';')[1], 'r') as label_handle:
                 map_img = reshape_as_image(label_handle.read())
+                map_img = map_img[...,0]
 
             assert self.num_bands <= sat_img.shape[-1]
             map_img = self._remap_labels(map_img)

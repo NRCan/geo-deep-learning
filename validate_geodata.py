@@ -57,11 +57,8 @@ def validate_geodata(aoi: dict, validate_gt = True, extended: bool = False):
             crs_match, epsg_raster, epsg_gt = assert_crs_match(raster, aoi['gpkg'])
             fields = gt.columns
             logging.info(f"Checking validity of features in vector files. This may take time.")
-            if 'attribute_name' in aoi and extended:
-                is_valid_gt, invalid_features = validate_features_from_gpkg(gt, aoi['attribute_name'])
-            elif extended:
-                is_valid_gt = f'Geometry check not implement if attribute name omitted'
-                logging.error(is_valid_gt)
+            if extended:
+                is_valid_gt, invalid_features = validate_features_from_gpkg(gt)
             gt_line = [Path(aoi['gpkg']).parent.absolute(), Path(aoi['gpkg']).name, fields, is_valid_gt,
                        invalid_features, crs_match, epsg_raster, epsg_gt]
             line.extend(gt_line)
