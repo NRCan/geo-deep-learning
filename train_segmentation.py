@@ -201,7 +201,7 @@ def get_num_samples(samples_path, params, min_annot_perc, attr_vals, dontcare, e
         with open(dataset_filepath, 'r') as datafile:
             datalist = datafile.readlines()
             if dataset == 'trn':
-                for x in range(num_samples[dataset]):
+                for x in tqdm(range(num_samples[dataset]), desc="Computing sample weights"):
                     label_file = datalist[x].split(';')[1]
                     with rasterio.open(label_file, 'r') as label_handle:
                         label = label_handle.read()
