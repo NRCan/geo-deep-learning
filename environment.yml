@@ -134,7 +134,7 @@ dependencies:
   - nettle=3.6=he412f7d_0
   - networkx=2.4=py_0
   - ninja=1.9.0=py37hfd86e86_0
-  - numba=0.48.0=np1.11py3.7h04863e7_gcc7e7c7cf_0
+  - numba
   - numpy=1.20.1=py37haa41c4c_0
   - numpy-base=1.18.5=py37h2f8d375_0
   - oauthlib=3.0.1=py_0
