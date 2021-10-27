@@ -33,6 +33,8 @@ dependencies:
   - ffmpeg=4.3.1=hca11adc_2
   - flask=1.1.2=pyh9f0ad1d_0
   - freetype=2.10.4=h0708190_1
+  - geopandas=0.10.2=pyhd8ed1ab_0
+  - geopandas-base=0.10.2=pyha770c72_0
   - gitdb=4.0.6=pyhd8ed1ab_0
   - gitpython=3.1.14=pyhd8ed1ab_0
   - gmp=6.2.1=h58526e2_0
@@ -137,7 +139,7 @@ dependencies:
     - decorator==4.4.2
     - efficientnet-pytorch==0.6.3
     - fiona==1.8.18
-    - geopandas==0.9.0
+#    - geopandas==0.10.2
     - imageio==2.9.0
     - kiwisolver==1.3.1
     - matplotlib==3.4.0
