@@ -201,15 +201,18 @@ def get_num_samples(samples_path, params, min_annot_perc, attr_vals, dontcare, e
         with open(dataset_filepath, 'r') as datafile:
             datalist = datafile.readlines()
             if dataset == 'trn':
-                for x in tqdm(range(num_samples[dataset]), desc="Computing sample weights"):
-                    label_file = datalist[x].split(';')[1]
-                    with rasterio.open(label_file, 'r') as label_handle:
-                        label = label_handle.read()
-                    label = np.where(label == dontcare, 0, label)
-                    unique_labels = np.unique(label)
-                    weights.append(''.join([str(int(i)) for i in unique_labels]))
-                    samples_weight = compute_sample_weight('balanced', weights)
-                    logging.debug(samples_weight)
+                # FIXME: user should decide wether or not this is used (very time consuming)
+                samples_weight = np.ones(len(datalist))
+                # for x in tqdm(range(num_samples[dataset]), desc="Computing sample weights"):
+                #     label_file = datalist[x].split(';')[1]
+                #     with rasterio.open(label_file, 'r') as label_handle:
+                #         label = label_handle.read()
+                #     label = np.where(label == dontcare, 0, label)
+                #     unique_labels = np.unique(label)
+                #     weights.append(''.join([str(int(i)) for i in unique_labels]))
+                #     samples_weight = compute_sample_weight('balanced', weights)
+            logging.debug(samples_weight.shape)
+            logging.debug(np.unique(samples_weight))
 
     return num_samples, samples_weight
 
