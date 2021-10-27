@@ -30,7 +30,7 @@ from train_segmentation import main as train_main
 
 my_space = {'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
             'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
-            'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3_resnet101']),
+            'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3_resnet101', 'manet_pretrained']),
             'learning_rate': hp.loguniform('learning_rate', np.log(1e-7), np.log(0.1))}
 
 
