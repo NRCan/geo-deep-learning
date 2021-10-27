@@ -16,6 +16,8 @@ from collections import OrderedDict
 import shutil
 import numpy as np
 
+from data_to_tiles import Tiler
+
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -62,6 +64,8 @@ def create_dataloader(samples_folder: Path,
                       crop_size: int,
                       meta_map,
                       num_bands: int,
+                      min_annot_perc: int,
+                      attr_vals: List,
                       scale: Sequence,
                       params: dict,
                       dontcare2backgr: bool = False,
@@ -89,6 +93,8 @@ def create_dataloader(samples_folder: Path,
         raise FileNotFoundError(f"Couldn't locate text file containing list of training data in {samples_folder}")
     num_samples, samples_weight = get_num_samples(samples_path=samples_folder,
                                                   params=params,
+                                                  min_annot_perc=min_annot_perc,
+                                                  attr_vals=attr_vals,
                                                   dontcare=dontcare_val,
                                                   experiment_name=experiment_name)
     if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
@@ -98,8 +104,9 @@ def create_dataloader(samples_folder: Path,
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
-
-        datasets.append(dataset_constr(samples_folder, experiment_name, subset, num_bands,
+        dataset_file, _ = Tiler.make_dataset_file_name(experiment_name, min_annot_perc, subset, attr_vals)
+        dataset_filepath = samples_folder / dataset_file
+        datasets.append(dataset_constr(dataset_filepath, subset, num_bands,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare_val,
                                        radiom_transform=aug.compose_transforms(params=params,
@@ -165,7 +172,7 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     return eval_batch_size_rd
 
 
-def get_num_samples(samples_path, params, dontcare, experiment_name:str):
+def get_num_samples(samples_path, params, min_annot_perc, attr_vals, dontcare, experiment_name:str):
     """
     Function to retrieve number of samples, either from config file or directly from hdf5 file.
     :param samples_path: (str) Path to samples folder
@@ -177,23 +184,25 @@ def get_num_samples(samples_path, params, dontcare, experiment_name:str):
     weights = []
     samples_weight = None
     for dataset in ['trn', 'val', 'tst']:
+        dataset_file, _ = Tiler.make_dataset_file_name(experiment_name, min_annot_perc, dataset, attr_vals)
+        dataset_filepath = samples_path / dataset_file
         if get_key_def(f"num_{dataset}_samples", params['training'], None) is not None:
             num_samples[dataset] = params['training'][f"num_{dataset}_samples"]
 
-            with open(samples_path/f"{experiment_name}_{dataset}.txt", 'r') as datafile:
+            with open(dataset_filepath, 'r') as datafile:
                 file_num_samples = len(datafile.readlines())
             if num_samples[dataset] > file_num_samples:
                 raise IndexError(f"The number of training samples in the configuration file ({num_samples[dataset]}) "
                                  f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
         else:
-            with open(samples_path/f"{experiment_name}_{dataset}.txt", 'r') as datafile:
+            with open(dataset_filepath, 'r') as datafile:
                 num_samples[dataset] = len(datafile.readlines())
 
-        with open(samples_path / f"{experiment_name}_{dataset}.txt", 'r') as datafile:
+        with open(dataset_filepath, 'r') as datafile:
             datalist = datafile.readlines()
             if dataset == 'trn':
                 for x in range(num_samples[dataset]):
-                    label_file = datalist[x].split(' ')[1]
+                    label_file = datalist[x].split(';')[1]
                     with rasterio.open(label_file, 'r') as label_handle:
                         label = label_handle.read()
                     label = np.where(label == dontcare, 0, label)
@@ -547,15 +556,15 @@ def main(params, config_path):
     experiment_name = get_key_def('mlflow_experiment_name', params['global'], default=f'{Path(csv_file).stem}', expected_type=str)
     run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
 
-    # parameters to find hdf5 samples
+    # parameters to find tiles
     data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
     samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
-    overlap = get_key_def("overlap", params["sample"], default=5, expected_type=int)
+    attr_vals = get_key_def('target_ids', params['sample'], None, expected_type=List)
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
                                  expected_type=int)
     if not data_path.is_dir():
         raise FileNotFoundError(f'Could not locate data path {data_path}')
-    samples_folder_name = (f'tiles{samples_size}_min-annot{min_annot_perc}_{num_bands}bands')
+    samples_folder_name = Tiler.make_tiles_dir_name(samples_size, num_bands)
     samples_folder = data_path / experiment_name / samples_folder_name
 
     # visualization parameters
@@ -596,7 +605,7 @@ def main(params, config_path):
 
     # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
     console_level_logging = 'INFO' if not debug else 'DEBUG'
-    logfile_pref = f'{output_path}/{model_id}'
+    logfile_pref = f'train_segmentation_{model_id}_{now}'
     set_logging(console_level=console_level_logging, logfiles_dir=output_path, logfiles_prefix=logfile_pref)
 
     logging.info(f'Model and log files will be saved to: {output_path}\n\n')
@@ -646,6 +655,8 @@ def main(params, config_path):
                                                                        crop_size=crop_size,
                                                                        meta_map=meta_map,
                                                                        num_bands=num_bands,
+                                                                       min_annot_perc=min_annot_perc,
+                                                                       attr_vals=attr_vals,
                                                                        scale=scale,
                                                                        params=params,
                                                                        dontcare2backgr=dontcare2backgr,

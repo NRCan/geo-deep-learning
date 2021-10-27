@@ -170,7 +170,7 @@ class AOI(object):
         """
         gdf_tile = _check_gdf_load(gdf_tile)
         if not attr_field or not attr_vals:
-            return gdf_tile
+            return gdf_tile, None
         if not attr_field in gdf_tile.columns:
             attr_field = attr_field.split('/')[-1]
         # TODO: warn if no features with values in given attribute field. Values may be wrong.
@@ -184,7 +184,7 @@ class AOI(object):
                           f'Total features: {len(gdf_tile)}\n'
                           f'Attribute field: "{attr_field}"\n'
                           f'Filtered values: {attr_vals}')
-            return gdf_filtered
+            return gdf_filtered, attr_field
         except KeyError as e:
             logging.critical(f'No attribute named {attr_field} in GeoDataFrame. \n'
                              f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'
@@ -390,6 +390,14 @@ class Tiler(object):
     @staticmethod
     def make_tiles_dir_name(tile_size, num_bands):
         return f'tiles{tile_size}_{num_bands}bands'
+
+    @staticmethod
+    def make_dataset_file_name(exp_name: str, min_annot: int, dataset: str, attr_vals: List = None):
+        vals = "_feat" + "-".join([str(val) for val in attr_vals]) if attr_vals else ""
+        min_annot_str = f"_min-annot{min_annot}"
+        sampling_str = vals + min_annot_str
+        dataset_file_name = f'{exp_name}{sampling_str}_{dataset}.txt'
+        return dataset_file_name, sampling_str
     
     @staticmethod
     def find_gt_tile_match(img_tile_path: Union[Path, str], dest_gt_tiles_dir: Union[Path, str]):
@@ -531,9 +539,8 @@ class Tiler(object):
         return False, sat_size, annot_perc
 
     def get_burn_gt_tile_path(self, attr_vals: List, gt_tile: Union[str, Path]):
-        attr_vals2tif = "_feat" + "-".join([str(val) for val in attr_vals]) if attr_vals else ""
-        min_annot2tif = f"_min-annot{self.min_annot_perc}"
-        out_burned_gt_path = Path(gt_tile).parent.parent / 'labels_burned' / f'{Path(gt_tile).stem}{attr_vals2tif}{min_annot2tif}.tif'
+        _, samples_str = self.make_dataset_file_name(None, self.min_annot_perc, None, attr_vals)
+        out_burned_gt_path = Path(gt_tile).parent.parent / 'labels_burned' / f'{Path(gt_tile).stem}{samples_str}.tif'
         out_burned_gt_path.parent.mkdir(exist_ok=True)
         return out_burned_gt_path
 
@@ -556,10 +563,11 @@ class Tiler(object):
         if not aoi.attr_field and aoi.attr_vals is not None:
             raise ValueError(f'Values for an attribute field have been provided, but no attribute field is set.\n'
                              f'Attribute values: {aoi.attr_vals}')
-        gdf_tile = aoi.filter_gdf_by_attribute(gt_tile)
+        # returns corrected attr_field if original field needed truncating
+        gdf_tile, attr_field = aoi.filter_gdf_by_attribute(gt_tile)
         # Burn value of attribute field from which features are being filtered. If single value is filtered
         # burn 255 value (easier for quick visualization in file manager)
-        burn_field = aoi.attr_field if aoi.attr_vals and len(aoi.attr_vals) > 1 else None
+        burn_field = attr_field if aoi.attr_vals and len(aoi.attr_vals) > 1 else None
         if not dry_run:
             vector.mask.footprint_mask(df=gdf_tile, out_file=str(out_px_mask),
                                        reference_im=str(img_tile),
@@ -836,14 +844,15 @@ def main(params):
 
     logging.info(f"Tiling done. Creating pixel masks from clipped geojsons...\n"
                  f"Validation set: {val_percent} % of created training tiles")
-    vals = "_feat" + "-".join([str(val) for val in tiler.attr_vals_exp]) if tiler.attr_vals_exp else ""
-    min_annot_dset = f'_min{tiler.min_annot_perc}'
     # TODO: how does train_segmentation know where these are?
-    dataset_files = {dset: tiler.tiles_root_dir / f'{exp_name}{vals}{min_annot_dset}_{dset}.txt' for dset in datasets}
-    for file in dataset_files.values():
-        if file.is_file():
-            logging.critical(f'Dataset list exists and will be overwritten: {file}')
-            file.unlink()
+    dataset_files = {}
+    for dset in datasets:
+        name, _ = tiler.make_dataset_file_name(exp_name, tiler.min_annot_perc, dset, tiler.attr_vals_exp)
+        dset_path = tiler.tiles_root_dir / name
+        if dset_path.is_file():
+            logging.critical(f'Dataset list exists and will be overwritten: {dset_path}')
+            dset_path.unlink()
+        dataset_files[dset] =  dset_path
 
     input_args = []
     dataset_lines = []
