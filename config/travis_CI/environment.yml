@@ -151,7 +151,7 @@ dependencies:
     - shapely==1.7.1
     - snuggs==1.4.7
     - tifffile==2021.3.17
-    - timm==0.3.2
+    - timm==0.4.12
     - ttach==0.0.3
     - rich
     - pytorch-lightning
