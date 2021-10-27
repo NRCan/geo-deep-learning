@@ -128,7 +128,7 @@ def set_hyperparameters(params,
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
     # set mandatory hyperparameters values with those in config file if they exist
-    lr = get_key_def('learning_rate', params['training'], None)
+    lr = get_key_def('learning_rate', params['training'], default=0.0001, expected_type=float)
     weight_decay = get_key_def('weight_decay', params['training'], None)
     step_size = get_key_def('step_size', params['training'], None)
     gamma = get_key_def('gamma', params['training'], None)

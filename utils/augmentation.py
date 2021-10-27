@@ -4,6 +4,7 @@
 # Scaling process is done in data_to_tiles.py l.215
 import logging
 import numbers
+from collections import OrderedDict
 from typing import Sequence
 
 import torch
@@ -39,6 +40,8 @@ def compose_transforms(params,
     :return: (obj) PyTorch's compose object of the transformations to be applied.
     """
     lst_trans = []
+    if not 'augmentation' in params['training']:
+        params['training']['augmentation'] = OrderedDict()
     norm_mean = get_key_def('mean', params['training']['normalization'])
     norm_std = get_key_def('std', params['training']['normalization'])
 

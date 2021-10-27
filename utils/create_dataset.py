@@ -25,8 +25,8 @@ logging.getLogger(__name__)
 class SegmentationDataset(Dataset):
     """Semantic segmentation dataset based on HDF5 parsing."""
 
-    def __init__(self, work_folder,
-                 experiment_name,
+    def __init__(self,
+                 dataset_list_path,
                  dataset_type,
                  num_bands,
                  max_sample_count=None,
@@ -37,8 +37,6 @@ class SegmentationDataset(Dataset):
                  params=None,
                  debug=False):
         # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
-        self.work_folder = Path(work_folder)
-        self.experiment_name = experiment_name
         self.max_sample_count = max_sample_count
         self.dataset_type = dataset_type
         self.num_bands = num_bands
@@ -47,7 +45,7 @@ class SegmentationDataset(Dataset):
         self.totensor_transform = totensor_transform
         self.debug = debug
         self.dontcare = dontcare
-        self.list_path = self.work_folder / f"{self.experiment_name}_{self.dataset_type}.txt"
+        self.list_path = dataset_list_path
         with open(self.list_path, 'r') as datafile:
             datalist = datafile.readlines()
             if self.max_sample_count is None:
@@ -70,10 +68,10 @@ class SegmentationDataset(Dataset):
         with open(self.list_path, 'r') as datafile:
             datalist = datafile.readlines()
             data_line = datalist[index]
-            with rasterio.open(data_line.split(' ')[0], 'r') as sat_handle:
+            with rasterio.open(data_line.split(';')[0], 'r') as sat_handle:
                 sat_img = reshape_as_image(sat_handle.read())
                 metadata = sat_handle.meta
-            with rasterio.open(data_line.split(' ')[1], 'r') as label_handle:
+            with rasterio.open(data_line.split(';')[1], 'r') as label_handle:
                 map_img = reshape_as_image(label_handle.read())
 
             assert self.num_bands <= sat_img.shape[-1]
