@@ -97,7 +97,7 @@ dependencies:
   - libedit=3.1.20191231=he28a2e2_2
   - libev=4.33=h516909a_1
   - libffi=3.3=he6710b0_2
-  - libgcc=5.2.0
+  - libgcc=7.2.0=h69d50b8_2
   - libgcc-ng=9.3.0=h5101ec6_17
   - libgdal=3.3.1=h8f005ca_1
   - libgfortran-ng=11.2.0=h69a702a_11
@@ -264,4 +264,3 @@ dependencies:
     - torchvision==0.11.1
     - ttach==0.0.3
     - wcwidth==0.2.5
-    - cmake
