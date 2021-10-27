@@ -116,10 +116,10 @@ if __name__ == '__main__':
     elif args.txt:
         data_list = read_dataset_txtfile(args.txt)
     else:
-        logging.info(f'Searching for GDAL readable rasters in {dir}...')
+        logging.info(f'Searching for GDAL readable rasters in {working_dir}...')
         data_list = []
         non_rasters = []
-        for file in dir.glob('**/*'):
+        for file in working_dir.glob('**/*'):
             logging.debug(file)
             if is_gdal_readable(file):
                 logging.debug(f'Found raster: {file}')
