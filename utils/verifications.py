@@ -135,13 +135,11 @@ def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path])
         logging.critical(e)
         return False, raster_crs, gt_crs
 
-def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
+def validate_features_from_gpkg(gpkg: Union[str, Path]):
     """
     Validate features in gpkg file
     :param gpkg: (str or Path) path to gpkg file
-    :param attribute_name: name of the value field representing the required classes in the vector image file
     """
-    # TODO: test this with invalid features.
     invalid_features_list = []
     # Validate vector features to burn in the raster image
     src = _check_gdf_load(gpkg)

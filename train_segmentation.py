@@ -167,7 +167,7 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
         eval_batch_size = smallest_gpu_ram * max_pix_per_mb_gpu / sample_size ** 2
         eval_batch_size_rd = int(eval_batch_size - eval_batch_size % len(gpu_devices_dict.keys()))
         eval_batch_size_rd = 1 if eval_batch_size_rd < 1 else eval_batch_size_rd
-        logging.warning(f'Validation and test batch size downgraded from {batch_size} to {eval_batch_size} '
+        logging.warning(f'Validation and test batch size downgraded from {batch_size} to {eval_batch_size_rd} '
                         f'based on max ram of smallest GPU available')
     return eval_batch_size_rd
 
