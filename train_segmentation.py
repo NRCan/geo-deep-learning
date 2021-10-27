@@ -568,6 +568,8 @@ def main(params, config_path):
     samples_folder = data_path / experiment_name / samples_folder_name
 
     # visualization parameters
+    if 'visualization' not in params.keys():
+        params['visualization']: OrderedDict()
     vis_at_train = get_key_def('vis_at_train', params['visualization'], default=False)
     vis_at_eval = get_key_def('vis_at_evaluation', params['visualization'], default=False)
     vis_batch_range = get_key_def('vis_batch_range', params['visualization'], default=None)
@@ -578,6 +580,8 @@ def main(params, config_path):
     heatmaps = get_key_def('heatmaps', params['visualization'], False)
     heatmaps_inf = get_key_def('heatmaps', params['inference'], False)
     grid = get_key_def('grid', params['visualization'], False)
+    if 'normalization' not in params['training'].keys():
+        params['training']['normalization'] = OrderedDict()
     mean = get_key_def('mean', params['training']['normalization'])
     std = get_key_def('std', params['training']['normalization'])
     vis_params = {'colormap_file': colormap_file, 'heatmaps': heatmaps, 'heatmaps_inf': heatmaps_inf, 'grid': grid,
