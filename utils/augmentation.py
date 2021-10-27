@@ -4,6 +4,7 @@
 # Scaling process is done in data_to_tiles.py l.215
 import logging
 import numbers
+from collections import OrderedDict
 from typing import Sequence
 
 import torch
@@ -45,6 +46,8 @@ def compose_transforms(params,
     if dataset == 'trn':
 
         if aug_type == 'radiometric':
+            if not 'augmentation' in params['training']:
+                params['training'] = OrderedDict()
             noise = get_key_def('noise', params['training']['augmentation'], None)
 
             if noise:

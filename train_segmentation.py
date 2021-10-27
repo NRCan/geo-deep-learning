@@ -209,6 +209,7 @@ def get_num_samples(samples_path, params, min_annot_perc, attr_vals, dontcare, e
                     unique_labels = np.unique(label)
                     weights.append(''.join([str(int(i)) for i in unique_labels]))
                     samples_weight = compute_sample_weight('balanced', weights)
+                    logging.debug(samples_weight)
 
     return num_samples, samples_weight
 
@@ -828,9 +829,14 @@ if __name__ == '__main__':
     print(f'Start\n')
     parser = argparse.ArgumentParser(description='Training execution')
     parser.add_argument('param_file', help='Path to training parameters stored in yaml')
+    parser.add_argument('--debug', action='store_true',
+                           help='If activated, logging will output all debug prints and additional functions will be '
+                                'executed to help the debugging process.')
     args = parser.parse_args()
     config_path = Path(args.param_file)
     params = read_parameters(args.param_file)
+    if args.debug:
+        params['global']['debug_mode'] = args.debug
 
     # Limit of the NIR implementation TODO: Update after each version
     modalities = None if 'modalities' not in params['global'] else params['global']['modalities']
