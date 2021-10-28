@@ -33,9 +33,6 @@ dependencies:
   - ffmpeg=4.3.1=hca11adc_2
   - flask=1.1.2=pyh9f0ad1d_0
   - freetype=2.10.4=h0708190_1
-#  - geopandas=0.10.2=pyhd8ed1ab_0
-#  - geopandas-base=0.10.2=pyha770c72_0
-  - gdal=3.3.1=py39h409cc32_1
   - gitdb=4.0.6=pyhd8ed1ab_0
   - gitpython=3.1.14=pyhd8ed1ab_0
   - gmp=6.2.1=h58526e2_0
@@ -62,7 +59,6 @@ dependencies:
   - libev=4.33=h516909a_1
   - libffi=3.3=h58526e2_2
   - libgcc-ng=9.3.0=h2828fa1_18
-  - libgdal=3.3.1=h8f005ca_1
   - libgfortran-ng=9.3.0=hff62375_18
   - libgfortran5=9.3.0=hff62375_18
   - libgomp=9.3.0=h2828fa1_18

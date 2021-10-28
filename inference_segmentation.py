@@ -173,8 +173,6 @@ def segmentation(
                 feature['area'].append(geom.area)
                 cnt += 1
         gdf = gpd.GeoDataFrame(feature, crs=input_image.crs)
-        # TODO change it to match the one from the tiff in entry
-        gdf.to_crs(crs="EPSG:4326", inplace=True)
     return pred_img, gdf
 
 
