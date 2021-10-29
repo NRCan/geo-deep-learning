@@ -225,7 +225,7 @@ def classifier(params, img_list, model, device, working_folder):
                    delimiter=',')
 
 
-def main(params: dict):
+def main(params: dict, s3config_params: dict = None):
     """
     Identify the class to which each image belongs.
     :param params: (dict) Parameters found in the yaml config file.
@@ -336,9 +336,21 @@ def main(params: dict):
                                      "height": pred.shape[1],
                                      "width": pred.shape[2],
                                      "count": pred.shape[0],
-                                     "dtype": 'uint8'})
+                                     "dtype": 'uint8',
+                                     "compress": 'lzw'})
+                    print(f'\n\nSuccessfully inferred on {img_name}\nWriting to file: {inference_image}')
                     with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
                         dest.write(pred)
+                    if s3config_params:
+                        from utils.aws import write_to_s3
+                        s3_url = write_to_s3(s3config_params["bucket_name"],
+                                    s3config_params["region_name"],
+                                    s3config_params["aws_access_key_id"],
+                                    s3config_params["aws_secret_access_key"],
+                                    str(inference_image),
+                                    s3config_params["bucket_filename"],
+                                    s3config_params["mime_type"])
+                        print(f'Writing raster inference to S3 bucket at {s3_url}')
         if len(gdf_) >= 1:
             assert len(gdf_) == len(gpkg_name_), 'benchmarking unable to complete'
             all_gdf = pd.concat(gdf_)  # Concatenate all geo data frame into one geo data frame
@@ -352,13 +364,16 @@ def main(params: dict):
 
 if __name__ == '__main__':
     print('\n\nStart:\n\n')
-    parser = argparse.ArgumentParser(usage="%(prog)s [-h] [-p YAML] [-i MODEL IMAGE] ",
+    print('\n\nStart:\n\n')
+    parser = argparse.ArgumentParser(usage="%(prog)s [-h] [-p YAML] [-i MODEL IMAGE] [-c S3CONFIG] ",
                                      description='Inference and Benchmark on images using trained model')
 
     parser.add_argument('-p', '--param', metavar='yaml_file', nargs=1,
                         help='Path to parameters stored in yaml')
     parser.add_argument('-i', '--input', metavar='model_pth img_dir', nargs=2,
                         help='model_path and image_dir')
+    parser.add_argument('-c', '--s3config', metavar='s3_config', nargs=1,
+                        help='Path to parameters stored in yaml to write results on AWS S3')
     args = parser.parse_args()
 
     if args.param:
@@ -383,5 +398,8 @@ if __name__ == '__main__':
     else:
         print('use the help [-h] option for correct usage')
         raise SystemExit
-
-    main(params)
+    if args.s3config:
+        s3config_params = read_parameters(args.s3config[0])
+    else:
+        s3config_params = None
+    main(params, s3config_params)
