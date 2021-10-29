@@ -1,0 +1,12 @@
+# AWS S3 configuration settings
+
+# S3 names and credentials for writing inference outputs
+# Default values for all keys : None
+# Expected usage : this file will be an optional command line argument (-c) to inference.py
+
+bucket_name : 'datacube-dev-data-scratch'
+region_name : 'ca-central-1'
+aws_access_key_id : None
+aws_secret_access_key : None
+bucket_filename : 'test2.tif' # To be concatenated with `bucket_name` to get full URL
+mime_type : 'image/geo+tiff'
