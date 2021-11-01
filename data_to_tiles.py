@@ -329,6 +329,7 @@ class Tiler(object):
             raise ValueError(f'Per rasterio convention, band indexing starts at 1, not 0')
         self.bands_idxs = bands_idxs
 
+        # FIXME: refactor. The name suggest it's the size as shape not as bytes. Or remove all together...
         if min_img_tile_size and not isinstance(min_img_tile_size, int):
             raise TypeError(f'Minimum image size should be an integer.\n'
                             f'Got {min_img_tile_size} of type {type(min_img_tile_size)}')
@@ -986,11 +987,12 @@ if __name__ == '__main__':
                     classes_per_gt_file.append(len(set(gdf[f'{attr_field}'])))
                 else:
                     classes_per_gt_file = [1]
-        print(f'Number of classes in ground truth files for attribute {attr_field}:'
-              f'\n{classes_per_gt_file}\n'
-              f'Min: {min(classes_per_gt_file)}\n'
-              f'Max: {max(classes_per_gt_file)}\n'
-              f'Number of classes will be set to max value.')
+                print(f'Number of classes in ground truth files for attribute {attr_field}:'
+                      f'\n{classes_per_gt_file}\n'
+                      f'Min: {min(classes_per_gt_file)}\n'
+                      f'Max: {max(classes_per_gt_file)}\n'
+                      f'Number of classes will be set to max value.')
+        # FIXME: this is useless now that no validation in done in this script?
         params['global']['num_classes'] = max(classes_per_gt_file) if classes_per_gt_file else None
         params['sample'] = OrderedDict()
         params['sample']['prep_csv_file'] = args.csv
