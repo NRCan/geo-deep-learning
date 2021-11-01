@@ -155,8 +155,8 @@ def read_gdl_csv(csv_file_name, subset=None):
                 break
             row_length = len(row) if index == 0 else row_length
             assert len(row) == row_length, "Rows in csv should be of same length"
-            if Path(row[0]).suffix.lower() in ['.tif', '.tiff'] and Path(row[1]).suffix.lower() in ['.geojson', '.gpkg'] and \
-                    row[2] in ['trn', 'train', 'tst', 'test']:
+            if len(row) >= 3 and Path(row[0]).suffix.lower() in ['.tif', '.tiff'] and \
+                    row[2] in ['trn', 'train', 'tst', 'test', 'inference']:
                 row_dict = {'tif': row[0], 'meta': None, 'gpkg': row[1], 'attribute_name': None,
                                     'dataset': row[2], 'aoi': None}
                 list_values.append(row_dict)
