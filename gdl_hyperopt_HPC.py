@@ -19,6 +19,7 @@ import torch
 from hyperopt import fmin, tpe, hp, Trials, STATUS_OK
 
 from utils.readers import read_parameters
+from utils.utils import get_key_def
 from train_segmentation import main as train_main
 
 # This is the hyperparameter space to explore
@@ -80,9 +81,9 @@ def objective_with_args(hparams, params, config_path):
         pass
 
     if params['global']['model_name'] == "unet_pretrained":
-        params['training']['state_dict_path'] = params['training']['dict_unet']
+        params['training']['state_dict_path'] = get_key_def('dict_unet', params['training'])
     elif params['global']['model_name'] == "deeplabv3_resnet101":
-        params['training']['state_dict_path'] = params['training']['dict_deeplab']
+        params['training']['state_dict_path'] = get_key_def('dict_deeplab', params['training'])
 
     train_main(params, config_path)
     torch.cuda.empty_cache()
@@ -124,6 +125,7 @@ def trials_to_csv(trials, csv_pth):
 def main(params, config_path):
     # ToDo: Customize where the trials file is
     root_path = Path(params['global']['assets_path'])
+    root_path.mkdir(exist_ok=True)
     pkl_file = root_path.joinpath('hyperopt_trials.pkl')
     csv_file = root_path.joinpath('hyperopt_results.csv')
     if pkl_file.is_file():
@@ -134,6 +136,7 @@ def main(params, config_path):
     objective = partial(objective_with_args, params=params, config_path=config_path)
 
     n = 0
+    # run trainings until we reach max runs
     while n < params['global']['hyperopt_runs']:
         best = fmin(objective,
                     space=my_space,

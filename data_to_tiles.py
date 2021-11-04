@@ -108,6 +108,7 @@ class AOI(object):
                             f'Got {attr_vals} of type {type(attr_vals)}')
         self.attr_vals = attr_vals
         
+        # FIXME: if no ground truth is inputted, dataset should be optional.
         if not isinstance(dataset, str) and dataset not in ['trn', 'tst', 'inference']:
             raise ValueError(f"Dataset should be a string: 'trn', 'tst' or 'inference'. Got {dataset}.")
         elif not gt and dataset != 'inference':
