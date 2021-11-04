@@ -71,7 +71,7 @@ class SegmentationDataset(Dataset):
             with rasterio.open(data_line.split(';')[0], 'r') as sat_handle:
                 sat_img = reshape_as_image(sat_handle.read())
                 metadata = sat_handle.meta
-            with rasterio.open(data_line.split(';')[1], 'r') as label_handle:
+            with rasterio.open(data_line.split(';')[1].rstrip('\n'), 'r') as label_handle:
                 map_img = reshape_as_image(label_handle.read())
                 map_img = map_img[...,0]
 

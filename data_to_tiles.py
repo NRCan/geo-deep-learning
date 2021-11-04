@@ -398,6 +398,7 @@ class Tiler(object):
         vals = "_feat" + "-".join([str(val) for val in attr_vals]) if attr_vals else ""
         min_annot_str = f"_min-annot{min_annot}"
         sampling_str = vals + min_annot_str
+        # TODO: should this be a csv or txt?
         dataset_file_name = f'{exp_name}{sampling_str}_{dataset}.txt'
         return dataset_file_name, sampling_str
     
@@ -593,6 +594,7 @@ class Tiler(object):
                                gt_tile=gt_tile,
                                out_px_mask=out_gt_burned_path,
                                dry_run=dry_run)
+            # FIXME: should ; be the separator?
             dataset_line = f'{img_tile.absolute()};{out_gt_burned_path.absolute()};{round(annot_perc)}\n'
             return (dataset, dataset_line)
         else:
