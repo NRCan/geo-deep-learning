@@ -602,7 +602,7 @@ def main(params, config_path):
     params['global']['git_hash'] = get_git_hash()
 
     # automatic model naming with unique id for each training
-    model_id = config_path.stem
+    model_id = f'{config_path.stem}_{model_name}'
     output_path = samples_folder.joinpath('model') / model_id
     if output_path.is_dir():
         last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
@@ -697,7 +697,7 @@ def main(params, config_path):
     trn_log = InformationLogger('trn')
     val_log = InformationLogger('val')
     tst_log = InformationLogger('tst')
-    filename = output_path.joinpath('checkpoint.pth.tar')
+    filename = output_path.joinpath(f'{model_name}_bds{num_bands}_cls{num_classes}.pth.tar')
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
     if vis_batch_range is not None:
