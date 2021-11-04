@@ -189,6 +189,11 @@ def get_num_samples(samples_path, params, min_annot_perc, attr_vals, dontcare, e
     for dataset in ['trn', 'val', 'tst']:
         dataset_file, _ = Tiler.make_dataset_file_name(experiment_name, min_annot_perc, dataset, attr_vals)
         dataset_filepath = samples_path / dataset_file
+        if not dataset_filepath.is_file() and dataset == 'tst':
+            num_samples[dataset] = 0
+            logging.warning(f"No test set. File not found: {dataset_filepath}")
+            continue
+
         if get_key_def(f"num_{dataset}_samples", params['training'], None) is not None:
             num_samples[dataset] = params['training'][f"num_{dataset}_samples"]
 
