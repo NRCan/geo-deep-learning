@@ -46,10 +46,15 @@ class SegmentationDataset(Dataset):
         self.debug = debug
         self.dontcare = dontcare
         self.list_path = dataset_list_path
-        with open(self.list_path, 'r') as datafile:
-            datalist = datafile.readlines()
-            if self.max_sample_count is None:
-                self.max_sample_count = len(datalist)
+        if not Path(self.list_path).is_file():
+            logging.error(f"Couldn't locate dataset list file: {self.list_path}.\n"
+                          f"If purposely omitting test set, this error can be ignored")
+            self.max_sample_count = 0
+        else:
+            with open(self.list_path, 'r') as datafile:
+                datalist = datafile.readlines()
+                if self.max_sample_count is None:
+                    self.max_sample_count = len(datalist)
 
     def __len__(self):
         return self.max_sample_count
