@@ -510,8 +510,9 @@ class Tiler(object):
                       f'')
 
         if self.with_gt:
+            dest_crs = raster_tiler.dest_crs if raster_tiler.dest_crs.is_epsg_code else None
             vec_tler = tile.vector_tile.VectorTiler(dest_dir=aoi.tiles_dir_gt,
-                                                    dest_crs=raster_tiler.dest_crs,
+                                                    dest_crs=dest_crs,
                                                     verbose=True,
                                                     super_verbose=self.debug)
             vec_tler.tile(src=aoi.gt,
