@@ -225,7 +225,7 @@ def classifier(params, img_list, model, device, working_folder):
                    delimiter=',')
 
 
-def main(params: dict, s3config_params: dict = None):
+def main(params: dict, s3config_params: dict = None, bucket_output_filename = None):
     """
     Identify the class to which each image belongs.
     :param params: (dict) Parameters found in the yaml config file.
@@ -343,12 +343,13 @@ def main(params: dict, s3config_params: dict = None):
                         dest.write(pred)
                     if s3config_params:
                         from utils.aws import write_to_s3
+                        bucket_filename = bucket_output_filename if bucket_output_filename else s3config_params["bucket_filename"]
                         s3_url = write_to_s3(s3config_params["bucket_name"],
                                     s3config_params["region_name"],
                                     s3config_params["aws_access_key_id"],
                                     s3config_params["aws_secret_access_key"],
                                     str(inference_image),
-                                    s3config_params["bucket_filename"],
+                                    bucket_filename,
                                     s3config_params["mime_type"])
                         print(f'Writing raster inference to S3 bucket at {s3_url}')
         if len(gdf_) >= 1:
@@ -370,8 +371,8 @@ if __name__ == '__main__':
 
     parser.add_argument('-p', '--param', metavar='yaml_file', nargs=1,
                         help='Path to parameters stored in yaml')
-    parser.add_argument('-i', '--input', metavar='model_pth img_dir', nargs=2,
-                        help='model_path and image_dir')
+    parser.add_argument('-i', '--input', metavar='model_pth img_dir', nargs='*',
+                        help='model_path, image_dir and optionally bucket_filename')
     parser.add_argument('-c', '--s3config', metavar='s3_config', nargs=1,
                         help='Path to parameters stored in yaml to write results on AWS S3')
     args = parser.parse_args()
@@ -386,6 +387,10 @@ if __name__ == '__main__':
         else:
             checkpoint_path = Path(args.input[0])
         image = args.input[1]
+        try:
+            bucket_output_filename = args.input[2]
+        except:
+            bucket_output_filename = None
         checkpoint = load_checkpoint(checkpoint_path)
         if 'params' not in checkpoint.keys():
             raise KeyError('No parameters found in checkpoint. Use GDL version 1.3 or more.')
@@ -393,6 +398,7 @@ if __name__ == '__main__':
             params = checkpoint['params']
             params['inference']['state_dict_path'] = args.input[0]
             params['inference']['img_dir_or_csv_file'] = args.input[1]
+            #params['inference']['img_dir_or_csv_file'] = args.input[2]  # add params parameter for bucket_filename ?
 
         del checkpoint
     else:
@@ -402,4 +408,4 @@ if __name__ == '__main__':
         s3config_params = read_parameters(args.s3config[0])
     else:
         s3config_params = None
-    main(params, s3config_params)
+    main(params, s3config_params, bucket_output_filename)

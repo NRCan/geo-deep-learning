@@ -50,10 +50,13 @@ def write_to_s3(bucket_name, region_name, aws_access_key_id, aws_secret_access_k
     expires = utc_now + datetime.timedelta(days=1)
     expires_unixtime = time.mktime(expires.timetuple())
 
-    s3_client = boto3.client(
+    try:
+        s3_client = boto3.client(
         's3',
         aws_access_key_id = aws_access_key_id,
         aws_secret_access_key = aws_secret_access_key)
+    except:
+        print("Missing access key or secret access key")
 
     try:
         response = s3_client.upload_file(local_filename, bucket_name, bucket_filename,
