@@ -225,7 +225,7 @@ def segmentation(param,
     cnt = 0
     img_gen = gen_img_samples(input_image, chunk_size, bands_idxs)
     start_seg = time.time()
-    for img in tqdm(img_gen, position=1, leave=False, desc='inferring on window slices'):
+    for img in tqdm(img_gen, position=1, leave=False, desc=f'inferring on window slices of size {chunk_size}'):
         row = img[1]
         col = img[2]
         sub_image = img[0]
@@ -415,7 +415,7 @@ def main(params: dict):
     # MANDATORY PARAMETERS
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str)
     state_dict = get_key_def('state_dict_path', params['inference'])
-    task = get_key_def('task', params['global'], expected_type=str)
+    task = get_key_def('task', params['global'], default="segmentation", expected_type=str)
     if task not in ['classification', 'segmentation']:
         raise ValueError(f'Task should be either "classification" or "segmentation". Got {task}')
     model_name = get_key_def('model_name', params['global'], expected_type=str).lower()

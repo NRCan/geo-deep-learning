@@ -225,7 +225,13 @@ class RasterTiler(object):
             os.remove(restricted_im_path)
         if self.verbose:
             logging.info(f"Done. CRS returned for vector tiling: {profile['crs']}")
-        return _check_crs(profile['crs'])  # returns the crs to be used for vector tiling
+        raster_crs = _check_crs(profile['crs'], return_rasterio=True)
+        if raster_crs.is_epsg_code:
+            return raster_crs  # returns the crs to be used for vector tiling
+        else:
+            logging.error("Raster's CRS is not an EPSG code and cannot be used to validate CRS match "
+                          "with ground truth's CRS. The tiling process will assume CRS match.")
+            return None
 
     def tile_generator(self, src, dest_dir=None, channel_idxs=None,
                        nodata=None, alpha=None, aoi_boundary=None,

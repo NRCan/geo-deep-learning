@@ -204,6 +204,8 @@ class AOI(object):
         @return: (int) Annotated percent
         """
         gdf_tile = _check_gdf_load(gdf_tile)
+        if gdf_tile.empty:
+            return 0
         img_tile_dataset = _check_rasterio_im_load(img_tile)
         if not tile_bounds:
             crs_match, img_crs, gt_crs = assert_crs_match(img_tile, gdf_tile)
@@ -522,7 +524,7 @@ class Tiler(object):
         return aoi, raster_tiler.tile_paths, vec_tler.tile_paths, vec_tler.tile_bds_reprojtd
        
     def filter_tile_pair(self, aoi: AOI, img_tile: Union[str, Path],
-                     gt_tile: Union[str, Path], tile_bounds: Polygon = None):
+                     gt_tile: Union[str, Path, gpd.GeoDataFrame], tile_bounds: Polygon = None):
         map_img_gdf = _check_gdf_load(gt_tile)
         # Check if size of image tile reaches size threshold, else continue
         sat_size = img_tile.stat().st_size
@@ -548,15 +550,15 @@ class Tiler(object):
         return out_burned_gt_path
 
     def burn_gt_tile(self, aoi: AOI, img_tile: Union[str, Path],
-                     gt_tile: Union[str, Path], out_px_mask: Union[str, Path],
+                     gt_tile: Union[gpd.GeoDataFrame, str, Path], out_px_mask: Union[str, Path],
                      dry_run : bool = False):
         """
         Return line to be written to a dataset file
         @param aoi: AOI object
         @param img_tile: str or pathlib.Path
             Path to image tile
-        @param gt_tile: str or pathlib.Path
-            Path to ground truth tile (geojson)
+        @param gt_tile: str, pathlib.Path or gpd.GeoDataFrame
+            Path to ground truth tile or gpd.GeoDataFrame of ground truth
         @return:
         """
 
@@ -566,32 +568,35 @@ class Tiler(object):
         if not aoi.attr_field and aoi.attr_vals is not None:
             raise ValueError(f'Values for an attribute field have been provided, but no attribute field is set.\n'
                              f'Attribute values: {aoi.attr_vals}')
-        # returns corrected attr_field if original field needed truncating
-        gdf_tile, attr_field = aoi.filter_gdf_by_attribute(gt_tile)
         # Burn value of attribute field from which features are being filtered. If single value is filtered
         # burn 255 value (easier for quick visualization in file manager)
         burn_field = attr_field if aoi.attr_vals and len(aoi.attr_vals) > 1 else None
         if not dry_run:
-            vector.mask.footprint_mask(df=gdf_tile, out_file=str(out_px_mask),
+            vector.mask.footprint_mask(df=gt_tile, out_file=str(out_px_mask),
                                        reference_im=str(img_tile),
                                        burn_field=burn_field)
 
     def filter_and_burn_dataset(self, aoi: AOI, img_tile: Union[str, Path],
-                                gt_tile: Union[str, Path], tile_bounds: Polygon = None,
+                                gt_tile: Union[str, Path],
+                                tile_bounds: Polygon = None,
                                 dry_run: bool = False):
+        out_gt_burned_path = self.get_burn_gt_tile_path(attr_vals=aoi.attr_vals, gt_tile=gt_tile)
+        # returns corrected attr_field if original field needed truncating
+        gdf_tile, aoi.attr_field = aoi.filter_gdf_by_attribute(gdf_tile=gt_tile,
+                                                           attr_field=aoi.attr_field,
+                                                           attr_vals=aoi.attr_vals)
         keep_tile_pair, sat_size, annot_perc = self.filter_tile_pair(aoi,
                                                                      img_tile=img_tile,
-                                                                     gt_tile=gt_tile,
+                                                                     gt_tile=gdf_tile,
                                                                      tile_bounds=tile_bounds)
         logging.debug(annot_perc)
         random_val = np.random.randint(1, 100)
         # for trn tiles, sort between trn and val based on random number
         dataset = 'val' if aoi.dataset == 'trn' and random_val < self.val_percent else aoi.dataset
         if keep_tile_pair:
-            out_gt_burned_path = self.get_burn_gt_tile_path(attr_vals=aoi.attr_vals, gt_tile=gt_tile)
             self.burn_gt_tile(aoi,
                                img_tile=img_tile,
-                               gt_tile=gt_tile,
+                               gt_tile=gdf_tile,
                                out_px_mask=out_gt_burned_path,
                                dry_run=dry_run)
             # FIXME: should ; be the separator?
