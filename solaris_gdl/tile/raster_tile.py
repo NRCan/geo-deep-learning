@@ -122,7 +122,7 @@ class RasterTiler(object):
             logging.critical(f'Tiling destination directory cannot be created: {self.dest_dir}')
             raise e
         if dest_crs is not None:
-            self.dest_crs = _check_crs(dest_crs)
+            self.dest_crs = _check_crs(dest_crs, return_rasterio=True)
         else:
             self.dest_crs = None
         self.src_tile_size = src_tile_size
