@@ -1,0 +1,15 @@
+[2021-11-03 14:43:44,534][root][INFO] - 
+Overwritten parameters in the config: 
++experiment=aplite,mode=sampling
+[2021-11-03 14:43:44,535][root][INFO] - 
+-----------------------------------------
+Let's start sampling for segmentation !!!
+-----------------------------------------
+[2021-11-03 14:43:44,586][sampling_segmentation][INFO] - 
+Image directory used '/home/charles/Job/geo-deep-learning/data'
+[2021-11-03 14:43:44,588][sampling_segmentation][INFO] - 
+Image csv: '/home/charles/Job/geo-deep-learning/data/images_to_samples_ci_csv.csv'
+[2021-11-03 14:43:44,589][sampling_segmentation][INFO] - 
+The HDF5 directory used '/home/charles/Job/geo-deep-learning/data'
+[2021-11-03 14:43:44,631][utils.utils][CRITICAL] - 
+Gpkg not found: "/home/charles/Job/geo-deep-learning/data/massachusetts_buildings.gpkg"

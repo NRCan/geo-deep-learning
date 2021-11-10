@@ -14,6 +14,7 @@ defaults:
   - hydra: default
   - override hydra/hydra_logging: colorlog # enable color logging to make it pretty
   - override hydra/job_logging: colorlog # enable color logging to make it pretty
+  - _self_
 
 general:
   # path to original working directory

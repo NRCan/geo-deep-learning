@@ -1,0 +1,134 @@
+task:
+  task_name: segmentation
+  path_task_function: ${mode}_segmentation.main
+model:
+  model_name: unet
+  pretrained: true
+trainer:
+  num_workers: 10
+  batch_size: 1
+  eval_batch_size: null
+  num_gpus: 1
+  max_used_ram: null
+  max_used_perc: null
+  distributed_backend: dp
+  accumulate_grad_batches: 1
+  num_sanity_val_steps: 0
+  profiler: false
+  max_epochs: ${general.max_epochs}
+  min_epochs: ${general.min_epochs}
+  gradient_clip_val: 0.5
+  weights_summary: null
+  precision: 16
+training:
+  num_trn_samples: null
+  num_val_samples: null
+  num_tst_samples: null
+  lr: 0.0001
+  loss_fn: CrossEntropy
+  mode: min
+  seed: 666
+  debug: true
+  batch_metrics: null
+  target_size: null
+  step_size: 4
+  weight_decay: 0
+  gamma: 0.9
+  dropout: false
+  dropout_prob: null
+optimizer:
+  optimizer_name: adamw
+  class_name: torch.optim.AdamW
+  params:
+    lr: ${training.lr}
+    weight_decay: 0.001
+callbacks:
+  early_stopping:
+    class_name: pl.callbacks.EarlyStopping
+    params:
+      monitor: ${training.loss_fn}
+      patience: 20
+      mode: ${training.mode}
+  model_checkpoint:
+    class_name: pl.callbacks.ModelCheckpoint
+    params:
+      monitor: ${training.loss_fn}
+      save_top_k: 3
+      dirpath: saved_models/
+      mode: ${training.mode}
+scheduler:
+  class_name: torch.optim.lr_scheduler.ReduceLROnPlateau
+  step: epoch
+  monitor: ${training.loss_fn}
+  params:
+    mode: ${training.mode}
+    factor: 0.5
+    patience: 15
+dataset:
+  name: null
+  modalities: RGB
+  input_dim: 256
+  overlap: null
+  min_annot_perc: null
+  raw_data_csv: ${general.raw_data_csv}
+  raw_data_dir: ${general.raw_data_dir}
+  sample_data_dir: ${general.sample_data_dir}
+  class_name: src.utils.dataset.BaseDataSetObjectDetection
+  classes_dict:
+    Building: 1
+  class_weights: null
+  train_val_percent:
+    trn: 0.7
+    val: 0.2
+    tst: 0.1
+  ignore_index: null
+  use_stratification: false
+augmentation:
+  normalization:
+    mean: null
+    std: null
+  scale_data:
+  - 0
+  - 1
+  rotate_limit: 45
+  rotate_prob: 0.5
+  hflip_prob: 0.5
+  random_radiom_trim_range:
+  - 0.1
+  - 2.0
+  brightness_contrast_range: null
+  noise: null
+visualization:
+  vis_at_train: null
+  vis_at_evaluation: null
+  vis_batch_range: null
+  vis_at_checkpoint: null
+  vis_at_ckpt_min_ep_diff: null
+  vis_at_ckpt_dataset: null
+inference:
+  img_dir_or_csv_file: ${general.raw_data_csv}
+  state_dict_path: ${general.save_weights_dir}
+  chunk_size: 256
+  smooth_prediction: true
+  overlap: 2
+general:
+  work_dir: ${hydra:runtime.cwd}
+  config_name: ${hydra:job.config_name}
+  config_override_dirname: ${hydra:job.override_dirname}
+  config_path: ${hydra:runtime.config_sources}
+  project_name: template_project
+  workspace: your_name
+  device: cuda
+  max_epochs: 2
+  min_epochs: 1
+  raw_data_dir: ${general.work_dir}/data
+  raw_data_csv: ${general.work_dir}/data/images_to_samples_ci_csv.csv
+  sample_data_dir: ${general.work_dir}/data
+  state_dict_path: null
+  save_weights_dir: ${general.work_dir}/weights_saved
+AWS:
+  bucket_name: null
+print_config: true
+mode: sampling
+debug: false
+experiment: aplite
