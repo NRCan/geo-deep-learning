@@ -20,7 +20,7 @@ global:
   scale_data: [0,1]
   debug_mode: True
 
-# Sample parameters; used in images_to_samples.py -------------------
+# Sample parameters; used in sampling_segmentation.py -------------------
 
 sample:
   prep_csv_file:
@@ -49,7 +49,7 @@ training:
   batch_metrics: 1
   ignore_index: # Specifies a target value that is ignored and does not contribute to the input gradient
 
-# Inference parameters; used in inference.py --------
+# Inference parameters; used in inference_segmentation.py --------
 
 inference:
   img_dir_or_csv_file: ./data/inference_classif_ci_csv.csv

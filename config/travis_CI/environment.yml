@@ -10,6 +10,7 @@ dependencies:
   - alembic=1.5.8=pyhd8ed1ab_0
   - appdirs=1.4.4=pyh9f0ad1d_0
   - asn1crypto=1.4.0=pyh9f0ad1d_0
+  - boto3=1.19.2=pyhd8ed1ab_0
   - blas=1.0=mkl
   - brotlipy=0.7.0=py39h3811e60_1001
   - bzip2=1.0.8=h7f98852_4
@@ -88,6 +89,7 @@ dependencies:
   - protobuf=3.15.6=py39he80948d_0
   - pycparser=2.20=pyh9f0ad1d_2
   - pyopenssl=20.0.1=pyhd8ed1ab_0
+#  - pyproj=3.1.0=py39ha9a7ae0_3
   - pyparsing=2.4.7=pyh9f0ad1d_0
   - pysocks=1.7.1=py39hf3d152e_3
   - python=3.9.2=hffdb5ce_0_cpython
@@ -135,21 +137,27 @@ dependencies:
     - decorator==4.4.2
     - efficientnet-pytorch==0.6.3
     - fiona==1.8.18
-    - geopandas==0.9.0
+    - geopandas==0.10.2
+    - geopy
     - imageio==2.9.0
     - kiwisolver==1.3.1
     - matplotlib==3.4.0
     - munch==2.5.0
     - networkx==2.5
     - pretrainedmodels==0.7.4
-    - pyproj==3.0.1
+    - pyproj==3.1.0
     - pywavelets==1.1.1
     - rasterio==1.2.1
     - scikit-image==0.18.1
-    - segmentation-models-pytorch==0.1.3
+    - segmentation-models-pytorch==0.2.0
     - shapely==1.7.1
     - snuggs==1.4.7
     - tifffile==2021.3.17
-    - timm==0.3.2
+    - timm==0.4.12
     - ttach==0.0.3
-prefix: /home/remi/miniconda3/envs/ci_env
+    - rich
+    - rtree
+    - pytorch-lightning
+    - hydra-core==1.1.0
+    - hydra-colorlog==1.1.0
+    - hydra-optuna-sweeper==1.1.0

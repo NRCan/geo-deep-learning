@@ -6,7 +6,7 @@
 The **geo-deep-learning** project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced data sets.
 The overall learning process comprises three broad stages:
 
-### Data preparation ([images_to_samples.py](images_to_samples.py))
+### Data preparation ([images_to_samples.py](sampling_segmentation.py))
 The data preparation phase (sampling) allows creating sub-images that will be used for either training, validation or testing.
 
 The first phase of the process is to determine sub-images (samples) to be used for training, validation and, optionally, test.  Images to be used must be of the geotiff type.  Sample locations in each image must be stored in a GeoPackage.
@@ -21,7 +21,7 @@ The crux of the learning process is the training phase.
 - Samples labeled "*val*" are used to estimate the training error (i.e. loss) on a set of sub-images not used for training, after every epoch.
 - At the end of all epochs, the model with the lowest error on validation data is loaded and samples labeled "*tst*", if they exist, are used to estimate the accuracy of the model on sub-images unseen during training or validation.
 
-### Inference ([inference.py](inference.py))
+### Inference ([inference.py](inference_segmentation.py))
 The inference phase allows the use of a trained model to predict on new input data.
 The final step in the process is to assign every pixel in the original image a value corresponding to the most probable class.
 
@@ -85,7 +85,7 @@ cd geo-deep-learning
 Prepare your data directory and add the paths to a `csv` file.
 ```shell
 # Copying the config_template and rename it at the same time
-cp config/config_template.yaml path/to/yaml_files/your_config.yaml
+cp config/old_config_template.yaml path/to/yaml_files/your_config.yaml
 # Creating the csv file
 touch path/to/images.csv  
 ```
@@ -94,13 +94,13 @@ touch path/to/images.csv
 3. Execute your task (can be use separately).
 ```shell
 # Creating the hdf5 from the raw data
-python images_to_samples.py path/to/yaml_files/your_config.yaml
+python sampling_segmentation.py path/to/yaml_files/your_config.yaml
 # Training the neural network
 python train_segmentation.py path/to/yaml_files/your_config.yaml
 # Inference on the new data
-python inference.py --param path/to/yaml_files/your_config.yaml
+python inference_segmentation.py --param path/to/yaml_files/your_config.yaml
 or 
-python inference.py --input path/to/your_checkpoint.pth.tar /path/to/images/
+python inference_segmentation.py --input path/to/your_checkpoint.pth.tar /path/to/images/
 ```
 > If you only want to use the `inference.py` you dont have to fill all the `yaml` file, only fill the inference section.
 

@@ -22,7 +22,7 @@ def validate_num_classes(vector_file: Union[str, Path],
     FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
     Args:
         :param vector_file: full file path of the vector image
-        :param num_classes: number of classes set in config_template.yaml
+        :param num_classes: number of classes set in old_config_template.yaml
         :param attribute_name: name of the value field representing the required classes in the vector image file
         :param ignore_index: (int) target value that is ignored during training and does not contribute to
                              the input gradient

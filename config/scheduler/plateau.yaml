@@ -1,0 +1,9 @@
+# @package _global_
+scheduler:
+  class_name: torch.optim.lr_scheduler.ReduceLROnPlateau
+  step: epoch
+  monitor: ${training.loss_fn}
+  params:
+    mode: ${training.mode}
+    factor: 0.5
+    patience: 15

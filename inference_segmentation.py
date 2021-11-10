@@ -1,19 +1,13 @@
-import gc
-import logging
-import warnings
 from math import sqrt
 from typing import List
-
 import torch
 import torch.nn.functional as F
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
 import numpy as np
 import os
 import csv
-import time
-import argparse
+import glob
 import heapq
-import fiona  # keep this import. it sets GDAL_DATA to right value
 import rasterio
 from PIL import Image
 import torchvision
@@ -21,26 +15,31 @@ import ttach as tta
 from collections import OrderedDict, defaultdict
 import pandas as pd
 import geopandas as gpd
+from omegaconf.errors import ConfigKeyError
 
 from tqdm import tqdm
 from shapely.geometry import Polygon, box
 from pathlib import Path
-
+from omegaconf.listconfig import ListConfig
 from utils.metrics import ComputePixelMetrics
 from models.model_choice import net, load_checkpoint
 from utils import augmentation
 from utils.geoutils import vector_to_raster
-from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
+from utils.logger import dict_path
+from utils.utils import (
+    load_from_checkpoint, get_device_ids, get_key_def, find_first_file, read_modalities,
     list_input_images, pad, add_metadata_from_raster_to_sample, _window_2D, compare_config_yamls
+)
 from utils.readers import read_parameters, image_reader_as_array
 from utils.verifications import add_background_to_num_class, validate_raster, validate_num_classes, assert_crs_match
-
+# AWS library
 try:
     import boto3
 except ModuleNotFoundError:
     pass
-
-logging.getLogger(__name__)
+# Set the logging file
+from utils import utils
+logging = utils.get_logger(__name__)  # import logging
 
 
 def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 350):
@@ -61,18 +60,20 @@ def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 
 
 
 @torch.no_grad()
-def segmentation(img_array,
-                 input_image,
-                 label_arr,
-                 num_classes: int,
-                 gpkg_name,
-                 model,
-                 chunk_size: int,
-                 num_bands: int,
-                 device,
-                 scale: List,
-                 BGR_to_RGB: bool,
-                 debug=False):
+def segmentation(
+        params,
+        img_array,
+        input_image,
+        label_arr,
+        num_classes: int,
+        gpkg_name,
+        model,
+        chunk_size: int,
+        num_bands: int,
+        device,
+        scale: List,
+        BGR_to_RGB: bool,
+        debug=False):
 
     # switch to evaluate mode
     model.eval()
@@ -81,7 +82,6 @@ def segmentation(img_array,
     WINDOW_SPLINE_2D = _window_2D(window_size=chunk_size, power=2.0)
     WINDOW_SPLINE_2D = torch.as_tensor(np.moveaxis(WINDOW_SPLINE_2D, 2, 0), ).type(torch.float)
     WINDOW_SPLINE_2D = WINDOW_SPLINE_2D.to(device)
-
 
     metadata = add_metadata_from_raster_to_sample(img_array,
                                                   input_image,
@@ -96,7 +96,7 @@ def segmentation(img_array,
     xres, yres = (abs(input_image.transform.a), abs(input_image.transform.e))
     h, w, bands = img_array.shape
     if num_bands < bands and debug:
-        logging.warning(f'Expected {bands} bands, for {num_bands}. Slicing off excess bands. Problems may occur')
+        logging.warning(f'\nExpected {bands} bands, for {num_bands}. Slicing off excess bands. Problems may occur')
         img_array = img_array[:, :, :num_bands]
     padding = int(round(chunk_size * (1 - 1.0 / 2.0)))
     step = int(chunk_size / 2.0)
@@ -108,7 +108,7 @@ def segmentation(img_array,
     Y_points = np.arange(0, h_ - chunk_size + 1, step)
     pred_img = np.empty((h_, w_), dtype=np.uint8)
     sample = {'sat_img': None, 'map_img': None, 'metadata': None}
-
+    print_log = True
     for row in tqdm(Y_points, position=1, leave=False, desc=f'Inferring rows (chunk size: {chunk_size})'):
         for col in tqdm(X_points, position=2, leave=False, desc='Inferring columns'):
             sample['metadata'] = metadata
@@ -116,9 +116,10 @@ def segmentation(img_array,
                                                                  dataset="tst",
                                                                  input_space=BGR_to_RGB,
                                                                  scale=scale,
-                                                                 aug_type='totensor')
+                                                                 aug_type='totensor',
+                                                                 print_log=print_log)
             sample['sat_img'] = img_array[row:row + chunk_size, col:col + chunk_size, :]
-            logging.debug(f"Sample shape: {sample['sat_img'].shape}")
+            logging.debug(f"\nSample shape: {sample['sat_img'].shape}")
             sample = totensor_transform(sample)
             inputs = sample['sat_img'].unsqueeze_(0)
             inputs = inputs.to(device)
@@ -129,7 +130,7 @@ def segmentation(img_array,
                 augmented_output = model(augmented_input)
                 if isinstance(augmented_output, OrderedDict) and 'out' in augmented_output.keys():
                     augmented_output = augmented_output['out']
-                logging.debug(f'Shape of augmented output: {augmented_output.shape}')
+                logging.debug(f'\nShape of augmented output: {augmented_output.shape}')
                 # reverse augmentation for outputs
                 deaugmented_output = transformer.deaugment_mask(augmented_output)
                 deaugmented_output = F.softmax(deaugmented_output, dim=1).squeeze(dim=0)
@@ -140,8 +141,9 @@ def segmentation(img_array,
             outputs = outputs.permute(1, 2, 0).argmax(dim=-1)
             outputs = outputs.reshape(chunk_size, chunk_size).cpu().numpy()
             if debug:
-                logging.debug(f'Bin count of final output: {np.unique(outputs, return_counts=True)}')
+                logging.debug(f'\nBin count of final output: {np.unique(outputs, return_counts=True)}')
             pred_img[row:row + chunk_size, col:col + chunk_size] = outputs
+            print_log = False
     pred_img = pred_img[padding:-padding, padding:-padding]
     gdf = None
     if label_arr is not None:
@@ -171,7 +173,6 @@ def segmentation(img_array,
                 feature['area'].append(geom.area)
                 cnt += 1
         gdf = gpd.GeoDataFrame(feature, crs=input_image.crs)
-        gdf.to_crs(crs="EPSG:4326", inplace=True)
     return pred_img, gdf
 
 
@@ -242,101 +243,140 @@ def classifier(params, img_list, model, device, working_folder):
                    delimiter=',')
 
 
-def main(params: dict):
+def main(params: dict) -> None:
     """
-    Identify the class to which each image belongs.
+    Function to manage details about the inference on segmentation task.
+
+    1. Read the parameters from the config given.
+    2. Read and load the state dict from the previous training or the given one.
+    3. Make the inference on the data specifies in the config.
+
+    -------
     :param params: (dict) Parameters found in the yaml config file.
-
     """
-    since = time.time()
+    # since = time.time()
 
-    # MANDATORY PARAMETERS
-    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str)
-    if not (Path(img_dir_or_csv).is_dir() or Path(img_dir_or_csv).suffix == '.csv'):
-        raise FileNotFoundError(f'Couldn\'t locate .csv file or directory "{img_dir_or_csv}" '
-                                f'containing imagery for inference')
-    state_dict = get_key_def('state_dict_path', params['inference'], expected_type=str)
-    if not Path(state_dict).is_file():
-        raise FileNotFoundError(f'Couldn\'t locate state_dict of model "{state_dict}" to be used for inference')
-    task = get_key_def('task', params['global'], expected_type=str)
-    if task not in ['classification', 'segmentation']:
-        raise ValueError(f'Task should be either "classification" or "segmentation". Got {task}')
-    model_name = get_key_def('model_name', params['global'], expected_type=str).lower()
-    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
-    num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
-    BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
-
-    # OPTIONAL PARAMETERS
-    dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
-    num_devices = get_key_def('num_gpus', params['global'], default=0, expected_type=int)
-    default_max_used_ram = 25
-    max_used_ram = get_key_def('max_used_ram', params['global'], default=default_max_used_ram, expected_type=int)
-    max_used_perc = get_key_def('max_used_perc', params['global'], default=25, expected_type=int)
-    meta_map = get_key_def('meta_map', params['global'], default={})
-    scale = get_key_def('scale_data', params['global'], default=[0, 1], expected_type=List)
-    debug = get_key_def('debug_mode', params['global'], default=False, expected_type=bool)
-
-    # benchmark (ie when gkpgs are inputted along with imagery)
-    dontcare = get_key_def("ignore_index", params["training"], -1)
-    targ_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
-
+    # PARAMETERS
+    mode = get_key_def('mode', params, expected_type=str)
+    task = get_key_def('task_name', params['task'], expected_type=str)
+    model_name = get_key_def('model_name', params['model'], expected_type=str).lower()
+    num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
+    modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
+    BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
+    num_bands = len(modalities)
+    debug = get_key_def('debug', params, default=False, expected_type=bool)
     # SETTING OUTPUT DIRECTORY
-    working_folder = Path(params['inference']['state_dict_path']).parent.joinpath(f'inference_{num_bands}bands')
+    try:
+        state_dict = Path(params['inference']['state_dict_path']).resolve(strict=True)
+    except FileNotFoundError:
+        logging.info(
+            f"\nThe state dict path directory '{params['inference']['state_dict_path']}' don't seem to be find," +
+            f"we will try to locate a state dict path in the '{params['general']['save_weights_dir']}' " +
+            f"specify during the training phase"
+        )
+        try:
+            state_dict = Path(params['general']['save_weights_dir']).resolve(strict=True)
+        except FileNotFoundError:
+            raise logging.critical(
+                f"\nThe state dict path directory '{params['general']['save_weights_dir']}'" +
+                f" don't seem to be find either, please specify the path to a state dict"
+            )
+    # TODO add more detail in the parent folder
+    working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
+    logging.info("\nThe state dict path directory used '{}'".format(working_folder))
     Path.mkdir(working_folder, parents=True, exist_ok=True)
 
-    # mlflow logging
-    mlflow_uri = get_key_def('mlflow_uri', params['global'], default=None, expected_type=str)
-    if mlflow_uri and not Path(mlflow_uri).is_dir():
-        warnings.warn(f'Mlflow uri path is not valid: {mlflow_uri}')
-        mlflow_uri = None
-    # SETUP LOGGING
-    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
-    if mlflow_uri:
-        log_config_path = Path('utils/logging.conf').absolute()
-        logfile = f'{working_folder}/info.log'
-        logfile_debug = f'{working_folder}/debug.log'
-        console_level_logging = 'INFO' if not debug else 'DEBUG'
-        logging.config.fileConfig(log_config_path, defaults={'logfilename': logfile,
-                                                             'logfilename_debug': logfile_debug,
-                                                             'console_level': console_level_logging})
-
-        # import only if mlflow uri is set
+    # LOGGING PARAMETERS TODO put option not just mlflow
+    experiment_name = get_key_def('project_name', params['general'], default='gdl-training')
+    try:
+        tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str)
+        Path(tracker_uri).mkdir(exist_ok=True)
+        run_name = get_key_def('run_name', params['tracker'], default='gdl')  # TODO change for something meaningful
+        run_name = '{}_{}_{}'.format(run_name, mode, task)
+        logging.info(f'\nInference and log files will be saved to: {working_folder}')
+        # TODO change to fit whatever inport
         from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
-        if not Path(mlflow_uri).is_dir():
-            logging.warning(f"Couldn't locate mlflow uri directory {mlflow_uri}. Directory will be created.")
-            Path(mlflow_uri).mkdir()
-        set_tracking_uri(mlflow_uri)
-        exp_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-inference', expected_type=str)
-        set_experiment(f'{exp_name}/{working_folder.name}')
-        run_name = get_key_def('mlflow_run_name', params['global'], default='gdl', expected_type=str)
+        # tracking path + parameters logging
+        set_tracking_uri(tracker_uri)
+        set_experiment(experiment_name)
         start_run(run_name=run_name)
-        log_params(params['global'])
-        log_params(params['inference'])
-    else:
-        # set a console logger as default
-        logging.basicConfig(level=logging.DEBUG)
-        logging.info('No logging folder set for mlflow. Logging will be limited to console')
+        log_params(dict_path(params, 'general'))
+        log_params(dict_path(params, 'dataset'))
+        log_params(dict_path(params, 'data'))
+        log_params(dict_path(params, 'model'))
+        log_params(dict_path(params, 'inference'))
+    # meaning no logging tracker as been assigned or it doesnt exist in config/logging
+    except ConfigKeyError:
+        logging.info(
+            "\nNo logging tracker as been assigned or the yaml config doesnt exist in 'config/tracker'."
+            "\nNo tracker file will be save in that case."
+        )
+
+    # MANDATORY PARAMETERS
+    img_dir_or_csv = get_key_def(
+        'img_dir_or_csv_file', params['inference'], default=params['general']['raw_data_csv'], expected_type=str
+    )
+    if not (Path(img_dir_or_csv).is_dir() or Path(img_dir_or_csv).suffix == '.csv'):
+        raise logging.critical(
+            FileNotFoundError(
+                f'\nCouldn\'t locate .csv file or directory "{img_dir_or_csv}" containing imagery for inference'
+            )
+        )
+    # load the checkpoint
+    try:
+        # Sort by modification time (mtime) descending
+        sorted_by_mtime_descending = sorted(
+            [os.path.join(state_dict, x) for x in os.listdir(state_dict)], key=lambda t: -os.stat(t).st_mtime
+        )
+        last_checkpoint_save = find_first_file('checkpoint.pth.tar', sorted_by_mtime_descending)
+        if last_checkpoint_save is None:
+            raise FileNotFoundError
+        # change the state_dict
+        state_dict = last_checkpoint_save
+    except FileNotFoundError as e:
+        logging.error(f"\nNo file name 'checkpoint.pth.tar' as been found at '{state_dict}'")
+        raise e
+
+    task = get_key_def('task_name', params['task'], expected_type=str)
+    # TODO change it next version for all task
+    if task not in ['classification', 'segmentation']:
+        raise logging.critical(
+            ValueError(f'\nTask should be either "classification" or "segmentation". Got {task}')
+        )
+    # OPTIONAL PARAMETERS
+    dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
+    num_devices = get_key_def('num_gpus', params['trainer'], default=0, expected_type=int)
+    default_max_used_ram = 25
+    max_used_ram = get_key_def('max_used_ram', params['trainer'], default=default_max_used_ram, expected_type=int)
+    max_used_perc = get_key_def('max_used_perc', params['trainer'], default=25, expected_type=int)
+    meta_map = get_key_def('meta_map', params['dataset'], default={})
+    scale = get_key_def('scale_data', params['augmentation'], default=[0, 1], expected_type=ListConfig)
+    # benchmark (ie when gkpgs are inputted along with imagery)
+    dontcare = get_key_def("ignore_index", params["dataset"], -1)
+    targ_ids = get_key_def('target_ids', params['dataset'], None, expected_type=List)
 
     if debug:
-        logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
+        logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
 
     # Assert that all items in target_ids are integers (ex.: to benchmark single-class model with multi-class labels)
     if targ_ids:
         for item in targ_ids:
             if not isinstance(item, int):
-                raise ValueError(f'Target id "{item}" in target_ids is {type(item)}, expected int.')
+                raise logging.critical(
+                    ValueError(f'\nTarget id "{item}" in target_ids is {type(item)}, expected int.')
+                )
 
-    logging.info(f'Inferences will be saved to: {working_folder}\n\n')
+    logging.info(f'\nInferences will be saved to: {working_folder}')
     if not (0 <= max_used_ram <= 100):
-        logging.warning(f'Max used ram parameter should be a percentage. Got {max_used_ram}. '
+        logging.warning(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}. '
                         f'Will set default value of {default_max_used_ram} %')
         max_used_ram = default_max_used_ram
 
     # AWS
     bucket = None
     bucket_file_cache = []
-    bucket_name = get_key_def('bucket_name', params['global'])
+    bucket_name = get_key_def('bucket_name', params['AWS'])
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty dict
     gpu_devices_dict = get_device_ids(num_devices,
@@ -350,10 +390,11 @@ def main(params: dict):
     device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
 
     if gpu_devices_dict:
-        logging.info(f"Number of cuda devices requested: {num_devices}. Cuda devices available: {gpu_devices_dict}. "
-                     f"Using {list(gpu_devices_dict.keys())[0]}\n\n")
+        logging.info(f"\nNumber of cuda devices requested: {num_devices}."
+                     f"\nCuda devices available: {gpu_devices_dict}. "
+                     f"\nUsing {list(gpu_devices_dict.keys())[0]}")
     else:
-        logging.warning(f"No Cuda device available. This process will only run on CPU")
+        logging.warning(f"\nNo Cuda device available. This process will only run on CPU")
 
     # CONFIGURE MODEL
     num_classes_backgr = add_background_to_num_class(task, num_classes)
@@ -361,18 +402,31 @@ def main(params: dict):
                                                num_bands=num_bands,
                                                num_channels=num_classes_backgr,
                                                dontcare_val=dontcare_val,
-                                               num_devices=1,
+                                               devices=[num_devices, device, gpu_devices_dict],
                                                net_params=params,
                                                inference_state_dict=state_dict)
     try:
         model.to(device)
     except RuntimeError:
-        logging.info(f"Unable to use device. Trying device 0")
+        logging.info(f"\nUnable to use device. Trying device 0")
         device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')
         model.to(device)
 
     # CREATE LIST OF INPUT IMAGES FOR INFERENCE
-    list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
+    try:
+        # check if the data folder exist
+        raw_data_dir = get_key_def('raw_data_dir', params['dataset'])
+        my_data_path = Path(raw_data_dir).resolve(strict=True)
+        logging.info("\nImage directory used '{}'".format(my_data_path))
+        data_path = Path(my_data_path)
+    except FileNotFoundError:
+        raw_data_dir = get_key_def('raw_data_dir', params['dataset'])
+        raise logging.critical(
+            "\nImage directory '{}' doesn't exist, please change the path".format(raw_data_dir)
+        )
+    list_img = list_input_images(
+        img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"], in_case_of_path=str(data_path)
+    )
 
     # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
     valid_gpkg_set = set()
@@ -387,18 +441,16 @@ def main(params: dict):
             assert_crs_match(info['tif'], info['gpkg'])
             valid_gpkg_set.add(info['gpkg'])
 
-    logging.info('Successfully validated imagery')
+    logging.info('\nSuccessfully validated imagery')
     if valid_gpkg_set:
-        logging.info('Successfully validated label data for benchmarking')
+        logging.info('\nSuccessfully validated label data for benchmarking')
 
     if task == 'classification':
         classifier(params, list_img, model, device,
                    working_folder)  # FIXME: why don't we load from checkpoint in classification?
-
     elif task == 'segmentation':
         gdf_ = []
         gpkg_name_ = []
-
         # TODO: Add verifications?
         if bucket:
             bucket.download_file(loaded_checkpoint, "saved_model.pth.tar")  # TODO: is this still valid?
@@ -425,15 +477,15 @@ def main(params: dict):
                 inference_image = working_folder.joinpath(local_img.parent.name,
                                                           f"{img_name.split('.')[0]}_inference.tif")
             with rasterio.open(local_img, 'r') as raster:
-                logging.info(f'Reading image as array: {raster.name}')
+                logging.info(f'\nReading image as array: {raster.name}')
                 img_array, raster, _ = image_reader_as_array(input_image=raster, clip_gpkg=local_gpkg)
                 if debug:
-                    logging.debug(f'Unique values in loaded raster: {np.unique(img_array)}\n'
+                    logging.debug(f'\nUnique values in loaded raster: {np.unique(img_array)}\n'
                                   f'Shape of raster: {img_array.shape}')
                 inf_meta = raster.meta
                 label = None
                 if local_gpkg:
-                    logging.info(f'Burning label as raster: {local_gpkg}')
+                    logging.info(f'\nBurning label as raster: {local_gpkg}')
                     label = vector_to_raster(vector_file=local_gpkg,
                                              input_image=raster,
                                              out_shape=(inf_meta['height'], inf_meta['width']),
@@ -441,10 +493,11 @@ def main(params: dict):
                                              fill=0,  # background value in rasterized vector.
                                              target_ids=targ_ids)
                     if debug:
-                        logging.debug(f'Unique values in loaded label as raster: {np.unique(label)}\n'
+                        logging.debug(f'\nUnique values in loaded label as raster: {np.unique(label)}\n'
                                       f'Shape of label as raster: {label.shape}')
 
-                pred, gdf = segmentation(img_array=img_array,
+                pred, gdf = segmentation(params=params,
+                                         img_array=img_array,
                                          input_image=raster,
                                          label_arr=label,
                                          num_classes=num_classes_backgr,
@@ -459,7 +512,7 @@ def main(params: dict):
                 if gdf is not None:
                     gdf_.append(gdf)
                     gpkg_name_.append(gpkg_name)
-                if local_gpkg:
+                if local_gpkg and 'tracker_uri' in locals():
                     with start_run(run_name=img_name, nested=True):
                         pixelMetrics= ComputePixelMetrics(label, pred, num_classes_backgr)
                         log_metrics(pixelMetrics.update(pixelMetrics.iou))
@@ -471,68 +524,16 @@ def main(params: dict):
                                  "count": pred.shape[0],
                                  "dtype": 'uint8',
                                  "compress": 'lzw'})
-                logging.info(f'Successfully inferred on {img_name}\nWriting to file: {inference_image}')
+                logging.info(f'\nSuccessfully inferred on {img_name}\nWriting to file: {inference_image}')
                 with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
                     dest.write(pred)
         if len(gdf_) >= 1:
             if not len(gdf_) == len(gpkg_name_):
-                raise ValueError('benchmarking unable to complete')
+                raise logging.critical(ValueError('\nbenchmarking unable to complete'))
             all_gdf = pd.concat(gdf_)  # Concatenate all geo data frame into one geo data frame
             all_gdf.reset_index(drop=True, inplace=True)
             gdf_x = gpd.GeoDataFrame(all_gdf)
             bench_gpkg = working_folder / "benchmark.gpkg"
             gdf_x.to_file(bench_gpkg, driver="GPKG", index=False)
-            logging.info(f'Successfully wrote benchmark geopackage to: {bench_gpkg}')
+            logging.info(f'\nSuccessfully wrote benchmark geopackage to: {bench_gpkg}')
         # log_artifact(working_folder)
-    time_elapsed = time.time() - since
-    logging.info('Inference and Benchmarking completed in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
-
-
-if __name__ == '__main__':
-    print('\n\nStart:\n\n')
-    parser = argparse.ArgumentParser(usage="%(prog)s [-h] [-p YAML] [-i MODEL IMAGE] ",
-                                     description='Inference and Benchmark on images using trained model')
-
-    parser.add_argument('-p', '--param', metavar='yaml_file', nargs=1,
-                        help='Path to parameters stored in yaml')
-    parser.add_argument('-i', '--input', metavar='model_pth img_dir', nargs=2,
-                        help='model_path and image_dir')
-    args = parser.parse_args()
-
-    # if a yaml is inputted, get those parameters and get model state_dict to overwrite global parameters afterwards
-    if args.param:
-        input_params = read_parameters(args.param[0])
-        model_ckpt = get_key_def('state_dict_path', input_params['inference'], expected_type=str)
-        # load checkpoint
-        checkpoint = load_checkpoint(model_ckpt)
-        if 'params' in checkpoint.keys():
-            params = checkpoint['params']
-            # overwrite with inputted parameters
-            compare_config_yamls(yaml1=params, yaml2=input_params, update_yaml1=True)
-        else:
-            warnings.warn('No parameters found in checkpoint. Defaulting to parameters from inputted yaml.'
-                          'Use GDL version 1.3 or more.')
-            params = input_params
-        del checkpoint
-        del input_params
-
-    # elif input is a model checkpoint and an image directory, we'll rely on the yaml saved inside the model (pth.tar)
-    elif args.input:
-        model_ckpt = Path(args.input[0])
-        image = args.input[1]
-        # load checkpoint
-        checkpoint = load_checkpoint(model_ckpt)
-        if 'params' not in checkpoint.keys():
-            raise KeyError('No parameters found in checkpoint. Use GDL version 1.3 or more.')
-        else:
-            # set parameters for inference from those contained in checkpoint.pth.tar
-            params = checkpoint['params']
-            del checkpoint
-        # overwrite with inputted parameters
-        params['inference']['state_dict_path'] = args.input[0]
-        params['inference']['img_dir_or_csv_file'] = args.input[1]
-    else:
-        print('use the help [-h] option for correct usage')
-        raise SystemExit
-
-    main(params)
