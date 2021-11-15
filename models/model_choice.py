@@ -9,6 +9,7 @@ import torch.nn as nn
 import segmentation_models_pytorch as smp
 import torchvision.models as models
 ###############################
+from models.seg_hrnet_ocr import get_seg_model
 from utils.layersmodules import LayersEnsemble
 ###############################
 from tqdm import tqdm
@@ -66,6 +67,10 @@ try:
     lm_smp['manet_pretrained'] = {
         # https://ieeexplore.ieee.org/abstract/document/9201310
         'fct': smp.MAnet, 'params': {
+            'encoder_name': 'resnext50_32x4d'}}
+    lm_smp['unetpp_pretrained'] = {
+        # https://ieeexplore.ieee.org/abstract/document/9201310
+        'fct': smp.UnetPlusPlus, 'params': {
             'encoder_name': 'resnext50_32x4d'}}
 except AttributeError:
     logging.exception("Couldn't load MAnet from segmentation models pytorch package. Check installed version")
@@ -243,6 +248,9 @@ def net(model_name: str,
 
         model = lsmp['fct'](**lsmp['params'])
 
+    elif model_name == 'hrnet':
+        hrnet_pretrained = 'models/hrnet_ocr_cs_trainval_8227_torch11.pth'
+        model = get_seg_model(num_bands, num_channels, hrnet_pretrained)
 
     else:
         raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
