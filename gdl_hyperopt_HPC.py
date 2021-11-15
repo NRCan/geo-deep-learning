@@ -84,6 +84,8 @@ def objective_with_args(hparams, params, config_path):
         params['training']['state_dict_path'] = get_key_def('dict_unet', params['training'])
     elif params['global']['model_name'] == "deeplabv3_resnet101":
         params['training']['state_dict_path'] = get_key_def('dict_deeplab', params['training'])
+    elif params['global']['model_name'] == "manet_pretrained":
+        params['training']['state_dict_path'] = get_key_def('dict_manet', params['training'])
 
     train_main(params, config_path)
     torch.cuda.empty_cache()
