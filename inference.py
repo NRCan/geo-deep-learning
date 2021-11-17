@@ -1,4 +1,5 @@
 import gc
+import itertools
 import logging
 import warnings
 from math import sqrt
@@ -137,20 +138,19 @@ def ras2vec(raster_file, output_path):
     print("Number of features written: {}".format(i))
 
 
-def gen_img_samples(src, chunk_size, channel_idxs: List = None):
+def gen_img_samples(src, chunk_size, step, channel_idxs: List = None):
     """
 
     Args:
         src: input image (rasterio object)
         chunk_size: image tile size
+        step: stride used during inference (in pixels)
         channels_idxs: (list) List of band indexes to keep (starting at 1 per rasterio convention). Order matters, i.e.
         [3,2,1] is not equal to [1,2,3].
 
     Returns: generator object
 
     """
-    subdiv = 2.0
-    step = int(chunk_size / subdiv)
     for row in range(0, src.height, step):
         for column in range(0, src.width, step):
             window = Window.from_slices(slice(row, row + chunk_size),
@@ -223,9 +223,17 @@ def segmentation(param,
     fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(h_, w_, num_classes))
     sample = {'sat_img': None, 'map_img': None, 'metadata': None}
     cnt = 0
-    img_gen = gen_img_samples(input_image, chunk_size, bands_idxs)
+    subdiv = 2
+    step = int(chunk_size / subdiv)
+    total_inf_windows = int(np.ceil(input_image.height / step) * np.ceil(input_image.width / step))
+    img_gen = gen_img_samples(src=input_image,
+                              chunk_size=chunk_size,
+                              step=step,
+                              channel_idxs=bands_idxs)
     start_seg = time.time()
-    for img in tqdm(img_gen, position=1, leave=False, desc=f'inferring on window slices of size {chunk_size}'):
+    for img in tqdm(img_gen, position=1, leave=False,
+                    desc=f'Inferring on window slices of size {chunk_size}',
+                    total=total_inf_windows):
         row = img[1]
         col = img[2]
         sub_image = img[0]
@@ -287,14 +295,14 @@ def segmentation(param,
     del fp
 
     fp = np.memmap(tp_mem, dtype='float16', mode='r', shape=(h_, w_, num_classes))
-    subdiv = 2.0
-    step = int(chunk_size / subdiv)
     pred_img = np.zeros((h_, w_), dtype=np.uint8)
-    for row in tqdm(range(0, input_image.height, step), position=2, leave=False):
-        for col in tqdm(range(0, input_image.width, step), position=3, leave=False):
-            arr1 = fp[row:row + chunk_size, col:col + chunk_size, :] / (2 ** 2)
-            arr1 = arr1.argmax(axis=-1).astype('uint8')
-            pred_img[row:row + chunk_size, col:col + chunk_size] = arr1
+    for row, col in tqdm(itertools.product(range(0, input_image.height, step), range(0, input_image.width, step)),
+                         leave=False,
+                         total=total_inf_windows,
+                         desc="Writing to array"):
+        arr1 = fp[row:row + chunk_size, col:col + chunk_size, :] / (2 ** 2)
+        arr1 = arr1.argmax(axis=-1).astype('uint8')
+        pred_img[row:row + chunk_size, col:col + chunk_size] = arr1
     pred_img = pred_img[:h, :w]
     end_seg = time.time() - start_seg
     logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
@@ -468,7 +476,7 @@ def main(params: dict):
         log_params(params['inference'])
     else:
         # set a console logger as default
-        logging.basicConfig(level=logging.DEBUG)
+        set_logging(console_level='INFO')
         logging.info('No logging folder set for mlflow. Logging will be limited to console')
 
     if debug:
@@ -498,7 +506,7 @@ def main(params: dict):
                                       max_used_perc=max_used_perc)
     # TODO: test this thumbrule on different GPUs
     if gpu_devices_dict:
-        chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=300)
+        chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=100)
     else:
         chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
 
