@@ -85,7 +85,7 @@ def compose_transforms(params,
             lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
                                        std=params['training']['normalization']['std']))
         else:
-            logging.warning(f'No normalization of raster values will be performed.')
+            logging.debug(f'No normalization of raster values will be performed.')
 
         # Send channels first, convert numpy array to torch tensor
         lst_trans.append(ToTensorTarget(dontcare2backgr=dontcare2backgr, dontcare_val=dontcare))
