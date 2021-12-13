@@ -1,4 +1,5 @@
 # @package _global_
 model:
-  model_name: unet
+  model_name: checkpointed_unet
   pretrained: True
+  

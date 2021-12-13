@@ -122,8 +122,8 @@ def create_dataloader(samples_folder: Path,
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # Number of workers
-    if cfg.trainer.num_workers:
-        num_workers = cfg.trainer.num_workers
+    if cfg.training.num_workers:
+        num_workers = cfg.training.num_workers
     else:  # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
         num_workers = len(gpu_devices_dict.keys()) * 4 if len(gpu_devices_dict.keys()) > 1 else 4
 
@@ -286,7 +286,7 @@ def training(train_loader,
     :param batch_size: number of samples to process simultaneously
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
-    :param vis_batch_range: range of batches to perform visualization on. see old_README.md for more info.
+    :param vis_batch_range: range of batches to perform visualization on. see README.md for more info.
     :param vis_at_train: (bool) if True, will perform visualization at train time, as long as vis_batch_range is valid
     :param device: device used by pytorch (cpu ou cuda)
     :param debug: (bool) Debug mode
@@ -498,9 +498,9 @@ def train(cfg: DictConfig) -> None:
     # MANDATORY PARAMETERS
     num_classes = len(get_key_def('classes_dict', cfg['dataset']).keys())
     num_bands = len(read_modalities(cfg.dataset.modalities))
-    batch_size = get_key_def('batch_size', cfg['trainer'])
-    eval_batch_size = get_key_def('eval_batch_size', cfg['trainer'], default=batch_size)
-    num_epochs = get_key_def('max_epochs', cfg['trainer'])
+    batch_size = get_key_def('batch_size', cfg['training'])
+    eval_batch_size = get_key_def('eval_batch_size', cfg['training'], default=batch_size)
+    num_epochs = get_key_def('max_epochs', cfg['training'])
     model_name = get_key_def('model_name', cfg['model']).lower()
     # TODO need to keep in parameters? see victor stuff
     # BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
@@ -541,12 +541,12 @@ def train(cfg: DictConfig) -> None:
     # conc_point = get_key_def('concatenate_depth', params['global'], None)
 
     # GPU PARAMETERS
-    num_devices = get_key_def('num_gpus', cfg['trainer'], default=0)
+    num_devices = get_key_def('num_gpus', cfg['training'], default=0)
     if num_devices and not num_devices >= 0:
         raise logging.critical(ValueError("\nmissing mandatory num gpus parameter"))
     default_max_used_ram = 15
-    max_used_ram = get_key_def('max_used_ram', cfg['trainer'], default=default_max_used_ram)
-    max_used_perc = get_key_def('max_used_perc', cfg['trainer'], default=15)
+    max_used_ram = get_key_def('max_used_ram', cfg['training'], default=default_max_used_ram)
+    max_used_perc = get_key_def('max_used_perc', cfg['training'], default=15)
 
     # LOGGING PARAMETERS TODO put option not just mlflow
     experiment_name = get_key_def('project_name', cfg['general'], default='gdl-training')
@@ -694,7 +694,6 @@ def train(cfg: DictConfig) -> None:
         set_experiment(experiment_name)
         start_run(run_name=run_name)
         log_params(dict_path(cfg, 'training'))
-        log_params(dict_path(cfg, 'trainer'))
         log_params(dict_path(cfg, 'dataset'))
         log_params(dict_path(cfg, 'model'))
         log_params(dict_path(cfg, 'optimizer'))
@@ -887,5 +886,3 @@ def main(cfg: DictConfig) -> None:
 
     # execute the name mode (need to be in this file for now)
     train(cfg)
-    # globals()[cfg.mode](cfg, log)
-

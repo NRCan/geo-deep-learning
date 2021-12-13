@@ -1,17 +1,25 @@
 # @package _global_
 training:
-  num_trn_samples:
-  num_val_samples:
-  num_tst_samples:
-  lr: 0.0001
-  loss_fn: CrossEntropy # name of the metric you want to manage the training
-  mode: 'min' # 'min' or 'max'
-  seed: 666
-  debug: True
+  num_gpus: 1
+  batch_size: 1
+  eval_batch_size:
   batch_metrics:
+  lr: 0.0001
+  max_epochs: ${general.max_epochs}
+  min_epochs: ${general.min_epochs}
+  num_workers:
+  loss_fn: CrossEntropy  # name of the metric you want to manage the training
+  mode: 'min'            # 'min' or 'max', will minimize or maximize the chosen metric
+  max_used_ram:
+  max_used_perc:
   target_size:
-  step_size: 4
-  weight_decay: 0
-  gamma: 0.9
-  dropout: False   # (bool) Use dropout or not
-  dropout_prob:    # (float) Set dropout probability, e.g. 0.5
+
+#  precision: 16
+#  step_size: 4
+#  weight_decay: 0
+#  weights_summary:
+#  gradient_clip_val: 0.5
+#  seed: 666
+#  gamma: 0.9
+#  profiler: off    # option are off, 'simple' or 'pytorch'
+#  dropout: False   # (bool) Use dropout or not

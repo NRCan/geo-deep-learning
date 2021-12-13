@@ -698,7 +698,6 @@ def print_config(
     elif config.get('mode') == 'train':
         fields += (
             "model",
-            "trainer",
             "training",
             'optimizer',
             'callbacks',

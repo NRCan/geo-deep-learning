@@ -10,13 +10,11 @@ install:
   - conda config --set changeps1 no
   - conda update -q conda
   - conda info -a
-#  - conda env create -f ./config/travis_CI/environment.yml
   - conda env create -f environment.yml
   - source activate geo_deep_env
 
 before_script:
   - unzip ./data/massachusetts_buildings.zip -d ./data
-  - unzip ./data/classification_data.zip -d ./data
 script:
   # sampling segmentation base on ./config/gdl_config_template.yaml
   - python GDL.py mode=sampling
@@ -24,4 +22,3 @@ script:
   - python GDL.py mode=train
   # sampling segmentation base on ./config/gdl_config_template.yaml
   - python GDL.py mode=inference
-  

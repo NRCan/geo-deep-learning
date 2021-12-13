@@ -10,22 +10,23 @@ dependencies:
   - alembic=1.5.8=pyhd8ed1ab_0
   - appdirs=1.4.4=pyh9f0ad1d_0
   - asn1crypto=1.4.0=pyh9f0ad1d_0
-  - boto3=1.19.2=pyhd8ed1ab_0
   - blas=1.0=mkl
+  - boto3=1.19.2=pyhd8ed1ab_0
+  - botocore=1.22.12=pyhd8ed1ab_0
   - brotlipy=0.7.0=py39h3811e60_1001
   - bzip2=1.0.8=h7f98852_4
   - c-ares=1.17.1=h7f98852_1
-  - ca-certificates=2020.10.14=0
+  - ca-certificates=2021.10.8=ha878542_0
   - cached-property=1.5.2=hd8ed1ab_1
   - cached_property=1.5.2=pyha770c72_1
-  - certifi=2020.12.5=py39hf3d152e_1
+  - certifi=2021.10.8=py39hf3d152e_1
   - cffi=1.14.5=py39he32792d_0
   - chardet=4.0.0=py39hf3d152e_1
   - click=7.1.2=pyh9f0ad1d_0
   - cloudpickle=1.6.0=py_0
   - configparser=5.0.2=pyhd8ed1ab_0
-  - cpuonly=1.0=0
   - cryptography=3.4.6=py39hbca0aa6_0
+  - cudatoolkit=10.2.89=h8f6ccaa_8
   - databricks-cli=0.9.1=py_0
   - docker-py=4.4.4=py39hf3d152e_0
   - docker-pycreds=0.4.0=py_0
@@ -46,6 +47,7 @@ dependencies:
   - intel-openmp=2020.2=254
   - itsdangerous=1.1.0=py_0
   - jinja2=2.11.3=pyh44b312d_0
+  - jmespath=0.10.0=pyh9f0ad1d_0
   - joblib=1.0.1=pyhd8ed1ab_0
   - jpeg=9b=h024ee3a_2
   - krb5=1.17.2=h926e7f8_0
@@ -88,21 +90,23 @@ dependencies:
   - pip=21.0.1=pyhd8ed1ab_0
   - protobuf=3.15.6=py39he80948d_0
   - pycparser=2.20=pyh9f0ad1d_2
+  - pynvml=11.0.0=pyhd8ed1ab_0
   - pyopenssl=20.0.1=pyhd8ed1ab_0
-#  - pyproj=3.1.0=py39ha9a7ae0_3
   - pyparsing=2.4.7=pyh9f0ad1d_0
   - pysocks=1.7.1=py39hf3d152e_3
   - python=3.9.2=hffdb5ce_0_cpython
   - python-dateutil=2.8.1=py_0
   - python-editor=1.0.4=py_0
   - python_abi=3.9=1_cp39
-  - pytorch=1.8.1=py3.9_cpu_0
+  - pytorch=1.10.0=py3.9_cuda10.2_cudnn7.6.5_0
+  - pytorch-mutex=1.0=cuda
   - pytz=2021.1=pyhd8ed1ab_0
   - pyyaml=5.4.1=py39h3811e60_0
   - querystring_parser=1.2.4=py_0
   - readline=8.0=he28a2e2_2
   - requests=2.25.1=pyhd3deb0d_0
   - ruamel_yaml=0.15.80=py39h3811e60_1004
+  - s3transfer=0.5.0=pyhd8ed1ab_0
   - scikit-learn=0.24.1=py39h4dfa638_0
   - scipy=1.6.1=py39hee8e79c_0
   - setuptools=49.6.0=py39hf3d152e_3
@@ -115,7 +119,7 @@ dependencies:
   - tabulate=0.8.9=pyhd8ed1ab_0
   - threadpoolctl=2.1.0=pyh5ca1d4c_0
   - tk=8.6.10=h21135ba_1
-  - torchvision=0.9.1=py39_cpu
+  - torchvision=0.11.1=py39_cu102
   - tqdm=4.59.0=pyhd8ed1ab_0
   - typing_extensions=3.7.4.3=py_0
   - tzdata=2021a=he74cb21_0

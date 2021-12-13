@@ -669,13 +669,3 @@ def main(cfg: DictConfig) -> None:
         bucket.upload_file(samples_dir + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
         bucket.upload_file(samples_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
         bucket.upload_file(samples_dir + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
-
-
-# if __name__ == '__main__':
-#     parser = argparse.ArgumentParser(description='Sample preparation')
-#     parser.add_argument('ParamFile', metavar='DIR',
-#                         help='Path to training parameters stored in yaml')
-#     args = parser.parse_args()
-#     params = read_parameters(args.ParamFile)
-#     print(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
-#     main(params)

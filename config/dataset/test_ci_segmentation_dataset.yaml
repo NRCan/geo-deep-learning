@@ -8,7 +8,7 @@ dataset:
   raw_data_csv: ${general.raw_data_csv}
   raw_data_dir: ${general.raw_data_dir}
   sample_data_dir: ${general.sample_data_dir}
-  class_name: src.utils.dataset.BaseDataSetObjectDetection
+  class_name: # will follow in the next version
   classes_dict: {'Building':1}
   class_weights:
   train_val_percent: {'trn':0.7, 'val':0.2, 'tst':0.1}

@@ -5,5 +5,5 @@ scheduler:
   monitor: ${training.loss_fn}
   params:
     mode: ${training.mode}
-    factor: 0.5
+    factor: 0.5  # (float) Set dropout probability, e.g. 0.5
     patience: 15
