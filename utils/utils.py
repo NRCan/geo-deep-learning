@@ -363,7 +363,7 @@ def list_input_images(img_dir_or_csv: str,
                     assert isinstance(glob_pattern, str), f'Invalid glob pattern: "{glob_pattern}"'
                     list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
             else:
-                list_img_paths.update(img_dir)
+                list_img_paths.update([img_dir])
             list_img = []
             for img_path in list_img_paths:
                 img = {}

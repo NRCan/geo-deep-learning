@@ -195,7 +195,7 @@ def fix_limits(i_min, i_max, j_min, j_max, min_image_size=256):
     return i_min, i_max, j_min, j_max
 
 
-def regularization(rgb, ins_segmentation, model, in_mode="instance", out_mode="instance", min_size=10):
+def regularization(rgb, ins_segmentation, model, in_mode="instance", out_mode="instance", min_size=10, build_val=255):
     assert in_mode == "semantic"
     assert out_mode == "instance" or out_mode == "semantic"
 
@@ -243,7 +243,7 @@ def regularization(rgb, ins_segmentation, model, in_mode="instance", out_mode="i
             if (i_max - i_min) > 10000 or (j_max - j_min) > 10000:
                 continue
 
-            mask = np.copy(ins_segmentation[i_min:i_max, j_min:j_max] == 255)
+            mask = np.copy(ins_segmentation[i_min:i_max, j_min:j_max] == build_val)
 
             rgb_mask = np.copy(rgb[i_min:i_max, j_min:j_max, :])
             # print(f'RGB mask l168: {rgb_mask.shape}')
@@ -293,7 +293,7 @@ def arr_threshold(arr, value=127):
     return arr
 
 
-def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=None):
+def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=None, build_val=255):
     if apply_threshold:
         print('Applying threshold...')
         pred_arr = arr_threshold(pred_arr, value=apply_threshold)
@@ -310,11 +310,11 @@ def regularize_buildings(pred_arr, model_dir, sat_img_arr=None, apply_threshold=
     G = G.cuda()
 
     model = [E1, G]
-    R = regularization(sat_img_arr, pred_arr, model, in_mode="semantic", out_mode="semantic")
+    R = regularization(sat_img_arr, pred_arr, model, in_mode="semantic", out_mode="semantic", build_val=build_val)
     return R
 
 
-def post_process_pipeline(inference_raster, outdir, apply_threshold=False, buildings_model=None, simp_tolerance=0.2):
+def post_process_pipeline(inference_raster, outdir, apply_threshold=False, buildings_model=None, simp_tolerance=0.2, build_val=255):
     is_valid_raster, _ = validate_raster(inference_raster)
     if not is_valid_raster:
         logging.error(f"{inference_raster} is not a valid raster")
@@ -329,20 +329,19 @@ def post_process_pipeline(inference_raster, outdir, apply_threshold=False, build
                 meta = raw_pred.meta
                 raw_pred_arr = raw_pred.read()[0, ...]
                 # FIXME: softcode for multiclass inference
-                raw_pred_arr_buildings = raw_pred_arr
-                #logging.debug(raw_pred_arr.shape)
-                #raw_pred_arr_buildings = np.where(raw_pred_arr == 4, 255, 0)
-                #logging.debug(raw_pred_arr_buildings.shape)
-                #logging.debug(np.bincount(raw_pred_arr_buildings.flatten()))
-                reg_arr = regularize_buildings(raw_pred_arr_buildings, buildings_model, apply_threshold=apply_threshold)
-                #out_arr = np.where(reg_arr == 255, 4, 0)
-                #out_arr = raw_pred_arr[raw_pred_arr < 4]
-                #out_arr = out_arr[np.newaxis, :, :]
+                raw_pred_arr_buildings = np.zeros(shape=raw_pred_arr.shape, dtype=np.uint8)
+                raw_pred_arr_buildings[raw_pred_arr == build_val] = build_val
+                raw_pred_arr[raw_pred_arr == build_val] = 0
+                reg_arr = regularize_buildings(raw_pred_arr_buildings, buildings_model, apply_threshold=apply_threshold,
+                                               build_val=build_val)
+                reg_arr[reg_arr == 1] = build_val
+                raw_pred_arr[reg_arr == build_val] = build_val
+                out_arr = raw_pred_arr[np.newaxis, :, :]
 
                 meta.update({"dtype": 'uint8', "compress": 'lzw'})
-                with rasterio.open(outname_reg, 'w+', **meta) as reg_pred:
+                with rasterio.open(outname_reg, 'w+', **meta) as out:
                     logging.info(f'Successfully regularized on {inference_raster}\nWriting to file: {outname_reg}')
-                    reg_pred.write(reg_arr.astype(np.uint8) * 255)
+                    out.write(out_arr.astype(np.uint8))
             else:
                 logging.info(f'Regularized prediction exists: {outname_reg}')
 
@@ -401,23 +400,26 @@ def main(params):
     simp_tolerance = get_key_def('simp_tolerance', params['inference'], 0.2, expected_type=float)
     # keeps this script relatively agnostic to source of inference data
     tiles_dir = get_key_def('tiles_dir', params['inference'], None, expected_type=str)
-    if tiles_dir is not None and tiles_dir.is_dir():
-        tiles_dir = Path(tiles_dir)
-    else:
-        raise NotADirectoryError(f"Couldn't locate tiles directory: {tiles_dir}")
+    if tiles_dir is not None:
+        if tiles_dir.is_dir():
+            tiles_dir = Path(tiles_dir)
+        else:
+            raise NotADirectoryError(f"Couldn't locate tiles directory: {tiles_dir}")
     buildings_model = Path(get_key_def('buildings_reg_modeldir', params['inference'], None, expected_type=str))
+    buildings_value = get_key_def('buildings_value', params['inference'], None, expected_type=int)
     if buildings_model is not None and not buildings_model.is_dir():
         raise NotADirectoryError(f"Couldn't locate building regularization model directory: {buildings_model}")
     # FIXME: accept multiclass inference
-    if num_classes > 1 and buildings_model is not None:
-        raise ValueError(f'Value mismatch: when "buildings" is True, "num_classes" should be 1, not {num_classes}')
+    if num_classes > 1 and not buildings_value and buildings_model is not None:
+        raise ValueError(f'Value mismatch: when "buildings" is True and "num_classes" is more than 1, '
+                         f'"buildings_value parameter should be set". Got {buildings_value}')
 
     # SETTING OUTPUT DIRECTORY
     working_folder = Path(state_dict).parent / f'inference_{num_bands}bands'
     if tiles_dir:
         Path.mkdir(working_folder, exist_ok=True)
     elif not working_folder.is_dir():
-        raise NotADirectoryError("Couldn't find source inference directory")
+        raise NotADirectoryError(f"Couldn't find source inference directory: {working_folder}")
 
     working_folder_pp = working_folder.parent / f'{working_folder.stem}_post-process'
     Path.mkdir(working_folder_pp, exist_ok=True)
@@ -496,8 +498,12 @@ def main(params):
                                    buildings_model, simp_tolerance])
             else:
                 # FIXME: one for loop for each PP step (complete all regularization first, then polygonize, etc.)
-                post_process_pipeline(inference_raster, working_folder_pp, apply_threshold, buildings_model,
-                                      simp_tolerance)
+                post_process_pipeline(inference_raster=inference_raster,
+                                      outdir=working_folder_pp,
+                                      apply_threshold=apply_threshold,
+                                      buildings_model=buildings_model,
+                                      simp_tolerance=simp_tolerance,
+                                      build_val=buildings_value)
         except IOError as e:
             logging.error(f"Failed to post-process from {inference_raster}\n{e}")
 
