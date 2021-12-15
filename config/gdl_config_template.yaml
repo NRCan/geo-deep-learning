@@ -1,7 +1,7 @@
 defaults:
   - task: segmentation
   - model: unet
-  - trainer: default_trainer
+#  - trainer: default_trainer
   - training: default_training
   - optimizer: adamw
   - callbacks: default_callbacks
@@ -41,4 +41,4 @@ AWS:
 
 print_config: True # save the config in the log folder
 mode: {sampling, train, evaluate, inference, hyperparameters_search}
-debug: False # will print the complete yaml config plus run a validation test
+debug: True #False # will print the complete yaml config plus run a validation test

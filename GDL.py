@@ -32,7 +32,8 @@ def run_gdl(cfg: DictConfig) -> None:
 
     # debug config
     if cfg.debug:
-        cfg.trainer.num_sanity_val_steps = 1  # only work with pytorch lightning
+        pass
+        # cfg.training.num_sanity_val_steps = 1  # only work with pytorch lightning
         # logging.info(OmegaConf.to_yaml(cfg, resolve=True))
 
     # check if the mode is chosen
