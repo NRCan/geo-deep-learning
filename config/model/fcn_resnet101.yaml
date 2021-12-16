@@ -1,0 +1,5 @@
+# @package _global_
+model:
+  model_name: fcn_resnet101
+  pretrained: True
+  

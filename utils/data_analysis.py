@@ -16,7 +16,7 @@ from collections import OrderedDict
 from numpy import genfromtxt
 from tqdm import tqdm
 
-import images_to_samples
+import sampling_segmentation
 
 logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def create_csv():
                                                                                     params['global'], None))
                 # Mask the zeros from input image into label raster.
                 if params['sample']['mask_reference']:
-                    np_label_raster = images_to_samples.mask_image(np_input_image, np_label_raster)
+                    np_label_raster = sampling_segmentation.mask_image(np_input_image, np_label_raster)
 
                 np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
 

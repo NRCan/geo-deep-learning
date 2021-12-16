@@ -1,0 +1,2 @@
+task_name: segmentation
+path_task_function: ${mode}_segmentation.main

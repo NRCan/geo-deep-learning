@@ -72,22 +72,25 @@ except AttributeError:
 
 
 def load_checkpoint(filename):
-    ''' Loads checkpoint from provided path
+    """
+    Loads checkpoint from provided path
     :param filename: path to checkpoint as .pth.tar or .pth
     :return: (dict) checkpoint ready to be loaded into model instance
-    '''
+    """
     try:
-        logging.info(f"=> loading model '{filename}'\n")
-        # For loading external models with different structure in state dict. May cause problems when trying to load optimizer
+        logging.info(f"\n=> loading model '{filename}'")
+        # For loading external models with different structure in state dict.
+        # May cause problems when trying to load optimizer
         checkpoint = torch.load(filename, map_location='cpu')
         if 'model' not in checkpoint.keys():
             temp_checkpoint = {}
-            temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}    # Place entire state_dict inside 'model' key
+            # Place entire state_dict inside 'model' key
+            temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}
             del checkpoint
             checkpoint = temp_checkpoint
         return checkpoint
     except FileNotFoundError:
-        raise FileNotFoundError(f"=> No model found at '{filename}'")
+        raise logging.critical(FileNotFoundError(f"\n=> No model found at '{filename}'"))
 
 
 def verify_weights(num_classes, weights):
@@ -128,18 +131,15 @@ def set_hyperparameters(params,
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
     # set mandatory hyperparameters values with those in config file if they exist
-    lr = get_key_def('learning_rate', params['training'], None)
-    weight_decay = get_key_def('weight_decay', params['training'], None)
-    step_size = get_key_def('step_size', params['training'], None)
-    gamma = get_key_def('gamma', params['training'], None)
-
+    lr = get_key_def('lr', params['training']['lr'], 0.0001)
+    weight_decay = get_key_def('weight_decay', params['optimizer']['params'], 0)
+    step_size = get_key_def('step_size', params['scheduler']['params'], 4)
+    gamma = get_key_def('gamma', params['scheduler']['params'], 0.9)
     class_weights = torch.tensor(class_weights) if class_weights else None
-
     # Loss function
     criterion = MultiClassCriterion(loss_type=loss_fn,
                                     ignore_index=dontcare_val,
                                     weight=class_weights)
-
     # Optimizer
     opt_fn = optimizer
     optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
@@ -168,7 +168,7 @@ def net(model_name: str,
         coordconv_params=None,
         inference_state_dict: str = None):
     """Define the neural net"""
-    msg = f'Number of bands specified incompatible with this model. Requires 3 band data.'
+    msg = f'\nNumber of bands specified incompatible with this model. Requires 3 band data.'
     pretrained = False if train_state_dict_path or inference_state_dict else pretrained
     dropout = True if dropout_prob else False
     model = None
@@ -179,7 +179,7 @@ def net(model_name: str,
         model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'ternausnet':
         if not num_bands == 3:
-            raise NotImplementedError(msg)
+            raise logging.critical(NotImplementedError(msg))
         model = TernausNet.ternausnet(num_channels)
     elif model_name == 'checkpointed_unet':
         model = checkpointed_unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
@@ -187,23 +187,22 @@ def net(model_name: str,
         model = inception.Inception3(num_channels, num_bands)
     elif model_name == 'fcn_resnet101':
         if not num_bands == 3:
-            raise NotImplementedError(msg)
+            raise logging.critical(NotImplementedError(msg))
         model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
                                                   aux_loss=None)
     elif model_name == 'deeplabv3_resnet101':
         if not (num_bands == 3 or num_bands == 4):
-            raise NotImplementedError(msg)
+            raise logging.critical(NotImplementedError(msg))
         if num_bands == 3:
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
             classifier = list(model.classifier.children())
             model.classifier = nn.Sequential(*classifier[:-1])
             model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
         elif num_bands == 4:
-
             model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
 
             if conc_point == 'baseline':
-                logging.info('Testing with 4 bands, concatenating at {}.'.format(conc_point))
+                logging.info('\nTesting with 4 bands, concatenating at {}.'.format(conc_point))
                 conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
                 depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
                 conv1 = np.append(conv1, depth, axis=1)
@@ -220,19 +219,10 @@ def net(model_name: str,
                 model.classifier.add_module(
                         '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
                 )
-                ###################
-                # conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-                # depth = np.random.uniform(low=-1, high=1, size=(64, 1, 7, 7))
-                # conv1 = np.append(conv1, depth, axis=1)
-                # conv1 = torch.from_numpy(conv1).float()
-                # model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-                ###################
                 conc_point = 'conv1' if not conc_point else conc_point
                 model = LayersEnsemble(model, conc_point=conc_point)
-
-        logging.info(f'Finetuning pretrained deeplabv3 with {num_bands} input channels (imagery bands). '
+        logging.info(f'\nFinetuning pretrained deeplabv3 with {num_bands} input channels (imagery bands). '
                      f'Concatenation point: "{conc_point}"')
-
     elif model_name in lm_smp.keys():
         lsmp = lm_smp[model_name]
         # TODO: add possibility of our own weights
@@ -242,10 +232,8 @@ def net(model_name: str,
         lsmp['params']['activation'] = None
 
         model = lsmp['fct'](**lsmp['params'])
-
-
     else:
-        raise ValueError(f'The model name {model_name} in the config.yaml is not defined.')
+        raise logging.critical(ValueError(f'\nThe model name {model_name} in the config.yaml is not defined.'))
 
     coordconv_convert = get_key_def('coordconv_convert', coordconv_params, False)
     if coordconv_convert:
@@ -261,11 +249,9 @@ def net(model_name: str,
     if inference_state_dict:
         state_dict_path = inference_state_dict
         checkpoint = load_checkpoint(state_dict_path)
-
         return model, checkpoint, model_name
 
     else:
-
         if train_state_dict_path is not None:
             checkpoint = load_checkpoint(train_state_dict_path)
         else:
@@ -276,20 +262,20 @@ def net(model_name: str,
         logging.info(f"Number of cuda devices requested: {num_devices}. "
                      f"Cuda devices available: {list(gpu_devices_dict.keys())}\n")
         if num_devices == 1:
-            logging.info(f"Using Cuda device 'cuda:{list(gpu_devices_dict.keys())[0]}'")
+            logging.info(f"\nUsing Cuda device 'cuda:{list(gpu_devices_dict.keys())[0]}'")
         elif num_devices > 1:
-            logging.info(f"Using data parallel on devices: {list(gpu_devices_dict.keys())[1:]}. "
+            logging.info(f"\nUsing data parallel on devices: {list(gpu_devices_dict.keys())[1:]}. "
                          f"Main device: 'cuda:{list(gpu_devices_dict.keys())[0]}'")
             try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
                 # DataParallel adds prefix 'module.' to state_dict keys
                 model = nn.DataParallel(model, device_ids=list(gpu_devices_dict.keys()))
             except AssertionError:
-                logging.warning(f"Unable to use devices with ids {gpu_devices_dict.keys()}"
+                logging.warning(f"\nUnable to use devices with ids {gpu_devices_dict.keys()}"
                                 f"Trying devices with ids {list(range(len(gpu_devices_dict.keys())))}")
                 model = nn.DataParallel(model, device_ids=list(range(len(gpu_devices_dict.keys()))))
         else:
             logging.warning(f"No Cuda device available. This process will only run on CPU\n")
-        logging.info(f'Setting model, criterion, optimizer and learning rate scheduler...\n')
+        logging.info(f'\nSetting model, criterion, optimizer and learning rate scheduler...')
         device = torch.device(f'cuda:{list(range(len(gpu_devices_dict.keys())))[0]}' if gpu_devices_dict else 'cpu')
         try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
             model.to(device)
