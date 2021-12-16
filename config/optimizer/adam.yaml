@@ -3,4 +3,4 @@ optimizer:
   optimizer_name: 'adam'
   class_name: torch.optim.Adam
   params:
-    ls: ${training.lr}
+    lr: ${training.lr}
