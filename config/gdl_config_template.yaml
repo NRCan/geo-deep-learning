@@ -1,7 +1,6 @@
 defaults:
   - task: segmentation
   - model: unet
-#  - trainer: default_trainer
   - training: default_training
   - optimizer: adamw
   - callbacks: default_callbacks

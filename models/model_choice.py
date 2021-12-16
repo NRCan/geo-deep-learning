@@ -123,10 +123,10 @@ def set_hyperparameters(params,
     :return: model, criterion, optimizer, lr_scheduler, num_gpus
     """
     # set mandatory hyperparameters values with those in config file if they exist
-    lr = get_key_def('lr', params['training'], None)
-    weight_decay = get_key_def('weight_decay', params['training'], None)
-    step_size = get_key_def('step_size', params['training'], None)
-    gamma = get_key_def('gamma', params['training'], None)
+    lr = get_key_def('lr', params['optimizer']['params'], 0.0001)
+    weight_decay = get_key_def('weight_decay', params['optimizer']['params'], 0)
+    step_size = get_key_def('step_size', params['scheduler']['params'], 4)
+    gamma = get_key_def('gamma', params['scheduler']['params'], 0.9)
     class_weights = torch.tensor(class_weights) if class_weights else None
     # Loss function
     criterion = MultiClassCriterion(loss_type=loss_fn,

@@ -345,10 +345,10 @@ def main(params: dict) -> None:
         )
     # OPTIONAL PARAMETERS
     dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
-    num_devices = get_key_def('num_gpus', params['trainer'], default=0, expected_type=int)
+    num_devices = get_key_def('num_gpus', params['training'], default=0, expected_type=int)
     default_max_used_ram = 25
-    max_used_ram = get_key_def('max_used_ram', params['trainer'], default=default_max_used_ram, expected_type=int)
-    max_used_perc = get_key_def('max_used_perc', params['trainer'], default=25, expected_type=int)
+    max_used_ram = get_key_def('max_used_ram', params['training'], default=default_max_used_ram, expected_type=int)
+    max_used_perc = get_key_def('max_used_perc', params['training'], default=25, expected_type=int)
     meta_map = get_key_def('meta_map', params['dataset'], default={})
     scale = get_key_def('scale_data', params['augmentation'], default=[0, 1], expected_type=ListConfig)
     # benchmark (ie when gkpgs are inputted along with imagery)
@@ -384,7 +384,7 @@ def main(params: dict) -> None:
                                       max_used_perc=max_used_perc)
     # TODO: test this thumbrule on different GPUs
     if gpu_devices_dict:
-        chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=350)
+        chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=250)
     else:
         chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
     device = torch.device(f'cuda:0' if gpu_devices_dict else 'cpu')

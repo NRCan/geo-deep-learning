@@ -633,7 +633,7 @@ def train(cfg: DictConfig) -> None:
                                       max_used_ram_perc=max_used_ram,
                                       max_used_perc=max_used_perc)
     num_devices = len(gpu_devices_dict.keys())
-    device = torch.device(f'\ncuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
+    device = torch.device(f'cuda:{list(gpu_devices_dict.keys())[0]}' if gpu_devices_dict else 'cpu')
 
     # Creating dataloader
     logging.info(f'\nCreating dataloader from data from {samples_folder}...')
