@@ -1,3 +1,4 @@
+from math import sqrt
 from typing import List
 
 import torch
@@ -387,6 +388,23 @@ def classifier(params, img_list, model, device, working_folder):
                    delimiter=',')
 
 
+def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200):
+    """
+    Calculate maximum chunk_size that could fit on GPU during inference based on thumb rule with hardcoded
+    "pixels per MB of GPU RAM" as threshold. Threshold based on inference with a large model (Deeplabv3_resnet101)
+    :param gpu_devices_dict: dictionary containing info on GPU devices as returned by lst_device_ids (utils.py)
+    :param max_pix_per_mb_gpu: Maximum number of pixels that can fit on each MB of GPU (better to underestimate)
+    :return: returns a downgraded evaluation batch size if the original batch size is considered too high
+    """
+    # get max ram for smallest gpu
+    smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
+    # rule of thumb to determine max chunk size based on approximate max pixels a gpu can handle during inference
+    max_chunk_size = sqrt(max_pix_per_mb_gpu * smallest_gpu_ram)
+    max_chunk_size_rd = int(max_chunk_size - (max_chunk_size % 256))
+    logging.info(f'Images will be split into chunks of {max_chunk_size_rd}')
+    return max_chunk_size_rd
+
+
 def main(params: dict) -> None:
     """
     Function to manage details about the inference on segmentation task.
@@ -497,7 +515,7 @@ def main(params: dict) -> None:
 
     # benchmark (ie when gkpgs are inputted along with imagery)
     dontcare = get_key_def("ignore_index", params["training"], -1)
-    targ_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
+    targ_ids = None  # TODO get_key_def('target_ids', params['sample'], None, expected_type=List)
 
     if debug:
         logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
@@ -525,7 +543,7 @@ def main(params: dict) -> None:
                                       max_used_ram_perc=max_used_ram,
                                       max_used_perc=max_used_perc)
     if gpu_devices_dict:
-        chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=250)
+        chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=50)
         logging.info(f"\nNumber of cuda devices requested: {num_devices}. "
                      f"\nCuda devices available: {gpu_devices_dict}. "
                      f"\nUsing {list(gpu_devices_dict.keys())[0]}\n\n")
@@ -598,88 +616,101 @@ def main(params: dict) -> None:
             model, _ = load_from_checkpoint("saved_model.pth.tar", model)
         else:
             model, _ = load_from_checkpoint(loaded_checkpoint, model)
+
+        # Save tracking TODO put option not just mlflow
+        if 'tracker_uri' in locals() and 'run_name' in locals():
+            mode = get_key_def('mode', params, expected_type=str)
+            task = get_key_def('task_name', params['task'], expected_type=str)
+            run_name = '{}_{}_{}'.format(run_name, mode, task)
+            # tracking path + parameters logging
+            set_tracking_uri(tracker_uri)
+            set_experiment(experiment_name)
+            start_run(run_name=run_name)
+            log_params(dict_path(params, 'inference'))
+            log_params(dict_path(params, 'dataset'))
+            log_params(dict_path(params, 'model'))
+
         # LOOP THROUGH LIST OF INPUT IMAGES
         for info in tqdm(list_img, desc='Inferring from images', position=0, leave=True):
-            with start_run(run_name=Path(info['tif']).name, nested=True):
-                img_name = Path(info['tif']).name
-                local_gpkg = Path(info['gpkg']) if 'gpkg' in info.keys() and info['gpkg'] else None
-                gpkg_name = local_gpkg.stem if local_gpkg else None
-                if bucket:
-                    local_img = f"Images/{img_name}"
-                    bucket.download_file(info['tif'], local_img)
-                    inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-                    if info['meta']:
-                        if info['meta'] not in bucket_file_cache:
-                            bucket_file_cache.append(info['meta'])
-                            bucket.download_file(info['meta'], info['meta'].split('/')[-1])
-                        info['meta'] = info['meta'].split('/')[-1]
-                else:  # FIXME: else statement should support img['meta'] integration as well.
-                    local_img = Path(info['tif'])
-                    Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
-                    inference_image = working_folder.joinpath(local_img.parent.name,
-                                                              f"{img_name.split('.')[0]}_inference.tif")
-                temp_file = working_folder.joinpath(local_img.parent.name, f"{img_name.split('.')[0]}.dat")
+            img_name = Path(info['tif']).name
+            local_gpkg = Path(info['gpkg']) if 'gpkg' in info.keys() and info['gpkg'] else None
+            gpkg_name = local_gpkg.stem if local_gpkg else None
+            if bucket:
+                local_img = f"Images/{img_name}"
+                bucket.download_file(info['tif'], local_img)
+                inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
+                if info['meta']:
+                    if info['meta'] not in bucket_file_cache:
+                        bucket_file_cache.append(info['meta'])
+                        bucket.download_file(info['meta'], info['meta'].split('/')[-1])
+                    info['meta'] = info['meta'].split('/')[-1]
+            else:  # FIXME: else statement should support img['meta'] integration as well.
+                local_img = Path(info['tif'])
+                Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
+                inference_image = working_folder.joinpath(local_img.parent.name,
+                                                          f"{img_name.split('.')[0]}_inference.tif")
+            temp_file = working_folder.joinpath(local_img.parent.name, f"{img_name.split('.')[0]}.dat")
+            raster = rasterio.open(local_img, 'r')
+            logging.info(f'\nReading original image: {raster.name}')
+            inf_meta = raster.meta
+            label = None
+            if local_gpkg:
+                logging.info(f'\nBurning label as raster: {local_gpkg}')
+                local_img = clip_raster_with_gpkg(raster, local_gpkg)
+                raster.close()
                 raster = rasterio.open(local_img, 'r')
-                logging.info(f'\nReading original image: {raster.name}')
+                logging.info(f'\nReading clipped image: {raster.name}')
                 inf_meta = raster.meta
-                label = None
-                if local_gpkg:
-                    logging.info(f'\nBurning label as raster: {local_gpkg}')
-                    local_img = clip_raster_with_gpkg(raster, local_gpkg)
-                    raster.close()
-                    raster = rasterio.open(local_img, 'r')
-                    logging.info(f'\nReading clipped image: {raster.name}')
-                    inf_meta = raster.meta
-                    label = vector_to_raster(vector_file=local_gpkg,
-                                             input_image=raster,
-                                             out_shape=(inf_meta['height'], inf_meta['width']),
-                                             attribute_name=info['attribute_name'],
-                                             fill=0,  # background value in rasterized vector.
-                                             target_ids=targ_ids)
-                    if debug:
-                        logging.debug(f'\nUnique values in loaded label as raster: {np.unique(label)}\n'
-                                      f'Shape of label as raster: {label.shape}')
-                pred, gdf = segmentation(param=params,
+                label = vector_to_raster(vector_file=local_gpkg,
                                          input_image=raster,
-                                         label_arr=label,
-                                         num_classes=num_classes_backgr,
-                                         gpkg_name=gpkg_name,
-                                         model=model,
-                                         chunk_size=chunk_size,
-                                         device=device,
-                                         scale=scale,
-                                         BGR_to_RGB=BGR_to_RGB,
-                                         tp_mem=temp_file,
-                                         debug=debug)
-                if gdf is not None:
-                    gdf_.append(gdf)
-                    gpkg_name_.append(gpkg_name)
-                if local_gpkg and 'tracker_uri' in locals():
-                    pixelMetrics = ComputePixelMetrics(label, pred, num_classes_backgr)
-                    log_metrics(pixelMetrics.update(pixelMetrics.iou))
-                    log_metrics(pixelMetrics.update(pixelMetrics.dice))
-                pred = pred[np.newaxis, :, :].astype(np.uint8)
-                inf_meta.update({"driver": "GTiff",
-                                 "height": pred.shape[1],
-                                 "width": pred.shape[2],
-                                 "count": pred.shape[0],
-                                 "dtype": 'uint8',
-                                 "compress": 'lzw'})
-                logging.info(f'\nSuccessfully inferred on {img_name}\nWriting to file: {inference_image}')
-                with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
-                    dest.write(pred)
-                del pred
-                try:
-                    temp_file.unlink()
-                except OSError as e:
-                    logging.warning(f'File Error: {temp_file, e.strerror}')
-                if raster_to_vec:
-                    start_vec = time.time()
-                    inference_vec = working_folder.joinpath(local_img.parent.name,
-                                                            f"{img_name.split('.')[0]}_inference.gpkg")
-                    ras2vec(inference_image, inference_vec)
-                    end_vec = time.time() - start_vec
-                    logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))
+                                         out_shape=(inf_meta['height'], inf_meta['width']),
+                                         attribute_name=info['attribute_name'],
+                                         fill=0,  # background value in rasterized vector.
+                                         target_ids=targ_ids)
+                if debug:
+                    logging.debug(f'\nUnique values in loaded label as raster: {np.unique(label)}\n'
+                                  f'Shape of label as raster: {label.shape}')
+            pred, gdf = segmentation(param=params,
+                                     input_image=raster,
+                                     label_arr=label,
+                                     num_classes=num_classes_backgr,
+                                     gpkg_name=gpkg_name,
+                                     model=model,
+                                     chunk_size=chunk_size,
+                                     device=device,
+                                     scale=scale,
+                                     BGR_to_RGB=BGR_to_RGB,
+                                     tp_mem=temp_file,
+                                     debug=debug)
+            if gdf is not None:
+                gdf_.append(gdf)
+                gpkg_name_.append(gpkg_name)
+            if local_gpkg and 'tracker_uri' in locals():
+                pixelMetrics = ComputePixelMetrics(label, pred, num_classes_backgr)
+                log_metrics(pixelMetrics.update(pixelMetrics.iou))
+                log_metrics(pixelMetrics.update(pixelMetrics.dice))
+            pred = pred[np.newaxis, :, :].astype(np.uint8)
+            inf_meta.update({"driver": "GTiff",
+                             "height": pred.shape[1],
+                             "width": pred.shape[2],
+                             "count": pred.shape[0],
+                             "dtype": 'uint8',
+                             "compress": 'lzw'})
+            logging.info(f'\nSuccessfully inferred on {img_name}\nWriting to file: {inference_image}')
+            with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
+                dest.write(pred)
+            del pred
+            try:
+                temp_file.unlink()
+            except OSError as e:
+                logging.warning(f'File Error: {temp_file, e.strerror}')
+            if raster_to_vec:
+                start_vec = time.time()
+                inference_vec = working_folder.joinpath(local_img.parent.name,
+                                                        f"{img_name.split('.')[0]}_inference.gpkg")
+                ras2vec(inference_image, inference_vec)
+                end_vec = time.time() - start_vec
+                logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))
 
         if len(gdf_) >= 1:
             if not len(gdf_) == len(gpkg_name_):

@@ -604,8 +604,8 @@ def train(cfg: DictConfig) -> None:
     heatmaps = get_key_def('heatmaps', cfg['visualization'], False)
     heatmaps_inf = get_key_def('heatmaps', cfg['inference'], False)
     grid = get_key_def('grid', cfg['visualization'], False)
-    mean = get_key_def('mean', cfg['training']['normalization'])
-    std = get_key_def('std', cfg['training']['normalization'])
+    mean = get_key_def('mean', cfg['augmentation']['normalization'])
+    std = get_key_def('std', cfg['augmentation']['normalization'])
     vis_params = {'colormap_file': colormap_file, 'heatmaps': heatmaps, 'heatmaps_inf': heatmaps_inf, 'grid': grid,
                   'mean': mean, 'std': std, 'vis_batch_range': vis_batch_range, 'vis_at_train': vis_at_train,
                   'vis_at_eval': vis_at_eval, 'ignore_index': dontcare_val, 'inference_input_path': None}
