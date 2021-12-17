@@ -1,33 +1,29 @@
-import argparse
-from datetime import datetime
-import logging
-from typing import List
-
-import numpy as np
-np.random.seed(1234)  # Set random seed for reproducibility
-import rasterio
-import time
 import shutil
-import uuid
-
-from pathlib import Path
+import rasterio
+import numpy as np
+from os import path
 from tqdm import tqdm
-from collections import OrderedDict
+from pathlib import Path
+from datetime import datetime
+from omegaconf import DictConfig, open_dict
+from hydra.core.hydra_config import HydraConfig
 
-from utils.create_dataset import create_files_and_datasets, append_to_dataset
-from utils.utils import get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash
+# Our modules
 from utils.geoutils import vector_to_raster
 from utils.readers import read_parameters, image_reader_as_array
-from utils.verifications import validate_num_classes, validate_raster, assert_crs_match, \
-    validate_features_from_gpkg
-
-try:
-    import boto3
-except ModuleNotFoundError:
-    logging.warning("The boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
-    pass
-
-logging.getLogger(__name__)
+from utils.create_dataset import create_files_and_datasets, append_to_dataset
+from utils.utils import (
+    get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash,
+    read_modalities,
+)
+from utils.verifications import (
+    validate_num_classes, validate_raster, assert_crs_match, validate_features_from_gpkg
+)
+# Set the logging file
+from utils import utils
+logging = utils.get_logger(__name__)  # import logging
+# Set random seed for reproducibility
+np.random.seed(1234)
 
 
 def mask_image(arrayA, arrayB):
@@ -75,7 +71,7 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
     if not config_dict:
         return None
     elif not isinstance(config_dict, dict):
-        logging.warning(f"Class_proportion parameter should be a dictionary. Got type {type(config_dict)}")
+        logging.warning(f"\nClass_proportion parameter should be a dictionary. Got type {type(config_dict)}")
         return None
 
     for key, value in config_dict.items():
@@ -93,7 +89,7 @@ def validate_class_prop_dict(actual_classes_dict, config_dict):
         if int(key) in actual_classes_dict.keys():
             actual_classes_dict[int(key)] = value
         else:
-            logging.warning(f"Class {key} not found in provided vector data.")
+            logging.warning(f"\nClass {key} not found in provided vector data.")
 
     return actual_classes_dict.copy()
 
@@ -213,15 +209,16 @@ def samples_preparation(in_img_array,
 
     if overlap > 25:
         logging.warning(
-            "high overlap >25%, note that automatic train/val split creates very similar samples in both sets")
+            "\nhigh overlap >25%, note that automatic train/val split creates very similar samples in both sets"
+        )
     dist_samples = round(sample_size * (1 - (overlap / 100)))
     added_samples = 0
     excl_samples = 0
 
-    with tqdm(range(0, h, dist_samples), position=1, leave=True,
-              desc=f'Writing samples. Dataset currently contains {idx_samples} '
-                   f'samples') as _tqdm:
-
+    # with tqdm(range(0, h, dist_samples), position=1, leave=True,
+    #           desc=f'Writing samples. Dataset currently contains {idx_samples} '
+    #                f'samples') as _tqdm:
+    with tqdm(range(0, h, dist_samples), position=1, leave=True) as _tqdm:
         for row in _tqdm:
             for column in range(0, w, dist_samples):
                 data = (in_img_array[row:row + sample_size, column:column + sample_size, :])
@@ -229,9 +226,11 @@ def samples_preparation(in_img_array,
                 data_row = data.shape[0]
                 data_col = data.shape[1]
                 if data_row < sample_size or data_col < sample_size:
-                    padding = pad_diff(data_row, data_col, sample_size,
-                                       sample_size)  # array, actual height, actual width, desired size
-                    data = pad(data, padding, fill=np.nan)  # don't fill with 0 if possible. Creates false min value when scaling.
+                    padding = pad_diff(
+                        data_row, data_col, sample_size, sample_size  # array, actual height, actual width, desired size
+                    )
+                    # don't fill with 0 if possible. Creates false min value when scaling.
+                    data = pad(data, padding, fill=np.nan)
 
                 target_row = target.shape[0]
                 target_col = target.shape[1]
@@ -327,14 +326,11 @@ def samples_preparation(in_img_array,
     return samples_count, num_classes
 
 
-def main(params):
+def main(cfg: DictConfig) -> None:
     """
-    Training and validation datasets preparation.
+    Function that create training, validation and testing datasets preparation.
 
-    Process
-    -------
     1. Read csv file and validate existence of all input files and GeoPackages.
-
     2. Do the following verifications:
         1. Assert number of bands found in raster is equal to desired number
            of bands.
@@ -343,7 +339,6 @@ def main(params):
            Warning: this validation will not succeed if a Geopackage
                     contains only a subset of `num_classes` (e.g. 3 of 4).
         3. Assert Coordinate reference system between raster and gpkg match.
-
     3. Read csv file and for each line in the file, do the following:
         1. Read input image as array with utils.readers.image_reader_as_array().
             - If gpkg's extent is smaller than raster's extent,
@@ -364,126 +359,145 @@ def main(params):
             Refer to samples_preparation().
 
     -------
-    :param params: (dict) Parameters found in the yaml config file.
+    :param cfg: (dict) Parameters found in the yaml config file.
     """
-    start_time = time.time()
+    try:
+        import boto3
+    except ModuleNotFoundError:
+        logging.warning(
+            "\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets",
+            ImportWarning
+        )
+        pass
 
-    # mlflow logging
-    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
-    experiment_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
+    # PARAMETERS
+    num_classes = len(cfg.dataset.classes_dict.keys())
+    num_bands = len(cfg.dataset.modalities)
+    modalities = read_modalities(cfg.dataset.modalities)  # TODO add the Victor module to manage the modalities
+    debug = cfg.debug
+    task = cfg.task.task_name
 
-    # MANDATORY PARAMETERS
-    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
-    num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
-    default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''), experiment_name,
-                            f"images_to_samples_{experiment_name}.csv")
-    csv_file = get_key_def('prep_csv_file', params['sample'], default_csv_file, expected_type=str)
+    # RAW DATA PARAMETERS
+    # Data folder
+    try:
+        # check if the folder exist
+        my_data_path = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
+        logging.info("\nImage directory used '{}'".format(my_data_path))
+        data_path = Path(my_data_path)
+    except FileNotFoundError:
+        raise logging.critical(
+            "\nImage directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
+        )
+    # CSV file
+    try:
+        my_csv_path = Path(cfg.dataset.raw_data_csv).resolve(strict=True)
+        # path.exists(cfg.dataset.raw_data_csv)
+        logging.info("\nImage csv: '{}'".format(my_csv_path))
+        csv_file = my_csv_path
+    except FileNotFoundError:
+        raise logging.critical(
+            "\nImage csv '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_csv)
+        )
+    # HDF5 data
+    try:
+        my_hdf5_path = Path(str(cfg.dataset.sample_data_dir)).resolve(strict=True)
+        logging.info("\nThe HDF5 directory used '{}'".format(my_hdf5_path))
+        Path.mkdir(Path(my_hdf5_path), exist_ok=True, parents=True)
+    except FileNotFoundError:
+        logging.info(
+            "\nThe HDF5 directory '{}' doesn't exist, please change the path.".format(cfg.dataset.sample_data_dir) +
+            "\nFor now the HDF5 directory use will be change for '{}'".format(data_path)
+        )
+        cfg.general.sample_data_dir = str(data_path)
 
-    # OPTIONAL PARAMETERS
-    # basics
-    debug = get_key_def('debug_mode', params['global'], False)
+    # SAMPLE PARAMETERS
+    samples_size = get_key_def('input_dim', cfg['dataset'], default=256, expected_type=int)
+    overlap = get_key_def('overlap', cfg['dataset'], default=0)
+    min_annot_perc = get_key_def('min_annot_perc', cfg['dataset'], default=0)
+    val_percent = get_key_def('train_val_percent', cfg['dataset'], default=0.3)['val'] * 100
+    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' \
+                          f'_{num_bands}bands_{cfg.general.project_name}'
+    samples_dir = data_path.joinpath(samples_folder_name)
+    if samples_dir.is_dir():
+        if debug:
+            # Move existing data folder with a random suffix.
+            last_mod_time_suffix = datetime.fromtimestamp(samples_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+            shutil.move(samples_dir, data_path.joinpath(f'{str(samples_dir)}_{last_mod_time_suffix}'))
+        else:
+            logging.critical(
+                f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.'
+            )
+            raise FileExistsError()
+    Path.mkdir(samples_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
 
-    task = get_key_def('task', params['global'], 'segmentation', expected_type=str)
-    if task == 'classification':
-        raise ValueError(f"Got task {task}. Expected 'segmentation'.")
-    elif not task == 'segmentation':
-        raise ValueError(f"images_to_samples.py isn't necessary for classification tasks")
-    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
-    Path.mkdir(data_path, exist_ok=True, parents=True)
-    val_percent = get_key_def('val_percent', params['sample'], default=10, expected_type=int)
+    # LOGGING PARAMETERS  TODO see logging yaml
+    experiment_name = cfg.general.project_name
+    # mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
 
-    # parameters to set hdf5 samples directory
-    data_path = Path(get_key_def('data_path', params['global'], './data', expected_type=str))
-    samples_size = get_key_def("samples_size", params["global"], default=1024, expected_type=int)
-    overlap = get_key_def("overlap", params["sample"], default=5, expected_type=int)
-    min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], default=0,
-                                 expected_type=int)
-    if not data_path.is_dir():
-        raise FileNotFoundError(f'Could not locate data path {data_path}')
-    samples_folder_name = (f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands'
-                           f'_{experiment_name}')
-
-    # other optional parameters
-    dontcare = get_key_def("ignore_index", params["training"], -1)
-    meta_map = get_key_def('meta_map', params['global'], default={})
+    # OTHER PARAMETERS
     metadata = None
-    targ_ids = get_key_def('target_ids', params['sample'], None, expected_type=List)
-    class_prop = get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
-    mask_reference = get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
+    meta_map = {}  # TODO get_key_def('meta_map', params['global'], default={})
+    # TODO class_prop get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
+    class_prop = None
+    mask_reference = False  # TODO get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
+    # set dontcare (aka ignore_index) value
+    dontcare = cfg.dataset.ignore_index if cfg.dataset.ignore_index is not None else -1
+    if dontcare == 0:
+        logging.warning(
+            "\nThe 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero."
+            " All valid class indices should be consecutive, and start at 0. The 'dontcare' value"
+            " will be remapped to -1 while loading the dataset, and inside the config from now on."
+        )
+        dontcare = -1
+    # Assert that all items in target_ids are integers (ex.: single-class samples from multi-class label)
+    targ_ids = None  # TODO get_key_def('target_ids', params['sample'], None, expected_type=List)
+    if targ_ids is list:
+        for item in targ_ids:
+            if not isinstance(item, int):
+                raise logging.critical(ValueError(f'\nTarget id "{item}" in target_ids is {type(item)}, expected int.'))
 
-    if get_key_def('use_stratification', params['sample'], False) is not False:
-        stratd = {'trn': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
-                  'val': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
-                  'strat_factor': params['sample']['use_stratification']}
+    # OPTIONAL
+    use_stratification = cfg.dataset.use_stratification if cfg.dataset.use_stratification is not None else False
+    if use_stratification:
+        stratd = {
+            'trn': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
+            'val': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
+            'strat_factor': cfg['dataset']['use_stratification']
+        }
     else:
         stratd = None
 
-    # add git hash from current commit to parameters if available. Parameters will be saved to hdf5s
-    params['global']['git_hash'] = get_git_hash()
+    # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to hdf5s).
+    with open_dict(cfg):
+        cfg.general.git_hash = get_git_hash()
 
-    # AWS
-    final_samples_folder = None
-    bucket_name = get_key_def('bucket_name', params['global'])
-    bucket_file_cache = []
+    # AWS TODO
+    bucket_name = cfg.AWS.bucket_name
     if bucket_name:
+        final_samples_folder = None
+        bucket_name = cfg.AWS.bucket_name
+        bucket_file_cache = []
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
         bucket.download_file(csv_file, 'samples_prep.csv')
-        list_data_prep = read_csv('samples_prep.csv')
+        list_data_prep = read_csv('samples_prep.csv', data_path)
     else:
-        list_data_prep = read_csv(csv_file)
+        list_data_prep = read_csv(csv_file, data_path)
 
-    smpls_dir = data_path.joinpath(samples_folder_name)
-    if smpls_dir.is_dir():
-        if debug:
-            # Move existing data folder with a random suffix.
-            last_mod_time_suffix = datetime.fromtimestamp(smpls_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-            shutil.move(smpls_dir, data_path.joinpath(f'{str(smpls_dir)}_{last_mod_time_suffix}'))
-        else:
-            raise FileExistsError(f'Data path exists: {smpls_dir}. Remove it or use a different experiment_name.')
-    Path.mkdir(smpls_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
-
-    import logging.config  # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
-    log_config_path = Path('utils/logging.conf').absolute()
-    console_level_logging = 'INFO' if not debug else 'DEBUG'
-    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{smpls_dir}/{samples_folder_name}.log',
-                                                         'logfilename_debug':
-                                                             f'{smpls_dir}/{samples_folder_name}_debug.log',
-                                                         'console_level': console_level_logging})
-
+    # IF DEBUG IS ACTIVATE
     if debug:
-        logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
-                        f'cause delays in execution.')
-
-    logging.info(f'\n\tSuccessfully read csv file: {Path(csv_file).stem}\n'
-                 f'\tNumber of rows: {len(list_data_prep)}\n'
-                 f'\tCopying first entry:\n{list_data_prep[0]}\n')
-
-    logging.info(f'Samples will be written to {smpls_dir}\n\n')
-
-    # Set dontcare (aka ignore_index) value
-    if dontcare == 0:
-        logging.warning("The 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero;"
-                        " all valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-                        " will be remapped to -1 while loading the dataset, and inside the config from now on.")
-        dontcare = -1
-
-    # Assert that all items in target_ids are integers (ex.: single-class samples from multi-class label)
-    if targ_ids:
-        for item in targ_ids:
-            if not isinstance(item, int):
-                raise ValueError(f'Target id "{item}" in target_ids is {type(item)}, expected int.')
+        logging.warning(
+            f'\nDebug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.'
+        )
 
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
     for info in tqdm(list_data_prep, position=0):
         validate_raster(info['tif'], num_bands, meta_map)
         if info['gpkg'] not in valid_gpkg_set:
-            gpkg_classes = validate_num_classes(info['gpkg'],
-                                                num_classes,
-                                                info['attribute_name'],
-                                                dontcare,
-                                                target_ids=targ_ids)
+            gpkg_classes = validate_num_classes(
+                info['gpkg'], num_classes, info['attribute_name'], dontcare, target_ids=targ_ids,
+            )
             assert_crs_match(info['tif'], info['gpkg'])
             valid_gpkg_set.add(info['gpkg'])
 
@@ -498,11 +512,13 @@ def main(params):
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 
+    # with open_dict(cfg):
+    #     print(cfg)
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
                                                              number_of_bands=num_bands,
                                                              meta_map=meta_map,
-                                                             samples_folder=smpls_dir,
-                                                             params=params)
+                                                             samples_folder=samples_dir,
+                                                             cfg=cfg)
 
     # creates pixel_classes dict and keys
     pixel_classes = {key: 0 for key in gpkg_classes}
@@ -512,8 +528,10 @@ def main(params):
     pixel_classes[dontcare] = 0
 
     # For each row in csv: (1) burn vector file to raster, (2) read input raster image, (3) prepare samples
-    logging.info(f"Preparing samples \n\tSamples_size: {samples_size} \n\tOverlap: {overlap} "
-                 f"\n\tValidation set: {val_percent} % of created training samples")
+    logging.info(
+        f"\nPreparing samples \n  Samples_size: {samples_size} \n  Overlap: {overlap} "
+        f"\n  Validation set: {val_percent} % of created training samples"
+    )
     for info in tqdm(list_data_prep, position=0, leave=False):
         try:
             if bucket_name:
@@ -535,12 +553,13 @@ def main(params):
                 np_input_image, raster, dataset_nodata = image_reader_as_array(
                     input_image=raster,
                     clip_gpkg=info['gpkg'],
-                    aux_vector_file=get_key_def('aux_vector_file', params['global'], None),
-                    aux_vector_attrib=get_key_def('aux_vector_attrib', params['global'], None),
-                    aux_vector_ids=get_key_def('aux_vector_ids', params['global'], None),
-                    aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', params['global'], True),
-                    aux_vector_dist_log=get_key_def('aux_vector_dist_log', params['global'], True),
-                    aux_vector_scale=get_key_def('aux_vector_scale', params['global'], None))
+                    aux_vector_file=get_key_def('aux_vector_file', cfg['dataset'], None),
+                    aux_vector_attrib=get_key_def('aux_vector_attrib', cfg['dataset'], None),
+                    aux_vector_ids=get_key_def('aux_vector_ids', cfg['dataset'], None),
+                    aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', cfg['dataset'], True),
+                    aux_vector_dist_log=get_key_def('aux_vector_dist_log', cfg['dataset'], True),
+                    aux_vector_scale=get_key_def('aux_vector_scale', cfg['dataset'], None)
+                )
 
                 # 2. Burn vector file in a raster file
                 logging.info(f"\nRasterizing vector file (attribute: {info['attribute_name']}): {info['gpkg']}")
@@ -561,7 +580,7 @@ def main(params):
                 out_meta.update({"driver": "GTiff",
                                  "height": np_image_debug.shape[1],
                                  "width": np_image_debug.shape[2]})
-                out_tif = smpls_dir / f"{Path(info['tif']).stem}_clipped.tif"
+                out_tif = samples_dir / f"{Path(info['tif']).stem}_clipped.tif"
                 logging.debug(f"Writing clipped raster to {out_tif}")
                 with rasterio.open(out_tif, "w", **out_meta) as dest:
                     dest.write(np_image_debug)
@@ -572,8 +591,8 @@ def main(params):
                                  "height": np_label_debug.shape[1],
                                  "width": np_label_debug.shape[2],
                                  'count': 1})
-                out_tif = smpls_dir / f"{Path(info['gpkg']).stem}_clipped.tif"
-                logging.debug(f"Writing final rasterized gpkg to {out_tif}")
+                out_tif = samples_dir / f"{Path(info['gpkg']).stem}_clipped.tif"
+                logging.debug(f"\nWriting final rasterized gpkg to {out_tif}")
                 with rasterio.open(out_tif, "w", **out_meta) as dest:
                     dest.write(np_label_debug)
 
@@ -586,7 +605,9 @@ def main(params):
             elif info['dataset'] == 'tst':
                 out_file = tst_hdf5
             else:
-                raise ValueError(f"Dataset value must be trn or tst. Provided value is {info['dataset']}")
+                raise logging.critical(
+                    ValueError(f"\nDataset value must be trn or tst. Provided value is {info['dataset']}")
+                )
             val_file = val_hdf5
 
             metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
@@ -617,10 +638,10 @@ def main(params):
                                                                  class_prop=class_prop,
                                                                  stratd=stratd)
 
-            logging.info(f'Number of samples={number_samples}')
+            # logging.info(f'\nNumber of samples={number_samples}')
             out_file.flush()
         except OSError:
-            logging.exception(f'An error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
+            logging.exception(f'\nAn error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
                               f'{Path(info["gpkg"]).stem} (gpkg).')
             continue
 
@@ -632,28 +653,19 @@ def main(params):
     # adds up the number of pixels for each class in pixel_classes dict
     for i in pixel_classes:
         pixel_total += pixel_classes[i]
-
-    # prints the proportion of pixels of each class for the samples created
+    # calculate the proportion of pixels of each class for the samples created
+    pixel_classes_dict = {}
     for i in pixel_classes:
-        prop = round((pixel_classes[i] / pixel_total) * 100, 1) if pixel_total > 0 else 0
-        logging.info(f'Pixels from class {i}: {prop} %')
+        # prop = round((pixel_classes[i] / pixel_total) * 100, 1) if pixel_total > 0 else 0
+        pixel_classes_dict[i] = round((pixel_classes[i] / pixel_total) * 100, 1) if pixel_total > 0 else 0
+    # prints the proportion of pixels of each class for the samples created
+    msg_pixel_classes = "\n".join("Pixels from class {}: {}%".format(k, v) for k, v in pixel_classes_dict.items())
+    logging.info("\n" + msg_pixel_classes)
 
-    logging.info("Number of samples created: ", number_samples)
+    logging.info(f"\nNumber of samples created: {number_samples}")
 
     if bucket_name and final_samples_folder:  # FIXME: final_samples_folder always None in current implementation
-        logging.info('Transfering Samples to the bucket')
-        bucket.upload_file(smpls_dir + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
-        bucket.upload_file(smpls_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
-        bucket.upload_file(smpls_dir + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
-
-    logging.info(f"End of process. Elapsed time:{(time.time() - start_time)}")
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Sample preparation')
-    parser.add_argument('ParamFile', metavar='DIR',
-                        help='Path to training parameters stored in yaml')
-    args = parser.parse_args()
-    params = read_parameters(args.ParamFile)
-    print(f'\n\nStarting images to samples preparation with {args.ParamFile}\n\n')
-    main(params)
+        logging.info('\nTransfering Samples to the bucket')
+        bucket.upload_file(samples_dir + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
+        bucket.upload_file(samples_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
+        bucket.upload_file(samples_dir + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')

@@ -1,0 +1,8 @@
+# @package _global_
+tracker:
+  name: 'mlflow'
+  run_name: 'test'
+  experiment_name: ${general.project_name}
+  uri: ${general.work_dir}/mlruns
+  log: True
+  # TODO add more option
