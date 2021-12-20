@@ -1,0 +1,10 @@
+version: '3'
+services:
+  geo-deep-learning:
+    build: .
+    environment:
+      - PYTHONPATH=.
+    volumes:
+      - .:/app
+    entrypoint: python
+    command: --version

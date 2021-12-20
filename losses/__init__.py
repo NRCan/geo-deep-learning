@@ -38,7 +38,7 @@ class MultiClassCriterion(nn.Module):
             cals = []
             for obj in self.criterion:
                 cals.append(obj(preds, labels))
-            loss = sum(cals)
+            loss = sum(cals) / len(self.criterion)
         else:
             loss = self.criterion(preds, labels)
         return loss

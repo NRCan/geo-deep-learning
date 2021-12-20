@@ -1,12 +1,10 @@
-import collections
-import logging
 import os
-import warnings
-from typing import List
-
 import h5py
-from torch.utils.data import Dataset
+import collections
 import numpy as np
+from pathlib import Path
+from omegaconf import OmegaConf, DictConfig
+from torch.utils.data import Dataset
 
 import models.coordconv
 from utils.utils import get_key_def, ordereddict_eval, compare_config_yamls
@@ -16,7 +14,9 @@ from utils.geoutils import get_key_recursive
 from rasterio.crs import CRS
 from affine import Affine
 
-logging.getLogger(__name__)
+# Set the logging file
+from utils import utils
+logging = utils.get_logger(__name__)  # import logging
 
 
 def append_to_dataset(dataset, sample):
@@ -32,14 +32,14 @@ def append_to_dataset(dataset, sample):
     return old_size
 
 
-def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: str, params):
+def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: Path, cfg: DictConfig):
     """
     Function to create the hdfs files (trn, val and tst).
     :param samples_size: size of individual hdf5 samples to be created
     :param number_of_bands: number of bands in imagery
     :param meta_map:
     :param samples_folder: (str) Path to the output folder.
-    :param params: (dict) Parameters found in the yaml config file.
+    :param cfg: (dict) Parameters found in the yaml config file.
     :return: (hdf5 datasets) trn, val ant tst datasets.
     """
     real_num_bands = number_of_bands - MetaSegmentationDataset.get_meta_layer_count(meta_map)
@@ -56,7 +56,7 @@ def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map,
             hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
             hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            append_to_dataset(hdf5_file["params"], repr(params))
+            append_to_dataset(hdf5_file["params"], repr(OmegaConf.create(OmegaConf.to_yaml(cfg, resolve=True))))
         except AttributeError:
             logging.exception(f'Update h5py to version 2.10 or higher')
             raise
@@ -103,18 +103,12 @@ class SegmentationDataset(Dataset):
             hdf5_params = hdf5_file['params'][0, 0]
             hdf5_params = ordereddict_eval(hdf5_params)
 
-            if dataset_type == 'trn' and isinstance(hdf5_params, dict) and isinstance(metadata, dict):
-                # check match between current yaml and sample yaml for crucial parameters
-                try:
-                    compare_config_yamls(hdf5_params, params)
-                except TypeError:
-                    logging.exception("Couldn't compare current yaml with hdf5 yaml")
-
     def __len__(self):
         return self.max_sample_count
 
     def _remap_labels(self, map_img):
-        # note: will do nothing if 'dontcare' is not set in constructor, or set to non-zero value # TODO: seems like a temporary patch... dontcare should never be == 0, right ?
+        # note: will do nothing if 'dontcare' is not set in constructor, or set to non-zero value
+        # TODO: seems like a temporary patch... dontcare should never be == 0, right ?
         if self.dontcare is None or self.dontcare != 0:
             return map_img
         # for now, the current implementation only handles the original 'dontcare' value as zero
@@ -131,7 +125,7 @@ class SegmentationDataset(Dataset):
             meta_idx = int(hdf5_file["meta_idx"][index])
             metadata = self.metadata[meta_idx]
             sample_metadata = hdf5_file["sample_metadata"][index, ...][0]
-            sample_metadata = eval(sample_metadata.decode('UTF-8'))
+            sample_metadata = eval(sample_metadata)
             if isinstance(metadata, np.ndarray) and len(metadata) == 1:
                 metadata = metadata[0]
             elif isinstance(metadata, bytes):
@@ -161,7 +155,7 @@ class SegmentationDataset(Dataset):
                 initial_class_ids.add(self.dontcare)
             final_class_ids = set(np.unique(sample['map_img'].numpy()))
             if not final_class_ids.issubset(initial_class_ids):
-                logging.debug(f"WARNING: Class ids for label before and after augmentations don't match. "
+                logging.debug(f"\nWARNING: Class ids for label before and after augmentations don't match. "
                               f"Ignore if overwritting ignore_index in ToTensorTarget")
         sample['index'] = index
         return sample

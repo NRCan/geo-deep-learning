@@ -15,6 +15,7 @@ from utils.utils import unscale, unnormalize, get_key_def
 from utils.geoutils import create_new_raster_from_base
 
 import matplotlib
+
 matplotlib.use('Agg')
 
 logging.getLogger(__name__)
@@ -57,7 +58,7 @@ def grid_vis(input_, output, heatmaps_dict, label=None, heatmaps=True):
     return plt
 
 
-def vis_from_batch(params,
+def vis_from_batch(vis_params,
                    inputs,
                    outputs,
                    batch_index,
@@ -68,7 +69,7 @@ def vis_from_batch(params,
                    scale=None,
                    debug=False):
     """ Provide indiviual input, output and label from batch to visualization function
-    :param params: (dict) Parameters found in the yaml config file.
+    :param vis_params: (Dict) parameters useful during visualization
     :param inputs: (tensor) inputs as pytorch tensors with dimensions (batch_size, channels, width, height)
     :param outputs: (tensor) outputs as pytorch tensors with dimensions (batch_size, channels, width, height)
     :param batch_index: (int) index of batch inside epoch
@@ -79,13 +80,12 @@ def vis_from_batch(params,
     :param debug: (bool) if True, some debug features will be activated
     :return:
     """
-    assert params['global']['task'] == 'segmentation'
     labels = [None]*(len(outputs)) if labels is None else labels  # Creaty empty list of labels to enable zip operation below if no label
 
     for batch_samp_index, zipped in enumerate(zip(inputs, labels, outputs)):
         epoch_samp_index = batch_samp_index + len(inputs) * batch_index
         input_, label, output = zipped
-        vis(params, input_, output,
+        vis(vis_params, input_, output,
             vis_path=vis_path,
             sample_num=epoch_samp_index+1,
             label=label,
@@ -95,7 +95,7 @@ def vis_from_batch(params,
             debug=debug)
 
 
-def vis(params,
+def vis(vis_params,
         input_,
         output,
         vis_path,
@@ -103,11 +103,10 @@ def vis(params,
         label=None,
         dataset='',
         ep_num=0,
-        inference_input_path=False,
+        inference_input_path=None,
         scale=None,
         debug=False):
     """saves input, output and label (if given) as .png in a grid or as individual pngs
-    :param params: parameters from .yaml config file
     :param input_: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
     :param output: (tensor) output array as pytorch tensor before argmax, e.g. as returned by dataloader
     :param vis_path: path where visualisation images will be saved
@@ -118,38 +117,26 @@ def vis(params,
     :param inference_input_path: (Path) path to input image on which inference is being performed. If given, turns «inference» bool to True below.
     :return: saves color images from input arrays as grid or as full scale .png
     """
-    inference = True if inference_input_path else False
-    colormap_file = get_key_def('colormap_file', params['visualization'], None)
-    heatmaps = get_key_def('heatmaps', params['visualization'], False)
-    heatmaps_inf = get_key_def('heatmaps', params['inference'], False)
-    grid = get_key_def('grid', params['visualization'], False)
-    ignore_index = get_key_def('ignore_index', params['training'], -1)
-    mean = get_key_def('mean', params['training']['normalization'])
-    std = get_key_def('std', params['training']['normalization'])
-
     # TODO: Temporary fix, need to be discuss, `input_` is a list if the initial input as NIR with the RGB at [0].
     # The `squeeze` fonction cut the useless dimension, append in inference.
     input_ = np.squeeze(input_[0]) if type(input_) is list else np.squeeze(input_)
 
     assert vis_path.parent.is_dir()
     vis_path.mkdir(exist_ok=True)
-
-    if not inference:  # FIXME: function parameters should not come in as different types if inference or not.
+    if not vis_params[
+        'inference_input_path']:  # FIXME: function parameters should not come in as different types if inference or not.
         input_ = input_.cpu().permute(1, 2, 0).numpy()  # channels last
         output = F.softmax(output, dim=0)  # Inference output is already softmax
         output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
         if label is not None:
             label_copy = label.cpu().numpy().copy()
-            if ignore_index < 0:
+            if vis_params['ignore_index'] < 0:
                 new_ignore_index = 255
                 # Convert all pixels with ignore_index values to 255 to make sure it is last in order of values.
-                label_copy[label_copy == ignore_index] = new_ignore_index
+                label_copy[label_copy == vis_params['ignore_index']] = new_ignore_index
 
-    norm_mean = get_key_def('mean', params['training']['normalization'])
-    norm_std = get_key_def('std', params['training']['normalization'])
-
-    if norm_mean and norm_std:
-        input_ = unnormalize(input_img=input_, mean=mean, std=std)
+    if vis_params['mean'] and vis_params['std']:
+        input_ = unnormalize(input_img=input_, mean=vis_params['mean'], std=vis_params['std'])
     input_ = unscale(img=input_, float_range=(scale[0], scale[1]), orig_range=(0, 255)) if scale else input_
     if 1 <= input_.shape[2] <= 2:
         input_ = input_[:, :, :1]  # take first band (will become grayscale image)
@@ -163,43 +150,44 @@ def vis(params,
     output_argmax = np.argmax(output, axis=2).astype(np.uint8)  # Flatten along channels axis. Convert to 8bit
 
     # Define colormap and names of classes with respect to grayscale values
-    classes, cmap = colormap_reader(output, colormap_file, default_colormap='Set1')
+    classes, cmap = colormap_reader(output, vis_params['colormap_file'], default_colormap='Set1')
 
-    heatmaps_dict = heatmaps_to_dict(output, classes, inference=inference, debug=debug)  # Prepare heatmaps from softmax output
+    heatmaps_dict = heatmaps_to_dict(output, classes, inference=inference_input_path,
+                                     debug=debug)  # Prepare heatmaps from softmax output
 
     # Convert output and label, if provided, to RGB with matplotlib's colormap object
     output_argmax_color = cmap(output_argmax)
     output_argmax_PIL = Image.fromarray((output_argmax_color[:, :, :3] * 255).astype(np.uint8), mode='RGB')
-    if not inference and label is not None:
+    if not inference_input_path and label is not None:
         label_color = cmap(label_copy)
         label_PIL = Image.fromarray((label_color[:, :, :3] * 255).astype(np.uint8), mode='RGB')
     else:
         label_PIL = None
 
-    if inference:
+    if inference_input_path is not None:
         if debug and len(np.unique(output_argmax)) == 1:
             warnings.warn(f'Inference contains only {np.unique(output_argmax)} value. Make sure data scale '
                           f'{scale} is identical with scale used for training model.')
         output_name = vis_path.joinpath(f"{inference_input_path.stem}_inference.tif")
         create_new_raster_from_base(inference_input_path, output_name, output_argmax)
 
-        if heatmaps_inf:
+        if vis_params['heatmaps_inf']:
             for key in heatmaps_dict.keys():
                 heatmap = np.array(heatmaps_dict[key]['heatmap_PIL'])
                 class_name = heatmaps_dict[key]['class_name']
                 heatmap_name = vis_path.joinpath(f"{inference_input_path.stem}_inference_heatmap_{class_name}.tif")
                 create_new_raster_from_base(inference_input_path, heatmap_name, heatmap)
-    elif grid:  # SAVE PIL IMAGES AS GRID
-        grid = grid_vis(input_PIL, output_argmax_PIL, heatmaps_dict, label=label_PIL, heatmaps=heatmaps)
+    elif vis_params['grid']:  # SAVE PIL IMAGES AS GRID
+        grid = grid_vis(input_PIL, output_argmax_PIL, heatmaps_dict, label=label_PIL, heatmaps=vis_params['heatmaps'])
         grid.savefig(vis_path.joinpath(f'{dataset}_{sample_num:03d}_ep{ep_num:03d}.png'))
         plt.close()
     else:  # SAVE PIL IMAGES DIRECTLY TO FILE
         if not vis_path.joinpath(f'{dataset}_{sample_num:03d}_satimg.jpg').is_file():
             input_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_satimg.jpg'))
-            if not inference and label is not None:
+            if not inference_input_path and label is not None:
                 label_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_label.png'))  # save label
         output_argmax_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_output_ep{ep_num:03d}.png'))
-        if heatmaps: # TODO: test this.
+        if vis_params['heatmaps']:  # TODO: test this.
             for key in heatmaps_dict.keys():
                 heatmap = heatmaps_dict[key]['heatmap_PIL']
                 class_name = heatmaps_dict[key]['class_name']

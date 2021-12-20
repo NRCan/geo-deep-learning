@@ -10,6 +10,7 @@ from utils.create_dataset import MetaSegmentationDataset
 from utils.geoutils import lst_ids, get_key_recursive
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,7 +23,7 @@ def validate_num_classes(vector_file: Union[str, Path],
     FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
     Args:
         :param vector_file: full file path of the vector image
-        :param num_classes: number of classes set in config_template.yaml
+        :param num_classes: number of classes set in old_config_template.yaml
         :param attribute_name: name of the value field representing the required classes in the vector image file
         :param ignore_index: (int) target value that is ignored during training and does not contribute to
                              the input gradient
@@ -61,7 +62,8 @@ def validate_num_classes(vector_file: Union[str, Path],
             logging.warning(f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
         # this should not happen, thus the exception raised
         elif len(unique_att_vals) > num_classes:
-            raise ValueError(f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
+            raise ValueError(
+                f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
 
     return unique_att_vals
 

@@ -56,7 +56,7 @@ data_analysis:
     # values (int) represent class minimum threshold targeted in samples
 
 
-# Sample parameters; used in images_to_samples.py -------------------
+# Sample parameters; used in sampling_segmentation.py -------------------
 sample:
   prep_csv_file: /home/cauthier/data/test4channel.csv # TODO: put in git ignor
   val_percent: 5 # Percentage of validation samples created from train set (0 - 100)
@@ -98,7 +98,7 @@ training:
     std:
 
 
-# Inference parameters; used in inference.py --------
+# Inference parameters; used in inference_segmentation.py --------
 inference:
   img_dir_or_csv_file: /home/cauthier/data/test4channel.csv #/path/to/csv/containing/images/list.csv
   state_dict_path: ./data/samples256_overlap25_min-annot0_4bands/model/config_test_4channels_implementation_2020-06-23_14-39/checkpoint.pth.tar #/path/to/model/weights/for/inference/checkpoint.pth.tar

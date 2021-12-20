@@ -33,7 +33,7 @@ class BoundaryLoss(nn.Module):
         self.weight = weight
         if self.ignore_index:
             logging.error(f'Ignore_index not implemented for Boundary Loss. Got ignore_index "{ignore_index}"')
-        if self.ignore_index:
+        if self.weight:
             logging.error(f'Class weights not implemented for Boundary Loss. Got class weights "{weight}"')
 
     def forward(self, pred, gt):
@@ -44,7 +44,7 @@ class BoundaryLoss(nn.Module):
             - gt: ground truth map
                     shape (N, H, w)
         Return:
-            - boundary loss, averaged over mini-bathc
+            - boundary loss, averaged over mini-batch
         """
 
         n, c, _, _ = pred.shape
