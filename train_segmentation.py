@@ -60,7 +60,6 @@ def create_dataloader(samples_folder: Path,
                       sample_size: int,
                       dontcare_val: int,
                       crop_size: int,
-                      meta_map,
                       num_bands: int,
                       BGR_to_RGB: bool,
                       scale: Sequence,
@@ -75,7 +74,6 @@ def create_dataloader(samples_folder: Path,
     :param gpu_devices_dict: (dict) dictionary where each key contains an available GPU with its ram info stored as value
     :param sample_size: (int) size of hdf5 samples (used to evaluate eval batch-size)
     :param dontcare_val: (int) value in label to be ignored during loss calculation
-    :param meta_map: metadata mapping object
     :param num_bands: (int) number of bands in imagery
     :param BGR_to_RGB: (bool) if True, BGR channels will be flipped to RGB
     :param scale: (List) imagery data will be scaled to this min and max value (ex.: 0 to 1)
@@ -92,10 +90,7 @@ def create_dataloader(samples_folder: Path,
     if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
         raise logging.critical(ValueError(f"\nNumber of samples in .hdf5 files is less than batch size"))
     logging.info(f"\nNumber of samples : {num_samples}")
-    if not meta_map:
-        dataset_constr = create_dataset.SegmentationDataset
-    else:
-        dataset_constr = functools.partial(create_dataset.MetaSegmentationDataset, meta_map=meta_map)
+    dataset_constr = create_dataset.SegmentationDataset
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
@@ -516,11 +511,7 @@ def train(cfg: DictConfig) -> None:
     bucket_name = get_key_def('bucket_name', cfg['AWS'])
     scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
     batch_metrics = get_key_def('batch_metrics', cfg['training'], default=None)
-    meta_map = get_key_def("meta_map", cfg['training'], default=None)  # TODO what is that?
     crop_size = get_key_def('target_size', cfg['training'], default=None)
-    # if error
-    if meta_map and not Path(meta_map).is_file():
-        raise logging.critical(FileNotFoundError(f'\nCouldn\'t locate {meta_map}'))
     if task != 'segmentation':
         raise logging.critical(ValueError(f"\nThe task should be segmentation. The provided value is {task}"))
 
@@ -672,7 +663,6 @@ def train(cfg: DictConfig) -> None:
                                                                        sample_size=samples_size,
                                                                        dontcare_val=dontcare_val,
                                                                        crop_size=crop_size,
-                                                                       meta_map=meta_map,
                                                                        num_bands=num_bands,
                                                                        BGR_to_RGB=BGR_to_RGB,
                                                                        scale=scale,

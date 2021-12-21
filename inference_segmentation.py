@@ -639,12 +639,7 @@ def main(params: dict) -> None:
                 local_img = f"Images/{img_name}"
                 bucket.download_file(info['tif'], local_img)
                 inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-                if info['meta']:
-                    if info['meta'] not in bucket_file_cache:
-                        bucket_file_cache.append(info['meta'])
-                        bucket.download_file(info['meta'], info['meta'].split('/')[-1])
-                    info['meta'] = info['meta'].split('/')[-1]
-            else:  # FIXME: else statement should support img['meta'] integration as well.
+            else:
                 local_img = Path(info['tif'])
                 Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
                 inference_image = working_folder.joinpath(local_img.parent.name,
