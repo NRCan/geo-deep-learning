@@ -1,7 +1,7 @@
 FROM nvidia/cuda:11.2.0-cudnn8-runtime-ubuntu18.04
 
 # cpu only makes much smaller image (comment out previous FROM)
-#FROM ubuntu:18.04
+# FROM ubuntu:18.04
 
 ## Variables
 ARG GIT_TAG=develop
@@ -49,13 +49,11 @@ RUN wget https://repo.anaconda.com/miniconda/Miniconda3-py39_4.10.3-Linux-x86_64
 RUN conda config --set ssl_verify False \
     && conda update conda
 
-RUN git clone --depth 1 "https://github.com/NRCan/geo-deep-learning.git" --branch ${GIT_TAG} && \
-
-# Alternative: create conda env from soft reference to libraries
-#RUN wget https://github.com/remtav/geo-deep-learning/blob/solaris_tiling/environment.yml
+RUN git clone --depth 1 "https://github.com/NRCan/geo-deep-learning.git" --branch ${GIT_TAG}
 
 # Create env
-RUN conda env create -f geo-deep-learning/environment.yml
+RUN conda env create -f geo-deep-learning/environment.yml && \
+    conda clean --all --yes
 
 RUN echo ". $USER_PATH/miniconda3/etc/profile.d/conda.sh" >> ~/.bashrc && \
     echo "source $USER_PATH/miniconda3/etc/profile.d/conda.sh" && \
