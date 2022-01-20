@@ -6,7 +6,6 @@ channels:
   - defaults
 dependencies:
   - fiona>=1.8.0
-  - gdal>=3.0.0
   - boto3>=1.19.2
   - cudatoolkit=10.2.89
   - docker-py>=4.4.4
