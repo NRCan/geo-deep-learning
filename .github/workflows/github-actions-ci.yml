@@ -42,9 +42,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Install packages
-        run: |
-          ls -l REQUIREMENTS_TESTING.txt
-          pip install deepdiff mock flake8 pep257 pylint pycodestyle
+        run: pip install deepdiff mock flake8 pep257 pylint pycodestyle
 
       - name: Pylint
         run: make pylint
