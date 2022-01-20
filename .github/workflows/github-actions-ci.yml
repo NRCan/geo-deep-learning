@@ -30,3 +30,26 @@ jobs:
           python GDL.py mode=sampling
           python GDL.py mode=train
           python GDL.py mode=inference
+
+  Check-code-quality:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Install Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+          architecture: 'x64'
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install packages
+        run: |
+          pip install deepdiff mock flake8 pep257 pylint
+          pip install pylint pycodestyle
+      - name: Pylint
+        run: make pylint
+
+      - name: Pycodestyle
+        run: make pycodestyle
