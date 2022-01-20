@@ -33,9 +33,9 @@ jobs:
     steps:
 
       - name: Install Python
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v1
         with:
-          python-version: '3.9'
+          python-version: '3.8'
           architecture: 'x64'
 
       - name: Checkout
@@ -43,8 +43,9 @@ jobs:
 
       - name: Install packages
         run: |
-          pip install deepdiff mock flake8 pep257 pylint
-          pip install pylint pycodestyle
+          ls -l REQUIREMENTS_TESTING.txt
+          pip install deepdiff mock flake8 pep257 pylint pycodestyle
+
       - name: Pylint
         run: make pylint
 
