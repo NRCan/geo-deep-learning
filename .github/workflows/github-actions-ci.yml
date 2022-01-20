@@ -15,10 +15,10 @@ jobs:
           activate-environment: geo_deep_env
           miniforge-version: latest
       - run: |
-        echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
-        echo "🖥️ The workflow is now ready to test your code on the runner."
-        unzip ./data/massachusetts_buildings.zip -d ./data
-        python GDL.py mode=sampling
-        python GDL.py mode=train
-        python GDL.py mode=inference
-        echo "🍏 This job's status is ${{ job.status }}."
+          echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
+          echo "🖥️ The workflow is now ready to test your code on the runner."
+          unzip ./data/massachusetts_buildings.zip -d ./data
+          python GDL.py mode=sampling
+          python GDL.py mode=train
+          python GDL.py mode=inference
+          echo "🍏 This job's status is ${{ job.status }}."
