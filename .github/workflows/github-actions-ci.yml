@@ -21,7 +21,7 @@ jobs:
           conda env create --file environment.yml
       - name: Activate environment
         run: |
-          conda init bash
+          source /usr/share/miniconda/etc/profile.d/conda.sh
           conda activate geo_deep_env
       - name: Extract testing data
         run: unzip ./data/massachusetts_buildings.zip -d ./data
