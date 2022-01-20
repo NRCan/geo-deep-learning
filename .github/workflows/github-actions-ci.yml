@@ -19,11 +19,14 @@ jobs:
       - name: Install dependencies
         run: |
           conda env create --file environment.yml
-      - name: Test code
+      - name: Activate environment
         run: |
+          conda init bash
           conda activate geo_deep_env
-          unzip ./data/massachusetts_buildings.zip -d ./data
+      - name: Extract testing data
+        run: unzip ./data/massachusetts_buildings.zip -d ./data
+      - name: test GDL's 3 major modes
+        run: |
           python GDL.py mode=sampling
           python GDL.py mode=train
           python GDL.py mode=inference
-          echo "🍏 This job's status is ${{ job.status }}."
