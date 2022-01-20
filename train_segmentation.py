@@ -650,8 +650,7 @@ def train(cfg: DictConfig) -> None:
             class_weights=class_weights,
             optimizer=optimizer,
             net_params=cfg,
-            conc_point=conc_point,
-            coordconv_params=coordconv_params)
+            conc_point=conc_point)
 
     logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
 

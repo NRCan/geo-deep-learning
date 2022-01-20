@@ -601,7 +601,6 @@ def main(cfg: DictConfig) -> None:
 
             metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
                                                           raster_handle=raster,
-                                                          meta_map=meta_map,
                                                           raster_info=info)
             # Save label's per class pixel count to image metadata
             metadata['source_label_bincount'] = {class_num: count for class_num, count in

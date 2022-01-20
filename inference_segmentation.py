@@ -214,7 +214,6 @@ def segmentation(param,
         sub_image = img[0]
         image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
                                                             raster_handle=input_image,
-                                                            meta_map={},
                                                             raster_info={})
 
         sample['metadata'] = image_metadata
