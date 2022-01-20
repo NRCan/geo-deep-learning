@@ -1,11 +1,9 @@
 ## **How to use *Hydra* config files**
-[*Hydra*](https://hydra.cc/docs/intro/#quick-start-guide) uses a main `yaml` file ([gdl_config_template.yaml](gdl_config_template.yaml)) that handles other `yaml` files in their dedicated folders.
-We recommend starting with the template as the main config. Run your code with the proper parameters - see the main [README](../README.md) for an example with a semantic segmentation task.
-There are other example at the end of this document in the [Examples](#Examples) section.
+GDL configures [*Hydra*](https://hydra.cc/docs/intro/#quick-start-guide) through a main `yaml` file ([gdl_config_template.yaml](gdl_config_template.yaml)) located in the `config` folder which handles additional `yaml` files located in other folders.
+We recommend starting with the [main yaml file](gdl_config_template.yaml) as the configuration entrypoint. Run your code with the proper parameters - see the main [README](../README.md) for an example with a semantic segmentation task.
+There are other examples at the end of this document in the [Examples](#Examples) section.
 
-First, the config folder is structured like the following example. 
-Keep in mind inside the config folder you will have the `gdl_config.yaml` that will regroup every parameter for executing the command.
-Also, there are folders containing `yaml` files for certain categories of parameters. See details in next section [Defaults Section](#Defaults Section).
+The `config` folder is structured as depicted below. It is important to remember that the `gdl_config_template.yaml` file contains every parameter necessary for executing the command.  Other `yaml` files in subdirectories handle specific categories of parameters. See details in the next section [Defaults Section](#Defaults Section).
 ```
 ├── config
     └── gdl_config_template.yaml
@@ -35,10 +33,10 @@ debug: ...
 ```
 
 #### Defaults Section
-The **_'defaults'_** part is the part where all the default `yaml` files are loaded as input values for each category of parameters.
-This is the same for all the bullets points in the `defaults` section.
-For example, `task: segmentation` means the `config` folder contains another folder called `task`. Inside this subfolder, there's a `segmentation.yaml` file.
-Inside a config subfolder, you will see all the option for that category of parameters, like the `model` category will regroup all the `yaml` files with the parameters for each model.
+The **_'defaults'_** section is where all default `yaml` files are loaded as input values for each category of parameters.
+The same is true for all items in the `defaults` section.
+For example, `task: segmentation` means the `config` folder contains a subfolder called `task` which contains a `segmentation.yaml` file.
+Options for each category of parameters are found in config subfolders.  The `model` category bundles all the `yaml` files with the parameters for each model.
 ```YAML
 defaults:
   - task: segmentation
@@ -58,10 +56,10 @@ defaults:
   - override hydra/job_logging: colorlog # enable color logging to make it pretty
   - _self_
 ```
-The files in the default section can be overwritten via an argument in the command line. See [Examples](#Examples) section. The main goal of this structure is to organize all the parameters in meaningful categories.
+The files in the `defaults` section can be overwritten on the command line. See [Examples](#Examples) section. The main goal of the structure is to organize all the parameters in meaningful categories.
 If you want to add new options for a category, you'll need to include `# @package _global_` at the beginning of each `yaml` added. 
 By doing so, the code in python will read `model.parameters_name` as a directory. If you accidentally omit the prefix `# @package _global_`, the python code will read `model.unet.parameters_name` (as set by default currently).
-For example if you created `new_model.yaml` to be read as a model, and you don't want the change the main code to read this file each time you change model.
+For example if you created `new_model.yaml` to be read as a model and you don't want to change the main code to read this file each time you change model.
 For more information on how to write a `yaml` file for each default parameters, a `README.md` will be in each category folder.
 For more information about packages in Hydra, see [Hydra's documentation on Packages](https://hydra.cc/docs/advanced/overriding_packages)
 
@@ -93,7 +91,7 @@ general:
   state_dict_path:
   save_weights_dir: ${general.work_dir}/weights_saved
 ```
-This section regroups general information that will be read by the code. Other `yaml` files read information from here.
+This section contains general information that will be read by the code. Other `yaml` files read information from here.
 
 #### AWS Section
 Will follow soon.
@@ -120,14 +118,14 @@ debug: False
 ```
 Will print the complete yaml config plus run a validation test before the training.
 
-##Examples
+## Examples
 Here some examples on how to run **GDL** with *Hydra*.
 
 - For basic usage, run the code with all the defaults value in the [`gdl_config_template.yaml`](gdl_config_template.yaml).
 ```bash
 $ python GDL.py mode=train
 ```
-- Changing only one parameter.
+- Overriding only one parameter.
 ```bash
 $ python GDL.py mode=train general.max_epochs=100
 ```
