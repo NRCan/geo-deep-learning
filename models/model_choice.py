@@ -15,7 +15,7 @@ from tqdm import tqdm
 from utils.optimizer import create_optimizer
 from losses import MultiClassCriterion
 import torch.optim as optim
-from models import TernausNet, unet, checkpointed_unet, inception, coordconv
+from models import TernausNet, unet, checkpointed_unet, inception
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
 
 logging.getLogger(__name__)
@@ -165,7 +165,6 @@ def net(model_name: str,
         class_weights: Sequence = None,
         net_params=None,
         conc_point: str = None,
-        coordconv_params=None,
         inference_state_dict: str = None):
     """Define the neural net"""
     msg = f'\nNumber of bands specified incompatible with this model. Requires 3 band data.'
@@ -234,17 +233,6 @@ def net(model_name: str,
         model = lsmp['fct'](**lsmp['params'])
     else:
         raise logging.critical(ValueError(f'\nThe model name {model_name} in the config.yaml is not defined.'))
-
-    coordconv_convert = get_key_def('coordconv_convert', coordconv_params, False)
-    if coordconv_convert:
-        centered = get_key_def('coordconv_centered', coordconv_params, True)
-        normalized = get_key_def('coordconv_normalized', coordconv_params, True)
-        noise = get_key_def('coordconv_noise', coordconv_params, None)
-        radius_channel = get_key_def('coordconv_radius_channel', coordconv_params, False)
-        scale = get_key_def('coordconv_scale', coordconv_params, 1.0)
-        # note: this operation will not attempt to preserve already-loaded model parameters!
-        model = coordconv.swap_coordconv_layers(model, centered=centered, normalized=normalized, noise=noise,
-                                                radius_channel=radius_channel, scale=scale)
 
     if inference_state_dict:
         state_dict_path = inference_state_dict

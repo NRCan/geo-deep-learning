@@ -541,24 +541,13 @@ def main(cfg: DictConfig) -> None:
                     bucket_file_cache.append(info['gpkg'])
                     bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
                 info['gpkg'] = info['gpkg'].split('/')[-1]
-                if info['meta']:
-                    if info['meta'] not in bucket_file_cache:
-                        bucket_file_cache.append(info['meta'])
-                        bucket.download_file(info['meta'], info['meta'].split('/')[-1])
-                    info['meta'] = info['meta'].split('/')[-1]
 
             logging.info(f"\nReading as array: {info['tif']}")
             with rasterio.open(info['tif'], 'r') as raster:
                 # 1. Read the input raster image
                 np_input_image, raster, dataset_nodata = image_reader_as_array(
                     input_image=raster,
-                    clip_gpkg=info['gpkg'],
-                    aux_vector_file=get_key_def('aux_vector_file', cfg['dataset'], None),
-                    aux_vector_attrib=get_key_def('aux_vector_attrib', cfg['dataset'], None),
-                    aux_vector_ids=get_key_def('aux_vector_ids', cfg['dataset'], None),
-                    aux_vector_dist_maps=get_key_def('aux_vector_dist_maps', cfg['dataset'], True),
-                    aux_vector_dist_log=get_key_def('aux_vector_dist_log', cfg['dataset'], True),
-                    aux_vector_scale=get_key_def('aux_vector_scale', cfg['dataset'], None)
+                    clip_gpkg=info['gpkg']
                 )
 
                 # 2. Burn vector file in a raster file
@@ -612,7 +601,6 @@ def main(cfg: DictConfig) -> None:
 
             metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
                                                           raster_handle=raster,
-                                                          meta_map=meta_map,
                                                           raster_info=info)
             # Save label's per class pixel count to image metadata
             metadata['source_label_bincount'] = {class_num: count for class_num, count in

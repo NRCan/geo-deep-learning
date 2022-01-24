@@ -472,12 +472,10 @@ def read_csv(csv_file_name, data_path=None):
 
 def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
                                        raster_handle: dict,
-                                       meta_map: dict,
                                        raster_info: dict
                                        ) -> dict:
     """
     :param sat_img_arr: source image as array (opened with rasterio.read)
-    :param meta_map: meta map parameter from yaml (global section)
     :param raster_info: info from raster as read with read_csv (except at inference)
     :return: Returns a metadata dictionary populated with info from source raster, including original csv line and
              histogram.
@@ -499,12 +497,6 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
     for band_index in range(sat_img_arr.shape[2]):
         band = sat_img_arr[..., band_index]
         metadata_dict['source_raster_bincount'][f'band{band_index}'] = {count for count in np.bincount(band.flatten())}
-    if meta_map and Path(raster_info['meta']).is_file():
-        if not raster_info['meta'] is not None and isinstance(raster_info['meta'], str):
-            raise ValueError("global configuration requested metadata mapping onto loaded "
-                             "samples, but raster did not have available metadata")
-        yaml_metadata = read_parameters(raster_info['meta'])
-        metadata_dict.update(yaml_metadata)
     return metadata_dict
 
 #### Image Patches Smoothing Functions ####
