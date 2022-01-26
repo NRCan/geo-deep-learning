@@ -1,6 +1,6 @@
 import itertools
 from math import sqrt
-from typing import List
+from typing import List, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -34,7 +34,7 @@ from models.model_choice import net
 from utils import augmentation
 from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, find_first_file
+    list_input_images, add_metadata_from_raster_to_sample, _window_2D, select_modalities, find_first_file
 from utils.verifications import add_background_to_num_class, validate_num_classes, assert_crs_match
 
 try:
@@ -155,7 +155,6 @@ def segmentation(param,
                  chunk_size: int,
                  device,
                  scale: List,
-                 BGR_to_RGB: bool,
                  tp_mem,
                  debug=False,
                  ):
@@ -171,7 +170,6 @@ def segmentation(param,
         chunk_size: image tile size
         device: cuda/cpu device
         scale: scale range
-        BGR_to_RGB: True/False
         tp_mem: memory temp file for saving numpy array to disk
         debug: True/False
 
@@ -226,7 +224,6 @@ def segmentation(param,
         sample['metadata'] = image_metadata
         totensor_transform = augmentation.compose_transforms(param,
                                                              dataset="tst",
-                                                             input_space=BGR_to_RGB,
                                                              scale=scale,
                                                              aug_type='totensor',
                                                              print_log=print_log)
@@ -427,9 +424,8 @@ def main(params: dict) -> None:
     task = get_key_def('task_name', params['task'], expected_type=str)
     model_name = get_key_def('model_name', params['model'], expected_type=str).lower()
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
-    modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
-    BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
-    num_bands = len(modalities)
+    out_modalities = get_key_def('out_modalities', params['dataset'], expected_type=Sequence)
+    num_bands = len(out_modalities)
     debug = get_key_def('debug', params, default=False, expected_type=bool)
     # SETTING OUTPUT DIRECTORY
     try:
@@ -680,7 +676,6 @@ def main(params: dict) -> None:
                                      chunk_size=chunk_size,
                                      device=device,
                                      scale=scale,
-                                     BGR_to_RGB=BGR_to_RGB,
                                      tp_mem=temp_file,
                                      debug=debug)
             if gdf is not None:

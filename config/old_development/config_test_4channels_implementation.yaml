@@ -1,6 +1,6 @@
 # Deep learning configuration file ------------------------------------------------
 # Five sections :
-#   1) Global parameters; those are re-used amongst the next three operations (sampling, training and inference)
+#   1) Global parameters; those are re-used amongst the next three operations (tiling, training and inference)
 #   2) Data analysis parameters
 #   4) Sampling parameters
 #   5) Training parameters
@@ -56,7 +56,7 @@ data_analysis:
     # values (int) represent class minimum threshold targeted in samples
 
 
-# Sample parameters; used in sampling_segmentation.py -------------------
+# Sample parameters; used in tiling_segmentation.py -------------------
 sample:
   prep_csv_file: /home/cauthier/data/test4channel.csv # TODO: put in git ignor
   val_percent: 5 # Percentage of validation samples created from train set (0 - 100)

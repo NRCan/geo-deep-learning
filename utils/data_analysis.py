@@ -16,7 +16,7 @@ from collections import OrderedDict
 from numpy import genfromtxt
 from tqdm import tqdm
 
-import sampling_segmentation
+import tiling_segmentation
 
 logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def create_csv():
                                                                                     params['global'], None))
                 # Mask the zeros from input image into label raster.
                 if params['sample']['mask_reference']:
-                    np_label_raster = sampling_segmentation.mask_image(np_input_image, np_label_raster)
+                    np_label_raster = tiling_segmentation.mask_image(np_input_image, np_label_raster)
 
                 np_label_raster = np.reshape(np_label_raster, (np_label_raster.shape[0], np_label_raster.shape[1], 1))
 
@@ -236,11 +236,11 @@ def parameters_search_dict(stats_dict, prop_classes, numbers_sample, source):
 
     if std <= stats_dict['std'] or stats_dict['std'] == []:
 
-        if params['data_analysis']['sampling']['method'][0] == 'min_annotated_percent':
+        if params['data_analysis']['tiling']['method'][0] == 'min_annotated_percent':
             # adds 'map' value to stats_dict
             stats_dict.update(map=source)
 
-        elif params['data_analysis']['sampling']['method'][0] == 'class_proportion':
+        elif params['data_analysis']['tiling']['method'][0] == 'class_proportion':
             # adds 'combination' value to stats_dict
             stats_dict.update(combination=source)
 
@@ -259,20 +259,20 @@ def parameters_search_dict(stats_dict, prop_classes, numbers_sample, source):
 
 
 def results(classes, stats_dict):
-    if len(params['data_analysis']['sampling']['method']) == 1:
-        if params['data_analysis']['sampling']['method'][0] == 'min_annotated_percent':
+    if len(params['data_analysis']['tiling']['method']) == 1:
+        if params['data_analysis']['tiling']['method'][0] == 'min_annotated_percent':
             logging.info(' ')
             logging.info('optimal minimum annotated percent :', stats_dict['map'])
 
-        elif params['data_analysis']['sampling']['method'][0] == 'class_proportion':
+        elif params['data_analysis']['tiling']['method'][0] == 'class_proportion':
             logging.info(' ')
             logging.info('optimal class threshold combination :', stats_dict['combination'])
 
-    elif len(params['data_analysis']['sampling']['method']) == 2:
-        if params['data_analysis']['sampling']['method'][1] == 'min_annotated_percent':
+    elif len(params['data_analysis']['tiling']['method']) == 2:
+        if params['data_analysis']['tiling']['method'][1] == 'min_annotated_percent':
             logging.info('optimal minimum annotated percent :', stats_dict['combination'])
 
-        elif params['data_analysis']['sampling']['method'][1] == 'class_proportion':
+        elif params['data_analysis']['tiling']['method'][1] == 'class_proportion':
             logging.info('optimal class threshold combination :', stats_dict['map'])
 
     for i in classes:

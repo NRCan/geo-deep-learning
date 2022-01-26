@@ -62,7 +62,8 @@ def _check_gdf_load(gdf):
             return gpd.read_file(gdf, GEOM_POSSIBLE_NAMES="geometry",
                                  KEEP_GEOM_COLUMNS="NO")
         try:
-            return gpd.read_file(gdf)
+            gdf_out = gpd.read_file(gdf)
+            return gdf_out
         except (DriverError, CPLE_OpenFailedError):
             logging.error(f"GeoDataFrame couldn't be loaded: either {gdf} isn't a valid"
                  " path or it isn't a valid vector file. Returning an empty"

@@ -15,6 +15,8 @@ from collections import OrderedDict
 from omegaconf import DictConfig
 from omegaconf.errors import ConfigKeyError
 
+from tiling_segmentation import Tiler
+
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -26,7 +28,7 @@ from utils import augmentation as aug, create_dataset
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, read_modalities
+from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, select_modalities
 from utils.visualization import vis_from_batch
 from mlflow import log_params, set_tracking_uri, set_experiment, start_run
 # Set the logging file
@@ -55,17 +57,17 @@ def loader(path):
 
 def create_dataloader(samples_folder: Path,
                       batch_size: int,
-                      eval_batch_size: int,
                       gpu_devices_dict: dict,
                       sample_size: int,
                       dontcare_val: int,
                       crop_size: int,
                       num_bands: int,
-                      BGR_to_RGB: bool,
+                      min_annot_perc: int,
+                      attr_vals: Sequence,
                       scale: Sequence,
-                      cfg: DictConfig,
+                      cfg: dict,
+                      eval_batch_size: int = None,
                       dontcare2backgr: bool = False,
-                      calc_eval_bs: bool = False,
                       debug: bool = False):
     """
     Function to create dataloader objects for training, validation and test datasets.
@@ -74,27 +76,38 @@ def create_dataloader(samples_folder: Path,
     :param gpu_devices_dict: (dict) dictionary where each key contains an available GPU with its ram info stored as value
     :param sample_size: (int) size of hdf5 samples (used to evaluate eval batch-size)
     :param dontcare_val: (int) value in label to be ignored during loss calculation
+    :param crop_size: (int) size of one side of the square crop performed on original tile during training
     :param num_bands: (int) number of bands in imagery
-    :param BGR_to_RGB: (bool) if True, BGR channels will be flipped to RGB
+    :param min_annot_perc: (int) minimum proportion of ground truth containing non-background information
+    :param attr_vals: (Sequence)
     :param scale: (List) imagery data will be scaled to this min and max value (ex.: 0 to 1)
     :param cfg: (dict) Parameters found in the yaml config file.
+    :param eval_batch_size: (int) Batch size for evaluation (val and test). Optional, calculated automatically if omitted
     :param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
                             before training
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
     if not samples_folder.is_dir():
-        raise logging.critical(FileNotFoundError(f'\nCould not locate: {samples_folder}'))
-    if not len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1:
-        raise logging.critical(FileNotFoundError(f"\nCouldn't locate .hdf5 files in {samples_folder}"))
-    num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=cfg, dontcare=dontcare_val)
+        raise FileNotFoundError(f'Could not locate: {samples_folder}')
+    experiment_name = samples_folder.parent.stem
+    if not len([f for f in samples_folder.glob('**/*.txt')]) >= 1:
+        raise FileNotFoundError(f"Couldn't locate text file containing list of training data in {samples_folder}")
+    num_samples, samples_weight = get_num_samples(samples_path=samples_folder,
+                                                  params=cfg,
+                                                  min_annot_perc=min_annot_perc,
+                                                  attr_vals=attr_vals,
+                                                  dontcare=dontcare_val,
+                                                  experiment_name=experiment_name)
     if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
-        raise logging.critical(ValueError(f"\nNumber of samples in .hdf5 files is less than batch size"))
-    logging.info(f"\nNumber of samples : {num_samples}")
+        raise ValueError(f"Number of samples in tiles files is less than batch size")
+    logging.info(f"Number of samples : {num_samples}\n")
     dataset_constr = create_dataset.SegmentationDataset
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
-        datasets.append(dataset_constr(samples_folder, subset, num_bands,
+        dataset_file, _ = Tiler.make_dataset_file_name(experiment_name, min_annot_perc, subset, attr_vals)
+        dataset_filepath = samples_folder / dataset_file
+        datasets.append(dataset_constr(dataset_filepath, subset, num_bands,
                                        max_sample_count=num_samples[subset],
                                        dontcare=dontcare_val,
                                        radiom_transform=aug.compose_transforms(params=cfg,
@@ -107,7 +120,6 @@ def create_dataloader(samples_folder: Path,
                                                                              crop_size=crop_size),
                                        totensor_transform=aug.compose_transforms(params=cfg,
                                                                                  dataset=subset,
-                                                                                 input_space=BGR_to_RGB,
                                                                                  scale=scale,
                                                                                  dontcare2backgr=dontcare2backgr,
                                                                                  dontcare=dontcare_val,
@@ -116,19 +128,21 @@ def create_dataloader(samples_folder: Path,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
-    # Number of workers
-    if cfg.training.num_workers:
-        num_workers = cfg.training.num_workers
-    else:  # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
+    # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
+    if not debug:
         num_workers = len(gpu_devices_dict.keys()) * 4 if len(gpu_devices_dict.keys()) > 1 else 4
+    else:
+        num_workers = 0
 
     samples_weight = torch.from_numpy(samples_weight)
     sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
                                                              len(samples_weight))
 
-    if gpu_devices_dict and calc_eval_bs:
-        max_pix_per_mb_gpu = 280  # TODO: this value may need to be finetuned
+    if gpu_devices_dict and not eval_batch_size:
+        max_pix_per_mb_gpu = 280
         eval_batch_size = calc_eval_batchsize(gpu_devices_dict, batch_size, sample_size, max_pix_per_mb_gpu)
+    elif not eval_batch_size:
+        eval_batch_size = batch_size
 
     trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler,
                                 drop_last=True)
@@ -164,7 +178,7 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     return eval_batch_size_rd
 
 
-def get_num_samples(samples_path, params, dontcare):
+def get_num_samples(samples_path, params, min_annot_perc, attr_vals, dontcare, experiment_name:str):
     """
     Function to retrieve number of samples, either from config file or directly from hdf5 file.
     :param samples_path: (str) Path to samples folder
@@ -175,27 +189,41 @@ def get_num_samples(samples_path, params, dontcare):
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
     weights = []
     samples_weight = None
-    for i in ['trn', 'val', 'tst']:
-        if get_key_def(f"num_{i}_samples", params['training'], None) is not None:
-            num_samples[i] = get_key_def(f"num_{i}_samples", params['training'])
-            with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), 'r') as hdf5_file:
-                file_num_samples = len(hdf5_file['map_img'])
-            if num_samples[i] > file_num_samples:
-                raise logging.critical(
-                    IndexError(f"\nThe number of training samples in the configuration file ({num_samples[i]}) "
-                               f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
-                )
-        else:
-            with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), "r") as hdf5_file:
-                num_samples[i] = len(hdf5_file['map_img'])
+    for dataset in ['trn', 'val', 'tst']:
+        dataset_file, _ = Tiler.make_dataset_file_name(experiment_name, min_annot_perc, dataset, attr_vals)
+        dataset_filepath = samples_path / dataset_file
+        if not dataset_filepath.is_file() and dataset == 'tst':
+            num_samples[dataset] = 0
+            logging.warning(f"No test set. File not found: {dataset_filepath}")
+            continue
 
-        with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), "r") as hdf5_file:
-            if i == 'trn':
-                for x in range(num_samples[i]):
-                    label = hdf5_file['map_img'][x]
-                    unique_labels = np.unique(label)
-                    weights.append(''.join([str(int(i)) for i in unique_labels]))
-                    samples_weight = compute_sample_weight('balanced', weights)
+        if get_key_def(f"num_{dataset}_samples", params['training'], None) is not None:
+            num_samples[dataset] = params['training'][f"num_{dataset}_samples"]
+
+            with open(dataset_filepath, 'r') as datafile:
+                file_num_samples = len(datafile.readlines())
+            if num_samples[dataset] > file_num_samples:
+                raise IndexError(f"The number of training samples in the configuration file ({num_samples[dataset]}) "
+                                 f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
+        else:
+            with open(dataset_filepath, 'r') as datafile:
+                num_samples[dataset] = len(datafile.readlines())
+
+        with open(dataset_filepath, 'r') as datafile:
+            datalist = datafile.readlines()
+            if dataset == 'trn':
+                # FIXME: user should decide whether or not this is used (very time consuming)
+                samples_weight = np.ones(num_samples[dataset])
+                # for x in tqdm(range(num_samples[dataset]), desc="Computing sample weights"):
+                #     label_file = datalist[x].split(';')[1]
+                #     with rasterio.open(label_file, 'r') as label_handle:
+                #         label = label_handle.read()
+                #     label = np.where(label == dontcare, 0, label)
+                #     unique_labels = np.unique(label)
+                #     weights.append(''.join([str(int(i)) for i in unique_labels]))
+                #     samples_weight = compute_sample_weight('balanced', weights)
+            logging.debug(samples_weight.shape)
+            logging.debug(np.unique(samples_weight))
 
     return num_samples, samples_weight
 
@@ -495,20 +523,17 @@ def train(cfg: DictConfig) -> None:
     # MANDATORY PARAMETERS
     num_classes = len(get_key_def('classes_dict', cfg['dataset']).keys())
     num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
-    num_bands = len(read_modalities(cfg.dataset.modalities))
+    out_modalities = get_key_def('out_modalities', cfg['dataset'], expected_type=Sequence)
+    num_bands = len(out_modalities)
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
     num_epochs = get_key_def('max_epochs', cfg['training'], expected_type=int)
     model_name = get_key_def('model_name', cfg['model'], expected_type=str).lower()
-    # TODO need to keep in parameters? see victor stuff
-    # BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
-    BGR_to_RGB = False
 
     # OPTIONAL PARAMETERS
     debug = get_key_def('debug', cfg)
     task = get_key_def('task_name',  cfg['task'], default='segmentation')
     dontcare_val = get_key_def("ignore_index", cfg['dataset'], default=-1)
-    bucket_name = get_key_def('bucket_name', cfg['AWS'])
     scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
     batch_metrics = get_key_def('batch_metrics', cfg['training'], default=None)
     crop_size = get_key_def('target_size', cfg['training'], default=None)
@@ -555,34 +580,33 @@ def train(cfg: DictConfig) -> None:
             "\nNo tracker file will be saved in this case."
         )
 
-    # PARAMETERS FOR hdf5 SAMPLES
-    # info on the hdf5 name
-    samples_size = get_key_def("input_dim", cfg['dataset'], expected_type=int, default=256)
-    overlap = get_key_def("overlap", cfg['dataset'], expected_type=int, default=0)
-    min_annot_perc = get_key_def('min_annotated_percent', cfg['dataset'], expected_type=int, default=0)
-    samples_folder_name = (
-        f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{experiment_name}'
-    )
+    # PARAMETERS FOR TILES
+    samples_size = get_key_def('tile_size', cfg['tiling'], default=512, expected_type=int)
+    min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], default=0)
+    attr_vals = get_key_def('attribute_vals', cfg['dataset'], None, expected_type=(Sequence, int))
+    # Data folder
     try:
-        my_hdf5_path = Path(str(cfg.dataset.sample_data_dir)).resolve(strict=True)
-        samples_folder = Path(my_hdf5_path.joinpath(samples_folder_name)).resolve(strict=True)
-        logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
+        # check if the folder exist
+        raw_data_dir = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
+        logging.info("\nImage directory used '{}'".format(raw_data_dir))
+        data_path = Path(raw_data_dir)
     except FileNotFoundError:
-        samples_folder = Path(str(cfg.dataset.sample_data_dir)).joinpath(samples_folder_name)
-        logging.info(
-            f"\nThe HDF5 directory '{samples_folder}' doesn't exist, please change the path." +
-            f"\nWe will try to find '{samples_folder_name}' in '{cfg.dataset.raw_data_dir}'."
+        raise logging.critical(
+            "\nImage directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
         )
-        try:
-            my_data_path = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
-            samples_folder = Path(my_data_path.joinpath(samples_folder_name)).resolve(strict=True)
-            logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
-            cfg.general.sample_data_dir = str(my_data_path)  # need to be done for when the config will be saved
-        except FileNotFoundError:
-            raise logging.critical(
-                f"\nThe HDF5 directory '{samples_folder_name}' doesn't exist in '{cfg.dataset.raw_data_dir}'" +
-                f"\n or in '{cfg.dataset.sample_data_dir}', please verify the location of your HDF5."
-            )
+    # Output tiles data
+    try:
+        tiles_root_dir = Path(str(cfg.dataset.tiles_data_dir)).resolve(strict=True)
+        logging.info("\nThe tiling directory used '{}'".format(tiles_root_dir))
+        Path.mkdir(Path(tiles_root_dir), exist_ok=True, parents=True)
+    except FileNotFoundError:
+        logging.info(
+            f"\nThe tiling directory '{cfg.dataset.tiles_data_dir}' doesn't exist, please change the path."
+            f"\nFor now the tiling directory will default to '{data_path}'")
+        tiles_root_dir = cfg.general.tiles_data_dir = str(data_path)
+
+    tiles_dir_name = Tiler.make_tiles_dir_name(samples_size, num_bands)
+    tiles_dir = tiles_root_dir / experiment_name / tiles_dir_name
 
     # visualization parameters
     vis_at_train = get_key_def('vis_at_train', cfg['visualization'], default=False)
@@ -600,13 +624,6 @@ def train(cfg: DictConfig) -> None:
     vis_params = {'colormap_file': colormap_file, 'heatmaps': heatmaps, 'heatmaps_inf': heatmaps_inf, 'grid': grid,
                   'mean': mean, 'std': std, 'vis_batch_range': vis_batch_range, 'vis_at_train': vis_at_train,
                   'vis_at_eval': vis_at_eval, 'ignore_index': dontcare_val, 'inference_input_path': None}
-
-    # coordconv parameters TODO
-    # coordconv_params = {}
-    # for param, val in params['global'].items():
-    #     if 'coordconv' in param:
-    #         coordconv_params[param] = val
-    coordconv_params = get_key_def('coordconv', cfg['model'])
 
     # automatic model naming with unique id for each training
     config_path = None
@@ -634,8 +651,6 @@ def train(cfg: DictConfig) -> None:
             f'\nDontcare values ({dontcare_val}) in label will be replaced with background value (0)'
         )
 
-    # Will check if batch size needs to be a lower value only if cropping samples during training
-    calc_eval_bs = True if crop_size else False
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict = \
         net(model_name=model_name,
@@ -654,8 +669,8 @@ def train(cfg: DictConfig) -> None:
 
     logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
 
-    logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
-    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
+    logging.info(f'Creating dataloaders from data in {tiles_dir}...\n')
+    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=tiles_dir,
                                                                        batch_size=batch_size,
                                                                        eval_batch_size=eval_batch_size,
                                                                        gpu_devices_dict=gpu_devices_dict,
@@ -663,11 +678,11 @@ def train(cfg: DictConfig) -> None:
                                                                        dontcare_val=dontcare_val,
                                                                        crop_size=crop_size,
                                                                        num_bands=num_bands,
-                                                                       BGR_to_RGB=BGR_to_RGB,
+                                                                       min_annot_perc=min_annot_perc,
+                                                                       attr_vals=attr_vals,
                                                                        scale=scale,
                                                                        cfg=cfg,
                                                                        dontcare2backgr=dontcare2backgr,
-                                                                       calc_eval_bs=calc_eval_bs,
                                                                        debug=debug)
 
     # Save tracking TODO put option not just mlflow
@@ -689,12 +704,6 @@ def train(cfg: DictConfig) -> None:
         trn_log = InformationLogger('trn')
         val_log = InformationLogger('val')
         tst_log = InformationLogger('tst')
-
-    if bucket_name:
-        from utils.aws import download_s3_files
-        bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
-                                                                               data_path=data_path,  # FIXME
-                                                                               output_path=output_path)
 
     since = time.time()
     best_loss = 999
@@ -782,9 +791,6 @@ def train(cfg: DictConfig) -> None:
                         'model': state_dict,
                         'best_loss': best_loss,
                         'optimizer': optimizer.state_dict()}, filename)
-            if bucket_name:
-                bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
-                bucket.upload_file(filename, bucket_filename)
 
             # VISUALIZATION: generate pngs of img samples, labels and outputs as alternative to follow training
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
@@ -801,9 +807,6 @@ def train(cfg: DictConfig) -> None:
                                     device=device,
                                     vis_batch_range=vis_batch_range)
                 last_vis_epoch = epoch
-
-        if bucket_name:
-            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, cfg['training']['batch_metrics'])
 
         cur_elapsed = time.time() - since
         # logging.info(f'\nCurrent elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
@@ -833,11 +836,6 @@ def train(cfg: DictConfig) -> None:
         if 'tst_log' in locals():  # only save the value if a tracker is setup
             tst_log.add_values(tst_report, num_epochs)
 
-        if bucket_name:
-            bucket_filename = bucket_output_path.joinpath('last_epoch.pth.tar')
-            bucket.upload_file("output.txt", bucket_output_path.joinpath(f"Logs/{now}_output.txt"))
-            bucket.upload_file(filename, bucket_filename)
-
     # log_artifact(logfile)
     # log_artifact(logfile_debug)
 
@@ -854,7 +852,7 @@ def main(cfg: DictConfig) -> None:
     :param cfg: (dict) Parameters found in the yaml config file.
     """
     # Limit of the NIR implementation TODO: Update after each version
-    if 'deeplabv3' not in cfg.model.model_name and 'IR' in read_modalities(cfg.dataset.modalities):
+    if 'deeplabv3' not in cfg.model.model_name and 'IR' in cfg.dataset.out_modalities:
         logging.info(
             '\nThe NIR modality will only be concatenate at the beginning,'
             '\nthe implementation of the concatenation point is only available'

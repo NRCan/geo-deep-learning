@@ -67,7 +67,7 @@ The **_tracker section_** is set to `None` by default, but will still log the in
 If you want to set a tracker you can change the value in the config file or add the tracker parameter at execution time via the command line `python GDL.py tracker=mlflow mode=train`.
 
 The **_inference section_** contains the information to execute the inference job (more options will follow soon).
-This part doesn't need to be filled if you want to launch sampling, train or hyperparameters search mode only.
+This part doesn't need to be filled if you want to launch tiling, train or hyperparameters search mode only.
 
 The **_task section_** manages the executing task. `Segmentation` is the default task since it's the primary task of GDL.
 However, the goal will be to add tasks as need be. The `GDL.py` code simply executes the main function from the `task_mode.py` in the main folder of GDL.
@@ -87,7 +87,7 @@ general:
   min_epochs: 1 # for train only
   raw_data_dir: ${general.work_dir}/data
   raw_data_csv: ${general.work_dir}/data/images_to_samples_ci_csv.csv
-  sample_data_dir: ${general.work_dir}/data
+  tiles_data_dir: ${general.work_dir}/data
   state_dict_path:
   save_weights_dir: ${general.work_dir}/weights_saved
 ```
@@ -101,10 +101,10 @@ If `True`, will save the config in the log folder.
 
 #### Mode Section
 ```YAML
-mode: {sampling, train, evaluate, inference, hyperparameters_search}
+mode: {tiling, train, evaluate, inference, hyperparameters_search}
 ```
-**GDL** has five modes: sampling, train, evaluate, inference and hyperparameters search.
-- *sampling*, generates `hdf5` files from a folder containing folders for each individual image with their ground truth.
+**GDL** has five modes: tiling, train, evaluate, inference and hyperparameters search.
+- *tiling*, generates .geotiff and .geojson tiles from each individual aoi (image & ground truth).
 - *train*, will train the model specified with all the parameters in `training`, `trainer`, `optimizer`, `callbacks` and `scheduler`. The outcome will be `.pth` weights.
 - *evaluate*, this function needs to be filled with images, their ground truth and a weight for the model. At the end of the evaluation you will obtain statistics on those images. 
 - *inference*, unlike the evaluation, the inference doesn't need a ground truth. The inference will produce a prediction on the content of the images fed to the model. Depending on the task, the outcome file will differ.

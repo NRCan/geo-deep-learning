@@ -1,6 +1,7 @@
 defaults:
   - task: segmentation
   - model: unet
+  - tiling: default_tiling
   - training: default_training
   - optimizer: adamw
   - callbacks: default_callbacks
@@ -31,13 +32,11 @@ general:
   min_epochs: 1 # for train only
   raw_data_dir: ${general.work_dir}/data
   raw_data_csv: ${general.work_dir}/data/images_to_samples_ci_csv.csv
-  sample_data_dir: ${general.work_dir}/data # where the hdf5 will be saved
+  tiles_data_dir: ${general.work_dir}/data # where the tiles will be saved
   state_dict_path:
   save_weights_dir: ${general.work_dir}/weights_saved
 
-AWS:
-  bucket_name:
-
 print_config: True # save the config in the log folder
-mode: {sampling, train, evaluate, inference, hyperparameters_search}
+mode: {tiling, train, evaluate, inference, hyperparameters_search}
 debug: True #False # will print the complete yaml config plus run a validation test
+dry_run: False # if True, will skip processing for selected script

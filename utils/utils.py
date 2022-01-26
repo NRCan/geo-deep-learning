@@ -451,8 +451,9 @@ def read_csv(csv_file_name, data_path=None):
         reader = csv.reader(f)
         for index, row in enumerate(reader):
             row_length = len(row) if index == 0 else row_length
-            assert len(row) == row_length, "Rows in csv should be of same length"
-            row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
+            if not len(row) == row_length:
+                raise ValueError("Rows in csv should be of same length")
+            row.extend([None] * (6 - len(row)))  # fill row with None values to obtain row of length == 6
             # verify if the path is correct, change it if not and raise error msg if not existing
             row[0] = try2read_csv(row[0], data_path, 'Tif raster not found:')
             if row[2]:
@@ -460,7 +461,8 @@ def read_csv(csv_file_name, data_path=None):
                 assert isinstance(row[3], str)
             # save all values
             list_values.append(
-                {'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]}
+                {'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4],
+                 'aoi': row[5]}
             )
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
@@ -469,35 +471,6 @@ def read_csv(csv_file_name, data_path=None):
         log.warning('Unable to sort csv rows')
     return list_values
 
-
-def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
-                                       raster_handle: dict,
-                                       raster_info: dict
-                                       ) -> dict:
-    """
-    :param sat_img_arr: source image as array (opened with rasterio.read)
-    :param raster_info: info from raster as read with read_csv (except at inference)
-    :return: Returns a metadata dictionary populated with info from source raster, including original csv line and
-             histogram.
-    """
-    metadata_dict = {'name': raster_handle.name, 'csv_info': raster_info, 'source_raster_bincount': {}}
-    assert 'dtype' in raster_handle.meta.keys(), "\"dtype\" could not be found in source image metadata"
-    metadata_dict.update(raster_handle.meta)
-    if not metadata_dict['dtype'] in ["uint8", "uint16"]:
-        warnings.warn(f"Datatype should be \"uint8\" or \"uint16\". Got \"{metadata_dict['dtype']}\". ")
-        if sat_img_arr.min() >= 0 and sat_img_arr.max() <= 255:
-            metadata_dict['dtype'] = "uint8"
-        elif sat_img_arr.min() >= 0 and sat_img_arr.max() <= 65535:
-            metadata_dict['dtype'] = "uint16"
-        else:
-            raise NotImplementedError(f"Min and max values of array ({[sat_img_arr.min(), sat_img_arr.max()]}) "
-                                      f"are not contained in 8 bit nor 16 bit range. Datatype cannot be overwritten.")
-    # Save bin count (i.e. histogram) to metadata
-    assert isinstance(sat_img_arr, np.ndarray) and len(sat_img_arr.shape) == 3, f"Array should be 3-dimensional"
-    for band_index in range(sat_img_arr.shape[2]):
-        band = sat_img_arr[..., band_index]
-        metadata_dict['source_raster_bincount'][f'band{band_index}'] = {count for count in np.bincount(band.flatten())}
-    return metadata_dict
 
 #### Image Patches Smoothing Functions ####
 """ Adapted from : https://github.com/Vooban/Smoothly-Blend-Image-Patches  """
@@ -584,7 +557,7 @@ def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -
                          if the latters are different
     :return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
     """
-    # TODO need to be change if the training or testing config are not the same as when the sampling have been create
+    # TODO need to be change if the training or testing config are not the same as when the tiling have been create
     # TODO maybe only check and save a small part of the config like the model or something
 
     if not (isinstance(yaml1, dict) or isinstance(yaml2, dict)):
@@ -592,12 +565,12 @@ def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -
                         f"Yaml1's type is  {type(yaml1)}\n"
                         f"Yaml2's type is  {type(yaml2)}")
     for section, params in yaml2.items():  # loop through main sections of config yaml ('global', 'sample', etc.)
-        if section in {'task', 'mode', 'debug'}:  # the task is not the same as the hdf5 since the hdf5 is in sampling
+        if section in {'task', 'mode', 'debug'}:  # the task is not the same as the hdf5 since the hdf5 is in tiling
             continue
         if section not in yaml1.keys():  # create key if not in dictionary as we loop
             yaml1[section] = {}
         for param, val2 in params.items():  # loop through parameters of each section ('samples_size','debug_mode',...)
-            if param in {'config_override_dirname'}:  # the config_override_dirname is not the same as the hdf5 since the hdf5 is in sampling
+            if param in {'config_override_dirname'}:  # the config_override_dirname is not the same as the hdf5 since the hdf5 is in tiling
                 continue
             if param not in yaml1[section].keys():  # create key if not in dictionary as we loop
                 yaml1[section][param] = {}
@@ -645,24 +618,30 @@ def load_obj(obj_path: str, default_obj_path: str = '') -> any:
     return getattr(module_obj, obj_name)
 
 
-def read_modalities(modalities: str) -> list:
+def select_modalities(in_bands: List, out_modalities: List) -> List:
     """
-    Function that read the modalities from the yaml and convert it to a list
-    of all the bands specified.
+    Select and order bands from available input bands to desired output bands
 
     -------
-    :param modalities: (str) A string composed of all the bands of the images.
+    :param in_bands: (List) Original positions of the bands to select and move.
+    :param out_modalities: (List) Destination positions for the original bands being selected.
+                            This list must be a subset of in_bands list.
 
     -------
-    :returns: A list of all the bands of the images.
+    :returns: tuple of indices of desired input bands according to desired output order.
+
+    Examples
+    --------
+    >>> select_modalities(in_bands=["B", "G", "R", "N"], out_modalities=["R", "G", "B", "N"])
+    (2, 1, 0, 3)
+    >>> select_modalities(in_bands=["B", "G", "R", "N"], out_modalities=["N", "G", "R"])
+    (3, 1, 2)
     """
-    if str(modalities).find('IR') != -1:
-        ir_position = str(modalities).find('IR')
-        modalities = list(str(modalities).replace('IR', ''))
-        modalities.insert(ir_position, 'IR')
-    else:
-        modalities = list(str(modalities))
-    return modalities
+    if not set(out_modalities).issubset(set(in_bands)):
+        raise ValueError("Desired output modalities must be a subset of in_bands list")
+    # *Note:* per ``rasterio`` convention, indexing starts at ``1``, not ``0``, thus the +1
+    out_band_idx = tuple([in_bands.index(x)+1 for x in out_modalities])
+    return out_band_idx
 
 
 def find_first_file(name, list_path):
@@ -719,11 +698,11 @@ def print_config(
     save_dir = tree.add('Saving directory', style=style, guide_style=style)
     save_dir.add(os.getcwd())
 
-    if config.get('mode') == 'sampling':
+    if config.get('mode') == 'tiling':
         fields += (
             "general.raw_data_dir",
             "general.raw_data_csv",
-            "general.sample_data_dir",
+            "general.tiles_data_dir",
         )
     elif config.get('mode') == 'train':
         fields += (
@@ -733,14 +712,14 @@ def print_config(
             'callbacks',
             'scheduler',
             'augmentation',
-            "general.sample_data_dir",
+            "general.tiles_data_dir",
             "general.state_dict_path",
             "general.save_weights_dir",
         )
     elif config.get('mode') == 'inference':
         fields += (
             "model",
-            "general.sample_data_dir",
+            "general.tiles_data_dir",
             "general.state_dict_path",
         )
 

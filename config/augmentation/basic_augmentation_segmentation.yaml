@@ -13,10 +13,5 @@ augmentation:
   rotate_prob: 0.5
   # Horizontal flip: the probability for data horizontal flip.
   hflip_prob: 0.5
-  # Range of the random percentile:
-  #   the range in which a random percentile value will
-  #   be chosen to trim values. This value applies to
-  #   both left and right sides of the raster's histogram.
-  random_radiom_trim_range: [ 0.1, 2.0 ]
   brightness_contrast_range: # Not yet implemented
   noise:  # Standard deviation of Gaussian Noise (optional)

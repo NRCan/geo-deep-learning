@@ -65,7 +65,7 @@ unzip ./data/massachusetts_buildings.zip -d ./data
 3. Run the wanted script (for segmentation).
 ```shell
 # Creating the hdf5 from the raw data
-python GDL.py mode=sampling
+python GDL.py mode=tiling
 # Training the neural network
 python GDL.py mode=train
 # Inference on the data

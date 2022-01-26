@@ -2,15 +2,33 @@ from pathlib import Path
 from typing import Union, List
 
 import fiona
+import numpy as np
 import rasterio
+from PIL.Image import Image
 from rasterio.features import is_valid_geom
 from tqdm import tqdm
 
+from solaris_gdl.utils.core import _check_rasterio_im_load, _check_gdf_load, _check_crs
 from utils.geoutils import lst_ids, get_key_recursive
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def validate_num_bands(raster, num_bands, bands_idxs: List = None):
+    metadata = _check_rasterio_im_load(raster).meta
+    logging.debug(f'Raster: {raster}\n'
+                  f'Metadata: {metadata}')
+    # TODO: raise errors or log errors? Non matching number of bands is major. Leaving as errors for now.
+    if metadata['count'] > num_bands and not bands_idxs:
+        raise ValueError(f'Missing band indexes to keep. Imagery contains {metadata["count"]} bands. '
+                         f'Number of bands to be kept in tiles {num_bands}')
+    elif metadata['count'] < num_bands:
+        raise ValueError(f'Imagery contains {metadata["count"]} bands. "num_bands" is {num_bands}\n'
+                         f'Expected {num_bands} or more bands in source imagery')
+    else:
+        return True, metadata
 
 
 def validate_num_classes(vector_file: Union[str, Path],
@@ -87,29 +105,58 @@ def add_background_to_num_class(task: str, num_classes: int):
         raise NotImplementedError(f'Task should be either classification or segmentation. Got "{task}"')
 
 
-def validate_raster(raster_path: Union[str, Path], num_bands: int, meta_map):
+def validate_raster(raster_path: Union[str, Path], verbose: bool = True, extended: bool = False):
     """
-    Assert number of bands found in raster is equal to desired number of bands
-    :param raster_path: (str or Path) path to raster file
-    :param num_bands: number of bands raster file is expected to have
-    :param meta_map:
+    Checks if raster is valid, i.e. not corrupted (based on metadata, or actual byte info if under size threshold)
+    @param raster_path: Path to raster to validate
+    @param verbose: if True, will output potential errors detected
+    @param extended: if True, rasters will be entirely read to detect any problem
+    @return:
     """
-    # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
-    #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
-    if isinstance(raster_path, str):
-        raster_path = Path(raster_path)
-    if not raster_path.is_file():
-        raise FileNotFoundError(f"Could not locate raster file at {raster_path}")
-    with rasterio.open(raster_path, 'r') as raster:
-        input_band_count = raster.meta['count']
-        if not raster.meta['dtype'] in ['uint8', 'uint16']:
-            logging.error(f"Invalid datatype {raster.meta['dtype']} for {raster.name}. "
-                          f"Only uint8 and uint16 are supported in current version")
+    if not raster_path:
+        return False, None
+    raster_path = Path(raster_path) if isinstance(raster_path, str) else raster_path
+    metadata = {}
+    try:
+        logging.debug(f'Raster to validate: {raster_path}\n'
+                     f'Size: {raster_path.stat().st_size}\n'
+                     f'Extended check: {extended}')
+        metadata = get_raster_meta(raster_path)
+        if extended:
+            logging.debug(f'Will perform extended check\n'
+                         f'Will read first band: {raster_path}')
+            with rasterio.open(raster_path, 'r') as raster:
+                raster_np = raster.read(1)
+            logging.debug(raster_np.shape)
+            if not np.any(raster_np):
+                # maybe it's a valid raster filled with no data. Double check with PIL
+                pil_img = Image.open(raster_path)
+                pil_np = np.asarray(pil_img)
+                if len(pil_np.shape) == 0 or pil_np.size <= 1:
+                    logging.error(f'Corrupted raster: {raster_path}\n'
+                                  f'Shape: {(pil_np.shape)}\n'
+                                  f'Size: {(pil_np.size)}')
+                    return False, metadata
+        return True, metadata
+    except rasterio.errors.RasterioIOError as e:
+        if verbose:
+            logging.error(e)
+        return False, metadata
+    except Exception as e:
+        if verbose:
+            logging.error(e)
+        return False, metadata
 
-    if not input_band_count == num_bands:
-        raise ValueError(f"The number of bands in the input image ({input_band_count}) "
-                         f"and the parameter 'number_of_bands' in the yaml file ({num_bands}) "
-                         f"should be identical")
+
+def get_raster_meta(raster_path: Union[str, Path]):
+    """
+    Get a raster's metadata as provided by rasterio
+    @param raster_path: Path to raster for which metadata is desired
+    @return: (dict) Dictionary of raster's metadata (driver, dtype, nodata, width, height, count, crs, transform, etc.)
+    """
+    with rasterio.open(raster_path, 'r') as raster:
+        metadata = raster.meta
+    return metadata
 
 
 def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path]):
@@ -118,16 +165,30 @@ def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path])
     :param raster_path: (str or Path) path to raster file
     :param gpkg_path: (str or Path) path to gpkg file
     """
-    with fiona.open(gpkg_path, 'r') as src:
-        gpkg_crs = src.crs
+    raster = _check_rasterio_im_load(raster_path)
+    raster_crs = raster.crs
+    gt = _check_gdf_load(gpkg_path)
+    gt_crs = gt.crs
 
-    with rasterio.open(raster_path, 'r') as raster:
-        raster_crs = raster.crs
+    epsg_gt = _check_crs(gt_crs.to_epsg())
+    try:
+        if raster_crs.is_epsg_code:
+            epsg_raster = _check_crs(raster_crs.to_epsg())
+        else:
+            logging.warning(f"Cannot parse epsg code from raster's crs '{raster.name}'")
+            return False, raster_crs, gt_crs
 
-    if not gpkg_crs == raster_crs:
-        logging.warning(f"CRS mismatch: \n"
-                        f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n"
-                        f"GPKG file \"{gpkg_path}\" has {src.crs} CRS.")
+        if epsg_raster != epsg_gt:
+            logging.error(f"CRS mismatch: \n"
+                          f"TIF file \"{raster_path}\" has {epsg_raster} CRS; \n"
+                          f"GPKG file \"{gpkg_path}\" has {epsg_gt} CRS.")
+            return False, raster_crs, gt_crs
+        else:
+            return True, raster_crs, gt_crs
+    except AttributeError as e:
+        logging.critical(f'Problem reading crs from image or label.')
+        logging.critical(e)
+        return False, raster_crs, gt_crs
 
 
 def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
