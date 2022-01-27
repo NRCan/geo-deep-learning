@@ -723,9 +723,6 @@ def print_config(
             "general.state_dict_path",
         )
 
-    if getpath(config, 'AWS.bucket_name'):
-        fields += ("AWS",)
-
     if config.get('tracker'):
         fields += ("tracker",)
 

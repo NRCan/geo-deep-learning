@@ -197,7 +197,6 @@ class VectorTiler(object):
         for i, tb in enumerate(tile_bounds):
             if self.super_verbose:
                 logging.info(f"\n{i}/{len(tile_bounds)}\n")
-            logging.debug(f'{i}\n{tb}\n{self.src.info()}\n{min_partial_perc}\n{geom_type}')
             if reproject_bounds:
                 logging.debug(self.src.info())
                 tb_geom_reproj = reproject_geometry(box(*tb),
@@ -328,7 +327,6 @@ def clip_gdf(gdf, tile_bounds, min_partial_perc=0.0, geom_type="Polygon",
     # TODO must implement different case for lines and for spatialIndex
     # (Assume RTree is already performed)
 
-    logging.debug(f'GeoDataFrame before clip: {gdf.info}')
     cut_gdf = gdf.copy()
     try:
         cut_gdf.geometry = gdf.intersection(tb)

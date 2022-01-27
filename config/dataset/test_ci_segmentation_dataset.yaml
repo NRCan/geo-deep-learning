@@ -9,7 +9,7 @@ dataset:
   class_name: # will follow in the next version
   classes_dict: {'Building':1}
   class_weights:
-  train_val_percent: {'trn':0.5, 'val':0.4, 'tst':0.1}
+  train_val_percent: {'trn':0.7, 'val':0.2, 'tst':0.1}
   attribute_field: "class"
   attribute_vals: 1
   validate_data: True

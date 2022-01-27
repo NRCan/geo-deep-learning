@@ -1,6 +1,6 @@
 # @package _global_
 tiling:
-  tile_size: 512
+  tile_size: 256
   min_annot_perc: 0
   resampling_factor: 1
   use_stratification: False
