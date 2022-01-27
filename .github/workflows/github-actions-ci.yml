@@ -24,6 +24,6 @@ jobs:
           source /usr/share/miniconda/etc/profile.d/conda.sh
           conda activate geo_deep_env
           unzip ./data/massachusetts_buildings.zip -d ./data
-          python GDL.py mode=sampling
+          python GDL.py mode=tiling
           python GDL.py mode=train
           python GDL.py mode=inference
