@@ -31,7 +31,7 @@ RUN git clone "https://github.com/NRCan/geo-deep-learning.git" && \
 
 # TODO : create an environment for inference
 RUN conda env create -f geo-deep-learning/environment.yml && \
-    rm -rf .git data docs config example LICENSE README.md Dockerfile *.yml
+    rm -rf .git data docs config example Dockerfile *.yml
 
 # runtime image
 FROM condaforge/mambaforge
@@ -67,7 +67,7 @@ ARG GIT_TAG=develop
 RUN git clone "https://github.com/NRCan/geo-deep-learning.git" && \
     cd geo-deep-learning && \
     git checkout ${GIT_HASH} && \
-    rm -rf .git data docs config example LICENSE README.md Dockerfile *.yml
+    rm -rf .git data docs config example Dockerfile *.yml
 
 COPY --chown=1000 --from=build /opt/conda/. $CONDA_DIR
 
