@@ -153,10 +153,6 @@ _**Don't forget to change the path of the dataset in the config yaml.**_
 
 [comment]: <> (  debug_mode: True)
 
-[comment]: <> (  coordconv_convert: False)
-
-[comment]: <> (  coordvonc_scale:)
-
 [comment]: <> (  # Module to include the NIR)
 
 [comment]: <> (  modalities: RGBN                 # <-- must be add)
