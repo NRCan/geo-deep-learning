@@ -17,7 +17,7 @@ def validate_num_classes(vector_file: Union[str, Path],
                          num_classes: int,
                          attribute_name: str,
                          ignore_index: int,
-                         target_ids: List):
+                         attribute_values: List):
     """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
     FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
     Args:
@@ -26,7 +26,7 @@ def validate_num_classes(vector_file: Union[str, Path],
         :param attribute_name: name of the value field representing the required classes in the vector image file
         :param ignore_index: (int) target value that is ignored during training and does not contribute to
                              the input gradient
-        :param target_ids: list of identifiers to burn from the vector file (None = use all)
+        :param attribute_values: list of identifiers to burn from the vector file (None = use all)
     Return:
         List of unique attribute values found in gpkg vector file
     """
@@ -45,15 +45,15 @@ def validate_num_classes(vector_file: Union[str, Path],
         unique_att_vals.remove(ignore_index)
 
     # if burning a subset of gpkg's classes
-    if target_ids:
-        if not len(target_ids) == num_classes:
+    if attribute_values:
+        if not len(attribute_values) == num_classes:
             raise ValueError(f'Yaml parameters mismatch. \n'
-                             f'Got target_ids {target_ids} (sample sect) with length {len(target_ids)}. '
+                             f'Got values {attribute_values} (sample sect) with length {len(attribute_values)}. '
                              f'Expected match with num_classes {num_classes} (global sect))')
         # make sure target ids are a subset of all attribute values in gpkg
-        if not set(target_ids).issubset(unique_att_vals):
+        if not set(attribute_values).issubset(unique_att_vals):
             logging.warning(f'\nFailed scan of vector file: {vector_file}\n'
-                            f'\tExpected to find all target ids {target_ids}. \n'
+                            f'\tExpected to find all target ids {attribute_values}. \n'
                             f'\tFound {unique_att_vals} for attribute "{attribute_name}"')
     else:
         # this can happen if gpkg doens't contain all classes, thus the warning rather than exception

@@ -109,7 +109,7 @@ def process_vector_label(rst_pth, gpkg_pth, ids):
                                         out_shape=(src.height, src.width),
                                         attribute_name='properties/Quatreclasses',
                                         fill=0,
-                                        target_ids=ids,
+                                        attribute_values=ids,
                                         merge_all=True,
                                         )
         return np_label

@@ -1,4 +1,6 @@
 import shutil
+from typing import Sequence
+
 import rasterio
 import numpy as np
 from os import path
@@ -449,12 +451,13 @@ def main(cfg: DictConfig) -> None:
             " will be remapped to -1 while loading the dataset, and inside the config from now on."
         )
         dontcare = -1
-    # Assert that all items in target_ids are integers (ex.: single-class samples from multi-class label)
-    targ_ids = None  # TODO get_key_def('target_ids', params['sample'], None, expected_type=List)
-    if targ_ids is list:
-        for item in targ_ids:
+    attribute_field = get_key_def('attribute_field', cfg['dataset'], None, expected_type=str)
+    # Assert that all items in attribute_values are integers (ex.: single-class samples from multi-class label)
+    attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=Sequence)
+    if attr_vals is list:
+        for item in attr_vals:
             if not isinstance(item, int):
-                raise logging.critical(ValueError(f'\nTarget id "{item}" in target_ids is {type(item)}, expected int.'))
+                raise logging.critical(ValueError(f'\nAttribute value "{item}" is {type(item)}, expected int.'))
 
     # OPTIONAL
     use_stratification = cfg.dataset.use_stratification if cfg.dataset.use_stratification is not None else False
@@ -496,7 +499,7 @@ def main(cfg: DictConfig) -> None:
         validate_raster(info['tif'], num_bands, meta_map)
         if info['gpkg'] not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(
-                info['gpkg'], num_classes, info['attribute_name'], dontcare, target_ids=targ_ids,
+                info['gpkg'], num_classes, attribute_field, dontcare, attribute_values=attr_vals,
             )
             assert_crs_match(info['tif'], info['gpkg'])
             valid_gpkg_set.add(info['gpkg'])
@@ -505,7 +508,7 @@ def main(cfg: DictConfig) -> None:
         # VALIDATION (debug only): Checking validity of features in vector files
         for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
             # TODO: make unit to test this with invalid features.
-            invalid_features = validate_features_from_gpkg(info['gpkg'], info['attribute_name'])
+            invalid_features = validate_features_from_gpkg(info['gpkg'], attribute_field)
             if invalid_features:
                 logging.critical(f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'")
 
@@ -551,13 +554,18 @@ def main(cfg: DictConfig) -> None:
                 )
 
                 # 2. Burn vector file in a raster file
-                logging.info(f"\nRasterizing vector file (attribute: {info['attribute_name']}): {info['gpkg']}")
-                np_label_raster = vector_to_raster(vector_file=info['gpkg'],
-                                                   input_image=raster,
-                                                   out_shape=np_input_image.shape[:2],
-                                                   attribute_name=info['attribute_name'],
-                                                   fill=background_val,
-                                                   target_ids=targ_ids)  # background value in rasterized vector.
+                logging.info(f"\nRasterizing vector file (attribute: {attribute_field}): {info['gpkg']}")
+                try:
+                    np_label_raster = vector_to_raster(vector_file=info['gpkg'],
+                                                       input_image=raster,
+                                                       out_shape=np_input_image.shape[:2],
+                                                       attribute_name=attribute_field,
+                                                       fill=background_val,
+                                                       attribute_values=attr_vals)  # background value in rasterized vector.
+                except ValueError:
+                    logging.error(f"No vector features found for {info['gpkg']} with provided configuration."
+                                  f"Will skip to next AOI.")
+                    continue
 
                 if dataset_nodata is not None:
                     # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
