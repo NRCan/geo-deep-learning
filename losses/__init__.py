@@ -1,6 +1,7 @@
 # All losses from: https://github.com/nyoki-mtl/pytorch-segmentation/tree/master/src/losses/multi
 
 import torch.nn as nn
+import segmentation_models_pytorch as smp
 
 from .focal_loss import FocalLoss
 from .lovasz_loss import LovaszSoftmax
@@ -9,6 +10,20 @@ from .focal_loss import FocalLoss
 from .dice_loss import DiceLoss
 from .boundary_loss import BoundaryLoss
 
+
+class SingleClassCriterion(nn.Module):
+
+    def __init__(self, loss_type='SoftBCE', **kwargs):
+        super().__init__()
+        if loss_type == 'SoftBCE':
+            self.criterion = smp.losses.SoftBCEWithLogitsLoss(**kwargs)
+        elif loss_type == 'Dice':
+            self.criterion = smp.losses.DiceLoss(mode='binary', **kwargs)
+        elif loss_type == 'Lovasz':
+            self.criterion = smp.losses.LovaszLoss(mode='binary', per_image=True, **kwargs)
+        else:
+            raise NotImplementedError \
+                (f'Current version of geo-deep-learning does not implement {loss_type} loss')
 
 class MultiClassCriterion(nn.Module):
     def __init__(self, loss_type='CrossEntropy', **kwargs):
