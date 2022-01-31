@@ -1,0 +1,6 @@
+# @package _global_
+scheduler:
+  class_name: torch.optim.lr_scheduler.CosineAnnealingLR
+  step: epoch
+  params:
+    T_max: 10

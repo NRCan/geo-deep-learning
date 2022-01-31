@@ -1,0 +1,7 @@
+# @package _global_
+optimizer:
+  optimizer_name: 'adamw'
+  class_name: torch.optim.AdamW
+  params:
+    lr: ${training.lr}
+    weight_decay: 0.001

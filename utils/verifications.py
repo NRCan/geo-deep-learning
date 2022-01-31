@@ -6,7 +6,6 @@ import rasterio
 from rasterio.features import is_valid_geom
 from tqdm import tqdm
 
-from utils.create_dataset import MetaSegmentationDataset
 from utils.geoutils import lst_ids, get_key_recursive
 
 import logging
@@ -23,7 +22,7 @@ def validate_num_classes(vector_file: Union[str, Path],
     FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
     Args:
         :param vector_file: full file path of the vector image
-        :param num_classes: number of classes set in config_template.yaml
+        :param num_classes: number of classes set in old_config_template.yaml
         :param attribute_name: name of the value field representing the required classes in the vector image file
         :param ignore_index: (int) target value that is ignored during training and does not contribute to
                              the input gradient
@@ -102,7 +101,7 @@ def validate_raster(raster_path: Union[str, Path], num_bands: int, meta_map):
     if not raster_path.is_file():
         raise FileNotFoundError(f"Could not locate raster file at {raster_path}")
     with rasterio.open(raster_path, 'r') as raster:
-        input_band_count = raster.meta['count'] + MetaSegmentationDataset.get_meta_layer_count(meta_map)
+        input_band_count = raster.meta['count']
         if not raster.meta['dtype'] in ['uint8', 'uint16']:
             logging.error(f"Invalid datatype {raster.meta['dtype']} for {raster.name}. "
                           f"Only uint8 and uint16 are supported in current version")
