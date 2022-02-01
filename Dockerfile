@@ -1,17 +1,21 @@
+ARG GIT_HASH=f7e6033
+ARG CONDA_PYTHON_VERSION=3
+ARG CONDA_DIR=/opt/conda
+
 FROM nvidia/cuda:11.2.0-cudnn8-devel-ubuntu20.04 AS build
 
 # RNCAN certificate; uncomment (with right .cer name) if you are building behind a FW
 # COPY NRCan-RootCA.cer /usr/local/share/ca-certificates/cert.crt
 # RUN chmod 644 /usr/local/share/ca-certificates/cert.crt && update-ca-certificates
 
-ARG PYTHON_VERSION=3.9
-ARG CONDA_PYTHON_VERSION=3
-ARG CONDA_DIR=/opt/conda
-
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git wget unzip bzip2 build-essential sudo \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+ARG GIT_HASH
+ARG CONDA_PYTHON_VERSION
+ARG CONDA_DIR
 
 # Install miniconda
 ENV PATH $CONDA_DIR/bin:$PATH
@@ -21,9 +25,6 @@ RUN wget --quiet https://repo.continuum.io/miniconda/Miniconda$CONDA_PYTHON_VERS
     rm -rf /tmp/* && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-
-## Variables 
-ARG GIT_HASH=f7e6033
 
 RUN git clone "https://github.com/NRCan/geo-deep-learning.git" && \
     cd geo-deep-learning && \
@@ -45,7 +46,7 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-ARG CONDA_DIR=/opt/conda
+ARG CONDA_DIR
 ARG USERNAME=gdl_user
 ARG USERID=1000
 
@@ -60,9 +61,9 @@ USER $USERNAME
 WORKDIR /home/$USERNAME
 
 ## Variables 
-ARG GIT_HASH=f7e6033
+ARG GIT_HASH
 # Alternative to using a git hash: use git tag (uncomment git clone command below)
-ARG GIT_TAG=develop
+# ARG GIT_TAG=develop
 
 RUN git clone "https://github.com/NRCan/geo-deep-learning.git" && \
     cd geo-deep-learning && \
