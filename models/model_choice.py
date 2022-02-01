@@ -9,11 +9,12 @@ import torch.nn as nn
 import segmentation_models_pytorch as smp
 import torchvision.models as models
 ###############################
+from hydra.utils import instantiate
+
 from utils.layersmodules import LayersEnsemble
 ###############################
 from tqdm import tqdm
 from utils.optimizer import create_optimizer
-from losses import MultiClassCriterion
 import torch.optim as optim
 from models import TernausNet, unet, checkpointed_unet, inception
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
@@ -137,9 +138,10 @@ def set_hyperparameters(params,
     gamma = get_key_def('gamma', params['scheduler']['params'], 0.9)
     class_weights = torch.tensor(class_weights) if class_weights else None
     # Loss function
-    criterion = MultiClassCriterion(loss_type=loss_fn,
-                                    ignore_index=dontcare_val,
-                                    weight=class_weights)
+    if loss_fn['_target_'] == 'torch.nn.CrossEntropyLoss':
+        criterion = instantiate(loss_fn, weight=class_weights)  # FIXME: unable to pass this through hydra
+    else:
+        criterion = instantiate(loss_fn)
     # Optimizer
     opt_fn = optimizer
     optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)

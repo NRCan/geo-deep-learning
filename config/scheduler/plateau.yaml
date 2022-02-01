@@ -2,7 +2,7 @@
 scheduler:
   class_name: torch.optim.lr_scheduler.ReduceLROnPlateau
   step: epoch
-  monitor: ${training.loss_fn}
+  monitor: ${loss}
   params:
     mode: ${training.mode}
     factor: 0.5  # (float) Set dropout probability, e.g. 0.5

@@ -1,0 +1,4 @@
+# @package _global_
+loss:
+    _target_: smp.losses.SoftBCEWithLogitsLoss
+    ignore_index: ${dataset.ignore_index}

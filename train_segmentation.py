@@ -325,6 +325,12 @@ def training(train_loader,
                                ep_num=ep_idx + 1,
                                scale=scale)
 
+        # FIXME: binary vs multiclass loss don't expect same dimensions
+        try:
+            if criterion.mode == 'binary':
+                outputs = outputs[:, -1, ...]
+        except AttributeError:
+            pass
         loss = criterion(outputs, labels)
 
         train_metrics['loss'].update(loss.item(), batch_size)
@@ -422,6 +428,12 @@ def evaluation(eval_loader,
 
             outputs_flatten = flatten_outputs(outputs, num_classes)
 
+            # FIXME: binary vs multiclass loss don't expect same dimensions
+            try:
+                if criterion.mode == 'binary':
+                    outputs = outputs[:, -1, ...]
+            except AttributeError:
+                pass
             loss = criterion(outputs, labels)
 
             eval_metrics['loss'].update(loss.item(), batch_size)
@@ -517,7 +529,7 @@ def train(cfg: DictConfig) -> None:
 
     # MODEL PARAMETERS
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
-    loss_fn = get_key_def('loss_fn', cfg['training'], default='CrossEntropy')
+    loss_fn = cfg.loss
     optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam', expected_type=str)  # TODO change something to call the function
     pretrained = get_key_def('pretrained', cfg['model'], default=True, expected_type=bool)
     train_state_dict_path = get_key_def('state_dict_path', cfg['general'], default=None, expected_type=str)
