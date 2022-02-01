@@ -1,17 +1,26 @@
 # @package _global_
 dataset:
+  # dataset-wide
   name:
-  modalities: RGB
   input_dim: 256
   overlap:
-  min_annot_perc:
+  use_stratification: False
+  train_val_percent: {'trn':0.7, 'val':0.3, 'tst':0}
   raw_data_csv: ${general.raw_data_csv}
   raw_data_dir: ${general.raw_data_dir}
-  sample_data_dir: ${general.sample_data_dir}
+
+  # imagery
+  modalities: RGB
+
+  # ground truth
+  attribute_field: properties/class
+  attribute_values: [1]
+  min_annot_perc:
   class_name: # will follow in the next version
   classes_dict: {'Building':1}
   class_weights:
-  train_val_percent: {'trn':0.7, 'val':0.2, 'tst':0.1}
   ignore_index:
-  use_stratification: False
+
+  # outputs
+  sample_data_dir: ${general.sample_data_dir}
 
