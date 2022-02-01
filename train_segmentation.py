@@ -601,13 +601,6 @@ def train(cfg: DictConfig) -> None:
                   'mean': mean, 'std': std, 'vis_batch_range': vis_batch_range, 'vis_at_train': vis_at_train,
                   'vis_at_eval': vis_at_eval, 'ignore_index': dontcare_val, 'inference_input_path': None}
 
-    # coordconv parameters TODO
-    # coordconv_params = {}
-    # for param, val in params['global'].items():
-    #     if 'coordconv' in param:
-    #         coordconv_params[param] = val
-    coordconv_params = get_key_def('coordconv', cfg['model'])
-
     # automatic model naming with unique id for each training
     config_path = None
     for list_path in cfg.general.config_path:
