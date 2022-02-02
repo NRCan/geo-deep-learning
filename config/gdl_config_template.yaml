@@ -36,6 +36,9 @@ general:
   state_dict_path:
   save_weights_dir: ${general.work_dir}/weights_saved
 
+AWS:
+  bucket_name:
+
 print_config: True # save the config in the log folder
 mode: {tiling, train, evaluate, inference, hyperparameters_search}
 debug: True #False # will print the complete yaml config plus run a validation test
