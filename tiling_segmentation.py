@@ -4,6 +4,8 @@ import functools
 import glob
 import math
 import multiprocessing
+
+import matplotlib.pyplot
 import omegaconf.listconfig
 import os
 from typing import Union, Sequence
@@ -165,11 +167,14 @@ class AOI(object):
         @return: Subset of source GeoDataFrame with only filtered features (deep copy)
         """
         gdf_tile = _check_gdf_load(gdf_tile)
-        if not attr_field or not attr_vals:
+        if not attr_field:
             return gdf_tile, None
+        elif attr_field and not attr_vals:
+            raise ValueError(f'No attribute values given to filter features for attribute field "{attr_field}". '
+                             f'If all values are to be kept, these values should be listed in attribute values '
+                             f'in the dataset configuration')
         if not attr_field in gdf_tile.columns:
             attr_field = attr_field.split('/')[-1]
-        # TODO: warn if no features with values in given attribute field. Values may be wrong.
         if gdf_tile.empty:
             return gdf_tile, attr_field
         try:
@@ -182,6 +187,9 @@ class AOI(object):
                           f'Total features: {len(gdf_tile)}\n'
                           f'Attribute field: "{attr_field}"\n'
                           f'Filtered values: {attr_vals}')
+            if gdf_filtered.empty:
+                raise ValueError(f'Features are present, but no features with values {attr_vals} in given attribute '
+                                 f'field "{attr_field}". Values may be wrong.')
             return gdf_filtered, attr_field
         except KeyError as e:
             logging.critical(f'No attribute named {attr_field} in GeoDataFrame. \n'
@@ -551,8 +559,12 @@ class Tiler(object):
         out_burned_gt_path.parent.mkdir(exist_ok=True)
         return out_burned_gt_path
 
-    def burn_gt_tile(self, aoi: AOI, img_tile: Union[str, Path],
-                     gt_tile: Union[gpd.GeoDataFrame, str, Path], out_px_mask: Union[str, Path],
+    def burn_gt_tile(self, aoi: AOI,
+                     img_tile: Union[str, Path],
+                     gt_tile: Union[gpd.GeoDataFrame, str, Path],
+                     out_px_mask: Union[str, Path],
+                     continuous: bool = True,
+                     save_preview: bool = True,
                      dry_run: bool = False):
         """
         Return line to be written to a dataset file
@@ -561,6 +573,11 @@ class Tiler(object):
             Path to image tile
         @param gt_tile: str, pathlib.Path or gpd.GeoDataFrame
             Path to ground truth tile or gpd.GeoDataFrame of ground truth
+        @param out_px_mask: Burned tile output path
+        @param continuous: bool, if True, burn values will be continuous starting at 1 for easier use in training an ML
+                           model
+        @param save_preview: bool, if True, a copy of the burned label will be created for quick preview from a file
+                             manager. Burn values will be stretched to 255.
         @return:
         """
 
@@ -570,17 +587,44 @@ class Tiler(object):
         if not aoi.attr_field and aoi.attr_vals is not None:
             raise ValueError(f'Values for an attribute field have been provided, but no attribute field is set.\n'
                              f'Attribute values: {aoi.attr_vals}')
+        elif aoi.attr_field is not None and not aoi.attr_vals:
+            raise ValueError(f'An attribute field has been provided, but no attribute values were set.\n'
+                             f'Attribute field: {aoi.attr_field}. If all values from attribute fields are '
+                             f'to be kept, please input full list of values in dataset configuration.')
         # Burn value of attribute field from which features are being filtered. If single value is filtered
         # burn 255 value (easier for quick visualization in file manager)
-        burn_field = aoi.attr_field if aoi.attr_vals and len(aoi.attr_vals) > 1 else None
         if not dry_run:
+            burn_field = aoi.attr_field if aoi.attr_field else None
+            burn_val = None if aoi.attr_field and aoi.attr_vals else 255
+            if gt_tile.empty:
+                burn_field = None
+            elif continuous and aoi.attr_field:
+                # Define new column 'burn_val' with continuous values for use during burning
+                cont_vals_dict = {src: dst+1 for dst, src in enumerate(aoi.attr_vals)}
+                if all(isinstance(val, str) for val in gt_tile[aoi.attr_field].unique().tolist()):
+                    cont_vals_dict = {str(src): dst for src, dst in cont_vals_dict.items()}
+                gt_tile['burn_val'] = gt_tile[aoi.attr_field].map(cont_vals_dict)
+                burn_field = 'burn_val'  # overwrite burn_field
+            elif continuous:
+                burn_val = 1
+            # burn to raster
             vector.mask.footprint_mask(df=gt_tile, out_file=str(out_px_mask),
                                        reference_im=str(img_tile),
-                                       burn_field=burn_field)
+                                       burn_field=burn_field,
+                                       burn_value=burn_val)
+            if save_preview:
+                # burn preview to raster iin dedicated folder
+                prev_out_px_mask = Path(f'{out_px_mask.parent}_preview') / f'{out_px_mask.stem}.png'
+                prev_out_px_mask.parent.mkdir(exist_ok=True)
+                with rasterio.open(out_px_mask) as burned_tile:
+                    burned_tile_array = burned_tile.read()[0, ...]
+                    matplotlib.pyplot.imsave(prev_out_px_mask, burned_tile_array)
 
     def filter_and_burn_dataset(self, aoi: AOI, img_tile: Union[str, Path],
                                 gt_tile: Union[str, Path],
                                 tile_bounds: Polygon = None,
+                                continuous_vals: bool = True,
+                                save_preview_labels: bool = False,
                                 dry_run: bool = False):
         out_gt_burned_path = self.get_burn_gt_tile_path(attr_vals=aoi.attr_vals, gt_tile=gt_tile)
         # returns corrected attr_field if original field needed truncating
@@ -600,8 +644,9 @@ class Tiler(object):
                               img_tile=img_tile,
                               gt_tile=gdf_tile,
                               out_px_mask=out_gt_burned_path,
+                              continuous=continuous_vals,
+                              save_preview=save_preview_labels,
                               dry_run=dry_run)
-            # FIXME: should ; be the separator?
             dataset_line = f'{img_tile.absolute()};{out_gt_burned_path.absolute()};{round(annot_perc)}\n'
             return (dataset, dataset_line)
         else:
@@ -662,6 +707,8 @@ def csv_from_glob(img_glob, gt_dir_rel2img, parallel=False):
             lines = pool.map_async(map_wrapper, input_args).get()
         csv_lines = lines
 
+    # Export to pickle rather than csv?
+    # TODO: https://towardsdatascience.com/stop-using-csvs-for-storage-here-are-the-top-5-alternatives-e3a7c9018de0
     out_csv = Path(img_glob.split('/*')[0]) / f'{Path(img_glob.split("*")[0]).stem}.csv'
     with open(out_csv, 'w') as out:
         write = csv.writer(out)
@@ -745,6 +792,8 @@ def main(cfg: DictConfig) -> None:
     # SAMPLE PARAMETERS
     samples_size = get_key_def('tile_size', cfg['tiling'], default=512, expected_type=int)
     min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], default=0)
+    continuous_vals = get_key_def('continuous_values', cfg['tiling'], default=True)
+    save_prev_labels = get_key_def('save_preview_labels', cfg['tiling'], default=False)
     resize = get_key_def('resampling', cfg['tiling'], default=1, expected_type=int)
     parallel = get_key_def('multiprocessing', cfg['tiling'], default=False, expected_type=bool)
     min_raster_tile_size = get_key_def('min_raster_tile_size', cfg['tiling'], default=0, expected_type=int)
@@ -910,6 +959,8 @@ def main(cfg: DictConfig) -> None:
                                                                img_tile=img_tile,
                                                                gt_tile=gt_tile,
                                                                tile_bounds=tbs,
+                                                               continuous_vals=continuous_vals,
+                                                               save_preview_labels=save_prev_labels,
                                                                dry_run=dry_run)
                     dataset_lines.append(line_tuple)
 

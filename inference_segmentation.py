@@ -217,11 +217,6 @@ def segmentation(param,
         row = img[1]
         col = img[2]
         sub_image = img[0]
-        image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
-                                                            raster_handle=input_image,
-                                                            raster_info={})
-
-        sample['metadata'] = image_metadata
         totensor_transform = augmentation.compose_transforms(param,
                                                              dataset="tst",
                                                              scale=scale,
