@@ -101,7 +101,7 @@ class AOI(object):
                             f'Got {attr_field} of type {type(attr_field)}')
         self.attr_field = attr_field
 
-        if gt and attr_vals and not isinstance(attr_vals, list):
+        if gt and attr_vals and not isinstance(attr_vals, (list, omegaconf.listconfig.ListConfig)):
             raise TypeError(f'Attribute values should be a list.\n'
                             f'Got {attr_vals} of type {type(attr_vals)}')
         self.attr_vals = attr_vals
@@ -182,17 +182,17 @@ class AOI(object):
             condList.extend([gdf_tile[f'{attr_field}'] == str(val) for val in attr_vals])
             allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
             gdf_filtered = gdf_tile[allcond].copy(deep=True)
-            logging.debug(f'Successfully filtered features from GeoDataFrame"\n'
+            logging.debug(f'\nSuccessfully filtered features from GeoDataFrame"\n'
                           f'Filtered features: {len(gdf_filtered)}\n'
                           f'Total features: {len(gdf_tile)}\n'
                           f'Attribute field: "{attr_field}"\n'
                           f'Filtered values: {attr_vals}')
             if gdf_filtered.empty:
-                raise ValueError(f'Features are present, but no features with values {attr_vals} in given attribute '
-                                 f'field "{attr_field}". Values may be wrong.')
+                logging.warning(f'\nFeatures are present for given attribute field "{attr_field}", but none with values'
+                                f'{attr_vals}. Values present: {gdf_tile[attr_field].unique()}')
             return gdf_filtered, attr_field
         except KeyError as e:
-            logging.critical(f'No attribute named {attr_field} in GeoDataFrame. \n'
+            logging.critical(f'\nNo attribute named {attr_field} in GeoDataFrame. \n'
                              f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'
                              f'Attributes: {gdf_tile.columns}\n'
                              f'GeoDataFrame: {gdf_tile.info()}')
