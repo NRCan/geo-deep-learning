@@ -1,9 +1,6 @@
-import os
 import time
-import h5py
 import torch
 import warnings
-import functools
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
@@ -23,12 +20,11 @@ except ModuleNotFoundError:
     warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 from torch.utils.data import DataLoader
-from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
-from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path
-from utils.metrics import report_classification, create_metrics_dict, iou
+from utils.logger import InformationLogger, tsv_line, dict_path
+from metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, select_modalities
+from utils.utils import load_from_checkpoint, gpu_stats, get_key_def
 from utils.visualization import vis_from_batch
 from mlflow import log_params, set_tracking_uri, set_experiment, start_run
 # Set the logging file

@@ -29,12 +29,12 @@ from pathlib import Path
 from omegaconf.listconfig import ListConfig
 
 from utils.logger import dict_path
-from utils.metrics import ComputePixelMetrics
+from metrics import ComputePixelMetrics
 from models.model_choice import net
 from utils import augmentation
 from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, add_metadata_from_raster_to_sample, _window_2D, select_modalities, find_first_file
+    list_input_images, _window_2D, find_first_file
 from utils.verifications import add_background_to_num_class, validate_num_classes, assert_crs_match
 
 try:
