@@ -1,5 +1,22 @@
+import argparse
+import logging
+import time
+from collections import OrderedDict
+from pathlib import Path
+from typing import Union, List
+
 import numpy as np
+import rasterio
 from sklearn.metrics import classification_report
+
+import geopandas as gpd
+import pandas as pd
+from solaris_gdl.eval.base import Evaluator
+from tqdm import tqdm
+
+from tiling_segmentation import AOI
+from utils.readers import read_parameters
+from utils.utils import get_git_hash, get_key_def, read_csv
 
 min_val = 1e-6
 def create_metrics_dict(num_classes):
@@ -156,3 +173,127 @@ class ComputePixelMetrics():
         dice = (2 * intersection) / ((label.sum()) + (pred.sum()))
 
         return dice
+
+def iou_per_obj(pred: Union[str, Path], gt:Union[str, Path], attr_field: str = None, attr_vals: List = None,
+                aoi_id: str = None, aoi_categ: str = None, gt_clip_bounds = None):
+    """
+    Calculate iou per object by comparing vector ground truth and vectorized prediction
+    @param pred:
+    @param gt:
+    @param attr_field:
+    @param attr_vals:
+    @param aoi_id:
+    @return:
+    """
+    if not aoi_id:
+        aoi_id = Path(pred).stem
+    # filter out non-buildings
+    gt_gdf = gpd.read_file(gt, bbox=gt_clip_bounds)
+    gt_gdf_filtered = AOI.filter_gdf_by_attribute(gt_gdf, attr_field, attr_vals).copy(deep=True)
+    #
+    evaluator = Evaluator(ground_truth_vector_file=gt_gdf_filtered)
+
+    evaluator.load_proposal(pred, conf_field_list=None)
+    scoring_dict_list, TP_gdf, FN_gdf, FP_gdf = evaluator.eval_iou_return_GDFs(calculate_class_scores=False)
+
+    if TP_gdf is not None:
+        TP_gdf.to_file(pred, layer='True_Pos', driver="GPKG")
+    if FN_gdf is not None:
+        FN_gdf.to_file(pred, layer='False_Neg', driver="GPKG")
+    if FP_gdf is not None:
+        FP_gdf.to_file(pred, layer='False_Pos', driver="GPKG")
+
+    scoring_dict_list[0] = OrderedDict(scoring_dict_list[0])
+    scoring_dict_list[0]['aoi'] = aoi_id
+    scoring_dict_list[0].move_to_end('aoi', last=False)
+    scoring_dict_list[0]['category'] = aoi_categ
+    scoring_dict_list[0].move_to_end('category', last=False)
+    logging.info(scoring_dict_list[0])
+    return scoring_dict_list[0]
+
+
+def main(params):
+    """
+    -------
+    :param params: (dict) Parameters found in the yaml config file.
+    """
+    start_time = time.time()
+
+    # mlflow logging
+    mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
+    exp_name = get_key_def('mlflow_experiment_name', params['global'], default='gdl-training', expected_type=str)
+
+    # MANDATORY PARAMETERS
+    default_csv_file = Path(get_key_def('preprocessing_path', params['global'], ''),
+                            exp_name, f"inference_sem_seg_{exp_name}.csv")
+    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default_csv_file, expected_type=str)
+    state_dict = get_key_def('state_dict_path', params['inference'], expected_type=str)
+    num_classes = get_key_def('num_classes', params['global'], expected_type=int)
+    num_bands = get_key_def('number_of_bands', params['global'], expected_type=int)
+    attr_vals = get_key_def('target_ids', params['sample'], [4], List) if 'sample' in params.keys() else [4]
+
+    # OPTIONAL PARAMETERS
+    # basics
+    debug = get_key_def('debug_mode', params['global'], False)
+    parallel = get_key_def('parallelize', params['inference'], default=True, expected_type=bool)
+    dryrun = get_key_def('dryrun', params['inference'], default=False, expected_type=bool)
+
+    # SETTING OUTPUT DIRECTORY
+    working_folder = Path(state_dict).parent / f'inference_{num_bands}bands'
+    if not working_folder.is_dir():
+        raise NotADirectoryError(f"Couldn't find source inference directory: {working_folder}")
+
+    working_folder_pp = working_folder.parent / f'{working_folder.stem}_post-process'
+    Path.mkdir(working_folder_pp, exist_ok=True)
+    # add git hash from current commit to parameters if available. Parameters will be saved to hdf5s
+    params['global']['git_hash'] = get_git_hash()
+
+    # See: https://docs.python.org/2.4/lib/logging-config-fileformat.html
+    log_config_path = Path('utils/logging.conf').absolute()
+    console_level_logging = 'INFO' if not debug else 'DEBUG'
+    log_file_prefix = 'metrics'
+    logging.config.fileConfig(log_config_path, defaults={'logfilename': f'{working_folder_pp}/{log_file_prefix}.log',
+                                                         'logfilename_error':
+                                                             f'{working_folder_pp}/{log_file_prefix}_error.log',
+                                                         'logfilename_debug':
+                                                             f'{working_folder_pp}/{log_file_prefix}_debug.log',
+                                                         'console_level': console_level_logging})
+
+    if Path(img_dir_or_csv).suffix == '.csv':
+        inference_srcdata_list = read_csv(Path(img_dir_or_csv))
+    elif Path(img_dir_or_csv).is_dir():
+        raise ValueError(f'Metrics.py requires csv list of images and ground truths. '
+                         f'Got invalid "img_dir_or_csv" parameter: "{img_dir_or_csv}"')
+
+    metrics = []
+    for info in tqdm(inference_srcdata_list):
+        if info['dataset'] == 'tst':
+            aoi_id = Path(info["tif"]).stem
+            region = info['aoi'][0].capitalize()
+            gt = Path(info['gpkg'])
+            gt_clip_bounds = rasterio.open(info["tif"], 'r').bounds
+            pred_glob = list(working_folder_pp.glob(f'{aoi_id}_*raw.gpkg'))
+            if len(pred_glob) == 1:
+                pred = pred_glob[0]
+                logging.info(f'\nImage: {info["tif"]}\nGround truth: {gt}\nPrediction from glob: {pred}')
+                if not dryrun:
+                    metric = iou_per_obj(pred, gt, info['attribute_name'], attr_vals, aoi_id, region, gt_clip_bounds)
+                    metrics.append(metric)
+            else:
+                logging.critical(f"No single vectorized prediction file found to match ground truth {gt}.\n"
+                                 f"Got: {pred_glob}")
+    df = pd.DataFrame(metrics)
+    df_md = df.to_markdown()
+    logging.info(f'\n{df_md}')
+    out_metrics = working_folder_pp / 'buildings_metrics.csv'
+    df.to_csv(out_metrics)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Buildings post processing')
+    parser.add_argument('ParamFile', metavar='DIR',
+                        help='Path to training parameters stored in yaml')
+    args = parser.parse_args()
+    params = read_parameters(args.ParamFile)
+    print(f'\n\nStarting post-processing with {args.ParamFile}\n\n')
+    main(params)
