@@ -1,0 +1,16 @@
+# @package _global_
+dataset:
+  # dataset-wide
+  name:
+  input_dim: 299
+  train_val_percent: {'trn':0.7, 'val':0.3, 'tst':0}
+  raw_data_dir: ${general.raw_data_dir}
+
+  # imagery
+  modalities: RGBN
+
+  # ground truth
+  class_name: # will follow in the next version
+  classes_dict: {'barren_land':1,'building':2,'grassland':3,'roads':4,'trees':5,'water':6}
+  class_weights:
+
