@@ -457,7 +457,12 @@ def read_csv(csv_file_name, data_path=None):
             row[0] = try2read_csv(row[0], data_path, 'Tif raster not found:')
             if row[2]:
                 row[2] = try2read_csv(row[2], data_path, 'Gpkg not found:')
-                assert isinstance(row[3], str)
+            if not isinstance(row[3], str):
+                raise ValueError(f"Attribute name should be a string")
+            if row[3] is not "":
+                logging.error(f"Deprecation notice:\nFiltering ground truth features by attribute name and values should"
+                              f" be done through the dataset parameters in config/dataset. The attribute name value in "
+                              f"csv will be ignored. Got: {row[3]}")
             # save all values
             list_values.append(
                 {'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]}

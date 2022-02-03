@@ -1,6 +1,6 @@
 import itertools
 from math import sqrt
-from typing import List
+from typing import List, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -521,17 +521,18 @@ def main(params: dict) -> None:
 
     # benchmark (ie when gkpgs are inputted along with imagery)
     dontcare = get_key_def("ignore_index", params["training"], -1)
-    targ_ids = None  # TODO get_key_def('target_ids', params['sample'], None, expected_type=List)
+    attribute_field = get_key_def('attribute_field', params['dataset'], None, expected_type=str)
+    attr_vals = get_key_def('attribute_values', params['dataset'], None, expected_type=Sequence)
 
     if debug:
         logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
 
-    # Assert that all items in target_ids are integers (ex.: to benchmark single-class model with multi-class labels)
-    if targ_ids:
-        for item in targ_ids:
+    # Assert that all values are integers (ex.: to benchmark single-class model with multi-class labels)
+    if attr_vals:
+        for item in attr_vals:
             if not isinstance(item, int):
-                raise ValueError(f'\nTarget id "{item}" in target_ids is {type(item)}, expected int.')
+                raise ValueError(f'\nValue "{item}" in attribute_values is {type(item)}, expected int.')
 
     logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     if not (0 <= max_used_ram <= 100):
@@ -598,9 +599,9 @@ def main(params: dict) -> None:
         if 'gpkg' in info.keys() and info['gpkg'] and info['gpkg'] not in valid_gpkg_set:
             validate_num_classes(vector_file=info['gpkg'],
                                  num_classes=num_classes,
-                                 attribute_name=info['attribute_name'],
+                                 attribute_name=attribute_field,
                                  ignore_index=dontcare,
-                                 target_ids=targ_ids)
+                                 attribute_values=attr_vals)
             assert_crs_match(info['tif'], info['gpkg'])
             valid_gpkg_set.add(info['gpkg'])
 
@@ -665,9 +666,9 @@ def main(params: dict) -> None:
                 label = vector_to_raster(vector_file=local_gpkg,
                                          input_image=raster,
                                          out_shape=(inf_meta['height'], inf_meta['width']),
-                                         attribute_name=info['attribute_name'],
+                                         attribute_name=attribute_field,
                                          fill=0,  # background value in rasterized vector.
-                                         target_ids=targ_ids)
+                                         attribute_values=attr_vals)
                 if debug:
                     logging.debug(f'\nUnique values in loaded label as raster: {np.unique(label)}\n'
                                   f'Shape of label as raster: {label.shape}')
