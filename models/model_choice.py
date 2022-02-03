@@ -137,7 +137,7 @@ def set_hyperparameters(params,
     # Loss function
     if loss_fn['_target_'] in ['torch.nn.CrossEntropyLoss', 'losses.focal_loss.FocalLoss',
                                'losses.ohem_loss.OhemCrossEntropy2d']:
-        criterion = instantiate(loss_fn, weight=class_weights)
+        criterion = instantiate(loss_fn, weight=class_weights)  # FIXME: unable to pass this through hydra
     else:
         criterion = instantiate(loss_fn)
     # Optimizer
