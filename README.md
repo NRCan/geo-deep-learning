@@ -67,12 +67,12 @@ python GDL.py mode=train
 python GDL.py mode=inference
 ```
 
-> This example is running with the default configuration `./config/gdl_config_template.yaml`, for further examples on running options see the [documentation](config/#Examples).
+> This example is running with the default configuration `./config/gdl_config_segmentation_template.yaml`, for further examples on running options see the [documentation](config/#Examples).
 > You will also fund information on how to change the model or add a new one to GDL.
 
 > If you want to introduce a new task like object detection, you only need to add the code in the main folder and name it `object_detection_sampling.py` for example.
 > The principle is to name the code like `task_mode.py` and the `GDL.py` will deal with the rest. 
-> To run it, you will need to add a new parameter in the command line `python GDL.py mode=sampling task=object_detection` or change the parameter inside the `./config/gdl_config_template.yaml`.
+> To run it, you will need to add a new parameter in the command line `python GDL.py mode=sampling task=object_detection` or change the parameter inside the `./config/gdl_config_segmentation_template.yaml`.
 
 ## **Folder Structure**
 We suggest a high level structure to organize the images and the code.
