@@ -1,12 +1,29 @@
 # All losses from: https://github.com/nyoki-mtl/pytorch-segmentation/tree/master/src/losses/multi
 
 import torch.nn as nn
+import segmentation_models_pytorch as smp
 
 from .focal_loss import FocalLoss
 from .lovasz_loss import LovaszSoftmax
 from .ohem_loss import OhemCrossEntropy2d
 from .focal_loss import FocalLoss
+from .dice_loss import DiceLoss
+from .boundary_loss import BoundaryLoss
 
+
+class SingleClassCriterion(nn.Module):
+
+    def __init__(self, loss_type='SoftBCE', **kwargs):
+        super().__init__()
+        if loss_type == 'SoftBCE':
+            self.criterion = smp.losses.SoftBCEWithLogitsLoss(**kwargs)
+        elif loss_type == 'Dice':
+            self.criterion = smp.losses.DiceLoss(mode='binary', **kwargs)
+        elif loss_type == 'Lovasz':
+            self.criterion = smp.losses.LovaszLoss(mode='binary', per_image=True, **kwargs)
+        else:
+            raise NotImplementedError \
+                (f'Current version of geo-deep-learning does not implement {loss_type} loss')
 
 class MultiClassCriterion(nn.Module):
     def __init__(self, loss_type='CrossEntropy', **kwargs):
@@ -19,11 +36,24 @@ class MultiClassCriterion(nn.Module):
             self.criterion = OhemCrossEntropy2d(**kwargs)
         elif loss_type == 'Focal':
             self.criterion = FocalLoss(**kwargs)
+        elif loss_type == 'Dice':
+            self.criterion = DiceLoss(**kwargs)
+        elif loss_type == 'BF1':
+            self.criterion = BoundaryLoss(**kwargs)
+        elif loss_type == 'Duo':
+            lst = [LovaszSoftmax(**kwargs), BoundaryLoss(**kwargs)]
+            self.criterion = lst
         else:
             raise NotImplementedError\
                 (f'Current version of geo-deep-learning does not implement {loss_type} loss')
 
     def forward(self, preds, labels):
         # preds = F.interpolate(preds, labels.shape[1:], mode='bilinear', align_corners=True)
-        loss = self.criterion(preds, labels)
+        if isinstance(self.criterion, list):
+            cals = []
+            for obj in self.criterion:
+                cals.append(obj(preds, labels))
+            loss = sum(cals) / len(self.criterion)
+        else:
+            loss = self.criterion(preds, labels)
         return loss

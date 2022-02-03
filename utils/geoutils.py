@@ -1,13 +1,17 @@
 import collections
+import logging
 from pathlib import Path
 
 import numpy as np
 
 import fiona
-
+import os
+import warnings
 import rasterio
 from rasterio.features import is_valid_geom
 from rasterio.mask import mask
+
+logger = logging.getLogger(__name__)
 
 
 def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
@@ -22,16 +26,16 @@ def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
     '''
     lst_vector_tuple = {}
     for vector in list_vector:
-        id = get_key_recursive(attr_name, vector) if attr_name is not None else None
-        if target_ids is None or id in target_ids:
-            if id not in lst_vector_tuple:
-                lst_vector_tuple[id] = []
+        att_val = int(get_key_recursive(attr_name, vector)) if attr_name is not None else None
+        if target_ids is None or att_val in target_ids:
+            if att_val not in lst_vector_tuple:
+                lst_vector_tuple[att_val] = []
             if merge_all:
                 # here, we assume that the id can be cast to int!
-                lst_vector_tuple[id].append((vector['geometry'], int(id) if id is not None else 0))
+                lst_vector_tuple[att_val].append((vector['geometry'], int(att_val) if att_val is not None else 0))
             else:
                 # if not merging layers, just use '1' as the value for each target
-                lst_vector_tuple[id].append((vector['geometry'], 1))
+                lst_vector_tuple[att_val].append((vector['geometry'], 1))
     return lst_vector_tuple
 
 
@@ -60,17 +64,16 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     """
     from shapely.geometry import box  # geopandas and shapely become a project dependency only during sample creation
     import geopandas as gpd
+    import fiona
     # Get extent of gpkg data with fiona
     with fiona.open(gpkg, 'r') as src:
-        gpkg_crs = src.crs
-        assert gpkg_crs == raster.crs
         minx, miny, maxx, maxy = src.bounds  # ouest, nord, est, sud
 
     # Create a bounding box with Shapely
     bbox = box(minx, miny, maxx, maxy)
 
     # Insert the bbox into a GeoDataFrame
-    geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0]) #, crs=gpkg_crs['init'])
+    geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0])  # , crs=gpkg_crs['init'])
 
     # Re-project into the same coordinate system as the raster data
     # geo = geo.to_crs(crs=raster.crs.data)
@@ -79,34 +82,34 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     coords = getFeatures(geo)
 
     # clip the raster with the polygon
-    try:
-        out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
-    except ValueError as e:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
-        # TODO: warning or exception? if warning, except must be set in images_to_samples
-        raise
-
-    out_meta = raster.meta.copy()
-    out_meta.update({"driver": "GTiff",
-                     "height": out_img.shape[1],
-                     "width": out_img.shape[2],
-                     "transform": out_transform})
     out_tif = Path(raster.name).parent / f"{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
-    dest = rasterio.open(out_tif, "w", **out_meta)
-    if debug:
-        print(f"DEBUG: writing clipped raster to {out_tif}")
-        dest.write(out_img)
+    if os.path.isfile(out_tif):
+        return out_tif
+    else:
+        try:
+            out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
+            out_meta = raster.meta.copy()
+            out_meta.update({"driver": "GTiff",
+                             "height": out_img.shape[1],
+                             "width": out_img.shape[2],
+                             "transform": out_transform})
+            with rasterio.open(out_tif, "w", **out_meta) as dest:
+                print(f"writing clipped raster to {out_tif}")
+                dest.write(out_img)
+            return out_tif
+        except ValueError as e:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
+            # TODO: warning or exception? if warning, except must be set in images_to_samples
+            warnings.warn(f"e\n {raster.name}\n{gpkg}")
 
-    return out_img, dest
 
-
-def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0, target_ids=None, merge_all=True):
+def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0, attribute_values=None, merge_all=True):
     """Function to rasterize vector data.
     Args:
         vector_file: Path and name of reference GeoPackage
         input_image: Rasterio file handle holding the (already opened) input raster
         attribute_name: Attribute containing the identifier for a vector (may contain slashes if recursive)
         fill: default background value to use when filling non-contiguous regions
-        target_ids: list of identifiers to burn from the vector file (None = use all)
+        attribute_values: list of identifiers to burn from the vector file (None = use all)
         merge_all: defines whether all vectors should be burned with their identifiers in a
             single layer or in individual layers (in the order provided by 'target_ids')
 
@@ -121,11 +124,13 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
     if attribute_name is not None:
         lst_vector.sort(key=lambda vector: get_key_recursive(attribute_name, vector))
 
-    lst_vector_tuple = lst_ids(list_vector=lst_vector, attr_name=attribute_name, target_ids=target_ids,
+    lst_vector_tuple = lst_ids(list_vector=lst_vector, attr_name=attribute_name, target_ids=attribute_values,
                                merge_all=merge_all)
 
-    if merge_all:
-        return rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
+    if not lst_vector_tuple:
+        raise ValueError("No vector features found")
+    elif merge_all:
+        np_label_raster = rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
                                            fill=fill,
                                            out_shape=out_shape,
                                            transform=input_image.transform,
@@ -136,7 +141,17 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
                                                       out_shape=out_shape,
                                                       transform=input_image.transform,
                                                       dtype=np.int16) for id in lst_vector_tuple]
-        return np.stack(burned_rasters, axis=-1)
+        np_label_raster = np.stack(burned_rasters, axis=-1)
+
+    # overwritte label values to make sure they are continuous
+    if attribute_values:
+        for index, target_id in enumerate(attribute_values):
+            if index+1 == target_id:
+                continue
+            else:
+                np_label_raster[np_label_raster == target_id] = (index + 1)
+
+    return np_label_raster
 
 
 def create_new_raster_from_base(input_raster, output_raster, write_array):
@@ -180,4 +195,4 @@ def get_key_recursive(key, config):
     if isinstance(val, (dict, collections.OrderedDict)):
         assert len(key) > 1, "missing keys to index metadata subdictionaries"
         return get_key_recursive(key[1:], val)
-    return val
+    return int(val)

@@ -1,9 +1,9 @@
 # WARNING: data being augmented may be scaled to (0,1) rather, for example, (0,255).
 #          Therefore, implementing radiometric
 # augmentations (ex.: changing hue, saturation, brightness, contrast) may give undesired results.
-# Scaling process is done in images_to_samples.py l.215
+# Scaling process is done in sampling_segmentation.py l.215
+import logging
 import numbers
-import warnings
 from typing import Sequence
 
 import torch
@@ -13,61 +13,67 @@ import random
 import numpy as np
 from skimage import transform, exposure
 from torchvision import transforms
-
 from utils.utils import get_key_def, pad, minmax_scale, BGR_to_RGB
 
+logging.getLogger(__name__)
 
-def compose_transforms(params, dataset, type='', ignore_index=None):
+
+def compose_transforms(params,
+                       dataset,
+                       input_space: bool = False,
+                       scale: Sequence = None,
+                       aug_type: str = '',
+                       dontcare=None,
+                       dontcare2backgr: bool = False,
+                       crop_size: int = None,
+                       print_log=True):
     """
     Function to compose the transformations to be applied on every batches.
+    :param input_space: (bool) if True, flip BGR channels to RGB
     :param params: (dict) Parameters found in the yaml config file
     :param dataset: (str) One of 'trn', 'val', 'tst'
-    :param type: (str) One of 'geometric', 'radiometric'
+    :param aug_type: (str) One of 'geometric', 'radiometric'
+    :param dontcare: (int) Value that will be ignored during loss calculation. Used here to pad label
+                         if rotation or crop augmentation
+    :param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
+                            before training
+    :param print_log: (bool) if True, all log messages will be printed, otherwise they wont
+                      (to avoid useless print during a `for`)
+
     :return: (obj) PyTorch's compose object of the transformations to be applied.
     """
     lst_trans = []
-    input_space = get_key_def('BGR_to_RGB', params['global'], False)
-    scale = get_key_def('scale_data', params['global'], None)
-    norm_mean = get_key_def('mean', params['training']['normalization'])
-    norm_std = get_key_def('std', params['training']['normalization'])
-    random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['training']['augmentation'], None)
+    norm_mean = get_key_def('mean', params['augmentation']['normalization'])
+    norm_std = get_key_def('std', params['augmentation']['normalization'])
+    random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['augmentation'], None)
 
     if dataset == 'trn':
-
-        if type == 'radiometric':
-            noise = get_key_def('noise', params['training']['augmentation'], None)
-
+        if aug_type == 'radiometric':
+            noise = get_key_def('noise', params['augmentation'], None)
             if random_radiom_trim_range:  # Contrast stretching
                 # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
                 lst_trans.append(RadiometricTrim(random_range=random_radiom_trim_range))
-
             if noise:
-                raise NotImplementedError
-
-        elif type == 'geometric':
-            geom_scale_range = get_key_def('geom_scale_range', params['training']['augmentation'], None)
-            hflip = get_key_def('hflip_prob', params['training']['augmentation'], None)
-            rotate_prob = get_key_def('rotate_prob', params['training']['augmentation'], None)
-            rotate_limit = get_key_def('rotate_limit', params['training']['augmentation'], None)
-            crop_size = get_key_def('target_size', params['training'], None)
-
+                lst_trans.append(AddGaussianNoise(std=noise))
+        elif aug_type == 'geometric':
+            geom_scale_range = get_key_def('geom_scale_range', params['augmentation'], None)
+            hflip = get_key_def('hflip_prob', params['augmentation'], None)
+            rotate_prob = get_key_def('rotate_prob', params['augmentation'], None)
+            rotate_limit = get_key_def('rotate_limit', params['augmentation'], None)
             if geom_scale_range:  # TODO: test this.
                 lst_trans.append(GeometricScale(range=geom_scale_range))
-
             if hflip:
-                lst_trans.append(HorizontalFlip(prob=params['training']['augmentation']['hflip_prob']))
-
+                lst_trans.append(HorizontalFlip(prob=hflip))
             if rotate_limit and rotate_prob:
                 lst_trans.append(
                     RandomRotationTarget(
-                        limit=rotate_limit, prob=rotate_prob, ignore_index=ignore_index
+                    limit=rotate_limit, prob=rotate_prob, ignore_index=dontcare
                     )
                 )
-
             if crop_size:
-                lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=ignore_index))
+                lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=dontcare))
 
-    if type == 'totensor':
+    if aug_type == 'totensor':
         # Contrast stretching at eval. Use mean of provided range
         if not dataset == 'trn' and random_radiom_trim_range:
             # Assert range is number or 2 element sequence
@@ -80,15 +86,28 @@ def compose_transforms(params, dataset, type='', ignore_index=None):
 
         if input_space:
             lst_trans.append(BgrToRgb(input_space))
+        else:
+            if print_log:
+                logging.info(
+                    f"\nThe '{dataset}' images will be fed to model as is. "
+                    f'First 3 bands of imagery should be RGB, not BGR.'
+                )
 
         if scale:
             lst_trans.append(Scale(scale))  # TODO: assert coherence with below normalization
+        else:
+            if print_log:
+                logging.warning(f"\nNo scaling of raster values will be performed on the '{dataset} 'images.")
 
         if norm_mean and norm_std:
-            lst_trans.append(Normalize(mean=params['training']['normalization']['mean'],
-                                       std=params['training']['normalization']['std']))
+            lst_trans.append(Normalize(mean=params.augmentation.normalization.mean,
+                                       std=params.augmentation.normalization.std))
+        else:
+            if print_log:
+                logging.warning(f"\nNo normalization of raster values will be performed on the '{dataset}' images.")
 
-        lst_trans.append(ToTensorTarget()) # Send channels first, convert numpy array to torch tensor
+        # Send channels first, convert numpy array to torch tensor
+        lst_trans.append(ToTensorTarget(dontcare2backgr=dontcare2backgr, dontcare_val=dontcare))
 
     return transforms.Compose(lst_trans)
 
@@ -99,7 +118,7 @@ class RadiometricTrim(object):
     Ex.: Values below the 1.7th and above the 98.3th percentile will be trimmed if random value is 1.7"""
     def __init__(self, random_range):
         """
-        @param random_range: numbers.Number (float or int) or Sequence (list or tuple) with length of 2
+        :param random_range: numbers.Number (float or int) or Sequence (list or tuple) with length of 2
         """
         random_range = self.input_checker(random_range)
         self.range = random_range
@@ -171,12 +190,12 @@ class Scale(object):
             orig_range = (np.iinfo(dtype).min, np.iinfo(dtype).max)
         elif min_val >= 0 and max_val <= 255:
             orig_range = (0, 255)
-            warnings.warn(f"Values in input image of shape {raster.shape} "
+            logging.warning(f"Values in input image of shape {raster.shape} "
                           f"range from {min_val} to {max_val}."
                           f"Image will be considered 8 bit for scaling.")
         elif min_val >= 0 and max_val <= 65535:
             orig_range = (0, 65535)
-            warnings.warn(f"Values in input image of shape {raster.shape} "
+            logging.warning(f"Values in input image of shape {raster.shape} "
                           f"range from {min_val} to {max_val}."
                           f"Image will be considered 16 bit for scaling.")
         else:
@@ -340,6 +359,7 @@ class Normalize(object):
         else:
             return sample
 
+
 class BgrToRgb(object):
     """Normalize Image with Mean and STD and similar to Pytorch(transform.Normalize) function """
 
@@ -355,13 +375,39 @@ class BgrToRgb(object):
 
 class ToTensorTarget(object):
     """Convert ndarrays in sample to Tensors."""
+    def __init__(self, dontcare2backgr: bool = False, dontcare_val: int = None):
+        """
+        @param dontcare2backgr: if True, dontcare value in label will be replaced by background value (i.e. 0)
+        @param dontcare_val: if dontcare2back is True, this value will be replaced by 0 in label.
+        """
+        self.dontcare2backgr = dontcare2backgr
+        self.dontcare_val = dontcare_val
+
     def __call__(self, sample):
         sat_img = np.nan_to_num(sample['sat_img'], copy=False)
         sat_img = np.float32(np.transpose(sat_img, (2, 0, 1)))
         sat_img = torch.from_numpy(sat_img)
 
         map_img = None
-        if 'map_img' in sample.keys():  # This can also be used in inference.
-            map_img = np.int64(sample['map_img'])
-            map_img = torch.from_numpy(map_img)
+        if 'map_img' in sample.keys():
+            if sample['map_img'] is not None:  # This can also be used in inference.
+                map_img = np.int64(sample['map_img'])
+                if self.dontcare2backgr:
+                    map_img[map_img == self.dontcare_val] = 0
+                map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
+
+
+class AddGaussianNoise(object):
+    """Add Gaussian noise to data."""
+
+    def __init__(self, mean=0., std=1.):
+        self.std = std
+        self.mean = mean
+
+    def __call__(self, sample):
+        sample['sat_img'] = sample['sat_img'] + np.random.randn(*sample['sat_img'].shape) * self.std + self.mean
+        return sample
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
