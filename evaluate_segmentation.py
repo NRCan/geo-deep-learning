@@ -15,13 +15,13 @@ import geopandas as gpd
 from utils.geoutils import clip_raster_with_gpkg, vector_to_raster
 from utils.metrics import ComputePixelMetrics
 from utils.utils import get_key_def, list_input_images, get_logger, read_modalities
-from utils.verifications import validate_num_classes, assert_crs_match, add_background_to_num_class
+from utils.verifications import validate_num_classes, assert_crs_match
 
 logging = get_logger(__name__)
 
 
 def metrics_per_tile(label_arr: np.ndarray, pred_img: np.ndarray, input_image: rasterio.DatasetReader,
-                     chunk_size: int, gpkg_name: str, num_classes: int) -> None:
+                     chunk_size: int, gpkg_name: str, num_classes: int) -> gpd.GeoDataFrame:
     """
     Compute metrics for each tile processed during inference
     @param label_arr: numpy array of label
@@ -83,7 +83,8 @@ def main(params):
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=params['general']['raw_data_csv'],
                                  expected_type=str)
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
-    num_classes_backgr = add_background_to_num_class('segmentation', num_classes)
+    single_class_mode = True if num_classes == 1 else False
+    threshold = 0.5
     debug = get_key_def('debug', params, default=False, expected_type=bool)
 
     # benchmark (ie when gkpgs are inputted along with imagery)
@@ -162,7 +163,7 @@ def main(params):
         gpkg_name_.append(local_gpkg.stem)
 
         if 'tracker_uri' in locals():
-            pixelMetrics = ComputePixelMetrics(label, pred, num_classes_backgr)
+            pixelMetrics = ComputePixelMetrics(label, pred, num_classes)
             log_metrics(pixelMetrics.update(pixelMetrics.iou))
             log_metrics(pixelMetrics.update(pixelMetrics.dice))
 

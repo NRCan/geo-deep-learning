@@ -67,26 +67,6 @@ def validate_num_classes(vector_file: Union[str, Path],
     return num_classes_
 
 
-def add_background_to_num_class(task: str, num_classes: int):
-    # FIXME temporary patch for num_classes problem.
-    """
-    Adds one to number of classes for all segmentation tasks.
-
-    param task: (str) task to perform. Either segmentation or classification
-    param num_classes: (int) number of classes in task
-
-    Returns number of classes corrected (+1) if task is segmentation
-    """
-    if task == 'segmentation':
-        # assume background is implicitly needed (makes no sense to predict with one class, for example.)
-        # this will trigger some warnings elsewhere, but should succeed nonetheless
-        return num_classes + 1  # + 1 for background
-    elif task == 'classification':
-        return num_classes
-    else:
-        raise NotImplementedError(f'Task should be either classification or segmentation. Got "{task}"')
-
-
 def validate_raster(raster_path: Union[str, Path], num_bands: int, meta_map):
     """
     Assert number of bands found in raster is equal to desired number of bands

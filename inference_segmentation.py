@@ -30,7 +30,7 @@ from models.model_choice import net
 from utils import augmentation
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
     list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, find_first_file
-from utils.verifications import add_background_to_num_class, validate_raster
+from utils.verifications import validate_raster
 
 try:
     import boto3
