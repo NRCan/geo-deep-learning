@@ -1,5 +1,4 @@
 defaults:
-  - task: segmentation
   - model: unet
   - training: default_training
   - optimizer: adamw
@@ -20,6 +19,7 @@ general:
   # hydra hijacks working directory by changing it to the current log directory,
   # so it's useful to have this path as a special variable
   # learn more here: https://hydra.cc/docs/next/tutorials/basic/running_your_app/working_directory
+  task: segmentation
   work_dir: ${hydra:runtime.cwd}  # where the code is executed
   config_name: ${hydra:job.config_name}
   config_override_dirname: ${hydra:job.override_dirname}
