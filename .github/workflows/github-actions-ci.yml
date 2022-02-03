@@ -19,7 +19,7 @@ jobs:
       - name: Install dependencies
         run: |
           conda env create --file environment.yml
-      - name: test GDL's 3 major modes
+      - name: test GDL's major modes
         run: |
           source /usr/share/miniconda/etc/profile.d/conda.sh
           conda activate geo_deep_env
@@ -27,7 +27,5 @@ jobs:
           python GDL.py mode=sampling
           python GDL.py mode=train
           python GDL.py mode=inference
-      - name: test GDL's classification
-        run: |
           unzip ./data/classification_data.zip -d ./data
           python GDL.py --config-name=gdl_config_classification_template.yaml mode=train
