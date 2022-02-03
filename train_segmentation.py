@@ -86,7 +86,7 @@ def create_dataloader(samples_folder: Path,
         raise logging.critical(FileNotFoundError(f'\nCould not locate: {samples_folder}'))
     if not len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1:
         raise logging.critical(FileNotFoundError(f"\nCouldn't locate .hdf5 files in {samples_folder}"))
-    num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=cfg, dontcare=dontcare_val)
+    num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=cfg)
     if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
         raise logging.critical(ValueError(f"\nNumber of samples in .hdf5 files is less than batch size"))
     logging.info(f"\nNumber of samples : {num_samples}")
@@ -96,7 +96,6 @@ def create_dataloader(samples_folder: Path,
     for subset in ["trn", "val", "tst"]:
         datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
-                                       dontcare=dontcare_val,
                                        radiom_transform=aug.compose_transforms(params=cfg,
                                                                                dataset=subset,
                                                                                aug_type='radiometric'),
@@ -112,7 +111,6 @@ def create_dataloader(samples_folder: Path,
                                                                                  dontcare2backgr=dontcare2backgr,
                                                                                  dontcare=dontcare_val,
                                                                                  aug_type='totensor'),
-                                       params=cfg,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
@@ -164,12 +162,11 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     return eval_batch_size_rd
 
 
-def get_num_samples(samples_path, params, dontcare):
+def get_num_samples(samples_path, params):
     """
     Function to retrieve number of samples, either from config file or directly from hdf5 file.
     :param samples_path: (str) Path to samples folder
     :param params: (dict) Parameters found in the yaml config file.
-    :param dontcare:
     :return: (dict) number of samples for trn, val and tst.
     """
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
@@ -636,7 +633,6 @@ def train(cfg: DictConfig) -> None:
         net(model_name=model_name,
             num_bands=num_bands,
             num_channels=num_classes,
-            dontcare_val=dontcare_val,
             num_devices=num_devices,
             train_state_dict_path=train_state_dict_path,
             pretrained=pretrained,

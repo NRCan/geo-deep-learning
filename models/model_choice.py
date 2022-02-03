@@ -93,25 +93,9 @@ def load_checkpoint(filename):
         raise logging.critical(FileNotFoundError(f"\n=> No model found at '{filename}'"))
 
 
-def verify_weights(num_classes, weights):
-    """Verifies that the number of weights equals the number of classes if any are given
-    Args:
-        num_classes: number of classes defined in the configuration file
-        weights: weights defined in the configuration file
-    """
-    if num_classes == 1 and len(weights) == 2:
-        logging.warning(
-            "got two class weights for single class defined in configuration file; will assume index 0 = background")
-    elif num_classes != len(weights):
-        raise ValueError(f'The number of class weights {len(weights)} '
-                         f'in the configuration file is different than the number of classes {num_classes}')
-
-
 def set_hyperparameters(params,
-                        num_classes,
                         model,
                         checkpoint,
-                        dontcare_val,
                         loss_fn,
                         optimizer,
                         class_weights=None,
@@ -137,7 +121,8 @@ def set_hyperparameters(params,
     gamma = get_key_def('gamma', params['scheduler']['params'], 0.9)
     class_weights = torch.tensor(class_weights) if class_weights else None
     # Loss function
-    if loss_fn['_target_'] == 'torch.nn.CrossEntropyLoss':
+    if loss_fn['_target_'] in ['torch.nn.CrossEntropyLoss', 'losses.focal_loss.FocalLoss',
+                               'losses.ohem_loss.OhemCrossEntropy2d']:
         criterion = instantiate(loss_fn, weight=class_weights)  # FIXME: unable to pass this through hydra
     else:
         criterion = instantiate(loss_fn)
@@ -156,7 +141,6 @@ def set_hyperparameters(params,
 def net(model_name: str,
         num_bands: int,
         num_channels: int,
-        dontcare_val: int,
         num_devices: int,
         train_state_dict_path: str = None,
         pretrained: bool = True,
@@ -274,10 +258,8 @@ def net(model_name: str,
             model.to(device)
 
         model, criterion, optimizer, lr_scheduler = set_hyperparameters(params=net_params,
-                                                                        num_classes=num_channels,
                                                                         model=model,
                                                                         checkpoint=checkpoint,
-                                                                        dontcare_val=dontcare_val,
                                                                         loss_fn=loss_fn,
                                                                         optimizer=optimizer,
                                                                         class_weights=class_weights,
