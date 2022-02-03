@@ -34,7 +34,7 @@ from models.model_choice import net
 from utils import augmentation
 from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, _window_2D, find_first_file
+    list_input_images, _window_2D, find_first_file, add_metadata_from_raster_to_sample
 from utils.verifications import add_background_to_num_class, validate_num_classes, assert_crs_match
 
 try:
@@ -217,6 +217,11 @@ def segmentation(param,
         row = img[1]
         col = img[2]
         sub_image = img[0]
+        image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
+                                                            raster_handle=input_image,
+                                                            raster_info={})
+
+        sample['metadata'] = image_metadata
         totensor_transform = augmentation.compose_transforms(param,
                                                              dataset="tst",
                                                              scale=scale,

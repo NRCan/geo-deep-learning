@@ -472,6 +472,36 @@ def read_csv(csv_file_name, data_path=None):
     return list_values
 
 
+def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
+                                       raster_handle: dict,
+                                       raster_info: dict
+                                       ) -> dict:
+    """
+    :param sat_img_arr: source image as array (opened with rasterio.read)
+    :param raster_info: info from raster as read with read_csv (except at inference)
+    :return: Returns a metadata dictionary populated with info from source raster, including original csv line and
+             histogram.
+    """
+    metadata_dict = {'name': raster_handle.name, 'csv_info': raster_info, 'source_raster_bincount': {}}
+    assert 'dtype' in raster_handle.meta.keys(), "\"dtype\" could not be found in source image metadata"
+    metadata_dict.update(raster_handle.meta)
+    if not metadata_dict['dtype'] in ["uint8", "uint16"]:
+        warnings.warn(f"Datatype should be \"uint8\" or \"uint16\". Got \"{metadata_dict['dtype']}\". ")
+        if sat_img_arr.min() >= 0 and sat_img_arr.max() <= 255:
+            metadata_dict['dtype'] = "uint8"
+        elif sat_img_arr.min() >= 0 and sat_img_arr.max() <= 65535:
+            metadata_dict['dtype'] = "uint16"
+        else:
+            raise NotImplementedError(f"Min and max values of array ({[sat_img_arr.min(), sat_img_arr.max()]}) "
+                                      f"are not contained in 8 bit nor 16 bit range. Datatype cannot be overwritten.")
+    # Save bin count (i.e. histogram) to metadata
+    assert isinstance(sat_img_arr, np.ndarray) and len(sat_img_arr.shape) == 3, f"Array should be 3-dimensional"
+    for band_index in range(sat_img_arr.shape[2]):
+        band = sat_img_arr[..., band_index]
+        metadata_dict['source_raster_bincount'][f'band{band_index}'] = {count for count in np.bincount(band.flatten())}
+    return metadata_dict
+
+
 #### Image Patches Smoothing Functions ####
 """ Adapted from : https://github.com/Vooban/Smoothly-Blend-Image-Patches  """
 
