@@ -12,7 +12,6 @@ from .boundary_loss import BoundaryLoss
 
 
 class SingleClassCriterion(nn.Module):
-
     def __init__(self, loss_type='SoftBCE', **kwargs):
         super().__init__()
         if loss_type == 'SoftBCE':
@@ -24,6 +23,16 @@ class SingleClassCriterion(nn.Module):
         else:
             raise NotImplementedError \
                 (f'Current version of geo-deep-learning does not implement {loss_type} loss')
+
+    def forward(self, preds, labels):
+        if isinstance(self.criterion, list):
+            cals = []
+            for obj in self.criterion:
+                cals.append(obj(preds, labels))
+            loss = sum(cals) / len(self.criterion)
+        else:
+            loss = self.criterion(preds, labels)
+        return loss
 
 class MultiClassCriterion(nn.Module):
     def __init__(self, loss_type='CrossEntropy', **kwargs):

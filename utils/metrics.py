@@ -3,6 +3,7 @@ from sklearn.metrics import classification_report
 
 min_val = 1e-6
 def create_metrics_dict(num_classes):
+    num_classes = num_classes if num_classes == 1 else num_classes + 1
     metrics_dict = {'precision': AverageMeter(), 'recall': AverageMeter(), 'fscore': AverageMeter(),
                     'loss': AverageMeter(), 'iou': AverageMeter()}
 
@@ -79,6 +80,7 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
 def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
     """Calculate the intersection over union class-wise and mean-iou"""
     ious = []
+    num_classes = num_classes if num_classes == 1 else num_classes + 1
     pred = pred.cpu()
     label = label.cpu()
     for i in range(num_classes):
@@ -120,7 +122,7 @@ class ComputePixelMetrics():
     def __init__(self, label, pred, num_classes):
         self.label = label
         self.pred = pred
-        self.num_classes = num_classes
+        self.num_classes = num_classes if num_classes == 1 else num_classes + 1
 
     def update(self, metric_func):
         metric = {}

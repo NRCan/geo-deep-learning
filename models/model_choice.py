@@ -13,7 +13,7 @@ from utils.layersmodules import LayersEnsemble
 ###############################
 from tqdm import tqdm
 from utils.optimizer import create_optimizer
-from losses import MultiClassCriterion
+from losses import MultiClassCriterion, SingleClassCriterion
 import torch.optim as optim
 from models import TernausNet, unet, checkpointed_unet, inception
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
@@ -36,13 +36,12 @@ lm_smp = {
             'encoder_depth': 4,
             'decoder_channels': [256, 128, 64, 32]
         }},
-    'fpn_pretrained': {
-        'fct': smp.FPN, 'params': {
-            'encoder_name': 'resnext50_32x4d',
-        }},
-    'pspnet_pretrained': {
-        'fct': smp.PSPNet, 'params': {
-            'encoder_name': "resnext50_32x4d",
+    'unet_plus_pretrained': {
+        'fct': smp.UnetPlusPlus, 'params': {
+            'encoder_name': 'se_resnext50_32x4d',
+            'encoder_depth': 4,
+            'decoder_channels': [256, 128, 64, 32],
+            'decoder_attention_type': 'scse'
         }},
     'deeplabv3+_pretrained': {
         'fct': smp.DeepLabV3Plus, 'params': {
@@ -137,9 +136,12 @@ def set_hyperparameters(params,
     gamma = get_key_def('gamma', params['scheduler']['params'], 0.9)
     class_weights = torch.tensor(class_weights) if class_weights else None
     # Loss function
-    criterion = MultiClassCriterion(loss_type=loss_fn,
-                                    ignore_index=dontcare_val,
-                                    weight=class_weights)
+    if num_classes == 1:
+        criterion = SingleClassCriterion(loss_type=loss_fn, ignore_index=dontcare_val)
+    else:
+        criterion = MultiClassCriterion(loss_type=loss_fn,
+                                        ignore_index=dontcare_val,
+                                        weight=class_weights)
     # Optimizer
     opt_fn = optimizer
     optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
