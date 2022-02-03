@@ -282,7 +282,7 @@ def training(train_loader,
     :param debug: (bool) Debug mode
     :return: Updated training loss
     """
-    model.train()
+    model.main()
     train_metrics = create_metrics_dict(num_classes)
 
     for batch_index, data in enumerate(tqdm(train_loader, desc=f'Iterating train batches with {device.type}')):
@@ -505,14 +505,12 @@ def train(cfg: DictConfig) -> None:
 
     # OPTIONAL PARAMETERS
     debug = get_key_def('debug', cfg)
-    task = get_key_def('task_name',  cfg['task'], default='segmentation')
+    task = get_key_def('task',  cfg['general'], default='segmentation')
     dontcare_val = get_key_def("ignore_index", cfg['dataset'], default=-1)
     bucket_name = get_key_def('bucket_name', cfg['AWS'])
     scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
     batch_metrics = get_key_def('batch_metrics', cfg['training'], default=None)
     crop_size = get_key_def('target_size', cfg['training'], default=None)
-    if task != 'segmentation':
-        raise logging.critical(ValueError(f"\nThe task should be segmentation. The provided value is {task}"))
 
     # MODEL PARAMETERS
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)

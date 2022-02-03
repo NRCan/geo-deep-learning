@@ -376,7 +376,7 @@ def main(params: dict) -> None:
     """
     # PARAMETERS
     mode = get_key_def('mode', params, expected_type=str)
-    task = get_key_def('task_name', params['task'], expected_type=str)
+    task = get_key_def('task', params['general'], expected_type=str)
     model_name = get_key_def('model_name', params['model'], expected_type=str).lower()
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
     modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
@@ -455,7 +455,7 @@ def main(params: dict) -> None:
         logging.error(f"\nNo file name 'checkpoint.pth.tar' as been found at '{state_dict}'")
         raise e
 
-    task = get_key_def('task_name', params['task'], expected_type=str)
+    task = get_key_def('task', params['general'], expected_type=str)
     # TODO change it next version for all task
     if task not in ['classification', 'segmentation']:
         raise logging.critical(
@@ -553,7 +553,7 @@ def main(params: dict) -> None:
         # Save tracking TODO put option not just mlflow
         if 'tracker_uri' in locals() and 'run_name' in locals():
             mode = get_key_def('mode', params, expected_type=str)
-            task = get_key_def('task_name', params['task'], expected_type=str)
+            task = get_key_def('task', params['general'], expected_type=str)
             run_name = '{}_{}_{}'.format(run_name, mode, task)
             # tracking path + parameters logging
             set_tracking_uri(tracker_uri)
