@@ -424,7 +424,7 @@ def try2read_csv(path_file, in_case_of_path, msg):
         Path(path_file).resolve(strict=True)
     except FileNotFoundError:
         if in_case_of_path:
-            path_file = Path(in_case_of_path) / (path_file.split('./')[-1])
+            path_file = str(Path(in_case_of_path) / (path_file.split('./')[-1]))
             try:
                 Path(path_file).resolve(strict=True)
             except FileNotFoundError:
