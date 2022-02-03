@@ -37,13 +37,12 @@ lm_smp = {
             'encoder_depth': 4,
             'decoder_channels': [256, 128, 64, 32]
         }},
-    'fpn_pretrained': {
-        'fct': smp.FPN, 'params': {
-            'encoder_name': 'resnext50_32x4d',
-        }},
-    'pspnet_pretrained': {
-        'fct': smp.PSPNet, 'params': {
-            'encoder_name': "resnext50_32x4d",
+    'unet_plus_pretrained': {
+        'fct': smp.UnetPlusPlus, 'params': {
+            'encoder_name': 'se_resnext50_32x4d',
+            'encoder_depth': 4,
+            'decoder_channels': [256, 128, 64, 32],
+            'decoder_attention_type': 'scse'
         }},
     'deeplabv3+_pretrained': {
         'fct': smp.DeepLabV3Plus, 'params': {
