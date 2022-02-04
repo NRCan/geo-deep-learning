@@ -107,6 +107,7 @@ def set_tracker(mode: str, type: str = 'mlflow', task: str = 'segmentation', exp
     if not tracker_uri:
         logging.info("\nNo logging tracker has been assigned or the yaml config doesnt exist in 'config/tracker'."
                      "\nNo tracker file will be save.")
+        return
     Path(tracker_uri).mkdir(exist_ok=True)
     run_name = '{}_{}_{}'.format(run_name, mode, task)
     if type == 'mlflow':

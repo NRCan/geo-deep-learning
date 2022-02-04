@@ -29,7 +29,7 @@ from utils.logger import get_logger, set_tracker
 from models.model_choice import net
 from utils import augmentation
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, _window_2D, read_modalities, set_device
+    list_input_images, _window_2D, read_modalities, set_device, add_metadata_from_raster_to_sample
 from utils.verifications import validate_raster
 
 try:
@@ -191,7 +191,7 @@ def segmentation(param,
     total_inf_windows = int(np.ceil(input_image.height / step) * np.ceil(input_image.width / step))
     img_gen = gen_img_samples(src=input_image, chunk_size=chunk_size, step=step)
     single_class_mode = False if num_classes > 1 else True
-    for sample['sat_img'], row, col in tqdm(img_gen, position=1, leave=False,
+    for sub_image, row, col in tqdm(img_gen, position=1, leave=False,
                     desc=f'Inferring on window slices of size {chunk_size}',
                     total=total_inf_windows):
         totensor_transform = augmentation.compose_transforms(param,
@@ -200,6 +200,12 @@ def segmentation(param,
                                                              scale=scale,
                                                              aug_type='totensor',
                                                              print_log=print_log)
+        image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
+                                                            raster_handle=input_image,
+                                                            raster_info={})
+
+        sample['metadata'] = image_metadata
+        sample['sat_img'] = sub_image
         sample = totensor_transform(sample)
         inputs = sample['sat_img'].unsqueeze_(0)
         inputs = inputs.to(device)
@@ -311,9 +317,12 @@ def main(params: dict) -> None:
 
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
-    run_name = get_key_def('run_name', params['tracker'], default='gdl')
-    tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str, is_path=True,
-                              check_path_exists=True)
+    if 'tracker' in params.keys():
+        run_name = get_key_def('run_name', params['tracker'], default='gdl')
+        tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str, is_path=True,
+                                  check_path_exists=True)
+    else:
+        run_name = tracker_uri = None
     set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
                 tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
 

@@ -102,8 +102,7 @@ def main(params):
             if not isinstance(item, int):
                 raise ValueError(f'\nValue "{item}" in attribute_values is {type(item)}, expected int.')
 
-    list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"],
-                                 in_case_of_path=Path(get_original_cwd())/'data')
+    list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"])
 
     # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
     valid_gpkg_set = set()

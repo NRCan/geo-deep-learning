@@ -5,7 +5,7 @@ from pathlib import Path
 from omegaconf import OmegaConf, DictConfig
 from torch.utils.data import Dataset
 
-import utils.logger
+from utils.logger import get_logger
 from utils.utils import ordereddict_eval
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
@@ -13,7 +13,7 @@ from rasterio.crs import CRS
 from affine import Affine
 
 # Set the logging file
-logging = utils.get_logger(__name__)  # import logging
+logging = get_logger(__name__)  # import logging
 
 
 def append_to_dataset(dataset, sample):
