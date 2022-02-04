@@ -93,6 +93,20 @@ def load_checkpoint(filename):
         raise logging.critical(FileNotFoundError(f"\n=> No model found at '{filename}'"))
 
 
+def verify_weights(num_classes, weights):
+    """Verifies that the number of weights equals the number of classes if any are given
+    Args:
+        num_classes: number of classes defined in the configuration file
+        weights: weights defined in the configuration file
+    """
+    if num_classes == 1 and len(weights) == 2:
+        logging.warning(
+            "got two class weights for single class defined in configuration file; will assume index 0 = background")
+    elif num_classes != len(weights):
+        raise ValueError(f'The number of class weights {len(weights)} '
+                         f'in the configuration file is different than the number of classes {num_classes}')
+
+
 def set_hyperparameters(params,
                         model,
                         checkpoint,
@@ -123,7 +137,7 @@ def set_hyperparameters(params,
     # Loss function
     if loss_fn['_target_'] in ['torch.nn.CrossEntropyLoss', 'losses.focal_loss.FocalLoss',
                                'losses.ohem_loss.OhemCrossEntropy2d']:
-        criterion = instantiate(loss_fn, weight=class_weights)  # FIXME: unable to pass this through hydra
+        criterion = instantiate(loss_fn, weight=class_weights)
     else:
         criterion = instantiate(loss_fn)
     # Optimizer
