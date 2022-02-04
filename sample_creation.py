@@ -2,6 +2,7 @@ import argparse
 from datetime import datetime
 import os
 import numpy as np
+from ruamel_yaml import YAML
 
 np.random.seed(1234)  # Set random seed for reproducibility
 import warnings
@@ -14,12 +15,11 @@ import json
 from pathlib import Path
 from tqdm import tqdm
 from collections import Counter
-from typing import List, Union
+from typing import List
 
 from utils.create_dataset import create_files_and_datasets
 from utils.utils import get_key_def, pad, pad_diff, add_metadata_from_raster_to_sample
 from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
-from utils.readers import read_parameters
 from utils.verifications import assert_crs_match, validate_num_classes
 from rasterio.mask import mask
 from rasterio.windows import Window
@@ -555,6 +555,19 @@ def main(params):
     class_pixel_ratio(pixel_mul_counter, 'mul_source', filename)
     class_pixel_ratio(pixel_prep_counter, 'prep_source', filename)
     print("Number of samples created: ", number_samples, number_classes)
+
+
+def read_parameters(param_file):
+    """Read and return parameters in .yaml file
+    Args:
+        param_file: Full file path of the parameters file
+    Returns:
+        YAML (Ruamel) CommentedMap dict-like object
+    """
+    yaml = YAML()
+    with open(param_file) as yamlfile:
+        params = yaml.load(yamlfile)
+    return params
 
 
 if __name__ == '__main__':

@@ -23,15 +23,14 @@ except ModuleNotFoundError:
 from torch.utils.data import DataLoader
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
-from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path
+from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path, get_logger
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, read_modalities
+from utils.utils import load_from_checkpoint, gpu_stats, get_key_def, read_modalities
 from utils.visualization import vis_from_batch
 from mlflow import log_params, set_tracking_uri, set_experiment, start_run
 # Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)  # import logging
+logging = get_logger(__name__)  # import logging
 
 
 def flatten_labels(annotations):
@@ -227,15 +226,8 @@ def vis_from_dataloader(vis_params,
         for batch_index, data in enumerate(_tqdm):
             if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
                 with torch.no_grad():
-                    try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-                        inputs = data['sat_img'].to(device)
-                        labels = data['map_img'].to(device)
-                    except RuntimeError:
-                        logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-                        device = torch.device('cuda')
-                        inputs = data['sat_img'].to(device)
-                        labels = data['map_img'].to(device)
-
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
                     outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
                         outputs = outputs['out']
@@ -288,14 +280,8 @@ def training(train_loader,
     for batch_index, data in enumerate(tqdm(train_loader, desc=f'Iterating train batches with {device.type}')):
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
-        try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-            inputs = data['sat_img'].to(device)
-            labels = data['map_img'].to(device)
-        except RuntimeError:
-            logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-            device = torch.device('cuda')
-            inputs = data['sat_img'].to(device)
-            labels = data['map_img'].to(device)
+        inputs = data['sat_img'].to(device)
+        labels = data['map_img'].to(device)
 
         # forward
         optimizer.zero_grad()
@@ -387,15 +373,8 @@ def evaluation(eval_loader,
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
         with torch.no_grad():
-            try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
-            except RuntimeError:
-                logging.exception(f'\nUnable to use device {device}. Trying "cuda"')
-                device = torch.device('cuda')
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
-
+            inputs = data['sat_img'].to(device)
+            labels = data['map_img'].to(device)
             labels_flatten = flatten_labels(labels)
 
             outputs = model(inputs)

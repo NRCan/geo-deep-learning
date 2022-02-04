@@ -25,11 +25,11 @@ from rasterio.plot import reshape_as_image
 from pathlib import Path
 from omegaconf.listconfig import ListConfig
 
-from utils.logger import dict_path
+from utils.logger import get_logger, set_tracker
 from models.model_choice import net
 from utils import augmentation
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities
+    list_input_images, _window_2D, read_modalities, set_device
 from utils.verifications import validate_raster
 
 try:
@@ -37,8 +37,7 @@ try:
 except ModuleNotFoundError:
     pass
 # Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)
+logging = get_logger(__name__)
 
 
 def _pad_diff(arr, w, h, arr_shape):
@@ -81,7 +80,7 @@ def ras2vec(raster_file, output_path):
     # Vectorize the polygons
     polygons = features.shapes(raster, mask, transform=src.transform)
 
-    # Create shapely polygon featyres
+    # Create shapely polygon features
     for polygon in polygons:
         feature = {'geometry': {
             'type': 'Polygon',
@@ -115,7 +114,7 @@ def ras2vec(raster_file, output_path):
 
 def gen_img_samples(src, chunk_size, step, *band_order):
     """
-
+    # TODO
     Args:
         src: input image (rasterio object)
         chunk_size: image tile size
@@ -169,55 +168,38 @@ def segmentation(param,
     Returns:
 
     """
-    padded = chunk_size * 2
-    h, w = input_image.shape
-    h_padded = h + padded
-    w_padded = w + padded
+    subdiv = 2
+    threshold = 0.5
+    sample = {'sat_img': None, 'map_img': None, 'metadata': None}
+    start_seg = time.time()
+    print_log = True if logging.level == 20 else False  # 20 is INFO
+    pad = chunk_size * 2
+    h_padded, w_padded = [side + pad for side in input_image.shape]
     dist_samples = int(round(chunk_size * (1 - 1.0 / 2.0)))
 
-    # switch to evaluate mode
-    model.eval()
+    model.eval()  # switch to evaluate mode
 
     # initialize test time augmentation
     transforms = tta.Compose([tta.HorizontalFlip(), ])
     # construct window for smoothing
-    WINDOW_SPLINE_2D = _window_2D(window_size=padded, power=2.0)
+    WINDOW_SPLINE_2D = _window_2D(window_size=pad, power=2.0)
     WINDOW_SPLINE_2D = torch.as_tensor(np.moveaxis(WINDOW_SPLINE_2D, 2, 0), ).type(torch.float)
     WINDOW_SPLINE_2D = WINDOW_SPLINE_2D.to(device)
 
     fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(h_padded, w_padded, num_classes))
-    sample = {'sat_img': None, 'map_img': None, 'metadata': None}
-    cnt = 0
-    subdiv = 2
     step = int(chunk_size / subdiv)
     total_inf_windows = int(np.ceil(input_image.height / step) * np.ceil(input_image.width / step))
-    img_gen = gen_img_samples(src=input_image,
-                              chunk_size=chunk_size,
-                              step=step)
-    single_class_mode = True
-    threshold = 0.5
-    if num_classes > 1:
-        single_class_mode = False
-    start_seg = time.time()
-    print_log = True
-    for img in tqdm(img_gen, position=1, leave=False,
+    img_gen = gen_img_samples(src=input_image, chunk_size=chunk_size, step=step)
+    single_class_mode = False if num_classes > 1 else True
+    for sample['sat_img'], row, col in tqdm(img_gen, position=1, leave=False,
                     desc=f'Inferring on window slices of size {chunk_size}',
                     total=total_inf_windows):
-        row = img[1]
-        col = img[2]
-        sub_image = img[0]
-        image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
-                                                            raster_handle=input_image,
-                                                            raster_info={})
-
-        sample['metadata'] = image_metadata
         totensor_transform = augmentation.compose_transforms(param,
                                                              dataset="tst",
                                                              input_space=BGR_to_RGB,
                                                              scale=scale,
                                                              aug_type='totensor',
                                                              print_log=print_log)
-        sample['sat_img'] = sub_image
         sample = totensor_transform(sample)
         inputs = sample['sat_img'].unsqueeze_(0)
         inputs = inputs.to(device)
@@ -236,6 +218,7 @@ def segmentation(param,
             if isinstance(augmented_output, OrderedDict) and 'out' in augmented_output.keys():
                 augmented_output = augmented_output['out']
             logging.debug(f'Shape of augmented output: {augmented_output.shape}')
+
             # reverse augmentation for outputs
             deaugmented_output = transformer.deaugment_mask(augmented_output)
             if single_class_mode:
@@ -243,17 +226,17 @@ def segmentation(param,
             else:
                 deaugmented_output = F.softmax(deaugmented_output, dim=1).squeeze(dim=0)
             output_lst.append(deaugmented_output)
+
         outputs = torch.stack(output_lst)
         outputs = torch.mul(outputs, WINDOW_SPLINE_2D)
         outputs, _ = torch.max(outputs, dim=0)
         if single_class_mode:
             outputs = torch.sigmoid(outputs)
         outputs = outputs.permute(1, 2, 0)
-        outputs = outputs.reshape(padded, padded, num_classes).cpu().numpy().astype('float16')
+        outputs = outputs.reshape(pad, pad, num_classes).cpu().numpy().astype('float16')
         outputs = outputs[dist_samples:-dist_samples, dist_samples:-dist_samples, :]
         fp[row:row + chunk_size, col:col + chunk_size, :] = \
             fp[row:row + chunk_size, col:col + chunk_size, :] + outputs
-        cnt += 1
     fp.flush()
     del fp
 
@@ -270,7 +253,7 @@ def segmentation(param,
         else:
             arr1 = arr1.argmax(axis=-1).astype('uint8')
         pred_img[row:row + chunk_size, col:col + chunk_size] = arr1
-    pred_img = pred_img[:h, :w]
+    pred_img = pred_img[:h_padded-pad, :w_padded-pad]
     end_seg = time.time() - start_seg
     logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
 
@@ -281,74 +264,7 @@ def segmentation(param,
     return pred_img
 
 
-def classifier(params, img_list, model, device, working_folder):
-    """
-    Classify images by class
-    :param params:
-    :param img_list:
-    :param model:
-    :param device:
-    :return:
-    """
-    weights_file_name = params['inference']['state_dict_path']
-    num_classes = params['global']['num_classes']
-    bucket = params['global']['bucket_name']
-
-    classes_file = weights_file_name.split('/')[:-1]
-    if bucket:
-        class_csv = ''
-        for folder in classes_file:
-            class_csv = os.path.join(class_csv, folder)
-        bucket.download_file(os.path.join(class_csv, 'classes.csv'), 'classes.csv')
-        with open('classes.csv', 'rt') as file:
-            reader = csv.reader(file)
-            classes = list(reader)
-    else:
-        class_csv = ''
-        for c in classes_file:
-            class_csv = class_csv + c + '/'
-        with open(class_csv + 'classes.csv', 'rt') as f:
-            reader = csv.reader(f)
-            classes = list(reader)
-
-    classified_results = np.empty((0, 2 + num_classes))
-
-    for image in img_list:
-        img_name = os.path.basename(image['tif'])  # TODO: pathlib
-        model.eval()
-        if bucket:
-            img = Image.open(f"Images/{img_name}").resize((299, 299), resample=Image.BILINEAR)
-        else:
-            img = Image.open(image['tif']).resize((299, 299), resample=Image.BILINEAR)
-        to_tensor = torchvision.transforms.ToTensor()
-
-        img = to_tensor(img)
-        img = img.unsqueeze(0)
-        with torch.no_grad():
-            img = img.to(device)
-            outputs = model(img)
-            _, predicted = torch.max(outputs, 1)
-
-        top5 = heapq.nlargest(5, outputs.cpu().numpy()[0])
-        top5_loc = []
-        for i in top5:
-            top5_loc.append(np.where(outputs.cpu().numpy()[0] == i)[0][0])
-        logging.info(f"Image {img_name} classified as {classes[0][predicted]}")
-        logging.info('Top 5 classes:')
-        for i in range(0, 5):
-            logging.info(f"\t{classes[0][top5_loc[i]]} : {top5[i]}")
-        classified_results = np.append(classified_results, [np.append([image['tif'], classes[0][predicted]],
-                                                                      outputs.cpu().numpy()[0])], axis=0)
-    csv_results = 'classification_results.csv'
-    if bucket:
-        np.savetxt(csv_results, classified_results, fmt='%s', delimiter=',')
-        bucket.upload_file(csv_results, os.path.join(working_folder, csv_results))  # TODO: pathlib
-    else:
-        np.savetxt(os.path.join(working_folder, csv_results), classified_results, fmt='%s',  # TODO: pathlib
-                   delimiter=',')
-
-
-def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200):
+def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200, default: int = 512):
     """
     Calculate maximum chunk_size that could fit on GPU during inference based on thumb rule with hardcoded
     "pixels per MB of GPU RAM" as threshold. Threshold based on inference with a large model (Deeplabv3_resnet101)
@@ -356,13 +272,15 @@ def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 
     :param max_pix_per_mb_gpu: Maximum number of pixels that can fit on each MB of GPU (better to underestimate)
     :return: returns a downgraded evaluation batch size if the original batch size is considered too high
     """
+    if not gpu_devices_dict:
+        return default
     # get max ram for smallest gpu
     smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
     # rule of thumb to determine max chunk size based on approximate max pixels a gpu can handle during inference
     max_chunk_size = sqrt(max_pix_per_mb_gpu * smallest_gpu_ram)
-    max_chunk_size_rd = int(max_chunk_size - (max_chunk_size % 256))
-    logging.info(f'Images will be split into chunks of {max_chunk_size_rd}')
-    return max_chunk_size_rd
+    chunk_size = int(max_chunk_size - (max_chunk_size % 256))  # round to closest multiple of 256
+    logging.info(f'Data will be split into chunks of {chunk_size}')
+    return chunk_size
 
 
 def main(params: dict) -> None:
@@ -370,57 +288,34 @@ def main(params: dict) -> None:
     Function to manage details about the inference on segmentation task.
     1. Read the parameters from the config given.
     2. Read and load the state dict from the previous training or the given one.
-    3. Make the inference on the data specifies in the config.
+    3. Make the inference on the data specified in the config.
     -------
-    :param params: (dict) Parameters found in the yaml config file.
+    :param params: (dict) Parameters inputted during execution.
     """
-    # PARAMETERS
-    mode = get_key_def('mode', params, expected_type=str)
-    task = get_key_def('task', params['general'], expected_type=str)
+    # MANDATORY PARAMETERS
     model_name = get_key_def('model_name', params['model'], expected_type=str).lower()
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
     modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
-    BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
     num_bands = len(modalities)
-    debug = get_key_def('debug', params, default=False, expected_type=bool)
+    BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
+
     # SETTING OUTPUT DIRECTORY
     state_dict = get_key_def('state_dict_path', params['inference'], is_path=True, check_path_exists=True)
-
-    # TODO add more detail in the parent folder
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
-    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     Path.mkdir(working_folder, parents=True, exist_ok=True)
-
-    # LOGGING PARAMETERS TODO put option not just mlflow
-    experiment_name = get_key_def('project_name', params['general'], default='gdl-training')
-    try:
-        tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str)
-        Path(tracker_uri).mkdir(exist_ok=True)
-        run_name = get_key_def('run_name', params['tracker'], default='gdl')
-        run_name = '{}_{}_{}'.format(run_name, mode, task)
-        logging.info(f'\nInference and log files will be saved to: {working_folder}')
-        # TODO change to fit whatever import
-        from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
-        # tracking path + parameters logging
-        set_tracking_uri(tracker_uri)
-        set_experiment(experiment_name)
-        start_run(run_name=run_name)
-        log_params(dict_path(params, 'general'))
-        log_params(dict_path(params, 'dataset'))
-        log_params(dict_path(params, 'data'))
-        log_params(dict_path(params, 'model'))
-        log_params(dict_path(params, 'inference'))
-    # meaning no logging tracker as been assigned or it doesnt exist in config/logging
-    except ConfigKeyError:
-        logging.info(
-            "\nNo logging tracker as been assigned or the yaml config doesnt exist in 'config/tracker'."
-            "\nNo tracker file will be save in that case."
-        )
-
-    # MANDATORY PARAMETERS
-    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=params['general']['raw_data_csv'],
+    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
+    # Default input directory based on default output directory
+    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=working_folder,
                                  expected_type=str, is_path=True, check_path_exists=True)
+
+    # LOGGING PARAMETERS
+    exper_name = get_key_def('project_name', params['general'], default='gdl-training')
+    run_name = get_key_def('run_name', params['tracker'], default='gdl')
+    tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str, is_path=True,
+                              check_path_exists=True)
+    set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
+                tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
 
     # OPTIONAL PARAMETERS
     num_devices = get_key_def('num_gpus', params['training'], default=0, expected_type=int)
@@ -433,30 +328,20 @@ def main(params: dict) -> None:
     max_used_perc = get_key_def('max_used_perc', params['training'], default=25, expected_type=int)
     scale = get_key_def('scale_data', params['augmentation'], default=[0, 1], expected_type=ListConfig)
     raster_to_vec = get_key_def('ras2vec', params['inference'], default=False)
-
+    debug = get_key_def('debug', params, default=False, expected_type=bool)
     if debug:
-        logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
-                        f'cause delays in execution.')
+        logging.warning(f'\nDebug mode activated. Some debug features may create overhead')
+
+    # list of GPU devices that are available and unused. If no GPUs, returns empty dict
+    gpu_devices_dict = get_device_ids(num_devices, max_used_ram_perc=max_used_ram, max_used_perc=max_used_perc)
+    chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
+    chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=50, default=chunk_size)
+    device = set_device(gpu_devices_dict=gpu_devices_dict)
 
     # AWS
     bucket = None
     bucket_file_cache = []
-    bucket_name = get_key_def('bucket_name', params['AWS'])
-
-    # list of GPU devices that are available and unused. If no GPUs, returns empty dict
-    gpu_devices_dict = get_device_ids(num_devices,
-                                      max_used_ram_perc=max_used_ram,
-                                      max_used_perc=max_used_perc)
-    if gpu_devices_dict:
-        chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=50)
-        logging.info(f"\nNumber of cuda devices requested: {num_devices}. "
-                     f"\nCuda devices available: {gpu_devices_dict}. "
-                     f"\nUsing {list(gpu_devices_dict.keys())[0]}\n\n")
-        device = torch.device(f'cuda:{list(range(len(gpu_devices_dict.keys())))[0]}')
-    else:
-        chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
-        logging.warning(f"\nNo Cuda device available. This process will only run on CPU")
-        device = torch.device('cpu')
+    bucket_name = get_key_def('bucket_name', params['AWS'], default=None)
 
     # CONFIGURE MODEL
     model, loaded_checkpoint, model_name = net(model_name=model_name,
@@ -465,93 +350,63 @@ def main(params: dict) -> None:
                                                num_devices=1,
                                                net_params=params,
                                                inference_state_dict=state_dict)
-    try:
-        model.to(device)
-    except RuntimeError:
-        logging.info(f"\nUnable to use device. Trying device 0")
-        device = torch.device(f'cuda' if gpu_devices_dict else 'cpu')
-        model.to(device)
+    model, _ = load_from_checkpoint(checkpoint=loaded_checkpoint, model=model, strict_loading=True, bucket=bucket)
 
-    # CREATE LIST OF INPUT IMAGES FOR INFERENCE
+    # GET LIST OF INPUT IMAGES FOR INFERENCE
     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
 
     # VALIDATION: anticipate problems with imagery before entering main for loop
     for info in tqdm(list_img, desc='Validating imagery'):
-        validate_raster(info['tif'], num_bands, None)
+        validate_raster(info['tif'])
     logging.info('\nSuccessfully validated imagery')
 
-    if task == 'classification':
-        classifier(params, list_img, model, device,
-                   working_folder)  # FIXME: why don't we load from checkpoint in classification?
-
-    elif task == 'segmentation':
-        # TODO: Add verifications?
+    # LOOP THROUGH LIST OF INPUT IMAGES
+    for info in tqdm(list_img, desc='Inferring from images', position=0, leave=True):
+        img_name = Path(info['tif']).name
         if bucket:
-            bucket.download_file(loaded_checkpoint, "saved_model.pth.tar")  # TODO: is this still valid?
-            model, _ = load_from_checkpoint("saved_model.pth.tar", model)
+            local_img = f"Images/{img_name}"
+            bucket.download_file(info['tif'], local_img)
+            inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
         else:
-            model, _ = load_from_checkpoint(loaded_checkpoint, model)
+            local_img = Path(info['tif'])
+            Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
+            inference_image = working_folder.joinpath(local_img.parent.name,
+                                                      f"{img_name.split('.')[0]}_inference.tif")
+        temp_file = working_folder.joinpath(local_img.parent.name, f"{img_name.split('.')[0]}.dat")
+        raster = rasterio.open(local_img, 'r')
+        logging.info(f'\nReading original image: {raster.name}')
+        inf_meta = raster.meta
 
-        # Save tracking TODO put option not just mlflow
-        if 'tracker_uri' in locals() and 'run_name' in locals():
-            mode = get_key_def('mode', params, expected_type=str)
-            task = get_key_def('task', params['general'], expected_type=str)
-            run_name = '{}_{}_{}'.format(run_name, mode, task)
-            # tracking path + parameters logging
-            set_tracking_uri(tracker_uri)
-            set_experiment(experiment_name)
-            start_run(run_name=run_name)
-            log_params(dict_path(params, 'inference'))
-            log_params(dict_path(params, 'dataset'))
-            log_params(dict_path(params, 'model'))
+        pred = segmentation(param=params,
+                            input_image=raster,
+                            num_classes=num_classes,
+                            model=model,
+                            chunk_size=chunk_size,
+                            device=device,
+                            scale=scale,
+                            BGR_to_RGB=BGR_to_RGB,
+                            tp_mem=temp_file,
+                            debug=debug)
 
-        # LOOP THROUGH LIST OF INPUT IMAGES
-        for info in tqdm(list_img, desc='Inferring from images', position=0, leave=True):
-            img_name = Path(info['tif']).name
-            if bucket:
-                local_img = f"Images/{img_name}"
-                bucket.download_file(info['tif'], local_img)
-                inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-            else:
-                local_img = Path(info['tif'])
-                Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
-                inference_image = working_folder.joinpath(local_img.parent.name,
-                                                          f"{img_name.split('.')[0]}_inference.tif")
-            temp_file = working_folder.joinpath(local_img.parent.name, f"{img_name.split('.')[0]}.dat")
-            raster = rasterio.open(local_img, 'r')
-            logging.info(f'\nReading original image: {raster.name}')
-            inf_meta = raster.meta
-
-            pred = segmentation(param=params,
-                                     input_image=raster,
-                                     num_classes=num_classes,
-                                     model=model,
-                                     chunk_size=chunk_size,
-                                     device=device,
-                                     scale=scale,
-                                     BGR_to_RGB=BGR_to_RGB,
-                                     tp_mem=temp_file,
-                                     debug=debug)
-
-            pred = pred[np.newaxis, :, :].astype(np.uint8)
-            inf_meta.update({"driver": "GTiff",
-                             "height": pred.shape[1],
-                             "width": pred.shape[2],
-                             "count": pred.shape[0],
-                             "dtype": 'uint8',
-                             "compress": 'lzw'})
-            logging.info(f'\nSuccessfully inferred on {img_name}\nWriting to file: {inference_image}')
-            with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
-                dest.write(pred)
-            del pred
-            try:
-                temp_file.unlink()
-            except OSError as e:
-                logging.warning(f'File Error: {temp_file, e.strerror}')
-            if raster_to_vec:
-                start_vec = time.time()
-                inference_vec = working_folder.joinpath(local_img.parent.name,
-                                                        f"{img_name.split('.')[0]}_inference.gpkg")
-                ras2vec(inference_image, inference_vec)
-                end_vec = time.time() - start_vec
-                logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))
+        pred = pred[np.newaxis, :, :].astype(np.uint8)
+        inf_meta.update({"driver": "GTiff",
+                         "height": pred.shape[1],
+                         "width": pred.shape[2],
+                         "count": pred.shape[0],
+                         "dtype": 'uint8',
+                         "compress": 'lzw'})
+        logging.info(f'\nSuccessfully inferred on {img_name}\nWriting to file: {inference_image}')
+        with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
+            dest.write(pred)
+        del pred
+        try:
+            temp_file.unlink()
+        except OSError as e:
+            logging.warning(f'File Error: {temp_file, e.strerror}')
+        if raster_to_vec:
+            start_vec = time.time()
+            inference_vec = working_folder.joinpath(local_img.parent.name,
+                                                    f"{img_name.split('.')[0]}_inference.gpkg")
+            ras2vec(inference_image, inference_vec)
+            end_vec = time.time() - start_vec
+            logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))

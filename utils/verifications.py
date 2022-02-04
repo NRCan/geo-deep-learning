@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Union, List
 
 import fiona
+import numpy as np
 import rasterio
 from rasterio.features import is_valid_geom
 from tqdm import tqdm
@@ -67,29 +68,40 @@ def validate_num_classes(vector_file: Union[str, Path],
     return num_classes_
 
 
-def validate_raster(raster_path: Union[str, Path], num_bands: int, meta_map):
+def validate_raster(raster_path: Union[str, Path], verbose: bool = True, extended: bool = False):
     """
-    Assert number of bands found in raster is equal to desired number of bands
-    :param raster_path: (str or Path) path to raster file
-    :param num_bands: number of bands raster file is expected to have
-    :param meta_map:
+    Checks if raster is valid, i.e. not corrupted (based on metadata, or actual byte info if under size threshold)
+    @param raster_path: Path to raster to validate
+    @param verbose: if True, will output potential errors detected
+    @param extended: if True, rasters will be entirely read to detect any problem
+    @return:
     """
-    # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
-    #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
-    if isinstance(raster_path, str):
-        raster_path = Path(raster_path)
+    if not raster_path:
+        return False
+    raster_path = Path(raster_path) if isinstance(raster_path, str) else raster_path
+    metadata = {}
     if not raster_path.is_file():
         raise FileNotFoundError(f"Could not locate raster file at {raster_path}")
-    with rasterio.open(raster_path, 'r') as raster:
-        input_band_count = raster.meta['count']
-        if not raster.meta['dtype'] in ['uint8', 'uint16']:
-            logging.error(f"Invalid datatype {raster.meta['dtype']} for {raster.name}. "
-                          f"Only uint8 and uint16 are supported in current version")
-
-    if not input_band_count == num_bands:
-        raise ValueError(f"The number of bands in the input image ({input_band_count}) "
-                         f"and the parameter 'number_of_bands' in the yaml file ({num_bands}) "
-                         f"should be identical")
+    try:
+        logging.debug(f'Raster to validate: {raster_path}\n'
+                     f'Size: {raster_path.stat().st_size}\n'
+                     f'Extended check: {extended}')
+        with rasterio.open(raster_path, 'r') as raster:
+            if not raster.meta['dtype'] in ['uint8', 'uint16']:  # will trigger exception if invalid raster
+                logging.warning(f"Only uint8 and uint16 are supported in current version.\n"
+                                f"Datatype {raster.meta['dtype']} for {raster.name} may cause problems.")
+        if extended:
+            logging.debug(f'Will perform extended check.\nWill read first band: {raster_path}')
+            with rasterio.open(raster_path, 'r') as raster:
+                raster_np = raster.read(1)
+            logging.debug(raster_np.shape)
+            if not np.any(raster_np):
+                return False
+        return True
+    except rasterio.errors.RasterioIOError as e:
+        if verbose:
+            logging.error(e)
+        return False
 
 
 def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path]):
