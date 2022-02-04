@@ -29,7 +29,7 @@ from utils.logger import dict_path
 from models.model_choice import net
 from utils import augmentation
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, find_first_file
+    list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities
 from utils.verifications import validate_raster
 
 try:
@@ -379,29 +379,17 @@ def main(params: dict) -> None:
     task = get_key_def('task', params['general'], expected_type=str)
     model_name = get_key_def('model_name', params['model'], expected_type=str).lower()
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
+    num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
     modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
     BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
     num_bands = len(modalities)
     debug = get_key_def('debug', params, default=False, expected_type=bool)
     # SETTING OUTPUT DIRECTORY
-    try:
-        state_dict = Path(params['inference']['state_dict_path']).resolve(strict=True)
-    except FileNotFoundError:
-        logging.info(
-            f"\nThe state dict path directory '{params['inference']['state_dict_path']}' don't seem to be find," +
-            f"we will try to locate a state dict path in the '{params['general']['save_weights_dir']}' " +
-            f"specify during the training phase"
-        )
-        try:
-            state_dict = Path(params['general']['save_weights_dir']).resolve(strict=True)
-        except FileNotFoundError:
-            raise logging.critical(
-                f"\nThe state dict path directory '{params['general']['save_weights_dir']}'" +
-                f" don't seem to be find either, please specify the path to a state dict"
-            )
+    state_dict = get_key_def('state_dict_path', params['inference'], is_path=True, check_path_exists=True)
+
     # TODO add more detail in the parent folder
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
-    logging.info("\nThe state dict path directory used '{}'".format(working_folder))
+    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     Path.mkdir(working_folder, parents=True, exist_ok=True)
 
     # LOGGING PARAMETERS TODO put option not just mlflow
@@ -409,10 +397,10 @@ def main(params: dict) -> None:
     try:
         tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str)
         Path(tracker_uri).mkdir(exist_ok=True)
-        run_name = get_key_def('run_name', params['tracker'], default='gdl')  # TODO change for something meaningful
+        run_name = get_key_def('run_name', params['tracker'], default='gdl')
         run_name = '{}_{}_{}'.format(run_name, mode, task)
         logging.info(f'\nInference and log files will be saved to: {working_folder}')
-        # TODO change to fit whatever inport
+        # TODO change to fit whatever import
         from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
         # tracking path + parameters logging
         set_tracking_uri(tracker_uri)
@@ -431,55 +419,24 @@ def main(params: dict) -> None:
         )
 
     # MANDATORY PARAMETERS
-    img_dir_or_csv = get_key_def(
-        'img_dir_or_csv_file', params['inference'], default=params['general']['raw_data_csv'], expected_type=str
-    )
-    if not (Path(img_dir_or_csv).is_dir() or Path(img_dir_or_csv).suffix == '.csv'):
-        raise logging.critical(
-            FileNotFoundError(
-                f'\nCouldn\'t locate .csv file or directory "{img_dir_or_csv}" containing imagery for inference'
-            )
-        )
-    # load the checkpoint
-    try:
-        # Sort by modification time (mtime) descending
-        sorted_by_mtime_descending = sorted(
-            [os.path.join(state_dict, x) for x in os.listdir(state_dict)], key=lambda t: -os.stat(t).st_mtime
-        )
-        last_checkpoint_save = find_first_file('checkpoint.pth.tar', sorted_by_mtime_descending)
-        if last_checkpoint_save is None:
-            raise FileNotFoundError
-        # change the state_dict
-        state_dict = last_checkpoint_save
-    except FileNotFoundError as e:
-        logging.error(f"\nNo file name 'checkpoint.pth.tar' as been found at '{state_dict}'")
-        raise e
-
-    task = get_key_def('task', params['general'], expected_type=str)
-    # TODO change it next version for all task
-    if task not in ['classification', 'segmentation']:
-        raise logging.critical(
-            ValueError(f'\nTask should be either "classification" or "segmentation". Got {task}')
-        )
+    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=params['general']['raw_data_csv'],
+                                 expected_type=str, is_path=True, check_path_exists=True)
 
     # OPTIONAL PARAMETERS
-    dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
     num_devices = get_key_def('num_gpus', params['training'], default=0, expected_type=int)
     default_max_used_ram = 25
     max_used_ram = get_key_def('max_used_ram', params['training'], default=default_max_used_ram, expected_type=int)
-    max_used_perc = get_key_def('max_used_perc', params['training'], default=25, expected_type=int)
-    scale = get_key_def('scale_data', params['augmentation'], default=[0, 1], expected_type=ListConfig)
-    raster_to_vec = get_key_def('ras2vec', params['inference'], False) # FIXME not implemented with hydra
-
-    if debug:
-        logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
-                        f'cause delays in execution.')
-
-    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     if not (0 <= max_used_ram <= 100):
         logging.warning(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}. '
                         f'Will set default value of {default_max_used_ram} %')
         max_used_ram = default_max_used_ram
+    max_used_perc = get_key_def('max_used_perc', params['training'], default=25, expected_type=int)
+    scale = get_key_def('scale_data', params['augmentation'], default=[0, 1], expected_type=ListConfig)
+    raster_to_vec = get_key_def('ras2vec', params['inference'], default=False)
+
+    if debug:
+        logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
+                        f'cause delays in execution.')
 
     # AWS
     bucket = None
@@ -502,12 +459,9 @@ def main(params: dict) -> None:
         device = torch.device('cpu')
 
     # CONFIGURE MODEL
-    if num_classes > 1:
-        num_classes = num_classes + 1  # multiclass account for background
     model, loaded_checkpoint, model_name = net(model_name=model_name,
                                                num_bands=num_bands,
                                                num_channels=num_classes,
-                                               dontcare_val=dontcare_val,
                                                num_devices=1,
                                                net_params=params,
                                                inference_state_dict=state_dict)
@@ -519,19 +473,7 @@ def main(params: dict) -> None:
         model.to(device)
 
     # CREATE LIST OF INPUT IMAGES FOR INFERENCE
-    try:
-        # check if the data folder exist
-        raw_data_dir = get_key_def('raw_data_dir', params['dataset'])
-        my_data_path = Path(raw_data_dir).resolve(strict=True)
-        logging.info("\nImage directory used '{}'".format(my_data_path))
-        data_path = Path(my_data_path)
-    except FileNotFoundError:
-        raw_data_dir = get_key_def('raw_data_dir', params['dataset'])
-        raise logging.critical(
-            "\nImage directory '{}' doesn't exist, please change the path".format(raw_data_dir)
-        )
-    list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"],
-                                 in_case_of_path=str(data_path))
+    list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
 
     # VALIDATION: anticipate problems with imagery before entering main for loop
     for info in tqdm(list_img, desc='Validating imagery'):
