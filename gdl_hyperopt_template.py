@@ -17,8 +17,8 @@ import mlflow
 import torch
 # ToDo: Add hyperopt to GDL requirements
 from hyperopt import fmin, tpe, hp, Trials, STATUS_OK
+from ruamel_yaml import YAML
 
-from utils.readers import read_parameters
 from train_segmentation import main as train_main
 
 # This is the hyperparameter space to explore
@@ -142,6 +142,19 @@ def main(params, config_path):
     pprint.pprint(best)
     print(trials.best_trial['result'])
     trials_to_csv(trials, csv_file)
+
+
+def read_parameters(param_file):
+    """Read and return parameters in .yaml file
+    Args:
+        param_file: Full file path of the parameters file
+    Returns:
+        YAML (Ruamel) CommentedMap dict-like object
+    """
+    yaml = YAML()
+    with open(param_file) as yamlfile:
+        params = yaml.load(yamlfile)
+    return params
 
 
 if __name__ == '__main__':

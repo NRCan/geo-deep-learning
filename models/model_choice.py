@@ -17,7 +17,7 @@ from tqdm import tqdm
 from utils.optimizer import create_optimizer
 import torch.optim as optim
 from models import TernausNet, unet, checkpointed_unet, inception
-from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
+from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, set_device
 
 logging.getLogger(__name__)
 
@@ -263,13 +263,8 @@ def net(model_name: str,
         else:
             logging.warning(f"No Cuda device available. This process will only run on CPU\n")
         logging.info(f'\nSetting model, criterion, optimizer and learning rate scheduler...')
-        device = torch.device(f'cuda:{list(range(len(gpu_devices_dict.keys())))[0]}' if gpu_devices_dict else 'cpu')
-        try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
-            model.to(device)
-        except AssertionError:
-            logging.exception(f"Unable to use device. Trying device 0...\n")
-            device = torch.device(f'cuda' if gpu_devices_dict else 'cpu')
-            model.to(device)
+        device = set_device(gpu_devices_dict)
+        model.to(device)
 
         model, criterion, optimizer, lr_scheduler = set_hyperparameters(params=net_params,
                                                                         model=model,

@@ -6,32 +6,24 @@ from functools import reduce
 from pathlib import Path
 from typing import Sequence, List
 
+import torch
+# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
+from torchvision import models
 from hydra.utils import get_original_cwd
 from pytorch_lightning.utilities import rank_zero_only
-
 import rich.syntax
 import rich.tree
 from omegaconf import DictConfig, OmegaConf
 
-import torch
-# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
 import numpy as np
 import scipy.signal
 import warnings
 import requests
-import collections
-
-# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
-from rasterio.crs import CRS
-from affine import Affine
-
 from urllib.parse import urlparse
 
-try:
-    from ruamel_yaml import YAML
-except ImportError:
-    from ruamel.yaml import YAML
+from utils.logger import get_logger
+
 # NVIDIA library
 try:
     from pynvml import *
@@ -43,21 +35,6 @@ try:
 except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
-
-
-def get_logger(name=__name__, level=logging.INFO) -> logging.Logger:
-    """Initializes multi-GPU-friendly python logger."""
-
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-
-    # this ensures all logging levels get marked with the rank zero decorator
-    # otherwise logs would get multiplied for each GPU process in multi-GPU setup
-    for level in ("debug", "info", "warning", "error", "exception", "fatal", "critical"):
-        setattr(logger, level, rank_zero_only(getattr(logger, level)))
-
-    return logger
-
 
 # Set the logging file
 log = get_logger(__name__)  # need to be different from logging in this case
@@ -75,14 +52,16 @@ class Interpolate(torch.nn.Module):
         return x
 
 
-def load_from_checkpoint(checkpoint, model, optimizer=None, inference: str = ''):
+def load_from_checkpoint(checkpoint, model, optimizer=None, strict_loading: bool = False, bucket: str = None):
     """Load weights from a previous checkpoint
     Args:
         checkpoint: (dict) checkpoint
         model: model to replace
         optimizer: optimiser to be used
-        inference: (str) path to inference state_dict. If given, loading will be strict (see pytorch doc)
+        strict_loading: (bool) If True, loading will be strict (see pytorch doc)
     """
+    if bucket:
+        checkpoint = bucket.download_file(checkpoint, "saved_model.pth.tar")  # TODO: is this still valid?
     # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
     # model.load_state_dict(checkpoint['model'])
     # https://github.com/bearpaw/pytorch-classification/issues/27
@@ -94,7 +73,6 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference: str = '')
         checkpoint = {}
         checkpoint['model'] = new_state_dict['model']
 
-    strict_loading = False if not inference else True
     model.load_state_dict(checkpoint['model'], strict=strict_loading)
     log.info(f"\n=> loaded model")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
@@ -184,6 +162,26 @@ def gpu_stats(device=0):
     mem = nvmlDeviceGetMemoryInfo(handle)
 
     return res, mem
+
+
+def set_device(gpu_devices_dict: dict = {}):
+    """
+    From dictionary of available devices, sets the device to be used
+    @param gpu_devices_dict: dictionary containing info on GPU devices as returned by lst_device_ids
+    @return: torch.device
+    """
+    if gpu_devices_dict:
+        logging.info(f"\nCuda devices available: {gpu_devices_dict}.\nUsing {list(gpu_devices_dict.keys())[0]}\n\n")
+        device = torch.device(f'cuda:{list(range(len(gpu_devices_dict.keys())))[0]}')
+    else:
+        logging.warning(f"\nNo Cuda device available. This process will only run on CPU")
+        device = torch.device('cpu')
+        try:
+            models.resnet18().to(device)
+        except (RuntimeError, AssertionError):  # HPC: when device 0 not available. Error: Cuda invalid device ordinal.
+            logging.warning(f"\nUnable to use device. Trying device 'cuda', not {device}")
+            device = torch.device(f'cuda')
+    return device
 
 
 def get_key_def(key, config, default=None, expected_type=None, is_path: bool = False, check_path_exists: bool = False):
@@ -351,8 +349,7 @@ def checkpoint_url_download(url: str):
 
 def list_input_images(img_dir_or_csv: Path,
                       bucket_name: str = None,
-                      glob_patterns: List = None,
-                      in_case_of_path: str = None):
+                      glob_patterns: List = None):
     """
     Create list of images from given directory or csv file.
 
