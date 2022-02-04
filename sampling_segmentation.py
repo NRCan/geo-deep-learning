@@ -16,12 +16,12 @@ from utils.utils import (
     get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash,
     read_modalities,
 )
+from utils.logger import get_logger
 from utils.verifications import (
     validate_num_classes, validate_raster, assert_crs_match, validate_features_from_gpkg
 )
 # Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)  # import logging
+logging = get_logger(__name__)  # import logging
 # Set random seed for reproducibility
 np.random.seed(1234)
 
@@ -480,9 +480,9 @@ def main(cfg: DictConfig) -> None:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
         bucket.download_file(csv_file, 'samples_prep.csv')
-        list_data_prep = read_csv('samples_prep.csv', data_path)
+        list_data_prep = read_csv('samples_prep.csv')
     else:
-        list_data_prep = read_csv(csv_file, data_path)
+        list_data_prep = read_csv(csv_file)
 
     # IF DEBUG IS ACTIVATE
     if debug:
@@ -493,7 +493,7 @@ def main(cfg: DictConfig) -> None:
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
     for info in tqdm(list_data_prep, position=0):
-        validate_raster(info['tif'], num_bands, meta_map)
+        validate_raster(info['tif'], num_bands)
         if info['gpkg'] not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(
                 info['gpkg'], num_classes, attribute_field, dontcare, attribute_values=attr_vals,

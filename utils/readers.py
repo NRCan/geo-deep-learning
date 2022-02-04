@@ -2,12 +2,8 @@ import logging
 
 import numpy as np
 import rasterio
-from ruamel_yaml import YAML
-from tqdm import tqdm
-from pathlib import Path
-from skimage import morphology
 
-from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
+from utils.geoutils import clip_raster_with_gpkg
 
 logger = logging.getLogger(__name__)
 

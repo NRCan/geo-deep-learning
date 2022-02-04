@@ -274,7 +274,7 @@ def training(train_loader,
     :param debug: (bool) Debug mode
     :return: Updated training loss
     """
-    model.main()
+    model.train()
     train_metrics = create_metrics_dict(num_classes)
 
     for batch_index, data in enumerate(tqdm(train_loader, desc=f'Iterating train batches with {device.type}')):

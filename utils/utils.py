@@ -432,7 +432,7 @@ def read_csv(csv_file_name):
                               f"csv will be ignored. Got: {row[3]}")
             # save all values
             list_values.append(
-                {'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]}
+                {'tif': str(row[0]), 'meta': row[1], 'gpkg': str(row[2]), 'attribute_name': row[3], 'dataset': row[4]}
             )
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
