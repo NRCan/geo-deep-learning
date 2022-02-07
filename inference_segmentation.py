@@ -600,53 +600,62 @@ def main(params: dict) -> None:
             inf_meta = raster.meta
             label = vector_to_raster(vector_file=local_gpkg,
                                      input_image=raster,
-                                     label_arr=label,
-                                     num_classes=num_classes,
-                                     gpkg_name=gpkg_name,
-                                     model=model,
-                                     chunk_size=chunk_size,
-                                     device=device,
-                                     scale=scale,
-                                     BGR_to_RGB=BGR_to_RGB,
-                                     tp_mem=temp_file,
-                                     debug=debug)
-            if gdf is not None:
-                gdf_.append(gdf)
-                gpkg_name_.append(gpkg_name)
-            if local_gpkg and 'tracker_uri' in locals():
-                pixelMetrics = ComputePixelMetrics(label, pred, num_classes)
-                log_metrics(pixelMetrics.update(pixelMetrics.iou))
-                log_metrics(pixelMetrics.update(pixelMetrics.dice))
-            pred = pred[np.newaxis, :, :].astype(np.uint8)
-            inf_meta.update({"driver": "GTiff",
-                             "height": pred.shape[1],
-                             "width": pred.shape[2],
-                             "count": pred.shape[0],
-                             "dtype": 'uint8',
-                             "compress": 'lzw'})
-            logging.info(f'\nSuccessfully inferred on {img_name}\nWriting to file: {inference_image}')
-            with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
-                dest.write(pred)
-            del pred
-            try:
-                temp_file.unlink()
-            except OSError as e:
-                logging.warning(f'File Error: {temp_file, e.strerror}')
-            if raster_to_vec:
-                start_vec = time.time()
-                inference_vec = working_folder.joinpath(local_img.parent.name,
-                                                        f"{img_name.split('.')[0]}_inference.gpkg")
-                ras2vec(inference_image, inference_vec)
-                end_vec = time.time() - start_vec
-                logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))
+                                     out_shape=(inf_meta['height'], inf_meta['width']),
+                                     attribute_name=attribute_field,
+                                     fill=0,  # background value in rasterized vector.
+                                     attribute_values=attr_vals)
+            if debug:
+                logging.debug(f'\nUnique values in loaded label as raster: {np.unique(label)}\n'
+                              f'Shape of label as raster: {label.shape}')
 
-        if len(gdf_) >= 1:
-            if not len(gdf_) == len(gpkg_name_):
-                raise logging.critical(ValueError('\nbenchmarking unable to complete'))
-            all_gdf = pd.concat(gdf_)  # Concatenate all geo data frame into one geo data frame
-            all_gdf.reset_index(drop=True, inplace=True)
-            gdf_x = gpd.GeoDataFrame(all_gdf)
-            bench_gpkg = working_folder / "benchmark.gpkg"
-            gdf_x.to_file(bench_gpkg, driver="GPKG", index=False)
-            logging.info(f'\nSuccessfully wrote benchmark geopackage to: {bench_gpkg}')
-        # log_artifact(working_folder)
+        pred, gdf = segmentation(param=params,
+                             label_arr=label,
+                             num_classes=num_classes,
+                             gpkg_name=gpkg_name,
+                             model=model,
+                             chunk_size=chunk_size,
+                             device=device,
+                             scale=scale,
+                             BGR_to_RGB=BGR_to_RGB,
+                             tp_mem=temp_file,
+                             debug=debug)
+        if gdf is not None:
+            gdf_.append(gdf)
+            gpkg_name_.append(gpkg_name)
+        if local_gpkg and 'tracker_uri' in locals():
+            pixelMetrics = ComputePixelMetrics(label, pred, num_classes)
+            log_metrics(pixelMetrics.update(pixelMetrics.iou))
+            log_metrics(pixelMetrics.update(pixelMetrics.dice))
+        pred = pred[np.newaxis, :, :].astype(np.uint8)
+        inf_meta.update({"driver": "GTiff",
+                         "height": pred.shape[1],
+                         "width": pred.shape[2],
+                         "count": pred.shape[0],
+                         "dtype": 'uint8',
+                         "compress": 'lzw'})
+        logging.info(f'\nSuccessfully inferred on {img_name}\nWriting to file: {inference_image}')
+        with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
+            dest.write(pred)
+        del pred
+        try:
+            temp_file.unlink()
+        except OSError as e:
+            logging.warning(f'File Error: {temp_file, e.strerror}')
+        if raster_to_vec:
+            start_vec = time.time()
+            inference_vec = working_folder.joinpath(local_img.parent.name,
+                                                    f"{img_name.split('.')[0]}_inference.gpkg")
+            ras2vec(inference_image, inference_vec)
+            end_vec = time.time() - start_vec
+            logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))
+
+    if len(gdf_) >= 1:
+        if not len(gdf_) == len(gpkg_name_):
+            raise logging.critical(ValueError('\nbenchmarking unable to complete'))
+        all_gdf = pd.concat(gdf_)  # Concatenate all geo data frame into one geo data frame
+        all_gdf.reset_index(drop=True, inplace=True)
+        gdf_x = gpd.GeoDataFrame(all_gdf)
+        bench_gpkg = working_folder / "benchmark.gpkg"
+        gdf_x.to_file(bench_gpkg, driver="GPKG", index=False)
+        logging.info(f'\nSuccessfully wrote benchmark geopackage to: {bench_gpkg}')
+    
