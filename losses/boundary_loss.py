@@ -24,17 +24,14 @@ class BoundaryLoss(nn.Module):
     From: https://github.com/yiskw713/boundary_loss_for_remote_sensing
     """
 
-    def __init__(self, theta0=19, theta=19, ignore_index=None, weight=None):
+    def __init__(self, theta0=19, theta=19, ignore_index=None):
         super().__init__()
 
         self.theta0 = theta0
         self.theta = theta
         self.ignore_index = ignore_index
-        self.weight = weight
         if self.ignore_index:
             logging.error(f'Ignore_index not implemented for Boundary Loss. Got ignore_index "{ignore_index}"')
-        if self.weight:
-            logging.error(f'Class weights not implemented for Boundary Loss. Got class weights "{weight}"')
 
     def forward(self, pred, gt):
         """

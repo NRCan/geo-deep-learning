@@ -533,7 +533,7 @@ def main(params: dict) -> None:
     raster_to_vec = get_key_def('ras2vec', params['inference'], False) # FIXME not implemented with hydra
 
     # benchmark (ie when gkpgs are inputted along with imagery)
-    dontcare = get_key_def("ignore_index", params["training"], -1)
+    dontcare = get_key_def("ignore_index", params["dataset"], -1)
     attribute_field = get_key_def('attribute_field', params['dataset'], None, expected_type=str)
     attr_vals = get_key_def('attribute_values', params['dataset'], None, expected_type=Sequence)
 
@@ -579,7 +579,6 @@ def main(params: dict) -> None:
     model, loaded_checkpoint, model_name = net(model_name=model_name,
                                                num_bands=num_bands,
                                                num_channels=num_classes,
-                                               dontcare_val=dontcare_val,
                                                num_devices=1,
                                                net_params=params,
                                                inference_state_dict=state_dict)

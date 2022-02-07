@@ -8,7 +8,6 @@ training:
   max_epochs: ${general.max_epochs}
   min_epochs: ${general.min_epochs}
   num_workers:
-  loss_fn: SoftBCE  # name of the metric you want to manage the training
   mode: 'min'            # 'min' or 'max', will minimize or maximize the chosen metric
   max_used_ram:
   max_used_perc:

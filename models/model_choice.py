@@ -9,11 +9,12 @@ import torch.nn as nn
 import segmentation_models_pytorch as smp
 import torchvision.models as models
 ###############################
+from hydra.utils import instantiate
+
 from utils.layersmodules import LayersEnsemble
 ###############################
 from tqdm import tqdm
 from utils.optimizer import create_optimizer
-from losses import MultiClassCriterion, SingleClassCriterion
 import torch.optim as optim
 from models import TernausNet, unet, checkpointed_unet, inception
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
@@ -107,10 +108,8 @@ def verify_weights(num_classes, weights):
 
 
 def set_hyperparameters(params,
-                        num_classes,
                         model,
                         checkpoint,
-                        dontcare_val,
                         loss_fn,
                         optimizer,
                         class_weights=None,
@@ -136,12 +135,11 @@ def set_hyperparameters(params,
     gamma = get_key_def('gamma', params['scheduler']['params'], 0.9)
     class_weights = torch.tensor(class_weights) if class_weights else None
     # Loss function
-    if num_classes == 1:
-        criterion = SingleClassCriterion(loss_type=loss_fn, ignore_index=dontcare_val)
+    if loss_fn['_target_'] in ['torch.nn.CrossEntropyLoss', 'losses.focal_loss.FocalLoss',
+                               'losses.ohem_loss.OhemCrossEntropy2d']:
+        criterion = instantiate(loss_fn, weight=class_weights)
     else:
-        criterion = MultiClassCriterion(loss_type=loss_fn,
-                                        ignore_index=dontcare_val,
-                                        weight=class_weights)
+        criterion = instantiate(loss_fn)
     # Optimizer
     opt_fn = optimizer
     optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
@@ -157,7 +155,6 @@ def set_hyperparameters(params,
 def net(model_name: str,
         num_bands: int,
         num_channels: int,
-        dontcare_val: int,
         num_devices: int,
         train_state_dict_path: str = None,
         pretrained: bool = True,
@@ -275,10 +272,8 @@ def net(model_name: str,
             model.to(device)
 
         model, criterion, optimizer, lr_scheduler = set_hyperparameters(params=net_params,
-                                                                        num_classes=num_channels,
                                                                         model=model,
                                                                         checkpoint=checkpoint,
-                                                                        dontcare_val=dontcare_val,
                                                                         loss_fn=loss_fn,
                                                                         optimizer=optimizer,
                                                                         class_weights=class_weights,
