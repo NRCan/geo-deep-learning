@@ -377,7 +377,6 @@ def main(cfg: DictConfig) -> None:
     num_bands = len(cfg.dataset.modalities)
     modalities = read_modalities(cfg.dataset.modalities)  # TODO add the Victor module to manage the modalities
     debug = cfg.debug
-    task = cfg.task.task_name
 
     # RAW DATA PARAMETERS
     # Data folder
