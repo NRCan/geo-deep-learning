@@ -59,7 +59,7 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
     """Computes precision, recall and f-score for each class and average of all classes.
     http://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
     """
-    class_report = classification_report(label.cpu(), pred.cpu(), output_dict=True)
+    class_report = classification_report(label.cpu(), pred.cpu(), output_dict=True, zero_division=1)
 
     class_score = {}
     for key, value in class_report.items():
