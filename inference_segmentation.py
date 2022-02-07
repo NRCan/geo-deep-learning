@@ -609,16 +609,17 @@ def main(params: dict) -> None:
                               f'Shape of label as raster: {label.shape}')
 
         pred, gdf = segmentation(param=params,
-                             label_arr=label,
-                             num_classes=num_classes,
-                             gpkg_name=gpkg_name,
-                             model=model,
-                             chunk_size=chunk_size,
-                             device=device,
-                             scale=scale,
-                             BGR_to_RGB=BGR_to_RGB,
-                             tp_mem=temp_file,
-                             debug=debug)
+                                 input_image=raster,
+                                 label_arr=label,
+                                 num_classes=num_classes,
+                                 gpkg_name=gpkg_name,
+                                 model=model,
+                                 chunk_size=chunk_size,
+                                 device=device,
+                                 scale=scale,
+                                 BGR_to_RGB=BGR_to_RGB,
+                                 tp_mem=temp_file,
+                                 debug=debug)
         if gdf is not None:
             gdf_.append(gdf)
             gpkg_name_.append(gpkg_name)
