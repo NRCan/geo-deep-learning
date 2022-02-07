@@ -324,8 +324,10 @@ def training(train_loader,
                                dataset='trn',
                                ep_num=ep_idx + 1,
                                scale=scale)
-
-        loss = criterion(outputs, labels)
+        if num_classes == 1:
+            loss = criterion(outputs, labels.unsqueeze(1).float())
+        else:
+            loss = criterion(outputs, labels)
 
         train_metrics['loss'].update(loss.item(), batch_size)
 
@@ -422,7 +424,7 @@ def evaluation(eval_loader,
 
             outputs_flatten = flatten_outputs(outputs, num_classes)
 
-            loss = criterion(outputs, labels)
+            loss = criterion(outputs, labels.unsqueeze(1).float())
 
             eval_metrics['loss'].update(loss.item(), batch_size)
 
@@ -493,8 +495,8 @@ def train(cfg: DictConfig) -> None:
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     # MANDATORY PARAMETERS
-    num_classes = len(get_key_def('classes_dict', cfg['dataset']).keys())
-    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
+    class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
+    num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
     num_bands = len(read_modalities(cfg.dataset.modalities))
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
@@ -526,7 +528,7 @@ def train(cfg: DictConfig) -> None:
             FileNotFoundError(f'\nCould not locate pretrained checkpoint for training: {train_state_dict_path}')
         )
     if class_weights:
-        verify_weights(num_classes_corrected, class_weights)
+        verify_weights(num_classes, class_weights)
     # Read the concatenation point
     # TODO: find a way to maybe implement it in classification one day
     conc_point = None
@@ -631,7 +633,7 @@ def train(cfg: DictConfig) -> None:
     model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict = \
         net(model_name=model_name,
             num_bands=num_bands,
-            num_channels=num_classes_corrected,
+            num_channels=num_classes,
             dontcare_val=dontcare_val,
             num_devices=num_devices,
             train_state_dict_path=train_state_dict_path,
@@ -643,7 +645,7 @@ def train(cfg: DictConfig) -> None:
             net_params=cfg,
             conc_point=conc_point)
 
-    logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
+    logging.info(f'Instantiated {model_name} model with {num_classes} output channels.\n')
 
     logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
@@ -702,8 +704,7 @@ def train(cfg: DictConfig) -> None:
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment).
         # Check once for all visualization tasks.
-        if not isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int)
-                                                                                       for x in vis_batch_range):
+        if not len(vis_batch_range) == 3 and all(isinstance(x, int) for x in vis_batch_range):
             raise logging.critical(
                 ValueError(f'\nVis_batch_range expects three integers in a list: start batch, end batch, increment.'
                            f'Got {vis_batch_range}')
@@ -732,7 +733,7 @@ def train(cfg: DictConfig) -> None:
                               criterion=criterion,
                               optimizer=optimizer,
                               scheduler=lr_scheduler,
-                              num_classes=num_classes_corrected,
+                              num_classes=num_classes,
                               batch_size=batch_size,
                               ep_idx=epoch,
                               progress_log=progress_log,
@@ -745,7 +746,7 @@ def train(cfg: DictConfig) -> None:
         val_report = evaluation(eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
-                                num_classes=num_classes_corrected,
+                                num_classes=num_classes,
                                 batch_size=batch_size,
                                 ep_idx=epoch,
                                 progress_log=progress_log,
@@ -812,7 +813,7 @@ def train(cfg: DictConfig) -> None:
         tst_report = evaluation(eval_loader=tst_dataloader,
                                 model=model,
                                 criterion=criterion,
-                                num_classes=num_classes_corrected,
+                                num_classes=num_classes,
                                 batch_size=batch_size,
                                 ep_idx=num_epochs,
                                 progress_log=progress_log,

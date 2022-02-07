@@ -63,8 +63,8 @@ def validate_num_classes(vector_file: Union[str, Path],
         elif len(unique_att_vals) > num_classes:
             raise ValueError(
                 f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
-
-    return unique_att_vals
+    num_classes_ = set([i for i in range(num_classes + 1)])
+    return num_classes_
 
 
 def add_background_to_num_class(task: str, num_classes: int):
