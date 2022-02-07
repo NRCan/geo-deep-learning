@@ -9,7 +9,7 @@ from typing import Sequence, List
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torchvision import models
-from hydra.utils import get_original_cwd
+import hydra.utils
 from pytorch_lightning.utilities import rank_zero_only
 import rich.syntax
 import rich.tree
@@ -21,6 +21,10 @@ import scipy.signal
 import warnings
 import requests
 from urllib.parse import urlparse
+
+# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
+from rasterio.crs import CRS
+from affine import Affine
 
 from utils.logger import get_logger
 
@@ -418,10 +422,10 @@ def read_csv(csv_file_name):
                 raise ValueError(f"Rows in csv should be of same length. Got rows with lenght: {row_lengths_set}")
             row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
             # Convert relative paths to absolute with original cwd() before hydra's hijack
-            row[0] = Path(get_original_cwd())/row[0].split('./')[-1] if not Path(row[0]).is_absolute() else row[0]
+            row[0] = hydra.utils.to_absolute_path(row[0])
             if not Path(row[0]).is_file():
                 raise FileNotFoundError(f"Raster not found: {row[0]}")
-            row[2] = Path(get_original_cwd())/row[2].split('./')[-1] if not Path(row[2]).is_absolute() else row[2]
+            row[2] = hydra.utils.to_absolute_path(row[2])
             if not Path(row[2]).is_file():
                 raise FileNotFoundError(f"Ground truth not found: {row[2]}")
             if not isinstance(row[3], str):
@@ -432,7 +436,7 @@ def read_csv(csv_file_name):
                               f"csv will be ignored. Got: {row[3]}")
             # save all values
             list_values.append(
-                {'tif': str(row[0]), 'meta': row[1], 'gpkg': str(row[2]), 'attribute_name': row[3], 'dataset': row[4]}
+                {'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]}
             )
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)

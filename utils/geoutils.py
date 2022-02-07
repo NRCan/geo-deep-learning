@@ -76,7 +76,7 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0])  # , crs=gpkg_crs['init'])
 
     # Re-project into the same coordinate system as the raster data
-    geo = geo.to_crs(crs=raster.crs.data)
+    # geo = geo.to_crs(crs=raster.crs.data)
 
     # Get the geometry coordinates by using the function.
     coords = getFeatures(geo)
