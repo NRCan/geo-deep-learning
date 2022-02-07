@@ -2,3 +2,4 @@
 loss:
     _target_: losses.duo_loss.DuoLoss
     ignore_index: ${dataset.ignore_index}
+    is_binary: False

@@ -4,3 +4,4 @@ loss:
     mode: binary
     per_image: True
     ignore_index: ${dataset.ignore_index}
+    is_binary: True

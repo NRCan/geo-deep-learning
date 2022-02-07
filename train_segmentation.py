@@ -321,10 +321,8 @@ def training(train_loader,
                                dataset='trn',
                                ep_num=ep_idx + 1,
                                scale=scale)
-        if num_classes == 1:
-            loss = criterion(outputs, labels.unsqueeze(1).float())
-        else:
-            loss = criterion(outputs, labels)
+
+        loss = criterion(outputs, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
 
         train_metrics['loss'].update(loss.item(), batch_size)
 
@@ -517,6 +515,9 @@ def train(cfg: DictConfig) -> None:
     # MODEL PARAMETERS
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
     loss_fn = cfg.loss
+    if not loss_fn.is_binary == (num_classes == 1):
+        raise ValueError(f"A binary loss was chosen for a multiclass task")
+    del loss_fn.is_binary  # prevent exception at instantiation
     optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam', expected_type=str)  # TODO change something to call the function
     pretrained = get_key_def('pretrained', cfg['model'], default=True, expected_type=bool)
     train_state_dict_path = get_key_def('state_dict_path', cfg['general'], default=None, expected_type=str)
