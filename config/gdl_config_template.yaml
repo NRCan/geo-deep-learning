@@ -2,6 +2,7 @@ defaults:
   - task: segmentation
   - model: unet
   - training: default_training
+  - loss: binary/softbce
   - optimizer: adamw
   - callbacks: default_callbacks
   - scheduler: plateau

@@ -698,6 +698,7 @@ def print_config(
     fields: Sequence[str] = (
         "task",
         "mode",
+        "loss",
         "dataset",
         "general.work_dir",
         "general.config_name",

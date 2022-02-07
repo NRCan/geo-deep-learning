@@ -507,7 +507,6 @@ def main(params: dict) -> None:
     model, loaded_checkpoint, model_name = net(model_name=model_name,
                                                num_bands=num_bands,
                                                num_channels=num_classes,
-                                               dontcare_val=dontcare_val,
                                                num_devices=1,
                                                net_params=params,
                                                inference_state_dict=state_dict)
