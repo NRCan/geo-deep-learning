@@ -1,12 +1,12 @@
 ## **How to use *Hydra* config files**
-GDL configures [*Hydra*](https://hydra.cc/docs/intro/#quick-start-guide) through a main `yaml` file ([gdl_config_segmentation_template.yaml](gdl_config_segmentation_template.yaml)) located in the `config` folder which handles additional `yaml` files located in other folders.
-We recommend starting with the [main yaml file](gdl_config_segmentation_template.yaml) as the configuration entrypoint. Run your code with the proper parameters - see the main [README](../README.md) for an example with a semantic segmentation task.
+GDL configures [*Hydra*](https://hydra.cc/docs/intro/#quick-start-guide) through a main `yaml` file ([gdl_config_template.yaml](gdl_config_template.yaml)) located in the `config` folder which handles additional `yaml` files located in other folders.
+We recommend starting with the [main yaml file](gdl_config_template.yaml) as the configuration entrypoint. Run your code with the proper parameters - see the main [README](../README.md) for an example with a semantic segmentation task.
 There are other examples at the end of this document in the [Examples](#Examples) section.
 
-The `config` folder is structured as depicted below. It is important to remember that the `gdl_config_segmentation_template.yaml` file contains every parameter necessary for executing the command.  Other `yaml` files in subdirectories handle specific categories of parameters. See details in the next section [Defaults Section](#Defaults Section).
+The `config` folder is structured as depicted below. It is important to remember that the `gdl_config_template.yaml` file contains every parameter necessary for executing the command.  Other `yaml` files in subdirectories handle specific categories of parameters. See details in the next section [Defaults Section](#Defaults Section).
 ```
 ├── config
-    └── gdl_config_segmentation_template.yaml
+    └── gdl_config_template.yaml
     └── model
         └── unet.yaml
         └── fastrcnn.yaml
@@ -16,7 +16,7 @@ The `config` folder is structured as depicted below. It is important to remember
           ...
 ```
 
-The code is currently executed with [gdl_config_segmentation_template.yaml](gdl_config_segmentation_template.yaml) by default. If you want to create your own `gdl_config.yaml` see the [Examples](#Examples) section.
+The code is currently executed with [gdl_config_template.yaml](gdl_config_template.yaml) by default. If you want to create your own `gdl_config.yaml` see the [Examples](#Examples) section.
 But keep in mind your own config will require the following structure:
 ```YAML
 defaults:
@@ -121,7 +121,7 @@ Will print the complete yaml config plus run a validation test before the traini
 ## Examples
 Here some examples on how to run **GDL** with *Hydra*.
 
-- For basic usage, run the code with all the defaults value in the [`gdl_config_segmentation_template.yaml`](gdl_config_segmentation_template.yaml).
+- For basic usage, run the code with all the defaults value in the [`gdl_config_template.yaml`](gdl_config_template.yaml).
 ```bash
 $ python GDL.py mode=train
 ```
