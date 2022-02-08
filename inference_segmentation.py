@@ -322,7 +322,7 @@ def main(params: dict) -> None:
                 tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
 
     # OPTIONAL PARAMETERS
-    num_devices = get_key_def('num_gpus', params['inference'], default=0, expected_type=int)
+    num_devices = get_key_def('gpu', params['inference'], default=0, expected_type=(int, bool))
     max_used_ram = get_key_def('max_used_ram', params['inference'], default=25, expected_type=int)
     if not (0 <= max_used_ram <= 100):
         raise ValueError(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}.')
