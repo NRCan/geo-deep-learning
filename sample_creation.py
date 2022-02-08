@@ -305,8 +305,6 @@ def main(params):
     overlap = params["sample"]["overlap"]
     dist_samples = round(samples_size * (1 - (overlap / 100)))
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
-    ignore_index = get_key_def('ignore_index', params['training'], -1)
-    meta_map = get_key_def('meta_map', params['global'], default={})
 
     list_params = params['read_img']
     source_pan = get_key_def('pan', list_params['source'], default=False, expected_type=bool)
@@ -342,7 +340,6 @@ def main(params):
     Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
                                                              number_of_bands=num_bands,
-                                                             meta_map=meta_map,
                                                              samples_folder=samples_folder,
                                                              params=params)
 

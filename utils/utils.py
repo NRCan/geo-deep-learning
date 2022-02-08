@@ -188,37 +188,44 @@ def set_device(gpu_devices_dict: dict = {}):
     return device
 
 
-def get_key_def(key, config, default=None, expected_type=None, is_path: bool = False, check_path_exists: bool = False):
+def get_key_def(key, config, default=None, expected_type=None, to_path: bool = False, validate_path_exists: bool = False):
     """Returns a value given a dictionary key, or the default value if it cannot be found.
     :param key: key in dictionary (e.g. generated from .yaml)
     :param config: (dict) dictionary containing keys corresponding to parameters used in script
     :param default: default value assigned if no value found with provided key
-    :param is_path: (bool) if True, parameter will be converted to a pathlib.Path object (warns if cannot be converted)
-    :param check_path_exists: (bool) if True, checks if path exists (is_path must be True)
+    :param to_path: (bool) if True, parameter will be converted to a pathlib.Path object (warns if cannot be converted)
+    :param validate_path_exists: (bool) if True, checks if path exists (assumes to_path=True if to_path=None)
     :param delete: (bool) if True, deletes parameter, e.g. for one-time use.
     :param expected_type: (type) type of the expected variable.
     :return:
     """
+    val = default
     if not config:
-        val = default
+        pass
+    elif isinstance(key, list):  # is key a list? then assume we are searching recursively in a dictionary
+        if len(key) <= 1:  # is list of length 1 or shorter? else --> default
+            raise ValueError("Must provide at least two valid keys to find value in dictionary")
+        for k in key:  # iterate through items in list
+            if k in config:  # if item is a key in config, set value.
+                if isinstance(config[k], (DictConfig, dict)):
+                    config = config[k]
+                else:
+                    val = config[k]
     else:
         if key not in config or config[key] is None:  # if config exists, but key not in it
-            val = default
+            pass
         else:
             val = config[key] if config[key] != 'None' else None
             if expected_type and val is not False:
                 if not isinstance(val, expected_type):
                     raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
-    if is_path:
+    if to_path or validate_path_exists:
         try:
             val = Path(val)
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
-    if check_path_exists:
-        if not isinstance(val, Path):
-            logging.error(f"Cannot check existence of non-path value.\nValue: {val}\nType: {type(val)}")
-        elif not val.exists():
-            raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
+    if validate_path_exists and not val.exists():
+        raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
     return val
 
 

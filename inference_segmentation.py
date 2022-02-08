@@ -307,34 +307,27 @@ def main(params: dict) -> None:
     BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
 
     # SETTING OUTPUT DIRECTORY
-    state_dict = get_key_def('state_dict_path', params['inference'], is_path=True, check_path_exists=True)
+    state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     Path.mkdir(working_folder, parents=True, exist_ok=True)
     logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     # Default input directory based on default output directory
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=working_folder,
-                                 expected_type=str, is_path=True, check_path_exists=True)
+                                 expected_type=str, to_path=True, validate_path_exists=True)
 
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
-    if 'tracker' in params.keys():
-        run_name = get_key_def('run_name', params['tracker'], default='gdl')
-        tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str, is_path=True,
-                                  check_path_exists=True)
-    else:
-        run_name = tracker_uri = None
+    run_name = get_key_def(['tracker', 'run_name'], params, default='gdl')
+    tracker_uri = get_key_def(['tracker', 'uri'], params, expected_type=str, to_path=True, validate_path_exists=True)
     set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
                 tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
 
     # OPTIONAL PARAMETERS
-    num_devices = get_key_def('num_gpus', params['training'], default=0, expected_type=int)
-    default_max_used_ram = 25
-    max_used_ram = get_key_def('max_used_ram', params['training'], default=default_max_used_ram, expected_type=int)
+    num_devices = get_key_def('gpu', params['inference'], default=0, expected_type=(int, bool))
+    max_used_ram = get_key_def('max_used_ram', params['inference'], default=25, expected_type=int)
     if not (0 <= max_used_ram <= 100):
-        logging.warning(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}. '
-                        f'Will set default value of {default_max_used_ram} %')
-        max_used_ram = default_max_used_ram
-    max_used_perc = get_key_def('max_used_perc', params['training'], default=25, expected_type=int)
+        raise ValueError(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}.')
+    max_used_perc = get_key_def('max_used_perc', params['inference'], default=25, expected_type=int)
     scale = get_key_def('scale_data', params['augmentation'], default=[0, 1], expected_type=ListConfig)
     raster_to_vec = get_key_def('ras2vec', params['inference'], default=False)
     debug = get_key_def('debug', params, default=False, expected_type=bool)
@@ -349,17 +342,17 @@ def main(params: dict) -> None:
 
     # AWS
     bucket = None
-    bucket_file_cache = []
     bucket_name = get_key_def('bucket_name', params['AWS'], default=None)
 
     # CONFIGURE MODEL
-    model, loaded_checkpoint, model_name = net(model_name=model_name,
+    model, loaded_checkpoint, _ = net(model_name=model_name,
                                                num_bands=num_bands,
                                                num_channels=num_classes,
                                                num_devices=1,
                                                net_params=params,
                                                inference_state_dict=state_dict)
     model, _ = load_from_checkpoint(checkpoint=loaded_checkpoint, model=model, strict_loading=True, bucket=bucket)
+    model.to(device)
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])

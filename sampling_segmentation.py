@@ -364,11 +364,7 @@ def main(cfg: DictConfig) -> None:
     try:
         import boto3
     except ModuleNotFoundError:
-        logging.warning(
-            "\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets",
-            ImportWarning
-        )
-        pass
+        logging.warning("\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets",ImportWarning)
 
     # PARAMETERS
     num_classes = len(cfg.dataset.classes_dict.keys())
@@ -377,37 +373,9 @@ def main(cfg: DictConfig) -> None:
     debug = cfg.debug
 
     # RAW DATA PARAMETERS
-    # Data folder
-    try:
-        # check if the folder exist
-        my_data_path = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
-        logging.info("\nImage directory used '{}'".format(my_data_path))
-        data_path = Path(my_data_path)
-    except FileNotFoundError:
-        raise logging.critical(
-            "\nImage directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
-        )
-    # CSV file
-    try:
-        my_csv_path = Path(cfg.dataset.raw_data_csv).resolve(strict=True)
-        # path.exists(cfg.dataset.raw_data_csv)
-        logging.info("\nImage csv: '{}'".format(my_csv_path))
-        csv_file = my_csv_path
-    except FileNotFoundError:
-        raise logging.critical(
-            "\nImage csv '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_csv)
-        )
-    # HDF5 data
-    try:
-        my_hdf5_path = Path(str(cfg.dataset.sample_data_dir)).resolve(strict=True)
-        logging.info("\nThe HDF5 directory used '{}'".format(my_hdf5_path))
-        Path.mkdir(Path(my_hdf5_path), exist_ok=True, parents=True)
-    except FileNotFoundError:
-        logging.info(
-            "\nThe HDF5 directory '{}' doesn't exist, please change the path.".format(cfg.dataset.sample_data_dir) +
-            "\nFor now the HDF5 directory use will be change for '{}'".format(data_path)
-        )
-        cfg.general.sample_data_dir = str(data_path)
+    data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
+    csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
+    out_path = get_key_def('sample_data_dir', cfg['dataset'], default=data_path, to_path=True, validate_path_exists=True)
 
     # SAMPLE PARAMETERS
     samples_size = get_key_def('input_dim', cfg['dataset'], default=256, expected_type=int)
@@ -416,12 +384,12 @@ def main(cfg: DictConfig) -> None:
     val_percent = get_key_def('train_val_percent', cfg['dataset'], default=0.3)['val'] * 100
     samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' \
                           f'_{num_bands}bands_{cfg.general.project_name}'
-    samples_dir = data_path.joinpath(samples_folder_name)
+    samples_dir = out_path.joinpath(samples_folder_name)
     if samples_dir.is_dir():
         if debug:
             # Move existing data folder with a random suffix.
             last_mod_time_suffix = datetime.fromtimestamp(samples_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-            shutil.move(samples_dir, data_path.joinpath(f'{str(samples_dir)}_{last_mod_time_suffix}'))
+            shutil.move(samples_dir, out_path.joinpath(f'{str(samples_dir)}_{last_mod_time_suffix}'))
         else:
             logging.critical(
                 f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.'
@@ -434,8 +402,6 @@ def main(cfg: DictConfig) -> None:
     # mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
 
     # OTHER PARAMETERS
-    metadata = None
-    meta_map = {}  # TODO get_key_def('meta_map', params['global'], default={})
     # TODO class_prop get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
     class_prop = None
     mask_reference = False  # TODO get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
@@ -512,11 +478,8 @@ def main(cfg: DictConfig) -> None:
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 
-    # with open_dict(cfg):
-    #     print(cfg)
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
                                                              number_of_bands=num_bands,
-                                                             meta_map=meta_map,
                                                              samples_folder=samples_dir,
                                                              cfg=cfg)
 

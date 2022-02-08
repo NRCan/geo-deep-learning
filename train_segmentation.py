@@ -1,9 +1,7 @@
-import os
 import time
 import h5py
 import torch
 import warnings
-import functools
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
@@ -13,7 +11,6 @@ from datetime import datetime
 from typing import Sequence
 from collections import OrderedDict
 from omegaconf import DictConfig
-from omegaconf.errors import ConfigKeyError
 
 try:
     from pynvml import *
@@ -23,12 +20,11 @@ except ModuleNotFoundError:
 from torch.utils.data import DataLoader
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
-from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path, get_logger
+from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path, get_logger, set_tracker
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
 from utils.utils import load_from_checkpoint, gpu_stats, get_key_def, read_modalities
 from utils.visualization import vis_from_batch
-from mlflow import log_params, set_tracking_uri, set_experiment, start_run
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
@@ -499,13 +495,9 @@ def train(cfg: DictConfig) -> None:
     del loss_fn.is_binary  # prevent exception at instantiation
     optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam', expected_type=str)  # TODO change something to call the function
     pretrained = get_key_def('pretrained', cfg['model'], default=True, expected_type=bool)
-    train_state_dict_path = get_key_def('state_dict_path', cfg['general'], default=None, expected_type=str)
+    train_state_dict_path = get_key_def('state_dict_path', cfg['general'], default=None, expected_type=str,
+                                        validate_path_exists=True)
     dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None, expected_type=float)
-    # if error
-    if train_state_dict_path and not Path(train_state_dict_path).is_file():
-        raise logging.critical(
-            FileNotFoundError(f'\nCould not locate pretrained checkpoint for training: {train_state_dict_path}')
-        )
     if class_weights:
         verify_weights(num_classes, class_weights)
     # Read the concatenation point
@@ -521,18 +513,10 @@ def train(cfg: DictConfig) -> None:
     max_used_ram = get_key_def('max_used_ram', cfg['training'], default=default_max_used_ram)
     max_used_perc = get_key_def('max_used_perc', cfg['training'], default=15)
 
-    # LOGGING PARAMETERS TODO put option not just mlflow
+    # LOGGING PARAMETERS
     experiment_name = get_key_def('project_name', cfg['general'], default='gdl-training')
-    try:
-        tracker_uri = get_key_def('uri', cfg['tracker'])
-        Path(tracker_uri).mkdir(exist_ok=True)
-        run_name = get_key_def('run_name', cfg['tracker'], default='gdl')  # TODO change for something meaningful
-    # meaning no logging tracker as been assigned or it doesnt exist in config/logging
-    except ConfigKeyError:
-        logging.info(
-            "\nNo logging tracker as been assigned or the yaml config doesnt exist in 'config/tracker'."
-            "\nNo tracker file will be saved in this case."
-        )
+    run_name = get_key_def(['tracker', 'run_name'], cfg, default='gdl')
+    tracker_uri = get_key_def(['tracker', 'uri'], cfg, expected_type=str, to_path=True, validate_path_exists=True)
 
     # PARAMETERS FOR hdf5 SAMPLES
     # info on the hdf5 name
@@ -641,31 +625,16 @@ def train(cfg: DictConfig) -> None:
                                                                        calc_eval_bs=calc_eval_bs,
                                                                        debug=debug)
 
-    # Save tracking TODO put option not just mlflow
-    if 'tracker_uri' in locals() and 'run_name' in locals():
-        mode = get_key_def('mode', cfg, expected_type=str)
-        task = get_key_def('task_name', cfg['task'], expected_type=str)
-        run_name = '{}_{}_{}'.format(run_name, mode, task)
-        # tracking path + parameters logging
-        set_tracking_uri(tracker_uri)
-        set_experiment(experiment_name)
-        start_run(run_name=run_name)
-        log_params(dict_path(cfg, 'training'))
-        log_params(dict_path(cfg, 'dataset'))
-        log_params(dict_path(cfg, 'model'))
-        log_params(dict_path(cfg, 'optimizer'))
-        log_params(dict_path(cfg, 'scheduler'))
-        log_params(dict_path(cfg, 'augmentation'))
-        # TODO change something to not only have the mlflow option
-        trn_log = InformationLogger('trn')
-        val_log = InformationLogger('val')
-        tst_log = InformationLogger('tst')
+    # Save tracking
+    set_tracker(mode='train', experiment_name=experiment_name, run_name=run_name, tracker_uri=tracker_uri, params=cfg,
+                keys2log=['training', 'dataset', 'model', 'optimizer', 'scheduler', 'augmentation'])
+    trn_log, val_log, tst_log = [InformationLogger(dataset) for dataset in ['trn', 'val', 'tst']]
 
-    if bucket_name:
-        from utils.aws import download_s3_files
-        bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
-                                                                               data_path=data_path,  # FIXME
-                                                                               output_path=output_path)
+    # if bucket_name:  # FIXME
+    #     from utils.aws import download_s3_files
+    #     bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
+    #                                                                            data_path=data_path,
+    #                                                                            output_path=output_path)
 
     since = time.time()
     best_loss = 999
