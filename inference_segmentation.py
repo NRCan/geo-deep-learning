@@ -358,6 +358,7 @@ def main(params: dict) -> None:
                                                net_params=params,
                                                inference_state_dict=state_dict)
     model, _ = load_from_checkpoint(checkpoint=loaded_checkpoint, model=model, strict_loading=True, bucket=bucket)
+    model.to(device)
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
