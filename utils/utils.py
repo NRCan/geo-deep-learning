@@ -9,7 +9,7 @@ from typing import Sequence, List
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torchvision import models
-import hydra.utils
+from hydra.utils import get_original_cwd
 from pytorch_lightning.utilities import rank_zero_only
 import rich.syntax
 import rich.tree
@@ -21,10 +21,6 @@ import scipy.signal
 import warnings
 import requests
 from urllib.parse import urlparse
-
-# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
-from rasterio.crs import CRS
-from affine import Affine
 
 from utils.logger import get_logger
 
@@ -188,44 +184,37 @@ def set_device(gpu_devices_dict: dict = {}):
     return device
 
 
-def get_key_def(key, config, default=None, expected_type=None, to_path: bool = False, validate_path_exists: bool = False):
+def get_key_def(key, config, default=None, expected_type=None, is_path: bool = False, check_path_exists: bool = False):
     """Returns a value given a dictionary key, or the default value if it cannot be found.
     :param key: key in dictionary (e.g. generated from .yaml)
     :param config: (dict) dictionary containing keys corresponding to parameters used in script
     :param default: default value assigned if no value found with provided key
-    :param to_path: (bool) if True, parameter will be converted to a pathlib.Path object (warns if cannot be converted)
-    :param validate_path_exists: (bool) if True, checks if path exists (assumes to_path=True if to_path=None)
+    :param is_path: (bool) if True, parameter will be converted to a pathlib.Path object (warns if cannot be converted)
+    :param check_path_exists: (bool) if True, checks if path exists (is_path must be True)
     :param delete: (bool) if True, deletes parameter, e.g. for one-time use.
     :param expected_type: (type) type of the expected variable.
     :return:
     """
-    val = default
     if not config:
-        pass
-    elif isinstance(key, list):  # is key a list? then assume we are searching recursively in a dictionary
-        if len(key) <= 1:  # is list of length 1 or shorter? else --> default
-            raise ValueError("Must provide at least two valid keys to find value in dictionary")
-        for k in key:  # iterate through items in list
-            if k in config:  # if item is a key in config, set value.
-                if isinstance(config[k], (DictConfig, dict)):
-                    config = config[k]
-                else:
-                    val = config[k]
+        val = default
     else:
         if key not in config or config[key] is None:  # if config exists, but key not in it
-            pass
+            val = default
         else:
             val = config[key] if config[key] != 'None' else None
             if expected_type and val is not False:
                 if not isinstance(val, expected_type):
                     raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
-    if to_path or validate_path_exists:
+    if is_path:
         try:
             val = Path(val)
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
-    if validate_path_exists and not val.exists():
-        raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
+    if check_path_exists:
+        if not isinstance(val, Path):
+            logging.error(f"Cannot check existence of non-path value.\nValue: {val}\nType: {type(val)}")
+        elif not val.exists():
+            raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
     return val
 
 
@@ -429,10 +418,10 @@ def read_csv(csv_file_name):
                 raise ValueError(f"Rows in csv should be of same length. Got rows with lenght: {row_lengths_set}")
             row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
             # Convert relative paths to absolute with original cwd() before hydra's hijack
-            row[0] = hydra.utils.to_absolute_path(row[0])
+            row[0] = Path(get_original_cwd())/row[0].split('./')[-1] if not Path(row[0]).is_absolute() else row[0]
             if not Path(row[0]).is_file():
                 raise FileNotFoundError(f"Raster not found: {row[0]}")
-            row[2] = hydra.utils.to_absolute_path(row[2])
+            row[2] = Path(get_original_cwd())/row[2].split('./')[-1] if not Path(row[2]).is_absolute() else row[2]
             if not Path(row[2]).is_file():
                 raise FileNotFoundError(f"Ground truth not found: {row[2]}")
             if not isinstance(row[3], str):
@@ -443,7 +432,7 @@ def read_csv(csv_file_name):
                               f"csv will be ignored. Got: {row[3]}")
             # save all values
             list_values.append(
-                {'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]}
+                {'tif': str(row[0]), 'meta': row[1], 'gpkg': str(row[2]), 'attribute_name': row[3], 'dataset': row[4]}
             )
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)

@@ -1,10 +1,9 @@
 import logging
 import os
 from pathlib import Path
-from typing import Union
 
 import mlflow.exceptions
-from omegaconf import OmegaConf, DictConfig
+from omegaconf import OmegaConf
 from mlflow import log_metric, exceptions
 from pytorch_lightning.utilities import rank_zero_only
 
@@ -104,23 +103,10 @@ def get_logger(name=__name__, level=logging.INFO) -> logging.Logger:
 
 
 def set_tracker(mode: str, type: str = 'mlflow', task: str = 'segmentation', experiment_name: str = 'exp_gdl',
-                run_name: str = 'run_gdl', tracker_uri: str = None, params: Union[dict, DictConfig] = None,
-                keys2log: list = []) -> None:
-    """
-    Initializes a tracker to help monitor progress of a task, metrics, etc.
-    @param mode: execution mode of geo-deep-learning (ex.: train)
-    @param type: type of tracker to used. Default to 'mlflow'
-    @param task: execution task of geo-deep-learning. Defaults to 'segmentation'
-    @param experiment_name: Name of experiment being run
-    @param run_name: Name of specific run inside experiment
-    @param tracker_uri: path where tracker parses input information to be served
-    @param params: configuration dictionary used to log specific keys
-    @param keys2log: list of keys to log
-    @return:
-    """
+                run_name: str = 'run_gdl', tracker_uri: str = None, params: dict = None, keys2log: list = []):
     if not tracker_uri:
         logging.info("\nNo logging tracker has been assigned or the yaml config doesnt exist in 'config/tracker'."
-                     "\nNo tracker file will be saved.")
+                     "\nNo tracker file will be save.")
         return
     Path(tracker_uri).mkdir(exist_ok=True)
     run_name = '{}_{}_{}'.format(run_name, mode, task)
@@ -135,9 +121,6 @@ def set_tracker(mode: str, type: str = 'mlflow', task: str = 'segmentation', exp
                     log_params(dict_path(params, primary_key))
                 except mlflow.exceptions.MlflowException as e:
                     logging.error(e)
-        elif keys2log:
-            logging.error(f'\nNo configuration dictionary was provided to read keys from. '
-                          f'\nThe following keys will not be logged to tracker: {keys2log}')
     else:
         raise NotImplementedError(f'The tracker {type} is not currently implemented.')
 

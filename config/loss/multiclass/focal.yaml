@@ -2,4 +2,3 @@
 loss:
     _target_: losses.focal_loss.FocalLoss
     ignore_index: ${dataset.ignore_index}
-    is_binary: False
