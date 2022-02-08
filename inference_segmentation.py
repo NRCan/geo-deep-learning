@@ -325,14 +325,11 @@ def main(params: dict) -> None:
                 tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
 
     # OPTIONAL PARAMETERS
-    num_devices = get_key_def('num_gpus', params['training'], default=0, expected_type=int)
-    default_max_used_ram = 25
-    max_used_ram = get_key_def('max_used_ram', params['training'], default=default_max_used_ram, expected_type=int)
+    num_devices = get_key_def('num_gpus', params['inference'], default=0, expected_type=int)
+    max_used_ram = get_key_def('max_used_ram', params['inference'], default=25, expected_type=int)
     if not (0 <= max_used_ram <= 100):
-        logging.warning(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}. '
-                        f'Will set default value of {default_max_used_ram} %')
-        max_used_ram = default_max_used_ram
-    max_used_perc = get_key_def('max_used_perc', params['training'], default=25, expected_type=int)
+        raise ValueError(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}.')
+    max_used_perc = get_key_def('max_used_perc', params['inference'], default=25, expected_type=int)
     scale = get_key_def('scale_data', params['augmentation'], default=[0, 1], expected_type=ListConfig)
     raster_to_vec = get_key_def('ras2vec', params['inference'], default=False)
     debug = get_key_def('debug', params, default=False, expected_type=bool)

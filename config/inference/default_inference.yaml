@@ -1,9 +1,11 @@
 # @package _global_
 inference:
-  img_dir_or_csv_file: ${general.raw_data_csv}
+  img_dir_or_csv_file: ${general.work_dir}/data/inference_sem_seg_ci_csv.csv
   state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar
   chunk_size: 256
-  # Visualization parameters
+  gpu: ${training.num_gpus}
+  max_used_perc: ${training.max_used_perc}
+  max_used_ram: ${training.max_used_ram}
   smooth_prediction: True
   overlap: 2
   ras2vec: False
