@@ -1,4 +1,5 @@
 import os
+import shutil
 import time
 import h5py
 import torch
@@ -6,6 +7,7 @@ import warnings
 import functools
 import numpy as np
 from PIL import Image
+from hydra.utils import to_absolute_path
 from tqdm import tqdm
 from pathlib import Path
 from shutil import copy
@@ -556,11 +558,14 @@ def train(cfg: DictConfig) -> None:
     for list_path in cfg.general.config_path:
         if list_path['provider'] == 'main':
             config_path = list_path['path']
-    config_name = str(cfg.general.config_name)
-    model_id = config_name
-    output_path = Path(f'model/{model_id}')
+    default_output_path = Path(to_absolute_path(f'{samples_folder}/model/{experiment_name}/{run_name}'))
+    output_path = get_key_def('save_weights_dir', cfg['general'], default=default_output_path, to_path=True)
+    if output_path.is_dir():
+        last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+        archive_output_path = output_path.parent / f"{output_path.stem}_{last_mod_time_suffix}"
+        shutil.move(output_path, archive_output_path)
     output_path.mkdir(parents=True, exist_ok=False)
-    logging.info(f'\nModel and log files will be saved to: {os.getcwd()}/{output_path}')
+    logging.info(f'\nModel will be saved to: {output_path}')
     if debug:
         logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')

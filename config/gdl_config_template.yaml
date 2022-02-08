@@ -33,7 +33,7 @@ general:
   raw_data_csv: data/images_to_samples_ci_csv.csv
   sample_data_dir: data # where the hdf5 will be saved
   state_dict_path:
-  save_weights_dir: weights_saved
+  save_weights_dir: saved_model/${general.project_name}
 
 AWS:
   bucket_name:
