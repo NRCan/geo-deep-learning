@@ -246,8 +246,6 @@ def net(model_name: str,
         # list of GPU devices that are available and unused. If no GPUs, returns empty list
         gpu_devices_dict = get_device_ids(num_devices)
         num_devices = len(gpu_devices_dict.keys())
-        logging.info(f"Number of cuda devices requested: {num_devices}. "
-                     f"Cuda devices available: {list(gpu_devices_dict.keys())}\n")
         if num_devices == 1:
             logging.info(f"\nUsing Cuda device 'cuda:{list(gpu_devices_dict.keys())[0]}'")
         elif num_devices > 1:

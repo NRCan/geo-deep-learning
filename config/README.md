@@ -85,11 +85,11 @@ general:
   device: cuda
   max_epochs: 2 # for train only
   min_epochs: 1 # for train only
-  raw_data_dir: ${general.work_dir}/data
-  raw_data_csv: ${general.work_dir}/data/images_to_samples_ci_csv.csv
-  sample_data_dir: ${general.work_dir}/data
+  raw_data_dir: data
+  raw_data_csv: data/images_to_samples_ci_csv.csv
+  sample_data_dir: data
   state_dict_path:
-  save_weights_dir: ${general.work_dir}/weights_saved
+  save_weights_dir: weights_saved
 ```
 This section contains general information that will be read by the code. Other `yaml` files read information from here.
 

@@ -24,7 +24,6 @@ def compose_transforms(params,
                        scale: Sequence = None,
                        aug_type: str = '',
                        dontcare=None,
-                       dontcare2backgr: bool = False,
                        crop_size: int = None,
                        print_log=True):
     """
@@ -35,8 +34,6 @@ def compose_transforms(params,
     :param aug_type: (str) One of 'geometric', 'radiometric'
     :param dontcare: (int) Value that will be ignored during loss calculation. Used here to pad label
                          if rotation or crop augmentation
-    :param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
-                            before training
     :param print_log: (bool) if True, all log messages will be printed, otherwise they wont
                       (to avoid useless print during a `for`)
 
@@ -107,7 +104,7 @@ def compose_transforms(params,
                 logging.warning(f"\nNo normalization of raster values will be performed on the '{dataset}' images.")
 
         # Send channels first, convert numpy array to torch tensor
-        lst_trans.append(ToTensorTarget(dontcare2backgr=dontcare2backgr, dontcare_val=dontcare))
+        lst_trans.append(ToTensorTarget())
 
     return transforms.Compose(lst_trans)
 
@@ -375,13 +372,8 @@ class BgrToRgb(object):
 
 class ToTensorTarget(object):
     """Convert ndarrays in sample to Tensors."""
-    def __init__(self, dontcare2backgr: bool = False, dontcare_val: int = None):
-        """
-        @param dontcare2backgr: if True, dontcare value in label will be replaced by background value (i.e. 0)
-        @param dontcare_val: if dontcare2back is True, this value will be replaced by 0 in label.
-        """
-        self.dontcare2backgr = dontcare2backgr
-        self.dontcare_val = dontcare_val
+    def __init__(self):
+        pass
 
     def __call__(self, sample):
         sat_img = np.nan_to_num(sample['sat_img'], copy=False)
@@ -392,8 +384,6 @@ class ToTensorTarget(object):
         if 'map_img' in sample.keys():
             if sample['map_img'] is not None:  # This can also be used in inference.
                 map_img = np.int64(sample['map_img'])
-                if self.dontcare2backgr:
-                    map_img[map_img == self.dontcare_val] = 0
                 map_img = torch.from_numpy(map_img)
         return {'sat_img': sat_img, 'map_img': map_img}
 

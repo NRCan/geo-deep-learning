@@ -315,12 +315,9 @@ def main(params: dict) -> None:
 
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
-    if 'tracker' in params.keys():
-        run_name = get_key_def('run_name', params['tracker'], default='gdl')
-        tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str, to_path=True,
-                                  validate_path_exists=True)
-    else:
-        run_name = tracker_uri = None
+    run_name = get_key_def(['tracker', 'run_name'], params, default='gdl')
+    tracker_uri = get_key_def(['tracker', 'uri'], params, default=None, expected_type=str, to_path=True,
+                              validate_path_exists=True)
     set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
                 tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
 

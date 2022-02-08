@@ -9,11 +9,11 @@ from typing import Sequence, List
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torchvision import models
-from hydra.utils import get_original_cwd
+from hydra.utils import to_absolute_path
 from pytorch_lightning.utilities import rank_zero_only
 import rich.syntax
 import rich.tree
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, ListConfig
 
 from torch import nn
 import numpy as np
@@ -21,6 +21,10 @@ import scipy.signal
 import warnings
 import requests
 from urllib.parse import urlparse
+
+# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
+from rasterio.crs import CRS
+from affine import Affine
 
 from utils.logger import get_logger
 
@@ -105,10 +109,9 @@ def get_device_ids(
     """
     lst_free_devices = {}
     if not number_requested:
-        log.warning(f'\nNo GPUs requested. This training will run on CPU')
         return lst_free_devices
     if not torch.cuda.is_available():
-        log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
+        log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found')
         return lst_free_devices
     try:
         nvmlInit()
@@ -137,7 +140,6 @@ def get_device_ids(
                 log.warning(f"\nYou requested {number_requested} devices. {device_count} devices are available and "
                             f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
         else:
-            log.warning('\nNo gpu devices requested. Will run on cpu')
             return lst_free_devices
     except NameError as error:
         raise log.critical(
@@ -195,26 +197,35 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
     :param expected_type: (type) type of the expected variable.
     :return:
     """
+    val = default
     if not config:
-        val = default
+        pass
+    elif isinstance(key, (list, ListConfig)):
+        if len(key) <= 1:  # expects list of length more than 1 to search inside a dictionary recursively
+            raise ValueError("Must provide at least two valid keys to search recursively in dictionary")
+        for k in key:  # iterate through items in list
+            if k in config:  # if item is a key in config, check if dictionary, else set value.
+                if isinstance(val, (dict, DictConfig)):
+                    config = val
+                else:
+                    val = config[k]
     else:
         if key not in config or config[key] is None:  # if config exists, but key not in it
-            val = default
+            pass
         else:
             val = config[key] if config[key] != 'None' else None
             if expected_type and val is not False:
                 if not isinstance(val, expected_type):
                     raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
-    if to_path:
+    if not val:  # Skips below if statements if val is None
+        return val
+    if to_path or validate_path_exists:
         try:
-            val = Path(val)
+            val = Path(to_absolute_path(val))
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
-    if validate_path_exists:
-        if not isinstance(val, Path):
-            logging.error(f"Cannot check existence of non-path value.\nValue: {val}\nType: {type(val)}")
-        elif not val.exists():
-            raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
+    if validate_path_exists and not val.exists():
+        raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
     return val
 
 
@@ -418,10 +429,10 @@ def read_csv(csv_file_name):
                 raise ValueError(f"Rows in csv should be of same length. Got rows with lenght: {row_lengths_set}")
             row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
             # Convert relative paths to absolute with original cwd() before hydra's hijack
-            row[0] = Path(get_original_cwd())/row[0].split('./')[-1] if not Path(row[0]).is_absolute() else row[0]
+            row[0] = to_absolute_path(row[0])
             if not Path(row[0]).is_file():
                 raise FileNotFoundError(f"Raster not found: {row[0]}")
-            row[2] = Path(get_original_cwd())/row[2].split('./')[-1] if not Path(row[2]).is_absolute() else row[2]
+            row[2] = to_absolute_path(row[2])
             if not Path(row[2]).is_file():
                 raise FileNotFoundError(f"Ground truth not found: {row[2]}")
             if not isinstance(row[3], str):
@@ -582,7 +593,6 @@ def print_config(
         "mode",
         "loss",
         "dataset",
-        "general.work_dir",
         "general.config_name",
         "general.config_path",
         "general.project_name",

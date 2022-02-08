@@ -116,9 +116,7 @@ class SegmentationDataset(Dataset):
                 metadata = eval(metadata)
                 metadata.update(sample_metadata)
             except TypeError:
-                pass # FI
-            # where bandwise array has no data values, set as np.nan
-            # sat_img[sat_img == metadata['nodata']] = np.nan # TODO: problem with lack of dynamic range. See: https://rasterio.readthedocs.io/en/latest/topics/masks.html
+                pass
 
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
                   "hdf5_path": self.hdf5_path}
@@ -135,7 +133,9 @@ class SegmentationDataset(Dataset):
             initial_class_ids = set(np.unique(map_img))
             final_class_ids = set(np.unique(sample['map_img'].numpy()))
             if not final_class_ids.issubset(initial_class_ids):
-                logging.critical(f"\nWARNING: Class ids for label before and after augmentations don't match. "
-                                 f"Ignore if overwritting ignore_index in ToTensorTarget")
+                logging.warning(f"\nWARNING: Class values for label before and after augmentations don't match."
+                                f"\nUnique values before: {initial_class_ids}"
+                                f"\nUnique values after: {final_class_ids}"
+                                f"\nIgnore if some augmentations have padded with dontcare value.")
         sample['index'] = index
         return sample

@@ -7,7 +7,6 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 import rasterio
-from hydra.utils import get_original_cwd
 from mlflow import log_metrics
 from shapely.geometry import Polygon
 from tqdm import tqdm

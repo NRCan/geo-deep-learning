@@ -1,9 +1,10 @@
 import logging
 import os
 from pathlib import Path
+from typing import Union
 
 import mlflow.exceptions
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 from mlflow import log_metric, exceptions
 from pytorch_lightning.utilities import rank_zero_only
 
@@ -103,7 +104,20 @@ def get_logger(name=__name__, level=logging.INFO) -> logging.Logger:
 
 
 def set_tracker(mode: str, type: str = 'mlflow', task: str = 'segmentation', experiment_name: str = 'exp_gdl',
-                run_name: str = 'run_gdl', tracker_uri: str = None, params: dict = None, keys2log: list = []):
+                run_name: str = 'run_gdl', tracker_uri: str = None, params: Union[dict, DictConfig] = None,
+                keys2log: list = []) -> None:
+    """
+    Sets information to send to tracker such as parameters, metrics, logs, etc.
+    @param mode: execution mode of geo-deep-learning (ex.: 'train')
+    @param type: tracker type. Default to 'mlflow'
+    @param task: execution task of geo-deep-learning. Defaults to 'segmentation'
+    @param experiment_name: Name of experiment being conducted
+    @param run_name: Name of specific run inside experiment being conducted
+    @param tracker_uri: path to directory where tracker searches for information to track and log.
+    @param params: configuration dictionary
+    @param keys2log: list of keys from config dictionary to be logged to tracker
+    @return:
+    """
     if not tracker_uri:
         logging.info("\nNo logging tracker has been assigned or the yaml config doesnt exist in 'config/tracker'."
                      "\nNo tracker file will be save.")
