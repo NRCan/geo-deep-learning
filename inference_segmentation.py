@@ -194,17 +194,17 @@ def segmentation(param,
     for sub_image, row, col in tqdm(img_gen, position=1, leave=False,
                     desc=f'Inferring on window slices of size {chunk_size}',
                     total=total_inf_windows):
+        image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
+                                                            raster_handle=input_image,
+                                                            raster_info={})
+
+        sample['metadata'] = image_metadata
         totensor_transform = augmentation.compose_transforms(param,
                                                              dataset="tst",
                                                              input_space=BGR_to_RGB,
                                                              scale=scale,
                                                              aug_type='totensor',
                                                              print_log=print_log)
-        image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
-                                                            raster_handle=input_image,
-                                                            raster_info={})
-
-        sample['metadata'] = image_metadata
         sample['sat_img'] = sub_image
         sample = totensor_transform(sample)
         inputs = sample['sat_img'].unsqueeze_(0)
@@ -224,7 +224,6 @@ def segmentation(param,
             if isinstance(augmented_output, OrderedDict) and 'out' in augmented_output.keys():
                 augmented_output = augmented_output['out']
             logging.debug(f'Shape of augmented output: {augmented_output.shape}')
-
             # reverse augmentation for outputs
             deaugmented_output = transformer.deaugment_mask(augmented_output)
             if single_class_mode:
@@ -232,7 +231,6 @@ def segmentation(param,
             else:
                 deaugmented_output = F.softmax(deaugmented_output, dim=1).squeeze(dim=0)
             output_lst.append(deaugmented_output)
-
         outputs = torch.stack(output_lst)
         outputs = torch.mul(outputs, WINDOW_SPLINE_2D)
         outputs, _ = torch.max(outputs, dim=0)
