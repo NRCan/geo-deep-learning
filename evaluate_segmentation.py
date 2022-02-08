@@ -81,7 +81,7 @@ def main(params):
     num_bands = len(modalities)
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=params['general']['raw_data_csv'],
-                                 expected_type=str, is_path=True, check_path_exists=True)
+                                 expected_type=str, to_path=True, validate_path_exists=True)
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
     single_class_mode = True if num_classes == 1 else False
     threshold = 0.5
