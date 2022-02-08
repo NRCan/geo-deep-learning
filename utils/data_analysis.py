@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import List
 
+# added temporarily if/until data_analysis is updated
 from ruamel_yaml import YAML
 
 from utils.utils import get_key_def, read_csv
@@ -364,6 +365,7 @@ def main(params):  # TODO: test this.
         logging.info(number_samples)
 
 
+# added temporarily if/until data_analysis is updated
 def read_parameters(param_file):
     """Read and return parameters in .yaml file
     Args:

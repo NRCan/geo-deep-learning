@@ -554,6 +554,7 @@ def main(params):
     print("Number of samples created: ", number_samples, number_classes)
 
 
+# added temporarily until sample_creation is merged into sampling_segmentation (v2.1.0)
 def read_parameters(param_file):
     """Read and return parameters in .yaml file
     Args:

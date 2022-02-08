@@ -184,13 +184,13 @@ def set_device(gpu_devices_dict: dict = {}):
     return device
 
 
-def get_key_def(key, config, default=None, expected_type=None, is_path: bool = False, check_path_exists: bool = False):
+def get_key_def(key, config, default=None, expected_type=None, to_path: bool = False, validate_path_exists: bool = False):
     """Returns a value given a dictionary key, or the default value if it cannot be found.
     :param key: key in dictionary (e.g. generated from .yaml)
     :param config: (dict) dictionary containing keys corresponding to parameters used in script
     :param default: default value assigned if no value found with provided key
-    :param is_path: (bool) if True, parameter will be converted to a pathlib.Path object (warns if cannot be converted)
-    :param check_path_exists: (bool) if True, checks if path exists (is_path must be True)
+    :param to_path: (bool) if True, parameter will be converted to a pathlib.Path object (warns if cannot be converted)
+    :param validate_path_exists: (bool) if True, checks if path exists (is_path must be True)
     :param delete: (bool) if True, deletes parameter, e.g. for one-time use.
     :param expected_type: (type) type of the expected variable.
     :return:
@@ -205,12 +205,12 @@ def get_key_def(key, config, default=None, expected_type=None, is_path: bool = F
             if expected_type and val is not False:
                 if not isinstance(val, expected_type):
                     raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
-    if is_path:
+    if to_path:
         try:
             val = Path(val)
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
-    if check_path_exists:
+    if validate_path_exists:
         if not isinstance(val, Path):
             logging.error(f"Cannot check existence of non-path value.\nValue: {val}\nType: {type(val)}")
         elif not val.exists():

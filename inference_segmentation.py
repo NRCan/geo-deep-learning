@@ -305,20 +305,20 @@ def main(params: dict) -> None:
     BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
 
     # SETTING OUTPUT DIRECTORY
-    state_dict = get_key_def('state_dict_path', params['inference'], is_path=True, check_path_exists=True)
+    state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     Path.mkdir(working_folder, parents=True, exist_ok=True)
     logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     # Default input directory based on default output directory
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=working_folder,
-                                 expected_type=str, is_path=True, check_path_exists=True)
+                                 expected_type=str, to_path=True, validate_path_exists=True)
 
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
     if 'tracker' in params.keys():
         run_name = get_key_def('run_name', params['tracker'], default='gdl')
-        tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str, is_path=True,
-                                  check_path_exists=True)
+        tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str, to_path=True,
+                                  validate_path_exists=True)
     else:
         run_name = tracker_uri = None
     set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
