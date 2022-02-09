@@ -86,7 +86,7 @@ def create_dataloader(samples_folder: Path,
         raise logging.critical(FileNotFoundError(f'\nCould not locate: {samples_folder}'))
     if not len([f for f in samples_folder.glob('**/*.hdf5')]) >= 1:
         raise logging.critical(FileNotFoundError(f"\nCouldn't locate .hdf5 files in {samples_folder}"))
-    num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=cfg, dontcare=dontcare_val)
+    num_samples, samples_weight = get_num_samples(samples_path=samples_folder, params=cfg)
     if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
         raise logging.critical(ValueError(f"\nNumber of samples in .hdf5 files is less than batch size"))
     logging.info(f"\nNumber of samples : {num_samples}")
@@ -96,7 +96,6 @@ def create_dataloader(samples_folder: Path,
     for subset in ["trn", "val", "tst"]:
         datasets.append(dataset_constr(samples_folder, subset, num_bands,
                                        max_sample_count=num_samples[subset],
-                                       dontcare=dontcare_val,
                                        radiom_transform=aug.compose_transforms(params=cfg,
                                                                                dataset=subset,
                                                                                aug_type='radiometric'),
@@ -112,7 +111,6 @@ def create_dataloader(samples_folder: Path,
                                                                                  dontcare2backgr=dontcare2backgr,
                                                                                  dontcare=dontcare_val,
                                                                                  aug_type='totensor'),
-                                       params=cfg,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
@@ -164,12 +162,11 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     return eval_batch_size_rd
 
 
-def get_num_samples(samples_path, params, dontcare):
+def get_num_samples(samples_path, params):
     """
     Function to retrieve number of samples, either from config file or directly from hdf5 file.
     :param samples_path: (str) Path to samples folder
     :param params: (dict) Parameters found in the yaml config file.
-    :param dontcare:
     :return: (dict) number of samples for trn, val and tst.
     """
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
@@ -325,7 +322,7 @@ def training(train_loader,
                                ep_num=ep_idx + 1,
                                scale=scale)
 
-        loss = criterion(outputs, labels)
+        loss = criterion(outputs, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
 
         train_metrics['loss'].update(loss.item(), batch_size)
 
@@ -422,7 +419,7 @@ def evaluation(eval_loader,
 
             outputs_flatten = flatten_outputs(outputs, num_classes)
 
-            loss = criterion(outputs, labels)
+            loss = criterion(outputs, labels.unsqueeze(1).float())
 
             eval_metrics['loss'].update(loss.item(), batch_size)
 
@@ -493,8 +490,8 @@ def train(cfg: DictConfig) -> None:
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     # MANDATORY PARAMETERS
-    num_classes = len(get_key_def('classes_dict', cfg['dataset']).keys())
-    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
+    class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
+    num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
     num_bands = len(read_modalities(cfg.dataset.modalities))
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
@@ -506,18 +503,21 @@ def train(cfg: DictConfig) -> None:
 
     # OPTIONAL PARAMETERS
     debug = get_key_def('debug', cfg)
-    task = get_key_def('task_name',  cfg['task'], default='segmentation')
+    task = get_key_def('task',  cfg['general'], default='segmentation')
     dontcare_val = get_key_def("ignore_index", cfg['dataset'], default=-1)
     bucket_name = get_key_def('bucket_name', cfg['AWS'])
     scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
     batch_metrics = get_key_def('batch_metrics', cfg['training'], default=None)
     crop_size = get_key_def('target_size', cfg['training'], default=None)
-    if task != 'segmentation':
-        raise logging.critical(ValueError(f"\nThe task should be segmentation. The provided value is {task}"))
 
     # MODEL PARAMETERS
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
-    loss_fn = get_key_def('loss_fn', cfg['training'], default='CrossEntropy')
+    loss_fn = cfg.loss
+    if loss_fn.is_binary and not num_classes == 1:
+        raise ValueError(f"Parameter mismatch: a binary loss was chosen for a {num_classes}-class task")
+    elif not loss_fn.is_binary and num_classes == 1:
+        raise ValueError(f"Parameter mismatch: a multiclass loss was chosen for a 1-class (binary) task")
+    del loss_fn.is_binary  # prevent exception at instantiation
     optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam', expected_type=str)  # TODO change something to call the function
     pretrained = get_key_def('pretrained', cfg['model'], default=True, expected_type=bool)
     train_state_dict_path = get_key_def('state_dict_path', cfg['general'], default=None, expected_type=str)
@@ -528,7 +528,7 @@ def train(cfg: DictConfig) -> None:
             FileNotFoundError(f'\nCould not locate pretrained checkpoint for training: {train_state_dict_path}')
         )
     if class_weights:
-        verify_weights(num_classes_corrected, class_weights)
+        verify_weights(num_classes, class_weights)
     # Read the concatenation point
     # TODO: find a way to maybe implement it in classification one day
     conc_point = None
@@ -633,8 +633,7 @@ def train(cfg: DictConfig) -> None:
     model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict = \
         net(model_name=model_name,
             num_bands=num_bands,
-            num_channels=num_classes_corrected,
-            dontcare_val=dontcare_val,
+            num_channels=num_classes,
             num_devices=num_devices,
             train_state_dict_path=train_state_dict_path,
             pretrained=pretrained,
@@ -645,7 +644,7 @@ def train(cfg: DictConfig) -> None:
             net_params=cfg,
             conc_point=conc_point)
 
-    logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
+    logging.info(f'Instantiated {model_name} model with {num_classes} output channels.\n')
 
     logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
@@ -704,8 +703,7 @@ def train(cfg: DictConfig) -> None:
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment).
         # Check once for all visualization tasks.
-        if not isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int)
-                                                                                       for x in vis_batch_range):
+        if not len(vis_batch_range) == 3 and all(isinstance(x, int) for x in vis_batch_range):
             raise logging.critical(
                 ValueError(f'\nVis_batch_range expects three integers in a list: start batch, end batch, increment.'
                            f'Got {vis_batch_range}')
@@ -734,7 +732,7 @@ def train(cfg: DictConfig) -> None:
                               criterion=criterion,
                               optimizer=optimizer,
                               scheduler=lr_scheduler,
-                              num_classes=num_classes_corrected,
+                              num_classes=num_classes,
                               batch_size=batch_size,
                               ep_idx=epoch,
                               progress_log=progress_log,
@@ -747,7 +745,7 @@ def train(cfg: DictConfig) -> None:
         val_report = evaluation(eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
-                                num_classes=num_classes_corrected,
+                                num_classes=num_classes,
                                 batch_size=batch_size,
                                 ep_idx=epoch,
                                 progress_log=progress_log,
@@ -814,7 +812,7 @@ def train(cfg: DictConfig) -> None:
         tst_report = evaluation(eval_loader=tst_dataloader,
                                 model=model,
                                 criterion=criterion,
-                                num_classes=num_classes_corrected,
+                                num_classes=num_classes,
                                 batch_size=batch_size,
                                 ep_idx=num_epochs,
                                 progress_log=progress_log,

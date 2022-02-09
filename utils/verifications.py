@@ -63,28 +63,8 @@ def validate_num_classes(vector_file: Union[str, Path],
         elif len(unique_att_vals) > num_classes:
             raise ValueError(
                 f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
-
-    return unique_att_vals
-
-
-def add_background_to_num_class(task: str, num_classes: int):
-    # FIXME temporary patch for num_classes problem.
-    """
-    Adds one to number of classes for all segmentation tasks.
-
-    param task: (str) task to perform. Either segmentation or classification
-    param num_classes: (int) number of classes in task
-
-    Returns number of classes corrected (+1) if task is segmentation
-    """
-    if task == 'segmentation':
-        # assume background is implicitly needed (makes no sense to predict with one class, for example.)
-        # this will trigger some warnings elsewhere, but should succeed nonetheless
-        return num_classes + 1  # + 1 for background
-    elif task == 'classification':
-        return num_classes
-    else:
-        raise NotImplementedError(f'Task should be either classification or segmentation. Got "{task}"')
+    num_classes_ = set([i for i in range(num_classes + 1)])
+    return num_classes_
 
 
 def validate_raster(raster_path: Union[str, Path], num_bands: int, meta_map):

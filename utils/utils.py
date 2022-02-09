@@ -1,9 +1,7 @@
-import os
 import csv
 import logging
 import numbers
 import subprocess
-import importlib as imp
 from functools import reduce
 from pathlib import Path
 from typing import Sequence, List
@@ -26,7 +24,6 @@ import collections
 from rasterio.crs import CRS
 from affine import Affine
 
-from utils.readers import read_parameters
 from urllib.parse import urlparse
 
 try:
@@ -427,7 +424,7 @@ def try2read_csv(path_file, in_case_of_path, msg):
         Path(path_file).resolve(strict=True)
     except FileNotFoundError:
         if in_case_of_path:
-            path_file = os.path.join(in_case_of_path, os.path.basename(path_file))
+            path_file = str(Path(in_case_of_path) / (path_file.split('./')[-1]))
             try:
                 Path(path_file).resolve(strict=True)
             except FileNotFoundError:
@@ -458,8 +455,8 @@ def read_csv(csv_file_name, data_path=None):
             if row[2]:
                 row[2] = try2read_csv(row[2], data_path, 'Gpkg not found:')
             if not isinstance(row[3], str):
-                raise ValueError(f"Attribute name should be a string")
-            if row[3] is not "":
+                logging.error(f"Attribute name should be a string")
+            if row[3] != "":
                 logging.error(f"Deprecation notice:\nFiltering ground truth features by attribute name and values should"
                               f" be done through the dataset parameters in config/dataset. The attribute name value in "
                               f"csv will be ignored. Got: {row[3]}")
@@ -630,26 +627,6 @@ def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -
                     log.info(f'Value in yaml1 updated')
 
 
-def load_obj(obj_path: str, default_obj_path: str = '') -> any:
-    """
-    Extract an object from a given path.
-
-    :param obj_path: (str) Path to an object to be extracted, including the object name.
-    :param default_obj_path: (str) Default path object.
-
-    :return: Extract object. Can be a function or a class or ...
-
-    :raise AttributeError: When the object does not have the given named attribute.
-    """
-    obj_path_list = obj_path.rsplit('.', 1)
-    obj_path = obj_path_list.pop(0) if len(obj_path_list) > 1 else default_obj_path
-    obj_name = obj_path_list[0]
-    module_obj = imp.import_module(obj_path)
-    if not hasattr(module_obj, obj_name):
-        raise AttributeError(f"Object `{obj_name}` cannot be loaded from from `{obj_path}`.")
-    return getattr(module_obj, obj_name)
-
-
 def read_modalities(modalities: str) -> list:
     """
     Function that read the modalities from the yaml and convert it to a list
@@ -696,8 +673,9 @@ def getpath(d, path):
 def print_config(
     config: DictConfig,
     fields: Sequence[str] = (
-        "task",
+        "general.task",
         "mode",
+        "loss",
         "dataset",
         "general.work_dir",
         "general.config_name",
@@ -769,14 +747,3 @@ def print_config(
 
     with open("run_config.config", "w") as fp:
         rich.print(tree, file=fp)
-
-
-# def save_useful_info():
-#     shutil.copytree(
-#         os.path.join(hydra.utils.get_original_cwd(), 'src'),
-#         os.path.join(os.getcwd(), 'code/src')
-#     )
-#     shutil.copy2(
-#         os.path.join(hydra.utils.get_original_cwd(), 'hydra_run.py'),
-#         os.path.join(os.getcwd(), 'code')
-#     )

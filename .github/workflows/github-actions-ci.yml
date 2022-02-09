@@ -19,11 +19,11 @@ jobs:
       - name: Install dependencies
         run: |
           conda env create --file environment.yml
-      - name: test GDL's 3 major modes
+      - name: test GDL's 4 major modes
         run: |
           source /usr/share/miniconda/etc/profile.d/conda.sh
           conda activate geo_deep_env
-          unzip ./data/massachusetts_buildings.zip -d ./data
           python GDL.py mode=sampling
           python GDL.py mode=train
           python GDL.py mode=inference
+          python GDL.py mode=evaluate

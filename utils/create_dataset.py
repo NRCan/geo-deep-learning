@@ -68,11 +68,9 @@ class SegmentationDataset(Dataset):
                  dataset_type,
                  num_bands,
                  max_sample_count=None,
-                 dontcare=None,
                  radiom_transform=None,
                  geom_transform=None,
                  totensor_transform=None,
-                 params=None,
                  debug=False):
         # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.work_folder = work_folder
@@ -84,7 +82,6 @@ class SegmentationDataset(Dataset):
         self.geom_transform = geom_transform
         self.totensor_transform = totensor_transform
         self.debug = debug
-        self.dontcare = dontcare
         self.hdf5_path = os.path.join(self.work_folder, self.dataset_type + "_samples.hdf5")
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
             for i in range(hdf5_file["metadata"].shape[0]):
@@ -103,22 +100,11 @@ class SegmentationDataset(Dataset):
     def __len__(self):
         return self.max_sample_count
 
-    def _remap_labels(self, map_img):
-        # note: will do nothing if 'dontcare' is not set in constructor, or set to non-zero value
-        # TODO: seems like a temporary patch... dontcare should never be == 0, right ?
-        if self.dontcare is None or self.dontcare != 0:
-            return map_img
-        # for now, the current implementation only handles the original 'dontcare' value as zero
-        # to keep the impl simple, we just reduce all indices by one so that 'dontcare' becomes -1
-        assert map_img.dtype == np.int8 or map_img.dtype == np.int16 or map_img.dtype == np.int32
-        map_img -= 1
-        return map_img
-
     def __getitem__(self, index):
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
             sat_img = np.float32(hdf5_file["sat_img"][index, ...])
             assert self.num_bands <= sat_img.shape[-1]
-            map_img = self._remap_labels(hdf5_file["map_img"][index, ...])
+            map_img = hdf5_file["map_img"][index, ...]
             meta_idx = int(hdf5_file["meta_idx"][index])
             metadata = self.metadata[meta_idx]
             sample_metadata = hdf5_file["sample_metadata"][index, ...][0]
@@ -148,11 +134,9 @@ class SegmentationDataset(Dataset):
         if self.debug:
             # assert no new class values in map_img
             initial_class_ids = set(np.unique(map_img))
-            if self.dontcare is not None:
-                initial_class_ids.add(self.dontcare)
             final_class_ids = set(np.unique(sample['map_img'].numpy()))
             if not final_class_ids.issubset(initial_class_ids):
-                logging.debug(f"\nWARNING: Class ids for label before and after augmentations don't match. "
-                              f"Ignore if overwritting ignore_index in ToTensorTarget")
+                logging.critical(f"\nWARNING: Class ids for label before and after augmentations don't match. "
+                                 f"Ignore if overwritting ignore_index in ToTensorTarget")
         sample['index'] = index
         return sample

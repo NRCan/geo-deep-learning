@@ -62,14 +62,10 @@ class LovaszSoftmax(nn.Module):
       ignore_index: void class labels
     """
 
-    def __init__(self, ignore_index=None, only_present=True, weight=None):
+    def __init__(self, ignore_index=None, only_present=True):
         super().__init__()
         self.ignore_index = ignore_index
         self.only_present = only_present
-        self.weight = weight
-        if weight is not None:
-            logging.warning("The Lovasz function does not take weight parameter. "
-                             "It inherently deals with class imbalance. See: https://arxiv.org/abs/1705.08790.")
 
     def forward(self, logits, labels):
         probas = F.softmax(logits, dim=1)
