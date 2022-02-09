@@ -2,11 +2,10 @@ import argparse
 import logging
 import os
 from pathlib import Path
-from typing import List
 
 from utils.utils import get_key_def, read_csv
 from utils.geoutils import vector_to_raster
-from utils.readers import read_parameters, image_reader_as_array
+from utils.readers import image_reader_as_array
 from utils.verifications import validate_num_classes
 import time
 import rasterio
@@ -15,10 +14,24 @@ import numpy as np
 from collections import OrderedDict
 from numpy import genfromtxt
 from tqdm import tqdm
+from ruamel_yaml import YAML
 
 import sampling_segmentation
 
 logging.getLogger(__name__)
+
+
+def read_parameters(param_file):
+    """Read and return parameters in .yaml file
+    Args:
+        param_file: Full file path of the parameters file
+    Returns:
+        YAML (Ruamel) CommentedMap dict-like object
+    """
+    yaml = YAML()
+    with open(param_file) as yamlfile:
+        params = yaml.load(yamlfile)
+    return params
 
 
 def create_csv():

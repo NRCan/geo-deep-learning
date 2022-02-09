@@ -14,7 +14,8 @@ import geopandas as gpd
 
 from utils.geoutils import clip_raster_with_gpkg, vector_to_raster
 from utils.metrics import ComputePixelMetrics
-from utils.utils import get_key_def, list_input_images, get_logger, read_modalities
+from utils.utils import get_key_def, list_input_images, read_modalities
+from utils.logger import get_logger
 from utils.verifications import validate_num_classes, assert_crs_match
 
 logging = get_logger(__name__)

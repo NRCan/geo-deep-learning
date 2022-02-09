@@ -1,9 +1,7 @@
-import os
 import time
 import h5py
 import torch
 import warnings
-import functools
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
@@ -23,15 +21,14 @@ except ModuleNotFoundError:
 from torch.utils.data import DataLoader
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
-from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path
+from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path, get_logger
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, read_modalities
+from utils.utils import load_from_checkpoint, gpu_stats, get_key_def, read_modalities
 from utils.visualization import vis_from_batch
 from mlflow import log_params, set_tracking_uri, set_experiment, start_run
 # Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)  # import logging
+logging = get_logger(__name__)  # import logging
 
 
 def flatten_labels(annotations):
@@ -537,9 +534,8 @@ def train(cfg: DictConfig) -> None:
     # GPU PARAMETERS
     num_devices = get_key_def('num_gpus', cfg['training'], default=0)
     if num_devices and not num_devices >= 0:
-        raise logging.critical(ValueError("\nmissing mandatory num gpus parameter"))
-    default_max_used_ram = 15
-    max_used_ram = get_key_def('max_used_ram', cfg['training'], default=default_max_used_ram)
+        raise ValueError("\nMissing mandatory num gpus parameter")
+    max_used_ram = get_key_def('max_used_ram', cfg['training'], default=15)
     max_used_perc = get_key_def('max_used_perc', cfg['training'], default=15)
 
     # LOGGING PARAMETERS TODO put option not just mlflow
@@ -618,14 +614,8 @@ def train(cfg: DictConfig) -> None:
         logging.warning(f'\nVisualization: expected positive value for ignore_index, got {dontcare_val}.'
                         f'Will be overridden to 255 during visualization only. Problems may occur.')
 
-    # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
-    dontcare2backgr = False
-    if loss_fn not in ['Lovasz', 'CrossEntropy', 'OhemCrossEntropy']:
-        dontcare2backgr = True
-        logging.warning(
-            f'\nDontcare is not implemented for loss function "{loss_fn}". '
-            f'\nDontcare values ({dontcare_val}) in label will be replaced with background value (0)'
-        )
+    # overwrite dontcare values in label if loss doens't implement ignore_index
+    dontcare2backgr = False if 'ignore_index' in loss_fn.keys() else True
 
     # Will check if batch size needs to be a lower value only if cropping samples during training
     calc_eval_bs = True if crop_size else False

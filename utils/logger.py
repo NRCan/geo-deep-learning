@@ -2,6 +2,7 @@ import logging
 import os
 from omegaconf import OmegaConf
 from mlflow import log_metric, exceptions
+from pytorch_lightning.utilities import rank_zero_only
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,12 @@ def save_logs_to_bucket(bucket, bucket_output_path, output_path, now, batch_metr
 
 
 def dict2path(my_dict, path=None):
+    """
+    TODO
+    @param my_dict:
+    @param path:
+    @return:
+    """
     if path is None:
         path = []
     for k, v in my_dict.items():
@@ -66,7 +73,27 @@ def dict2path(my_dict, path=None):
 
 
 def dict_path(param_dict, param_name):
+    """
+    TODO
+    @param param_dict:
+    @param param_name:
+    @return:
+    """
     d2p = OmegaConf.to_container(param_dict[param_name], resolve=True)
     return {
         param_name + '.' + '.'.join(path): v for path, v in dict2path(d2p)
     }
+
+
+def get_logger(name=__name__, level=logging.INFO) -> logging.Logger:
+    """Initializes multi-GPU-friendly python logger."""
+
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+
+    # this ensures all logging levels get marked with the rank zero decorator
+    # otherwise logs would get multiplied for each GPU process in multi-GPU setup
+    for level in ("debug", "info", "warning", "error", "exception", "fatal", "critical"):
+        setattr(logger, level, rank_zero_only(getattr(logger, level)))
+
+    return logger

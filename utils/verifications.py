@@ -67,7 +67,7 @@ def validate_num_classes(vector_file: Union[str, Path],
     return num_classes_
 
 
-def validate_raster(raster_path: Union[str, Path], num_bands: int, meta_map):
+def validate_raster(raster_path: Union[str, Path], num_bands: int):
     """
     Assert number of bands found in raster is equal to desired number of bands
     :param raster_path: (str or Path) path to raster file

@@ -5,6 +5,7 @@ from pathlib import Path
 from omegaconf import OmegaConf, DictConfig
 from torch.utils.data import Dataset
 
+from utils.logger import get_logger
 from utils.utils import ordereddict_eval
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
@@ -12,8 +13,7 @@ from rasterio.crs import CRS
 from affine import Affine
 
 # Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)  # import logging
+logging = get_logger(__name__)  # import logging
 
 
 def append_to_dataset(dataset, sample):
@@ -29,12 +29,11 @@ def append_to_dataset(dataset, sample):
     return old_size
 
 
-def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: Path, cfg: DictConfig):
+def create_files_and_datasets(samples_size: int, number_of_bands: int, samples_folder: Path, cfg: DictConfig):
     """
     Function to create the hdfs files (trn, val and tst).
     :param samples_size: size of individual hdf5 samples to be created
     :param number_of_bands: number of bands in imagery
-    :param meta_map:
     :param samples_folder: (str) Path to the output folder.
     :param cfg: (dict) Parameters found in the yaml config file.
     :return: (hdf5 datasets) trn, val ant tst datasets.
@@ -93,10 +92,6 @@ class SegmentationDataset(Dataset):
             if self.max_sample_count is None:
                 self.max_sample_count = hdf5_file["sat_img"].shape[0]
 
-            # load yaml used to generate samples
-            hdf5_params = hdf5_file['params'][0, 0]
-            hdf5_params = ordereddict_eval(hdf5_params)
-
     def __len__(self):
         return self.max_sample_count
 
@@ -117,9 +112,7 @@ class SegmentationDataset(Dataset):
                 metadata = eval(metadata)
                 metadata.update(sample_metadata)
             except TypeError:
-                pass # FI
-            # where bandwise array has no data values, set as np.nan
-            # sat_img[sat_img == metadata['nodata']] = np.nan # TODO: problem with lack of dynamic range. See: https://rasterio.readthedocs.io/en/latest/topics/masks.html
+                pass
 
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
                   "hdf5_path": self.hdf5_path}
@@ -136,7 +129,9 @@ class SegmentationDataset(Dataset):
             initial_class_ids = set(np.unique(map_img))
             final_class_ids = set(np.unique(sample['map_img'].numpy()))
             if not final_class_ids.issubset(initial_class_ids):
-                logging.critical(f"\nWARNING: Class ids for label before and after augmentations don't match. "
-                                 f"Ignore if overwritting ignore_index in ToTensorTarget")
+                logging.warning(f"\nWARNING: Class values for label before and after augmentations don't match."
+                                f"\nUnique values before: {initial_class_ids}"
+                                f"\nUnique values after: {final_class_ids}"
+                                f"\nIgnore if some augmentations have padded with dontcare value.")
         sample['index'] = index
         return sample
