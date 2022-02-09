@@ -6,18 +6,12 @@ import torch
 import torch.nn.functional as F
 # import torch should be first. Unclear issue, mentionned here: https://github.com/pytorch/pytorch/issues/2083
 import numpy as np
-import os
-import csv
 import time
-import heapq
 import fiona  # keep this import. it sets GDAL_DATA to right value
 import rasterio
-from PIL import Image
-import torchvision
 import ttach as tta
 from collections import OrderedDict
 from fiona.crs import to_string
-from omegaconf.errors import ConfigKeyError
 from tqdm import tqdm
 from rasterio import features
 from rasterio.windows import Window
@@ -25,19 +19,20 @@ from rasterio.plot import reshape_as_image
 from pathlib import Path
 from omegaconf.listconfig import ListConfig
 
-from utils.logger import dict_path, get_logger, set_tracker
+from utils.logger import get_logger, set_tracker
 from models.model_choice import net
 from utils import augmentation
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, find_first_file, set_device
+    list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, set_device
 from utils.verifications import validate_raster
+
+# Set the logging file
+logging = get_logger(__name__)
 
 try:
     import boto3
 except ModuleNotFoundError:
-    pass
-# Set the logging file
-logging = get_logger(__name__)
+    logging.warning("\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
 
 
 def _pad_diff(arr, w, h, arr_shape):
@@ -309,8 +304,6 @@ def main(params: dict) -> None:
     :param params: (dict) Parameters inputted during execution.
     """
     # PARAMETERS
-    mode = get_key_def('mode', params, expected_type=str)
-    task = get_key_def('task', params['general'], expected_type=str)
     model_name = get_key_def('model_name', params['model'], expected_type=str).lower()
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
@@ -318,61 +311,25 @@ def main(params: dict) -> None:
     BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
     num_bands = len(modalities)
     debug = get_key_def('debug', params, default=False, expected_type=bool)
+
     # SETTING OUTPUT DIRECTORY
-    try:
-        state_dict = Path(params['inference']['state_dict_path']).resolve(strict=True)
-    except FileNotFoundError:
-        logging.info(
-            f"\nThe state dict path directory '{params['inference']['state_dict_path']}' don't seem to be find," +
-            f"we will try to locate a state dict path in the '{params['general']['save_weights_dir']}' " +
-            f"specify during the training phase"
-        )
-        try:
-            state_dict = Path(params['general']['save_weights_dir']).resolve(strict=True)
-        except FileNotFoundError:
-            raise logging.critical(
-                f"\nThe state dict path directory '{params['general']['save_weights_dir']}'" +
-                f" don't seem to be find either, please specify the path to a state dict"
-            )
-    # TODO add more detail in the parent folder
+    state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     logging.info("\nThe state dict path directory used '{}'".format(working_folder))
     Path.mkdir(working_folder, parents=True, exist_ok=True)
+    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
+    # Default input directory based on default output directory
+    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=working_folder,
+                                 expected_type=str, to_path=True, validate_path_exists=True)
 
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
     run_name = get_key_def(['tracker', 'run_name'], params, default='gdl')
-    tracker_uri = get_key_def(['tracker', 'uri'], params, default=None, expected_type=str)
+    tracker_uri = get_key_def(['tracker', 'uri'], params, default=None, expected_type=str, to_path=True)
     set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
                 tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
 
-    # MANDATORY PARAMETERS
-    img_dir_or_csv = get_key_def(
-        'img_dir_or_csv_file', params['inference'], default=params['general']['raw_data_csv'], expected_type=str
-    )
-    if not (Path(img_dir_or_csv).is_dir() or Path(img_dir_or_csv).suffix == '.csv'):
-        raise logging.critical(
-            FileNotFoundError(
-                f'\nCouldn\'t locate .csv file or directory "{img_dir_or_csv}" containing imagery for inference'
-            )
-        )
-    # load the checkpoint
-    try:
-        # Sort by modification time (mtime) descending
-        sorted_by_mtime_descending = sorted(
-            [os.path.join(state_dict, x) for x in os.listdir(state_dict)], key=lambda t: -os.stat(t).st_mtime
-        )
-        last_checkpoint_save = find_first_file('checkpoint.pth.tar', sorted_by_mtime_descending)
-        if last_checkpoint_save is None:
-            raise FileNotFoundError
-        # change the state_dict
-        state_dict = last_checkpoint_save
-    except FileNotFoundError as e:
-        logging.error(f"\nNo file name 'checkpoint.pth.tar' as been found at '{state_dict}'")
-        raise e
-
     # OPTIONAL PARAMETERS
-    dontcare_val = get_key_def("ignore_index", params["training"], default=-1, expected_type=int)
     num_devices = get_key_def('num_gpus', params['training'], default=0, expected_type=int)
     default_max_used_ram = 25
     max_used_ram = get_key_def('max_used_ram', params['training'], default=default_max_used_ram, expected_type=int)
@@ -397,8 +354,7 @@ def main(params: dict) -> None:
 
     # AWS
     bucket = None
-    bucket_file_cache = []
-    bucket_name = get_key_def('bucket_name', params['AWS'])
+    bucket_name = get_key_def('bucket_name', params['AWS'], default=None)
 
     # CONFIGURE MODEL
     model, loaded_checkpoint, model_name = net(model_name=model_name,
@@ -408,33 +364,16 @@ def main(params: dict) -> None:
                                                net_params=params,
                                                inference_state_dict=state_dict)
     device = set_device(gpu_devices_dict=gpu_devices_dict)
+    model, _ = load_from_checkpoint(loaded_checkpoint, model, bucket=bucket, strict_loading=True)
     model.to(device)
 
-    # CREATE LIST OF INPUT IMAGES FOR INFERENCE
-    try:
-        # check if the data folder exist
-        raw_data_dir = get_key_def('raw_data_dir', params['dataset'])
-        my_data_path = Path(raw_data_dir).resolve(strict=True)
-        logging.info("\nImage directory used '{}'".format(my_data_path))
-        data_path = Path(my_data_path)
-    except FileNotFoundError:
-        raw_data_dir = get_key_def('raw_data_dir', params['dataset'])
-        raise logging.critical(
-            "\nImage directory '{}' doesn't exist, please change the path".format(raw_data_dir)
-        )
-    list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"],
-                                 in_case_of_path=str(data_path))
+    # GET LIST OF INPUT IMAGES FOR INFERENCE
+    list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
 
     # VALIDATION: anticipate problems with imagery before entering main for loop
     for info in tqdm(list_img, desc='Validating imagery'):
         validate_raster(info['tif'], num_bands)
     logging.info('\nSuccessfully validated imagery')
-
-    if bucket:
-        bucket.download_file(loaded_checkpoint, "saved_model.pth.tar")  # TODO: is this still valid?
-        model, _ = load_from_checkpoint("saved_model.pth.tar", model)
-    else:
-        model, _ = load_from_checkpoint(loaded_checkpoint, model)
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for info in tqdm(list_img, desc='Inferring from images', position=0, leave=True):

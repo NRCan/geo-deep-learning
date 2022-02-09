@@ -1,9 +1,10 @@
+import shutil
 import time
 import h5py
 import torch
-import warnings
 import numpy as np
 from PIL import Image
+from hydra.utils import to_absolute_path
 from tqdm import tqdm
 from pathlib import Path
 from shutil import copy
@@ -11,12 +12,6 @@ from datetime import datetime
 from typing import Sequence
 from collections import OrderedDict
 from omegaconf import DictConfig
-from omegaconf.errors import ConfigKeyError
-
-try:
-    from pynvml import *
-except ModuleNotFoundError:
-    warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 from torch.utils.data import DataLoader
 from sklearn.utils import compute_sample_weight
@@ -29,6 +24,10 @@ from utils.visualization import vis_from_batch
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
+try:
+    from pynvml import *
+except ModuleNotFoundError:
+    logging.warning(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 def flatten_labels(annotations):
     """Flatten labels"""
@@ -532,26 +531,12 @@ def train(cfg: DictConfig) -> None:
     samples_folder_name = (
         f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{experiment_name}'
     )
-    try:
-        my_hdf5_path = Path(str(cfg.dataset.sample_data_dir)).resolve(strict=True)
-        samples_folder = Path(my_hdf5_path.joinpath(samples_folder_name)).resolve(strict=True)
-        logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
-    except FileNotFoundError:
-        samples_folder = Path(str(cfg.dataset.sample_data_dir)).joinpath(samples_folder_name)
-        logging.info(
-            f"\nThe HDF5 directory '{samples_folder}' doesn't exist, please change the path." +
-            f"\nWe will try to find '{samples_folder_name}' in '{cfg.dataset.raw_data_dir}'."
-        )
-        try:
-            my_data_path = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
-            samples_folder = Path(my_data_path.joinpath(samples_folder_name)).resolve(strict=True)
-            logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
-            cfg.general.sample_data_dir = str(my_data_path)  # need to be done for when the config will be saved
-        except FileNotFoundError:
-            raise logging.critical(
-                f"\nThe HDF5 directory '{samples_folder_name}' doesn't exist in '{cfg.dataset.raw_data_dir}'" +
-                f"\n or in '{cfg.dataset.sample_data_dir}', please verify the location of your HDF5."
-            )
+
+    data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
+    my_hdf5_path = get_key_def('sample_data_dir', cfg['dataset'], default=data_path, to_path=True,
+                                 validate_path_exists=True)
+    samples_folder = my_hdf5_path.joinpath(samples_folder_name).resolve(strict=True)
+    logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
 
     # visualization parameters
     vis_at_train = get_key_def('vis_at_train', cfg['visualization'], default=False)
@@ -575,17 +560,20 @@ def train(cfg: DictConfig) -> None:
     for list_path in cfg.general.config_path:
         if list_path['provider'] == 'main':
             config_path = list_path['path']
-    config_name = str(cfg.general.config_name)
-    model_id = config_name
-    output_path = Path(f'model/{model_id}')
+    default_output_path = Path(to_absolute_path(f'{samples_folder}/model/{experiment_name}/{run_name}'))
+    output_path = get_key_def('save_weights_dir', cfg['general'], default=default_output_path, to_path=True)
+    if output_path.is_dir():
+        last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+        archive_output_path = output_path.parent / f"{output_path.stem}_{last_mod_time_suffix}"
+        shutil.move(output_path, archive_output_path)
     output_path.mkdir(parents=True, exist_ok=False)
-    logging.info(f'\nModel and log files will be saved to: {os.getcwd()}/{output_path}')
+    logging.info(f'\nModel will be saved to: {output_path}')
     if debug:
         logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
     if dontcare_val < 0 and vis_batch_range:
         logging.warning(f'\nVisualization: expected positive value for ignore_index, got {dontcare_val}.'
-                        f'Will be overridden to 255 during visualization only. Problems may occur.')
+                        f'\nWill be overridden to 255 during visualization only. Problems may occur.')
 
     # overwrite dontcare values in label if loss doens't implement ignore_index
     dontcare2backgr = False if 'ignore_index' in loss_fn.keys() else True
