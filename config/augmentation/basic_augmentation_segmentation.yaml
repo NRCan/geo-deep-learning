@@ -1,6 +1,6 @@
 # @package _global_
 augmentation:
-  # Geomteric augmentations
+  # Geometric augmentations
   rotate_limit: 45  # Rotate limit: the upper and lower limits for data rotation.
   rotate_prob: 0.5  # Rotate probability: the probability for data rotation.
   hflip_prob: 0.5  # Horizontal flip: the probability for data horizontal flip.
