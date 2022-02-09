@@ -1,2 +1,1 @@
-./data/22978945_15.tif,,,
-./data/23429155_15.tif,,./data/massachusetts_buildings.gpkg,properties/class
+./23429155_15_uint8_inf.tif,,./massachusetts_buildings.gpkg,,tst

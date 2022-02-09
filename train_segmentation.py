@@ -513,8 +513,10 @@ def train(cfg: DictConfig) -> None:
     # MODEL PARAMETERS
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
     loss_fn = cfg.loss
-    if not loss_fn.is_binary == (num_classes == 1):
-        raise ValueError(f"A binary loss was chosen for a multiclass task")
+    if loss_fn.is_binary and not num_classes == 1:
+        raise ValueError(f"Parameter mismatch: a binary loss was chosen for a {num_classes}-class task")
+    elif not loss_fn.is_binary and num_classes == 1:
+        raise ValueError(f"Parameter mismatch: a multiclass loss was chosen for a 1-class (binary) task")
     del loss_fn.is_binary  # prevent exception at instantiation
     optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam', expected_type=str)  # TODO change something to call the function
     pretrained = get_key_def('pretrained', cfg['model'], default=True, expected_type=bool)

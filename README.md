@@ -57,12 +57,7 @@ git clone https://github.com/NRCan/geo-deep-learning.git
 cd geo-deep-learning
 ```
 
-2. Unzip the _**massachusetts buildings**_ dataset.
-```shell
-unzip ./data/massachusetts_buildings.zip -d ./data
-```
-
-3. Run the wanted script (for segmentation).
+2. Run the wanted script (for segmentation).
 ```shell
 # Creating the hdf5 from the raw data
 python GDL.py mode=sampling
