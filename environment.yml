@@ -17,6 +17,7 @@ dependencies:
   - pip>=22.0.3
   - pynvml>=11.0.0
   - pystac>=0.3.0
+  - pytest>=7.0.0
   - python>=3.9.2
   - rich>=11.1.0
   - rtree>=0.9.7
