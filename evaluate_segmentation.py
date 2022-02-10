@@ -1,3 +1,4 @@
+import itertools
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -41,30 +42,30 @@ def metrics_per_tile(label_arr: np.ndarray, pred_img: np.ndarray, input_image: r
 
     feature = defaultdict(list)
     cnt = 0
-    for row in tqdm(range(0, h, chunk_size), position=2, leave=False):
-        for col in tqdm(range(0, w, chunk_size), position=3, leave=False):
-            label = label_arr[row:row + chunk_size, col:col + chunk_size]
-            pred = pred_img[row:row + chunk_size, col:col + chunk_size]
-            pixelMetrics = ComputePixelMetrics(label.flatten(), pred.flatten(), num_classes)
-            eval = pixelMetrics.update(pixelMetrics.iou)
-            feature['id_image'].append(gpkg_name)
-            for c_num in range(num_classes):
-                feature['L_count_' + str(c_num)].append(int(np.count_nonzero(label == c_num)))
-                feature['P_count_' + str(c_num)].append(int(np.count_nonzero(pred == c_num)))
-                feature['IoU_' + str(c_num)].append(eval['iou_' + str(c_num)])
-            feature['mIoU'].append(eval['macro_avg_iou'])
-            logging.debug(eval['macro_avg_iou'])
-            x_1, y_1 = (xmin + (col * xres)), (ymax - (row * yres))
-            x_2, y_2 = (xmin + ((col * xres) + mx)), y_1
-            x_3, y_3 = x_2, (ymax - ((row * yres) + my))
-            x_4, y_4 = x_1, y_3
-            geom = Polygon([(x_1, y_1), (x_2, y_2), (x_3, y_3), (x_4, y_4)])
-            feature['geometry'].append(geom)
-            feature['length'].append(geom.length)
-            feature['pointx'].append(geom.centroid.x)
-            feature['pointy'].append(geom.centroid.y)
-            feature['area'].append(geom.area)
-            cnt += 1
+    for row, col in tqdm(itertools.product(range(0, h, chunk_size), range(0, w, chunk_size)), leave=False,
+                         desc="Calculating metrics per tile"):
+        label = label_arr[row:row + chunk_size, col:col + chunk_size]
+        pred = pred_img[row:row + chunk_size, col:col + chunk_size]
+        pixelMetrics = ComputePixelMetrics(label.flatten(), pred.flatten(), num_classes)
+        eval = pixelMetrics.update(pixelMetrics.iou)
+        feature['id_image'].append(gpkg_name)
+        for c_num in range(num_classes):
+            feature['L_count_' + str(c_num)].append(int(np.count_nonzero(label == c_num)))
+            feature['P_count_' + str(c_num)].append(int(np.count_nonzero(pred == c_num)))
+            feature['IoU_' + str(c_num)].append(eval['iou_' + str(c_num)])
+        feature['mIoU'].append(eval['macro_avg_iou'])
+        logging.debug(eval['macro_avg_iou'])
+        x_1, y_1 = (xmin + (col * xres)), (ymax - (row * yres))
+        x_2, y_2 = (xmin + ((col * xres) + mx)), y_1
+        x_3, y_3 = x_2, (ymax - ((row * yres) + my))
+        x_4, y_4 = x_1, y_3
+        geom = Polygon([(x_1, y_1), (x_2, y_2), (x_3, y_3), (x_4, y_4)])
+        feature['geometry'].append(geom)
+        feature['length'].append(geom.length)
+        feature['pointx'].append(geom.centroid.x)
+        feature['pointy'].append(geom.centroid.y)
+        feature['area'].append(geom.area)
+        cnt += 1
     gdf = gpd.GeoDataFrame(feature, crs=input_image.crs.to_epsg())
 
     return gdf

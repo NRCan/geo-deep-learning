@@ -18,7 +18,7 @@ from utils.utils import (
     read_modalities,
 )
 from utils.verifications import (
-    validate_num_classes, validate_raster, assert_crs_match, validate_features_from_gpkg
+    validate_num_classes, assert_crs_match, validate_features_from_gpkg, validate_input_imagery
 )
 # Set the logging file
 logging = get_logger(__name__)  # import logging
@@ -455,7 +455,7 @@ def main(cfg: DictConfig) -> None:
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
     for info in tqdm(list_data_prep, position=0):
-        validate_raster(info['tif'], num_bands)
+        validate_input_imagery(info['tif'], num_bands)
         if info['gpkg'] not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(
                 info['gpkg'], num_classes, attribute_field, dontcare, attribute_values=attr_vals,

@@ -426,10 +426,12 @@ def read_csv(csv_file_name):
             row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
             row[0] = to_absolute_path(row[0])  # Convert relative paths to absolute with hydra's util to_absolute_path()
             if not Path(row[0]).is_file():
-                raise FileNotFoundError(f"Raster not found: {row[0]}")
+                logging.critical(f"Raster not found: {row[0]}. This data will be removed from input data list"
+                                 f"since all geo-deep-learning modules require imagery.")
+                continue
             row[2] = to_absolute_path(row[2])
             if not Path(row[2]).is_file():
-                raise FileNotFoundError(f"Ground truth not found: {row[2]}")
+                logging.critical(f"Ground truth not found: {row[2]}")
             if not isinstance(row[3], str):
                 logging.error(f"Attribute name should be a string")
             if row[3] != "":
