@@ -738,7 +738,7 @@ def train(cfg: DictConfig) -> None:
 
     # copy the checkpoint in 'save_weights_dir'
     Path(cfg['general']['save_weights_dir']).mkdir(parents=True, exist_ok=True)
-    copy(filename, cfg['general']['save_weights_dir'])
+    # copy(filename, cfg['general']['save_weights_dir'])  # TODO: Why copy?
 
     # load checkpoint model and evaluate it on test dataset.
     if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set

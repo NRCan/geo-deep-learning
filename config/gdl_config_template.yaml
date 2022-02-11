@@ -39,5 +39,5 @@ AWS:
   bucket_name:
 
 print_config: True # save the config in the log folder
-mode: {sampling, train, evaluate, inference, hyperparameters_search}
+mode: {sampling, train, inference, evaluate} #, hyperparameters_search}
 debug: True #False # will print the complete yaml config plus run a validation test
