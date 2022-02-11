@@ -512,6 +512,10 @@ def main(params: dict) -> None:
                             debug=debug)
 
         pred = pred[np.newaxis, :, :].astype(np.uint8)
+
+        if debug and not np.any(pred):
+            logging.error(f"Only background values were predicted. There may be a problem with the model")
+
         inf_meta.update({"driver": "GTiff",
                          "height": pred.shape[1],
                          "width": pred.shape[2],
@@ -526,6 +530,7 @@ def main(params: dict) -> None:
             temp_file.unlink()
         except OSError as e:
             logging.warning(f'File Error: {temp_file, e.strerror}')
+
         if raster_to_vec:
             start_vec = time.time()
             inference_vec = working_folder.joinpath(local_img.parent.name,

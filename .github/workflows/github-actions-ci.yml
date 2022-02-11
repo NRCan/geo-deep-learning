@@ -27,3 +27,5 @@ jobs:
           python GDL.py mode=train
           python GDL.py mode=inference
           python GDL.py mode=evaluate
+          # hyperparameter optimization with optuna
+          python GDL.py mode=train general.max_epochs=1 --multirun

@@ -5,6 +5,32 @@ sweep:
   dir: logs/multiruns/${now:%Y-%m-%d_%H-%M-%S}
   subdir: ${hydra.job.num}
 
+# for hyperparameter optimization with Optuna
+sweeper:
+  sampler:
+    seed: 123
+  direction: maximize
+  study_name: run_gdl
+  storage: null
+  n_trials: 3
+  n_jobs: 1
+
+  search_space:
+    training.lr:
+      type: float
+      log: True
+      low: 1e-7
+      high: 0.01
+    loss:
+      type: categorical
+      choices: ["binary/softbce", "binary/lovasz", "binary/dice"]
+    model:
+      type: categorical
+      choices: ['deeplabv3_resnet101']
+    optimizer:
+      type: categorical
+      choices: ['adam', 'adabound']
+
 # you can set here environment variables that are universal for all users
 # for system specific variables (like data paths) it's better to use .env file!
 job:

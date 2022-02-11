@@ -58,7 +58,7 @@ def run_gdl(cfg: DictConfig) -> None:
     start_time = time.time()
     # Read the task and execute it
     task = get_method(f"{cfg.mode}_{cfg.general.task}.main")
-    task(cfg)
+    metric = task(cfg)
 
     # Add git hash from current commit to parameters.
     with open_dict(cfg):
@@ -75,6 +75,7 @@ def run_gdl(cfg: DictConfig) -> None:
         "Elapsed time: {:.2f}s".format(time.time() - start_time) +
         "\n" + "-" * len(msg) + "\n"
     )
+    return metric
     # ------------------------------------
 
 

@@ -1,0 +1,6 @@
+# @package _global_
+optimizer:
+  optimizer_name: 'adabound'
+  class_name: utils.adabound.AdaBound
+  params:
+    lr: ${training.lr}

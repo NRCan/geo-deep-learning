@@ -13,6 +13,8 @@ defaults:
   - hydra: default
   - override hydra/hydra_logging: colorlog # enable color logging to make it pretty
   - override hydra/job_logging: colorlog # enable color logging to make it pretty
+  - override hydra/sweeper: optuna
+  - override hydra/sweeper/sampler: tpe
   - _self_
 
 general:

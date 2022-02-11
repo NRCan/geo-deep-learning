@@ -6,6 +6,7 @@ import warnings
 import functools
 import numpy as np
 from PIL import Image
+from hydra.utils import to_absolute_path
 from tqdm import tqdm
 from pathlib import Path
 from shutil import copy
@@ -377,6 +378,8 @@ def evaluation(eval_loader,
     :param debug: if True, debug functions will be performed
     :return: (dict) eval_metrics
     """
+    dontcare = criterion.ignore_index if hasattr(criterion, 'ignore_index') else -1
+
     eval_metrics = create_metrics_dict(num_classes)
     model.eval()
 
@@ -432,12 +435,13 @@ def evaluation(eval_loader,
                     a, segmentation = torch.max(outputs_flatten, dim=1)
                     eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                         ignore_index=eval_loader.dataset.dontcare)
-            elif (dataset == 'tst') and (batch_metrics is not None):
+                                                         ignore_index=dontcare)
+            elif dataset == 'tst':
+                batch_metrics = True
                 a, segmentation = torch.max(outputs_flatten, dim=1)
                 eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                 eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                     ignore_index=eval_loader.dataset.dontcare)
+                                                     ignore_index=dontcare)
 
             logging.debug(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
@@ -450,10 +454,11 @@ def evaluation(eval_loader,
 
     logging.info(f"\n{dataset} Loss: {eval_metrics['loss'].avg:.4f}")
     if batch_metrics is not None:
-        logging.info(f"\n{dataset} precision: {eval_metrics['precision'].avg}")
-        logging.info(f"\n{dataset} recall: {eval_metrics['recall'].avg}")
-        logging.info(f"\n{dataset} fscore: {eval_metrics['fscore'].avg}")
-        logging.info(f"\n{dataset} iou: {eval_metrics['iou'].avg}")
+        logging.info(f"\n{dataset} precision: {eval_metrics['precision'].avg}"
+                     f"\n{dataset} recall: {eval_metrics['recall'].avg}"
+                     f"\n{dataset} fscore: {eval_metrics['fscore'].avg}"
+                     f"\n{dataset} iou: {eval_metrics['iou'].avg}"
+                     f"\n{dataset} iou (non background): {eval_metrics['iou_nonbg'].avg}")
 
     return eval_metrics
 
@@ -608,9 +613,9 @@ def train(cfg: DictConfig) -> None:
             config_path = list_path['path']
     config_name = str(cfg.general.config_name)
     model_id = config_name
-    output_path = Path(f'model/{model_id}')
-    output_path.mkdir(parents=True, exist_ok=False)
-    logging.info(f'\nModel and log files will be saved to: {os.getcwd()}/{output_path}')
+    output_path = Path(to_absolute_path(f'model/{model_id}'))
+    output_path.mkdir(parents=True, exist_ok=True)  # FIXME: restore exist_ok=False when PR#274 is merged
+    logging.info(f'\nModel and log files will be saved to: {output_path}')
     if debug:
         logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
@@ -808,6 +813,7 @@ def train(cfg: DictConfig) -> None:
         checkpoint = load_checkpoint(filename)
         model, _ = load_from_checkpoint(checkpoint, model)
 
+    return_metric = None
     if tst_dataloader:
         tst_report = evaluation(eval_loader=tst_dataloader,
                                 model=model,
@@ -829,8 +835,12 @@ def train(cfg: DictConfig) -> None:
             bucket.upload_file("output.txt", bucket_output_path.joinpath(f"Logs/{now}_output.txt"))
             bucket.upload_file(filename, bucket_filename)
 
+        return_metric = tst_report['iou'].avg
+
     # log_artifact(logfile)
     # log_artifact(logfile_debug)
+
+    return return_metric
 
 
 def main(cfg: DictConfig) -> None:
@@ -856,4 +866,5 @@ def main(cfg: DictConfig) -> None:
     # HERE the code to do for the preprocessing for the segmentation
 
     # execute the name mode (need to be in this file for now)
-    train(cfg)
+    tst_iou = train(cfg)
+    return tst_iou

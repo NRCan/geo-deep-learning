@@ -1,6 +1,10 @@
 import numpy as np
 from sklearn.metrics import classification_report
 
+from utils.utils import get_logger
+
+logging = get_logger(__name__)  # import logging
+
 min_val = 1e-6
 def create_metrics_dict(num_classes):
     num_classes = num_classes if num_classes == 1 else num_classes + 1
@@ -66,9 +70,12 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
         if key not in ['micro avg', 'macro avg', 'weighted avg', 'accuracy'] and key != str(ignore_index):
             class_score[key] = value
 
-            metrics_dict['precision_' + key].update(class_score[key]['precision'], batch_size)
-            metrics_dict['recall_' + key].update(class_score[key]['recall'], batch_size)
-            metrics_dict['fscore_' + key].update(class_score[key]['f1-score'], batch_size)
+            try:
+                metrics_dict['precision_' + key].update(class_score[key]['precision'], batch_size)
+                metrics_dict['recall_' + key].update(class_score[key]['recall'], batch_size)
+                metrics_dict['fscore_' + key].update(class_score[key]['f1-score'], batch_size)
+            except KeyError as e:
+                logging.error(e)
 
     metrics_dict['precision'].update(class_report['weighted avg']['precision'], batch_size)
     metrics_dict['recall'].update(class_report['weighted avg']['recall'], batch_size)
