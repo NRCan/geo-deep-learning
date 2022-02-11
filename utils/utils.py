@@ -13,7 +13,6 @@ from omegaconf import DictConfig, OmegaConf
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
-from torchvision import models
 import numpy as np
 import scipy.signal
 import warnings
@@ -177,11 +176,6 @@ def set_device(gpu_devices_dict: dict = {}):
     else:
         logging.warning(f"\nNo Cuda device available. This process will only run on CPU")
         device = torch.device('cpu')
-        try:
-            models.resnet18().to(device)  # test with a small model
-        except (RuntimeError, AssertionError):  # HPC: when device 0 not available. Error: Cuda invalid device ordinal.
-            logging.warning(f"\nUnable to use device. Trying device 'cuda', not {device}")
-            device = torch.device(f'cuda')
     return device
 
 
