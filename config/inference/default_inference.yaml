@@ -2,7 +2,10 @@
 inference:
   img_dir_or_csv_file: data/inference_sem_seg_ci_csv.csv
   state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar
-  chunk_size:  # if empty, will be calculated automatically
+  chunk_size:  # if empty, will be calculated automatically from max_pix_per_mb_gpu
+  # Maximum number of pixels each Mb of GPU Ram to allow. E.g. if GPU has 1000 Mb of Ram and this parameter is set to
+  # 10, chunk_size will be set to sqrt(1000 * 10) = 100.
+  max_pix_per_mb_gpu: 25
 
   # GPU parameters
   gpu: ${training.num_gpus}

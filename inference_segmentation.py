@@ -331,7 +331,9 @@ def main(params: dict) -> None:
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty dict
     gpu_devices_dict = get_device_ids(num_devices, max_used_ram_perc=max_used_ram, max_used_perc=max_used_perc)
-    auto_chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=50, default=512)
+    max_pix_per_mb_gpu = get_key_def('max_pix_per_mb_gpu', params['inference'], default=25, expected_type=int)
+    auto_chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict,
+                                                max_pix_per_mb_gpu=max_pix_per_mb_gpu, default=512)
     chunk_size = get_key_def('chunk_size', params['inference'], default=auto_chunk_size, expected_type=int)
     device = set_device(gpu_devices_dict=gpu_devices_dict)
 
