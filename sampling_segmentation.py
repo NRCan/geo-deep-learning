@@ -364,11 +364,7 @@ def main(cfg: DictConfig) -> None:
     try:
         import boto3
     except ModuleNotFoundError:
-        logging.warning(
-            "\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets",
-            ImportWarning
-        )
-        pass
+        logging.warning("\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
 
     # PARAMETERS
     num_classes = len(cfg.dataset.classes_dict.keys())

@@ -5,12 +5,11 @@ import subprocess
 from functools import reduce
 from pathlib import Path
 from typing import Sequence, List
-from pytorch_lightning.utilities import rank_zero_only
 
+from pytorch_lightning.utilities import rank_zero_only
 import rich.syntax
 import rich.tree
 from omegaconf import DictConfig, OmegaConf
-
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
@@ -18,16 +17,13 @@ import numpy as np
 import scipy.signal
 import warnings
 import requests
+from urllib.parse import urlparse
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
 from affine import Affine
 
-from urllib.parse import urlparse
-
 # NVIDIA library
-from utils.logger import get_logger
-
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -38,6 +34,13 @@ try:
 except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
+
+
+# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
+from rasterio.crs import CRS
+from affine import Affine
+
+from utils.logger import get_logger
 
 # Set the logging file
 log = get_logger(__name__)  # need to be different from logging in this case
@@ -164,6 +167,21 @@ def gpu_stats(device=0):
     mem = nvmlDeviceGetMemoryInfo(handle)
 
     return res, mem
+
+
+def set_device(gpu_devices_dict: dict = {}):
+    """
+    From dictionary of available devices, sets the device to be used
+    @param gpu_devices_dict: dictionary containing info on GPU devices as returned by lst_device_ids
+    @return: torch.device
+    """
+    if gpu_devices_dict:
+        logging.info(f"\nCuda devices available: {gpu_devices_dict}.\nUsing {list(gpu_devices_dict.keys())[0]}\n\n")
+        device = torch.device(f'cuda:{list(range(len(gpu_devices_dict.keys())))[0]}')
+    else:
+        logging.warning(f"\nNo Cuda device available. This process will only run on CPU")
+        device = torch.device('cpu')
+    return device
 
 
 def get_key_def(key, config, default=None, msg=None, delete=False, expected_type=None):

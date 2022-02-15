@@ -29,7 +29,7 @@ from utils.logger import dict_path, get_logger
 from models.model_choice import net
 from utils import augmentation
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
-    list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, find_first_file
+    list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, find_first_file, set_device
 from utils.verifications import validate_raster
 
 try:
@@ -280,7 +280,7 @@ def segmentation(param,
     return pred_img
 
 
-def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200):
+def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200, default: int = 512) -> int:
     """
     Calculate maximum chunk_size that could fit on GPU during inference based on thumb rule with hardcoded
     "pixels per MB of GPU RAM" as threshold. Threshold based on inference with a large model (Deeplabv3_resnet101)
@@ -288,12 +288,14 @@ def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 
     :param max_pix_per_mb_gpu: Maximum number of pixels that can fit on each MB of GPU (better to underestimate)
     :return: returns a downgraded evaluation batch size if the original batch size is considered too high
     """
+    if not gpu_devices_dict:
+        return default
     # get max ram for smallest gpu
     smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
     # rule of thumb to determine max chunk size based on approximate max pixels a gpu can handle during inference
     max_chunk_size = sqrt(max_pix_per_mb_gpu * smallest_gpu_ram)
-    max_chunk_size_rd = int(max_chunk_size - (max_chunk_size % 256))
-    logging.info(f'Images will be split into chunks of {max_chunk_size_rd}')
+    max_chunk_size_rd = int(max_chunk_size - (max_chunk_size % 256))  # round to closest multiple of 256
+    logging.info(f'Data will be split into chunks of {max_chunk_size_rd}')
     return max_chunk_size_rd
 
 
@@ -302,15 +304,16 @@ def main(params: dict) -> None:
     Function to manage details about the inference on segmentation task.
     1. Read the parameters from the config given.
     2. Read and load the state dict from the previous training or the given one.
-    3. Make the inference on the data specifies in the config.
+    3. Make the inference on the data specified in the config.
     -------
-    :param params: (dict) Parameters found in the yaml config file.
+    :param params: (dict) Parameters inputted during execution.
     """
     # PARAMETERS
     mode = get_key_def('mode', params, expected_type=str)
     task = get_key_def('task', params['general'], expected_type=str)
     model_name = get_key_def('model_name', params['model'], expected_type=str).lower()
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
+    num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
     modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
     BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
     num_bands = len(modalities)
@@ -400,6 +403,11 @@ def main(params: dict) -> None:
         logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
 
+    # list of GPU devices that are available and unused. If no GPUs, returns empty dict
+    gpu_devices_dict = get_device_ids(num_devices, max_used_ram_perc=max_used_ram, max_used_perc=max_used_perc)
+    chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
+    chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=50, default=chunk_size)
+
     logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     if not (0 <= max_used_ram <= 100):
         logging.warning(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}. '
@@ -411,36 +419,15 @@ def main(params: dict) -> None:
     bucket_file_cache = []
     bucket_name = get_key_def('bucket_name', params['AWS'])
 
-    # list of GPU devices that are available and unused. If no GPUs, returns empty dict
-    gpu_devices_dict = get_device_ids(num_devices,
-                                      max_used_ram_perc=max_used_ram,
-                                      max_used_perc=max_used_perc)
-    if gpu_devices_dict:
-        chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=50)
-        logging.info(f"\nNumber of cuda devices requested: {num_devices}. "
-                     f"\nCuda devices available: {gpu_devices_dict}. "
-                     f"\nUsing {list(gpu_devices_dict.keys())[0]}\n\n")
-        device = torch.device(f'cuda:{list(range(len(gpu_devices_dict.keys())))[0]}')
-    else:
-        chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
-        logging.warning(f"\nNo Cuda device available. This process will only run on CPU")
-        device = torch.device('cpu')
-
     # CONFIGURE MODEL
-    if num_classes > 1:
-        num_classes = num_classes + 1  # multiclass account for background
     model, loaded_checkpoint, model_name = net(model_name=model_name,
                                                num_bands=num_bands,
                                                num_channels=num_classes,
                                                num_devices=1,
                                                net_params=params,
                                                inference_state_dict=state_dict)
-    try:
-        model.to(device)
-    except RuntimeError:
-        logging.info(f"\nUnable to use device. Trying device 0")
-        device = torch.device(f'cuda' if gpu_devices_dict else 'cpu')
-        model.to(device)
+    device = set_device(gpu_devices_dict=gpu_devices_dict)
+    model.to(device)
 
     # CREATE LIST OF INPUT IMAGES FOR INFERENCE
     try:
@@ -496,7 +483,7 @@ def main(params: dict) -> None:
                                                       f"{img_name.split('.')[0]}_inference.tif")
         temp_file = working_folder.joinpath(local_img.parent.name, f"{img_name.split('.')[0]}.dat")
         raster = rasterio.open(local_img, 'r')
-        logging.info(f'\nReading clipped image: {raster.name}')
+        logging.info(f'\nReading image: {raster.name}')
         inf_meta = raster.meta
 
         pred = segmentation(param=params,

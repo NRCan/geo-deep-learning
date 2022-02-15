@@ -224,14 +224,8 @@ def vis_from_dataloader(vis_params,
         for batch_index, data in enumerate(_tqdm):
             if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
                 with torch.no_grad():
-                    try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-                        inputs = data['sat_img'].to(device)
-                        labels = data['map_img'].to(device)
-                    except RuntimeError:
-                        logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-                        device = torch.device('cuda')
-                        inputs = data['sat_img'].to(device)
-                        labels = data['map_img'].to(device)
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
 
                     outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
@@ -285,14 +279,8 @@ def training(train_loader,
     for batch_index, data in enumerate(tqdm(train_loader, desc=f'Iterating train batches with {device.type}')):
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
-        try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-            inputs = data['sat_img'].to(device)
-            labels = data['map_img'].to(device)
-        except RuntimeError:
-            logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-            device = torch.device('cuda')
-            inputs = data['sat_img'].to(device)
-            labels = data['map_img'].to(device)
+        inputs = data['sat_img'].to(device)
+        labels = data['map_img'].to(device)
 
         # forward
         optimizer.zero_grad()
@@ -382,14 +370,8 @@ def evaluation(eval_loader,
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
         with torch.no_grad():
-            try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
-            except RuntimeError:
-                logging.exception(f'\nUnable to use device {device}. Trying "cuda"')
-                device = torch.device('cuda')
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
+            inputs = data['sat_img'].to(device)
+            labels = data['map_img'].to(device)
 
             labels_flatten = flatten_labels(labels)
 
