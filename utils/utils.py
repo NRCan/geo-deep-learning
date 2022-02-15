@@ -9,20 +9,16 @@ from typing import Sequence, List
 from pytorch_lightning.utilities import rank_zero_only
 import rich.syntax
 import rich.tree
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, ListConfig
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
+from torchvision import models
 import numpy as np
 import scipy.signal
 import warnings
 import requests
 from urllib.parse import urlparse
-
-# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
-from rasterio.crs import CRS
-from affine import Affine
-
 # NVIDIA library
 try:
     from pynvml import *
@@ -181,6 +177,11 @@ def set_device(gpu_devices_dict: dict = {}):
     else:
         logging.warning(f"\nNo Cuda device available. This process will only run on CPU")
         device = torch.device('cpu')
+        try:
+            models.resnet18().to(device)  # test with a small model
+        except (RuntimeError, AssertionError):  # HPC: when device 0 not available. Error: Cuda invalid device ordinal.
+            logging.warning(f"\nUnable to use device. Trying device 'cuda', not {device}")
+            device = torch.device(f'cuda')
     return device
 
 
@@ -194,29 +195,26 @@ def get_key_def(key, config, default=None, msg=None, delete=False, expected_type
     :param expected_type: (type) type of the expected variable.
     :return:
     """
+    val = default
     if not config:
-        return default
-    elif isinstance(key, list):  # is key a list?
-        if len(key) <= 1:  # is list of length 1 or shorter? else --> default
-            if msg is not None:
-                raise log.critical(AssertionError(msg))
-            else:
-                raise log.critical(AssertionError("Must provide at least two valid keys to test"))
+        pass
+    elif isinstance(key, (list, ListConfig)):
+        if len(key) <= 1:  # expects list of length more than 1 to search inside a dictionary recursively
+            raise ValueError("Must provide at least two valid keys to search recursively in dictionary")
         for k in key:  # iterate through items in list
-            if k in config:  # if item is a key in config, set value.
-                val = config[k]
-                if delete:  # optionally delete parameter after defining a variable with it
-                    del config[k]
-        val = default
-    else:  # if key is not a list
-        if key not in config or config[key] is None:  # if key not in config dict
-            val = default
+            if k in config:  # if item is a key in config, check if dictionary, else set value.
+                if isinstance(config[k], (dict, DictConfig)):
+                    config = config[k]
+                else:
+                    val = config[k]
+    else:
+        if key not in config or config[key] is None:  # if config exists, but key not in it
+            pass
         else:
             val = config[key] if config[key] != 'None' else None
             if expected_type and val is not False:
-                assert isinstance(val, expected_type), f"{val} is of type {type(val)}, expected {expected_type}"
-            if delete:
-                del config[key]
+                if not isinstance(val, expected_type):
+                    raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
     return val
 
 

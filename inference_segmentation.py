@@ -25,7 +25,7 @@ from rasterio.plot import reshape_as_image
 from pathlib import Path
 from omegaconf.listconfig import ListConfig
 
-from utils.logger import dict_path, get_logger
+from utils.logger import dict_path, get_logger, set_tracker
 from models.model_choice import net
 from utils import augmentation
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
@@ -339,31 +339,12 @@ def main(params: dict) -> None:
     logging.info("\nThe state dict path directory used '{}'".format(working_folder))
     Path.mkdir(working_folder, parents=True, exist_ok=True)
 
-    # LOGGING PARAMETERS TODO put option not just mlflow
-    experiment_name = get_key_def('project_name', params['general'], default='gdl-training')
-    try:
-        tracker_uri = get_key_def('uri', params['tracker'], default=None, expected_type=str)
-        Path(tracker_uri).mkdir(exist_ok=True)
-        run_name = get_key_def('run_name', params['tracker'], default='gdl')  # TODO change for something meaningful
-        run_name = '{}_{}_{}'.format(run_name, mode, task)
-        logging.info(f'\nInference and log files will be saved to: {working_folder}')
-        # TODO change to fit whatever inport
-        from mlflow import log_params, set_tracking_uri, set_experiment, start_run, log_artifact, log_metrics
-        # tracking path + parameters logging
-        set_tracking_uri(tracker_uri)
-        set_experiment(experiment_name)
-        start_run(run_name=run_name)
-        log_params(dict_path(params, 'general'))
-        log_params(dict_path(params, 'dataset'))
-        log_params(dict_path(params, 'data'))
-        log_params(dict_path(params, 'model'))
-        log_params(dict_path(params, 'inference'))
-    # meaning no logging tracker as been assigned or it doesnt exist in config/logging
-    except ConfigKeyError:
-        logging.info(
-            "\nNo logging tracker as been assigned or the yaml config doesnt exist in 'config/tracker'."
-            "\nNo tracker file will be save in that case."
-        )
+    # LOGGING PARAMETERS
+    exper_name = get_key_def('project_name', params['general'], default='gdl-training')
+    run_name = get_key_def(['tracker', 'run_name'], params, default='gdl')
+    tracker_uri = get_key_def(['tracker', 'uri'], params, default=None, expected_type=str)
+    set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
+                tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
 
     # MANDATORY PARAMETERS
     img_dir_or_csv = get_key_def(
@@ -449,25 +430,11 @@ def main(params: dict) -> None:
         validate_raster(info['tif'], num_bands)
     logging.info('\nSuccessfully validated imagery')
 
-    # TODO: Add verifications?
     if bucket:
         bucket.download_file(loaded_checkpoint, "saved_model.pth.tar")  # TODO: is this still valid?
         model, _ = load_from_checkpoint("saved_model.pth.tar", model)
     else:
         model, _ = load_from_checkpoint(loaded_checkpoint, model)
-
-    # Save tracking TODO put option not just mlflow
-    if 'tracker_uri' in locals() and 'run_name' in locals():
-        mode = get_key_def('mode', params, expected_type=str)
-        task = get_key_def('task', params['general'], expected_type=str)
-        run_name = '{}_{}_{}'.format(run_name, mode, task)
-        # tracking path + parameters logging
-        set_tracking_uri(tracker_uri)
-        set_experiment(experiment_name)
-        start_run(run_name=run_name)
-        log_params(dict_path(params, 'inference'))
-        log_params(dict_path(params, 'dataset'))
-        log_params(dict_path(params, 'model'))
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for info in tqdm(list_img, desc='Inferring from images', position=0, leave=True):
