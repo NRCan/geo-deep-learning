@@ -25,7 +25,7 @@ from rasterio.plot import reshape_as_image
 from pathlib import Path
 from omegaconf.listconfig import ListConfig
 
-from utils.logger import dict_path
+from utils.logger import dict_path, get_logger
 from models.model_choice import net
 from utils import augmentation
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
@@ -37,8 +37,7 @@ try:
 except ModuleNotFoundError:
     pass
 # Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)
+logging = get_logger(__name__)
 
 
 def _pad_diff(arr, w, h, arr_shape):
@@ -460,7 +459,7 @@ def main(params: dict) -> None:
 
     # VALIDATION: anticipate problems with imagery before entering main for loop
     for info in tqdm(list_img, desc='Validating imagery'):
-        validate_raster(info['tif'], num_bands, None)
+        validate_raster(info['tif'], num_bands)
     logging.info('\nSuccessfully validated imagery')
 
     # TODO: Add verifications?

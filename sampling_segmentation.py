@@ -3,16 +3,15 @@ from typing import Sequence
 
 import rasterio
 import numpy as np
-from os import path
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 from omegaconf import DictConfig, open_dict
-from hydra.core.hydra_config import HydraConfig
 
 # Our modules
+from utils.logger import get_logger
 from utils.geoutils import vector_to_raster
-from utils.readers import read_parameters, image_reader_as_array
+from utils.readers import image_reader_as_array
 from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.utils import (
     get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash,
@@ -22,8 +21,7 @@ from utils.verifications import (
     validate_num_classes, validate_raster, assert_crs_match, validate_features_from_gpkg
 )
 # Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)  # import logging
+logging = get_logger(__name__)  # import logging
 # Set random seed for reproducibility
 np.random.seed(1234)
 
@@ -436,8 +434,6 @@ def main(cfg: DictConfig) -> None:
     # mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
 
     # OTHER PARAMETERS
-    metadata = None
-    meta_map = {}  # TODO get_key_def('meta_map', params['global'], default={})
     # TODO class_prop get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
     class_prop = None
     mask_reference = False  # TODO get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
@@ -495,7 +491,7 @@ def main(cfg: DictConfig) -> None:
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
     for info in tqdm(list_data_prep, position=0):
-        validate_raster(info['tif'], num_bands, meta_map)
+        validate_raster(info['tif'], num_bands)
         if info['gpkg'] not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(
                 info['gpkg'], num_classes, attribute_field, dontcare, attribute_values=attr_vals,
@@ -514,11 +510,8 @@ def main(cfg: DictConfig) -> None:
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 
-    # with open_dict(cfg):
-    #     print(cfg)
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
                                                              number_of_bands=num_bands,
-                                                             meta_map=meta_map,
                                                              samples_folder=samples_dir,
                                                              cfg=cfg)
 

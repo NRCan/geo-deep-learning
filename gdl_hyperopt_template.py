@@ -13,12 +13,12 @@ from functools import partial
 import pprint
 import numpy as np
 
+from ruamel_yaml import YAML
 import mlflow
 import torch
 # ToDo: Add hyperopt to GDL requirements
 from hyperopt import fmin, tpe, hp, Trials, STATUS_OK
 
-from utils.readers import read_parameters
 from train_segmentation import main as train_main
 
 # This is the hyperparameter space to explore
@@ -26,6 +26,19 @@ my_space = {'model_name': hp.choice('model_name', ['unet_pretrained', 'deeplabv3
             'loss_fn': hp.choice('loss_fn', ['CrossEntropy', 'Lovasz', 'Duo']),
             'optimizer': hp.choice('optimizer', ['adam', 'adabound']),
             'learning_rate': hp.loguniform('learning_rate', np.log(1e-7), np.log(0.1))}
+
+
+def read_parameters(param_file):
+    """Read and return parameters in .yaml file
+    Args:
+        param_file: Full file path of the parameters file
+    Returns:
+        YAML (Ruamel) CommentedMap dict-like object
+    """
+    yaml = YAML()
+    with open(param_file) as yamlfile:
+        params = yaml.load(yamlfile)
+    return params
 
 
 def get_latest_mlrun(params):

@@ -18,7 +18,6 @@ import numpy as np
 import scipy.signal
 import warnings
 import requests
-import collections
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
@@ -26,11 +25,9 @@ from affine import Affine
 
 from urllib.parse import urlparse
 
-try:
-    from ruamel_yaml import YAML
-except ImportError:
-    from ruamel.yaml import YAML
 # NVIDIA library
+from utils.logger import get_logger
+
 try:
     from pynvml import *
 except ModuleNotFoundError:
@@ -41,21 +38,6 @@ try:
 except ModuleNotFoundError:
     warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
-
-
-def get_logger(name=__name__, level=logging.INFO) -> logging.Logger:
-    """Initializes multi-GPU-friendly python logger."""
-
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-
-    # this ensures all logging levels get marked with the rank zero decorator
-    # otherwise logs would get multiplied for each GPU process in multi-GPU setup
-    for level in ("debug", "info", "warning", "error", "exception", "fatal", "critical"):
-        setattr(logger, level, rank_zero_only(getattr(logger, level)))
-
-    return logger
-
 
 # Set the logging file
 log = get_logger(__name__)  # need to be different from logging in this case
@@ -322,20 +304,6 @@ def BGR_to_RGB(array):
     return array
 
 
-def ind2rgb(arr, color):
-    """
-    :param arr: (numpy array) index image to be color mapped
-    :param color: (dict of RGB color values) for each class
-    :return: (numpy_array) RGB image
-    """
-    h, w = arr.shape
-    rgb = np.empty((h, w, 3), dtype=np.uint8)
-    for cl in color:
-        for ch in range(3):
-          rgb[..., ch][arr == cl] = (color[cl][ch])
-    return rgb
-
-
 def is_url(url):
     if urlparse(url).scheme in ('http', 'https', 's3'):
         return True
@@ -575,56 +543,6 @@ def ordereddict_eval(str_to_eval: str):
     except Exception:
         log.exception(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
         return str_to_eval
-
-
-def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -> List:
-    """
-    Checks if values for same keys or subkeys (max depth of 2) of two dictionaries match.
-    :param yaml1: (dict) first dict to evaluate
-    :param yaml2: (dict) second dict to evaluate
-    :param update_yaml1: (bool) it True, values in yaml1 will be replaced with values in yaml2,
-                         if the latters are different
-    :return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
-    """
-    # TODO need to be change if the training or testing config are not the same as when the sampling have been create
-    # TODO maybe only check and save a small part of the config like the model or something
-
-    if not (isinstance(yaml1, dict) or isinstance(yaml2, dict)):
-        raise TypeError(f"\nExpected both yamls to be dictionaries. \n"
-                        f"Yaml1's type is  {type(yaml1)}\n"
-                        f"Yaml2's type is  {type(yaml2)}")
-    for section, params in yaml2.items():  # loop through main sections of config yaml ('global', 'sample', etc.)
-        if section in {'task', 'mode', 'debug'}:  # the task is not the same as the hdf5 since the hdf5 is in sampling
-            continue
-        if section not in yaml1.keys():  # create key if not in dictionary as we loop
-            yaml1[section] = {}
-        for param, val2 in params.items():  # loop through parameters of each section ('samples_size','debug_mode',...)
-            if param in {'config_override_dirname'}:  # the config_override_dirname is not the same as the hdf5 since the hdf5 is in sampling
-                continue
-            if param not in yaml1[section].keys():  # create key if not in dictionary as we loop
-                yaml1[section][param] = {}
-            # set to None if no value for that key
-            val1 = get_key_def(param, yaml1[section], default=None)
-            if isinstance(val2, dict):  # if value is a dict, loop again to fetch end val (only recursive twice)
-                for subparam, subval2 in val2.items():
-                    if subparam not in yaml1[section][param].keys():  # create key if not in dictionary as we loop
-                        yaml1[section][param][subparam] = {}
-                    # set to None if no value for that key
-                    subval1 = get_key_def(subparam, yaml1[section][param], default=None)
-                    if subval2 != subval1:
-                        # if value doesn't match between yamls, emit warning
-                        log.warning(f"\nYAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
-                                        f"Current yaml value: \"{subval1}\"\nHDF5s yaml value: \"{subval2}\"\n")
-                        if update_yaml1:  # update yaml1 with subvalue of yaml2
-                            yaml1[section][param][subparam] = subval2
-                            log.info(f'Value in yaml1 updated')
-            elif val2 != val1:
-                log.warning(f"\nYAML value mismatch: section \"{section}\", key \"{param}\"\n"
-                                f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val1}\"\n"
-                                f"Problems may occur.")
-                if update_yaml1:  # update yaml1 with value of yaml2
-                    yaml1[section][param] = val2
-                    log.info(f'Value in yaml1 updated')
 
 
 def read_modalities(modalities: str) -> list:
