@@ -18,6 +18,11 @@ import scipy.signal
 import warnings
 import requests
 from urllib.parse import urlparse
+
+# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
+from rasterio.crs import CRS
+from affine import Affine
+
 # NVIDIA library
 try:
     from pynvml import *
