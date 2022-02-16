@@ -1,7 +1,7 @@
 # @package _global_
 inference:
-  img_dir_or_csv_file: ${general.work_dir}/data/inference_sem_seg_ci_csv.csv
-  state_dict_path: ${general.save_weights_dir}
+  img_dir_or_csv_file: data/inference_sem_seg_ci_csv.csv
+  state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar
   chunk_size: 256
   # Visualization parameters
   smooth_prediction: True

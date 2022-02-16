@@ -6,7 +6,6 @@ import numpy as np
 np.random.seed(1234)  # Set random seed for reproducibility
 import warnings
 import rasterio
-import fiona
 import shutil
 import time
 import json
@@ -14,7 +13,7 @@ import json
 from pathlib import Path
 from tqdm import tqdm
 from collections import Counter
-from typing import List, Union
+from typing import List
 from ruamel_yaml import YAML
 
 from utils.create_dataset import create_files_and_datasets

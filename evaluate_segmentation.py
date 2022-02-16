@@ -77,12 +77,12 @@ def main(params):
     @return:
     """
     start_seg = time.time()
-    state_dict = Path(params['inference']['state_dict_path']).resolve(strict=True)
+    state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
     modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
     num_bands = len(modalities)
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
-    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=params['general']['raw_data_csv'],
-                                 expected_type=str)
+    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str, to_path=True,
+                                 validate_path_exists=True)
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
     single_class_mode = True if num_classes == 1 else False
     threshold = 0.5
@@ -92,7 +92,7 @@ def main(params):
     out_gpkg = get_key_def('out_benchmark_gpkg', params['inference'], default=working_folder/"benchmark.gpkg",
                            expected_type=str)
     chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
-    dontcare = get_key_def("ignore_index", params["training"], -1)
+    dontcare = get_key_def("ignore_index", params["dataset"], -1)
     attribute_field = get_key_def('attribute_field', params['dataset'], None, expected_type=str)
     attr_vals = get_key_def('attribute_values', params['dataset'], None, expected_type=Sequence)
 
@@ -102,8 +102,7 @@ def main(params):
             if not isinstance(item, int):
                 raise ValueError(f'\nValue "{item}" in attribute_values is {type(item)}, expected int.')
 
-    list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"],
-                                 in_case_of_path=Path(get_original_cwd())/'data')
+    list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"])
 
     # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
     valid_gpkg_set = set()

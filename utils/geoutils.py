@@ -6,7 +6,6 @@ import numpy as np
 
 import fiona
 import os
-import warnings
 import rasterio
 from rasterio.features import is_valid_geom
 from rasterio.mask import mask
@@ -98,8 +97,7 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
                 dest.write(out_img)
             return out_tif
         except ValueError as e:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
-            # TODO: warning or exception? if warning, except must be set in images_to_samples
-            warnings.warn(f"e\n {raster.name}\n{gpkg}")
+            logging.error(f"e\n {raster.name}\n{gpkg}")
 
 
 def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0, attribute_values=None, merge_all=True):
