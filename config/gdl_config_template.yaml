@@ -1,8 +1,8 @@
 defaults:
-  - task: segmentation
   - model: unet
   - tiling: default_tiling
   - training: default_training
+  - loss: binary/softbce
   - optimizer: adamw
   - callbacks: default_callbacks
   - scheduler: plateau
@@ -21,20 +21,20 @@ general:
   # hydra hijacks working directory by changing it to the current log directory,
   # so it's useful to have this path as a special variable
   # learn more here: https://hydra.cc/docs/next/tutorials/basic/running_your_app/working_directory
+  task: segmentation
   work_dir: ${hydra:runtime.cwd}  # where the code is executed
   config_name: ${hydra:job.config_name}
   config_override_dirname: ${hydra:job.override_dirname}
   config_path: ${hydra:runtime.config_sources}
   project_name: template_project
   workspace: your_name
-  device: cuda
   max_epochs: 2 # for train only
   min_epochs: 1 # for train only
-  raw_data_dir: ${general.work_dir}/data
-  raw_data_csv: ${general.work_dir}/data/images_to_samples_ci_csv.csv
-  tiles_data_dir: ${general.work_dir}/data # where the tiles will be saved
+  raw_data_dir: data
+  raw_data_csv: data/images_to_samples_ci_csv.csv
+  sample_data_dir: data # where the hdf5 will be saved
   state_dict_path:
-  save_weights_dir: ${general.work_dir}/weights_saved
+  save_weights_dir: saved_model/${general.project_name}
 
 AWS:
   bucket_name:

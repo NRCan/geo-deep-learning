@@ -1,7 +1,6 @@
 import logging
 import math
 import re
-import warnings
 from pathlib import Path
 
 import numpy as np
@@ -123,10 +122,15 @@ def vis(vis_params,
 
     assert vis_path.parent.is_dir()
     vis_path.mkdir(exist_ok=True)
+    single_class_mode = False
     if not vis_params[
         'inference_input_path']:  # FIXME: function parameters should not come in as different types if inference or not.
         input_ = input_.cpu().permute(1, 2, 0).numpy()  # channels last
-        output = F.softmax(output, dim=0)  # Inference output is already softmax
+        if output.shape[0] == 1:
+            output = torch.sigmoid(output)  # use sigmoid for single class
+            single_class_mode = True
+        else:
+            output = F.softmax(output, dim=0)  # use softmax for multiclass (note: not applied for inference)
         output = output.detach().cpu().permute(1, 2, 0).numpy()  # channels last
         if label is not None:
             label_copy = label.cpu().numpy().copy()
@@ -138,16 +142,21 @@ def vis(vis_params,
     if vis_params['mean'] and vis_params['std']:
         input_ = unnormalize(input_img=input_, mean=vis_params['mean'], std=vis_params['std'])
     input_ = unscale(img=input_, float_range=(scale[0], scale[1]), orig_range=(0, 255)) if scale else input_
+    mode = 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
     if 1 <= input_.shape[2] <= 2:
-        input_ = input_[:, :, :1]  # take first band (will become grayscale image)
-        input_ = np.squeeze(input_)
+        input_ = np.squeeze(input_[:, :, :1], axis=2)  # take first band (will become grayscale image)
+        mode = 'L'
     elif input_.shape[2] >= 3:
         input_ = input_[:, :, :3]  # take three first bands assuming they are RGB in correct order
-    mode = 'L' if input_.shape[2] == 1 else 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
+
     input_PIL = Image.fromarray(input_.astype(np.uint8), mode=mode)  # TODO: test this with grayscale input.
 
     # Give value of class to band with highest value in final inference
-    output_argmax = np.argmax(output, axis=2).astype(np.uint8)  # Flatten along channels axis. Convert to 8bit
+
+    if single_class_mode:
+        output_acv = np.squeeze(output, axis=2).astype(np.uint8)
+    else:
+        output_acv = np.argmax(output, axis=2).astype(np.uint8)  # Flatten along channels axis. Convert to 8bit
 
     # Define colormap and names of classes with respect to grayscale values
     classes, cmap = colormap_reader(output, vis_params['colormap_file'], default_colormap='Set1')
@@ -156,8 +165,8 @@ def vis(vis_params,
                                      debug=debug)  # Prepare heatmaps from softmax output
 
     # Convert output and label, if provided, to RGB with matplotlib's colormap object
-    output_argmax_color = cmap(output_argmax)
-    output_argmax_PIL = Image.fromarray((output_argmax_color[:, :, :3] * 255).astype(np.uint8), mode='RGB')
+    output_acv_color = cmap(output_acv)
+    output_acv_PIL = Image.fromarray((output_acv_color[:, :, :3] * 255).astype(np.uint8), mode='RGB')
     if not inference_input_path and label is not None:
         label_color = cmap(label_copy)
         label_PIL = Image.fromarray((label_color[:, :, :3] * 255).astype(np.uint8), mode='RGB')
@@ -165,11 +174,11 @@ def vis(vis_params,
         label_PIL = None
 
     if inference_input_path is not None:
-        if debug and len(np.unique(output_argmax)) == 1:
-            warnings.warn(f'Inference contains only {np.unique(output_argmax)} value. Make sure data scale '
+        if debug and len(np.unique(output_acv)) == 1:
+            logging.warning(f'Inference contains only {np.unique(output_acv)} value. Make sure data scale '
                           f'{scale} is identical with scale used for training model.')
         output_name = vis_path.joinpath(f"{inference_input_path.stem}_inference.tif")
-        create_new_raster_from_base(inference_input_path, output_name, output_argmax)
+        create_new_raster_from_base(inference_input_path, output_name, output_acv)
 
         if vis_params['heatmaps_inf']:
             for key in heatmaps_dict.keys():
@@ -178,7 +187,7 @@ def vis(vis_params,
                 heatmap_name = vis_path.joinpath(f"{inference_input_path.stem}_inference_heatmap_{class_name}.tif")
                 create_new_raster_from_base(inference_input_path, heatmap_name, heatmap)
     elif vis_params['grid']:  # SAVE PIL IMAGES AS GRID
-        grid = grid_vis(input_PIL, output_argmax_PIL, heatmaps_dict, label=label_PIL, heatmaps=vis_params['heatmaps'])
+        grid = grid_vis(input_PIL, output_acv_PIL, heatmaps_dict, label=label_PIL, heatmaps=vis_params['heatmaps'])
         grid.savefig(vis_path.joinpath(f'{dataset}_{sample_num:03d}_ep{ep_num:03d}.png'))
         plt.close()
     else:  # SAVE PIL IMAGES DIRECTLY TO FILE
@@ -186,7 +195,7 @@ def vis(vis_params,
             input_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_satimg.jpg'))
             if not inference_input_path and label is not None:
                 label_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_label.png'))  # save label
-        output_argmax_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_output_ep{ep_num:03d}.png'))
+        output_acv_PIL.save(vis_path.joinpath(f'{dataset}_{sample_num:03d}_output_ep{ep_num:03d}.png'))
         if vis_params['heatmaps']:  # TODO: test this.
             for key in heatmaps_dict.keys():
                 heatmap = heatmaps_dict[key]['heatmap_PIL']

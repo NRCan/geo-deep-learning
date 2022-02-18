@@ -6,7 +6,6 @@ import numpy as np
 np.random.seed(1234)  # Set random seed for reproducibility
 import warnings
 import rasterio
-import fiona
 import shutil
 import time
 import json
@@ -14,16 +13,28 @@ import json
 from pathlib import Path
 from tqdm import tqdm
 from collections import Counter
-from typing import List, Union
+from typing import List
+from ruamel_yaml import YAML
 
 from utils.create_dataset import create_files_and_datasets
 from utils.utils import get_key_def, pad, pad_diff, add_metadata_from_raster_to_sample
 from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
-from utils.readers import read_parameters
 from utils.verifications import assert_crs_match, validate_num_classes
-from rasterio.mask import mask
 from rasterio.windows import Window
 from rasterio.plot import reshape_as_image
+
+
+def read_parameters(param_file):
+    """Read and return parameters in .yaml file
+    Args:
+        param_file: Full file path of the parameters file
+    Returns:
+        YAML (Ruamel) CommentedMap dict-like object
+    """
+    yaml = YAML()
+    with open(param_file) as yamlfile:
+        params = yaml.load(yamlfile)
+    return params
 
 
 def validate_class_prop_dict(actual_classes_dict, config_dict):
@@ -109,7 +120,7 @@ def process_vector_label(rst_pth, gpkg_pth, ids):
                                         out_shape=(src.height, src.width),
                                         attribute_name='properties/Quatreclasses',
                                         fill=0,
-                                        target_ids=ids,
+                                        attribute_values=ids,
                                         merge_all=True,
                                         )
         return np_label
@@ -305,8 +316,6 @@ def main(params):
     overlap = params["sample"]["overlap"]
     dist_samples = round(samples_size * (1 - (overlap / 100)))
     min_annot_perc = get_key_def('min_annotated_percent', params['sample']['sampling_method'], None, expected_type=int)
-    ignore_index = get_key_def('ignore_index', params['training'], -1)
-    meta_map = get_key_def('meta_map', params['global'], default={})
 
     list_params = params['read_img']
     source_pan = get_key_def('pan', list_params['source'], default=False, expected_type=bool)
@@ -342,7 +351,6 @@ def main(params):
     Path.mkdir(samples_folder, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
                                                              number_of_bands=num_bands,
-                                                             meta_map=meta_map,
                                                              samples_folder=samples_folder,
                                                              params=params)
 

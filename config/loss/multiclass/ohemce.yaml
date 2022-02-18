@@ -1,0 +1,5 @@
+# @package _global_
+loss:
+    _target_: losses.ohem_loss.OhemCrossEntropy2d
+    ignore_index: ${dataset.ignore_index}
+    is_binary: False

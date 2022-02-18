@@ -9,14 +9,15 @@ import torch.nn as nn
 import segmentation_models_pytorch as smp
 import torchvision.models as models
 ###############################
+from hydra.utils import instantiate
+
 from utils.layersmodules import LayersEnsemble
 ###############################
 from tqdm import tqdm
 from utils.optimizer import create_optimizer
-from losses import MultiClassCriterion
 import torch.optim as optim
 from models import TernausNet, unet, checkpointed_unet, inception
-from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
+from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, set_device
 
 logging.getLogger(__name__)
 
@@ -36,13 +37,12 @@ lm_smp = {
             'encoder_depth': 4,
             'decoder_channels': [256, 128, 64, 32]
         }},
-    'fpn_pretrained': {
-        'fct': smp.FPN, 'params': {
-            'encoder_name': 'resnext50_32x4d',
-        }},
-    'pspnet_pretrained': {
-        'fct': smp.PSPNet, 'params': {
-            'encoder_name': "resnext50_32x4d",
+    'unet_plus_pretrained': {
+        'fct': smp.UnetPlusPlus, 'params': {
+            'encoder_name': 'se_resnext50_32x4d',
+            'encoder_depth': 4,
+            'decoder_channels': [256, 128, 64, 32],
+            'decoder_attention_type': 'scse'
         }},
     'deeplabv3+_pretrained': {
         'fct': smp.DeepLabV3Plus, 'params': {
@@ -108,10 +108,8 @@ def verify_weights(num_classes, weights):
 
 
 def set_hyperparameters(params,
-                        num_classes,
                         model,
                         checkpoint,
-                        dontcare_val,
                         loss_fn,
                         optimizer,
                         class_weights=None,
@@ -137,9 +135,11 @@ def set_hyperparameters(params,
     gamma = get_key_def('gamma', params['scheduler']['params'], 0.9)
     class_weights = torch.tensor(class_weights) if class_weights else None
     # Loss function
-    criterion = MultiClassCriterion(loss_type=loss_fn,
-                                    ignore_index=dontcare_val,
-                                    weight=class_weights)
+    if loss_fn['_target_'] in ['torch.nn.CrossEntropyLoss', 'losses.focal_loss.FocalLoss',
+                               'losses.ohem_loss.OhemCrossEntropy2d']:
+        criterion = instantiate(loss_fn, weight=class_weights)
+    else:
+        criterion = instantiate(loss_fn)
     # Optimizer
     opt_fn = optimizer
     optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
@@ -155,7 +155,6 @@ def set_hyperparameters(params,
 def net(model_name: str,
         num_bands: int,
         num_channels: int,
-        dontcare_val: int,
         num_devices: int,
         train_state_dict_path: str = None,
         pretrained: bool = True,
@@ -247,8 +246,6 @@ def net(model_name: str,
         # list of GPU devices that are available and unused. If no GPUs, returns empty list
         gpu_devices_dict = get_device_ids(num_devices)
         num_devices = len(gpu_devices_dict.keys())
-        logging.info(f"Number of cuda devices requested: {num_devices}. "
-                     f"Cuda devices available: {list(gpu_devices_dict.keys())}\n")
         if num_devices == 1:
             logging.info(f"\nUsing Cuda device 'cuda:{list(gpu_devices_dict.keys())[0]}'")
         elif num_devices > 1:
@@ -264,19 +261,13 @@ def net(model_name: str,
         else:
             logging.warning(f"No Cuda device available. This process will only run on CPU\n")
         logging.info(f'\nSetting model, criterion, optimizer and learning rate scheduler...')
-        device = torch.device(f'cuda:{list(range(len(gpu_devices_dict.keys())))[0]}' if gpu_devices_dict else 'cpu')
-        try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
-            model.to(device)
-        except AssertionError:
-            logging.exception(f"Unable to use device. Trying device 0...\n")
-            device = torch.device(f'cuda' if gpu_devices_dict else 'cpu')
-            model.to(device)
+
+        device = set_device(gpu_devices_dict=gpu_devices_dict)
+        model.to(device)
 
         model, criterion, optimizer, lr_scheduler = set_hyperparameters(params=net_params,
-                                                                        num_classes=num_channels,
                                                                         model=model,
                                                                         checkpoint=checkpoint,
-                                                                        dontcare_val=dontcare_val,
                                                                         loss_fn=loss_fn,
                                                                         optimizer=optimizer,
                                                                         class_weights=class_weights,

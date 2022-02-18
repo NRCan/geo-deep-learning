@@ -1,8 +1,9 @@
 import time
+import shutil
 import torch
-import warnings
 import numpy as np
 from PIL import Image
+from hydra.utils import to_absolute_path
 from tqdm import tqdm
 from pathlib import Path
 from shutil import copy
@@ -10,27 +11,25 @@ from datetime import datetime
 from typing import Sequence
 from collections import OrderedDict
 from omegaconf import DictConfig
-from omegaconf.errors import ConfigKeyError
 
+from torch.utils.data import DataLoader
+from utils import augmentation as aug, create_dataset
+from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path, get_logger, set_tracker
+from utils.metrics import report_classification, create_metrics_dict, iou
+from utils.logger import InformationLogger, tsv_line, dict_path
+from metrics import report_classification, create_metrics_dict, iou
+from models.model_choice import net, load_checkpoint, verify_weights
+from utils.utils import load_from_checkpoint, gpu_stats, get_key_def, read_modalities
+from utils.utils import load_from_checkpoint, gpu_stats, get_key_def
+from utils.visualization import vis_from_batch
 from tiling_segmentation import Tiler
+# Set the logging file
+logging = get_logger(__name__)  # import logging
 
 try:
     from pynvml import *
 except ModuleNotFoundError:
-    warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
-
-from torch.utils.data import DataLoader
-from utils import augmentation as aug, create_dataset
-from utils.logger import InformationLogger, tsv_line, dict_path
-from metrics import report_classification, create_metrics_dict, iou
-from models.model_choice import net, load_checkpoint, verify_weights
-from utils.utils import load_from_checkpoint, gpu_stats, get_key_def
-from utils.visualization import vis_from_batch
-from mlflow import log_params, set_tracking_uri, set_experiment, start_run
-# Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)  # import logging
-
+    logging.warning(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 def flatten_labels(annotations):
     """Flatten labels"""
@@ -105,7 +104,6 @@ def create_dataloader(samples_folder: Path,
         dataset_filepath = samples_folder / dataset_file
         datasets.append(dataset_constr(dataset_filepath, subset, num_bands,
                                        max_sample_count=num_samples[subset],
-                                       dontcare=dontcare_val,
                                        radiom_transform=aug.compose_transforms(params=cfg,
                                                                                dataset=subset,
                                                                                aug_type='radiometric'),
@@ -120,7 +118,6 @@ def create_dataloader(samples_folder: Path,
                                                                                  dontcare2backgr=dontcare2backgr,
                                                                                  dontcare=dontcare_val,
                                                                                  aug_type='totensor'),
-                                       params=cfg,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
@@ -174,12 +171,11 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     return eval_batch_size_rd
 
 
-def get_num_samples(samples_path, params, min_annot_perc, attr_vals, dontcare, experiment_name:str):
+def get_num_samples(samples_path, params, min_annot_perc, attr_vals, experiment_name:str):
     """
     Function to retrieve number of samples, either from config file or directly from hdf5 file.
     :param samples_path: (str) Path to samples folder
     :param params: (dict) Parameters found in the yaml config file.
-    :param dontcare:
     :return: (dict) number of samples for trn, val and tst.
     """
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
@@ -254,14 +250,8 @@ def vis_from_dataloader(vis_params,
         for batch_index, data in enumerate(_tqdm):
             if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
                 with torch.no_grad():
-                    try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-                        inputs = data['sat_img'].to(device)
-                        labels = data['map_img'].to(device)
-                    except RuntimeError:
-                        logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-                        device = torch.device('cuda')
-                        inputs = data['sat_img'].to(device)
-                        labels = data['map_img'].to(device)
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
 
                     outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
@@ -315,14 +305,8 @@ def training(train_loader,
     for batch_index, data in enumerate(tqdm(train_loader, desc=f'Iterating train batches with {device.type}')):
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
-        try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-            inputs = data['sat_img'].to(device)
-            labels = data['map_img'].to(device)
-        except RuntimeError:
-            logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-            device = torch.device('cuda')
-            inputs = data['sat_img'].to(device)
-            labels = data['map_img'].to(device)
+        inputs = data['sat_img'].to(device)
+        labels = data['map_img'].to(device)
 
         # forward
         optimizer.zero_grad()
@@ -349,7 +333,7 @@ def training(train_loader,
                                ep_num=ep_idx + 1,
                                scale=scale)
 
-        loss = criterion(outputs, labels)
+        loss = criterion(outputs, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
 
         train_metrics['loss'].update(loss.item(), batch_size)
 
@@ -412,14 +396,8 @@ def evaluation(eval_loader,
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
         with torch.no_grad():
-            try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
-            except RuntimeError:
-                logging.exception(f'\nUnable to use device {device}. Trying "cuda"')
-                device = torch.device('cuda')
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
+            inputs = data['sat_img'].to(device)
+            labels = data['map_img'].to(device)
 
             labels_flatten = flatten_labels(labels)
 
@@ -446,7 +424,7 @@ def evaluation(eval_loader,
 
             outputs_flatten = flatten_outputs(outputs, num_classes)
 
-            loss = criterion(outputs, labels)
+            loss = criterion(outputs, labels.unsqueeze(1).float())
 
             eval_metrics['loss'].update(loss.item(), batch_size)
 
@@ -517,10 +495,10 @@ def train(cfg: DictConfig) -> None:
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     # MANDATORY PARAMETERS
-    num_classes = len(get_key_def('classes_dict', cfg['dataset']).keys())
-    num_classes_corrected = num_classes + 1  # + 1 for background # FIXME temporary patch for num_classes problem.
+    class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
+    num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
     out_modalities = get_key_def('out_modalities', cfg['dataset'], expected_type=Sequence)
-    num_bands = len(out_modalities)
+    num_bands = len(read_modalities(cfg.dataset.modalities))
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
     num_epochs = get_key_def('max_epochs', cfg['training'], expected_type=int)
@@ -528,17 +506,20 @@ def train(cfg: DictConfig) -> None:
 
     # OPTIONAL PARAMETERS
     debug = get_key_def('debug', cfg)
-    task = get_key_def('task_name',  cfg['task'], default='segmentation')
+    task = get_key_def('task',  cfg['general'], default='segmentation')
     dontcare_val = get_key_def("ignore_index", cfg['dataset'], default=-1)
     scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
     batch_metrics = get_key_def('batch_metrics', cfg['training'], default=None)
     crop_size = get_key_def('target_size', cfg['training'], default=None)
-    if task != 'segmentation':
-        raise logging.critical(ValueError(f"\nThe task should be segmentation. The provided value is {task}"))
 
     # MODEL PARAMETERS
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
-    loss_fn = get_key_def('loss_fn', cfg['training'], default='CrossEntropy')
+    loss_fn = cfg.loss
+    if loss_fn.is_binary and not num_classes == 1:
+        raise ValueError(f"Parameter mismatch: a binary loss was chosen for a {num_classes}-class task")
+    elif not loss_fn.is_binary and num_classes == 1:
+        raise ValueError(f"Parameter mismatch: a multiclass loss was chosen for a 1-class (binary) task")
+    del loss_fn.is_binary  # prevent exception at instantiation
     optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam', expected_type=str)  # TODO change something to call the function
     pretrained = get_key_def('pretrained', cfg['model'], default=True, expected_type=bool)
     train_state_dict_path = get_key_def('state_dict_path', cfg['general'], default=None, expected_type=str)
@@ -549,7 +530,7 @@ def train(cfg: DictConfig) -> None:
             FileNotFoundError(f'\nCould not locate pretrained checkpoint for training: {train_state_dict_path}')
         )
     if class_weights:
-        verify_weights(num_classes_corrected, class_weights)
+        verify_weights(num_classes, class_weights)
     # Read the concatenation point
     # TODO: find a way to maybe implement it in classification one day
     conc_point = None
@@ -558,48 +539,24 @@ def train(cfg: DictConfig) -> None:
     # GPU PARAMETERS
     num_devices = get_key_def('num_gpus', cfg['training'], default=0)
     if num_devices and not num_devices >= 0:
-        raise logging.critical(ValueError("\nmissing mandatory num gpus parameter"))
-    default_max_used_ram = 15
-    max_used_ram = get_key_def('max_used_ram', cfg['training'], default=default_max_used_ram)
+        raise ValueError("\nMissing mandatory num gpus parameter")
+    max_used_ram = get_key_def('max_used_ram', cfg['training'], default=15)
     max_used_perc = get_key_def('max_used_perc', cfg['training'], default=15)
 
-    # LOGGING PARAMETERS TODO put option not just mlflow
+    # LOGGING PARAMETERS
+    run_name = get_key_def(['tracker', 'run_name'], cfg, default='gdl')
+    tracker_uri = get_key_def(['tracker', 'uri'], cfg, default=None, expected_type=str)
     experiment_name = get_key_def('project_name', cfg['general'], default='gdl-training')
-    try:
-        tracker_uri = get_key_def('uri', cfg['tracker'])
-        Path(tracker_uri).mkdir(exist_ok=True)
-        run_name = get_key_def('run_name', cfg['tracker'], default='gdl')  # TODO change for something meaningful
-    # meaning no logging tracker as been assigned or it doesnt exist in config/logging
-    except ConfigKeyError:
-        logging.info(
-            "\nNo logging tracker as been assigned or the yaml config doesnt exist in 'config/tracker'."
-            "\nNo tracker file will be saved in this case."
-        )
 
     # PARAMETERS FOR TILES
-    samples_size = get_key_def('tile_size', cfg['tiling'], default=512, expected_type=int)
-    min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], default=0)
+    samples_size = get_key_def("tile_size", cfg['tiling'], expected_type=int, default=256)
+    min_annot_perc = get_key_def('min_annotated_percent', cfg['dataset'], expected_type=int, default=0)
     attr_vals = get_key_def('attribute_vals', cfg['dataset'], None, expected_type=(Sequence, int))
-    # Data folder
-    try:
-        # check if the folder exist
-        raw_data_dir = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
-        logging.info("\nImage directory used '{}'".format(raw_data_dir))
-        data_path = Path(raw_data_dir)
-    except FileNotFoundError:
-        raise logging.critical(
-            "\nImage directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
-        )
-    # Output tiles data
-    try:
-        tiles_root_dir = Path(str(cfg.dataset.tiles_data_dir)).resolve(strict=True)
-        logging.info("\nThe tiling directory used '{}'".format(tiles_root_dir))
-        Path.mkdir(Path(tiles_root_dir), exist_ok=True, parents=True)
-    except FileNotFoundError:
-        logging.info(
-            f"\nThe tiling directory '{cfg.dataset.tiles_data_dir}' doesn't exist, please change the path."
-            f"\nFor now the tiling directory will default to '{data_path}'")
-        tiles_root_dir = cfg.general.tiles_data_dir = str(data_path)
+
+    data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
+    tiles_root_dir = get_key_def('tiles_data_dir', cfg['dataset'], default=data_path, to_path=True,
+                                 validate_path_exists=True)
+    logging.info("\nThe tiling directory used '{}'".format(tiles_root_dir))
 
     tiles_dir_name = Tiler.make_tiles_dir_name(samples_size, num_bands)
     tiles_dir = tiles_root_dir / experiment_name / tiles_dir_name
@@ -626,33 +583,29 @@ def train(cfg: DictConfig) -> None:
     for list_path in cfg.general.config_path:
         if list_path['provider'] == 'main':
             config_path = list_path['path']
-    config_name = str(cfg.general.config_name)
-    model_id = config_name
-    output_path = Path(f'model/{model_id}')
+    default_output_path = Path(to_absolute_path(f'{samples_folder}/model/{experiment_name}/{run_name}'))
+    output_path = get_key_def('save_weights_dir', cfg['general'], default=default_output_path, to_path=True)
+    if output_path.is_dir():
+        last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+        archive_output_path = output_path.parent / f"{output_path.stem}_{last_mod_time_suffix}"
+        shutil.move(output_path, archive_output_path)
     output_path.mkdir(parents=True, exist_ok=False)
-    logging.info(f'\nModel and log files will be saved to: {os.getcwd()}/{output_path}')
+    logging.info(f'\nModel will be saved to: {output_path}')
     if debug:
         logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
     if dontcare_val < 0 and vis_batch_range:
         logging.warning(f'\nVisualization: expected positive value for ignore_index, got {dontcare_val}.'
-                        f'Will be overridden to 255 during visualization only. Problems may occur.')
+                        f'\nWill be overridden to 255 during visualization only. Problems may occur.')
 
-    # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
-    dontcare2backgr = False
-    if loss_fn not in ['Lovasz', 'CrossEntropy', 'OhemCrossEntropy']:
-        dontcare2backgr = True
-        logging.warning(
-            f'\nDontcare is not implemented for loss function "{loss_fn}". '
-            f'\nDontcare values ({dontcare_val}) in label will be replaced with background value (0)'
-        )
+    # overwrite dontcare values in label if loss doens't implement ignore_index
+    dontcare2backgr = False if 'ignore_index' in loss_fn.keys() else True
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict = \
         net(model_name=model_name,
             num_bands=num_bands,
-            num_channels=num_classes_corrected,
-            dontcare_val=dontcare_val,
+            num_channels=num_classes,
             num_devices=num_devices,
             train_state_dict_path=train_state_dict_path,
             pretrained=pretrained,
@@ -663,7 +616,7 @@ def train(cfg: DictConfig) -> None:
             net_params=cfg,
             conc_point=conc_point)
 
-    logging.info(f'Instantiated {model_name} model with {num_classes_corrected} output channels.\n')
+    logging.info(f'Instantiated {model_name} model with {num_classes} output channels.\n')
 
     logging.info(f'Creating dataloaders from data in {tiles_dir}...\n')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=tiles_dir,
@@ -681,25 +634,11 @@ def train(cfg: DictConfig) -> None:
                                                                        dontcare2backgr=dontcare2backgr,
                                                                        debug=debug)
 
-    # Save tracking TODO put option not just mlflow
-    if 'tracker_uri' in locals() and 'run_name' in locals():
-        mode = get_key_def('mode', cfg, expected_type=str)
-        task = get_key_def('task_name', cfg['task'], expected_type=str)
-        run_name = '{}_{}_{}'.format(run_name, mode, task)
-        # tracking path + parameters logging
-        set_tracking_uri(tracker_uri)
-        set_experiment(experiment_name)
-        start_run(run_name=run_name)
-        log_params(dict_path(cfg, 'training'))
-        log_params(dict_path(cfg, 'dataset'))
-        log_params(dict_path(cfg, 'model'))
-        log_params(dict_path(cfg, 'optimizer'))
-        log_params(dict_path(cfg, 'scheduler'))
-        log_params(dict_path(cfg, 'augmentation'))
-        # TODO change something to not only have the mlflow option
-        trn_log = InformationLogger('trn')
-        val_log = InformationLogger('val')
-        tst_log = InformationLogger('tst')
+    # Save tracking
+    set_tracker(mode='train', type='mlflow', task='segmentation', experiment_name=experiment_name, run_name=run_name,
+                tracker_uri=tracker_uri, params=cfg,
+                keys2log=['general', 'training', 'dataset', 'model', 'optimizer', 'scheduler', 'augmentation'])
+    trn_log, val_log, tst_log = [InformationLogger(dataset) for dataset in ['trn', 'val', 'tst']]
 
     since = time.time()
     best_loss = 999
@@ -716,8 +655,7 @@ def train(cfg: DictConfig) -> None:
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment).
         # Check once for all visualization tasks.
-        if not isinstance(vis_batch_range, list) and len(vis_batch_range) == 3 and all(isinstance(x, int)
-                                                                                       for x in vis_batch_range):
+        if not len(vis_batch_range) == 3 and all(isinstance(x, int) for x in vis_batch_range):
             raise logging.critical(
                 ValueError(f'\nVis_batch_range expects three integers in a list: start batch, end batch, increment.'
                            f'Got {vis_batch_range}')
@@ -746,7 +684,7 @@ def train(cfg: DictConfig) -> None:
                               criterion=criterion,
                               optimizer=optimizer,
                               scheduler=lr_scheduler,
-                              num_classes=num_classes_corrected,
+                              num_classes=num_classes,
                               batch_size=batch_size,
                               ep_idx=epoch,
                               progress_log=progress_log,
@@ -759,7 +697,7 @@ def train(cfg: DictConfig) -> None:
         val_report = evaluation(eval_loader=val_dataloader,
                                 model=model,
                                 criterion=criterion,
-                                num_classes=num_classes_corrected,
+                                num_classes=num_classes,
                                 batch_size=batch_size,
                                 ep_idx=epoch,
                                 progress_log=progress_log,
@@ -820,7 +758,7 @@ def train(cfg: DictConfig) -> None:
         tst_report = evaluation(eval_loader=tst_dataloader,
                                 model=model,
                                 criterion=criterion,
-                                num_classes=num_classes_corrected,
+                                num_classes=num_classes,
                                 batch_size=batch_size,
                                 ep_idx=num_epochs,
                                 progress_log=progress_log,

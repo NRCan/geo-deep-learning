@@ -35,7 +35,7 @@ def validate_num_classes(vector_file: Union[str, Path],
                          num_classes: int,
                          attribute_name: str,
                          ignore_index: int,
-                         target_ids: List):
+                         attribute_values: List):
     """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
     FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
     Args:
@@ -44,7 +44,7 @@ def validate_num_classes(vector_file: Union[str, Path],
         :param attribute_name: name of the value field representing the required classes in the vector image file
         :param ignore_index: (int) target value that is ignored during training and does not contribute to
                              the input gradient
-        :param target_ids: list of identifiers to burn from the vector file (None = use all)
+        :param attribute_values: list of identifiers to burn from the vector file (None = use all)
     Return:
         List of unique attribute values found in gpkg vector file
     """
@@ -63,15 +63,15 @@ def validate_num_classes(vector_file: Union[str, Path],
         unique_att_vals.remove(ignore_index)
 
     # if burning a subset of gpkg's classes
-    if target_ids:
-        if not len(target_ids) == num_classes:
+    if attribute_values:
+        if not len(attribute_values) == num_classes:
             raise ValueError(f'Yaml parameters mismatch. \n'
-                             f'Got target_ids {target_ids} (sample sect) with length {len(target_ids)}. '
+                             f'Got values {attribute_values} (sample sect) with length {len(attribute_values)}. '
                              f'Expected match with num_classes {num_classes} (global sect))')
         # make sure target ids are a subset of all attribute values in gpkg
-        if not set(target_ids).issubset(unique_att_vals):
+        if not set(attribute_values).issubset(unique_att_vals):
             logging.warning(f'\nFailed scan of vector file: {vector_file}\n'
-                            f'\tExpected to find all target ids {target_ids}. \n'
+                            f'\tExpected to find all target ids {attribute_values}. \n'
                             f'\tFound {unique_att_vals} for attribute "{attribute_name}"')
     else:
         # this can happen if gpkg doens't contain all classes, thus the warning rather than exception
@@ -81,31 +81,11 @@ def validate_num_classes(vector_file: Union[str, Path],
         elif len(unique_att_vals) > num_classes:
             raise ValueError(
                 f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
-
-    return unique_att_vals
-
-
-def add_background_to_num_class(task: str, num_classes: int):
-    # FIXME temporary patch for num_classes problem.
-    """
-    Adds one to number of classes for all segmentation tasks.
-
-    param task: (str) task to perform. Either segmentation or classification
-    param num_classes: (int) number of classes in task
-
-    Returns number of classes corrected (+1) if task is segmentation
-    """
-    if task == 'segmentation':
-        # assume background is implicitly needed (makes no sense to predict with one class, for example.)
-        # this will trigger some warnings elsewhere, but should succeed nonetheless
-        return num_classes + 1  # + 1 for background
-    elif task == 'classification':
-        return num_classes
-    else:
-        raise NotImplementedError(f'Task should be either classification or segmentation. Got "{task}"')
+    num_classes_ = set([i for i in range(num_classes + 1)])
+    return num_classes_
 
 
-def validate_raster(raster_path: Union[str, Path], verbose: bool = True, extended: bool = False):
+def validate_raster(raster_path: Union[str, Path], num_bands: int):
     """
     Checks if raster is valid, i.e. not corrupted (based on metadata, or actual byte info if under size threshold)
     @param raster_path: Path to raster to validate

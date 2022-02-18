@@ -2,27 +2,10 @@ import logging
 
 import numpy as np
 import rasterio
-from ruamel_yaml import YAML
-from tqdm import tqdm
-from pathlib import Path
-from skimage import morphology
 
-from utils.geoutils import vector_to_raster, clip_raster_with_gpkg
+from utils.geoutils import clip_raster_with_gpkg
 
 logger = logging.getLogger(__name__)
-
-
-def read_parameters(param_file):
-    """Read and return parameters in .yaml file
-    Args:
-        param_file: Full file path of the parameters file
-    Returns:
-        YAML (Ruamel) CommentedMap dict-like object
-    """
-    yaml = YAML()
-    with open(param_file) as yamlfile:
-        params = yaml.load(yamlfile)
-    return params
 
 
 def image_reader_as_array(input_image,

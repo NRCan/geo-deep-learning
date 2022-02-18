@@ -1,9 +1,14 @@
-import warnings
 from pathlib import Path
+
+# Set the logging file
+from utils.logger import get_logger
+
+logging = get_logger(__name__)  # import logging
+
 try:
     import boto3
 except ModuleNotFoundError:
-    warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
+    logging.warning('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
     pass
 
 
