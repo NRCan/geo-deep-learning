@@ -24,7 +24,7 @@ from models.model_choice import net
 from utils import augmentation
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
     list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, set_device
-from utils.verifications import validate_raster
+from utils.verifications import validate_input_imagery
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -75,7 +75,7 @@ def ras2vec(raster_file, output_path):
     # Vectorize the polygons
     polygons = features.shapes(raster, mask, transform=src.transform)
 
-    # Create shapely polygon featyres
+    # Create shapely polygon features
     for polygon in polygons:
         feature = {'geometry': {
             'type': 'Polygon',
@@ -109,7 +109,7 @@ def ras2vec(raster_file, output_path):
 
 def gen_img_samples(src, chunk_size, step, *band_order):
     """
-
+    TODO
     Args:
         src: input image (rasterio object)
         chunk_size: image tile size
@@ -163,43 +163,32 @@ def segmentation(param,
     Returns:
 
     """
-    padded = chunk_size * 2
-    h, w = input_image.shape
-    h_padded = h + padded
-    w_padded = w + padded
+    subdiv = 2
+    threshold = 0.5
+    sample = {'sat_img': None, 'map_img': None, 'metadata': None}
+    start_seg = time.time()
+    print_log = True if logging.level == 20 else False  # 20 is INFO
+    pad = chunk_size * 2
+    h_padded, w_padded = [side + pad for side in input_image.shape]
     dist_samples = int(round(chunk_size * (1 - 1.0 / 2.0)))
 
-    # switch to evaluate mode
-    model.eval()
+    model.eval()  # switch to evaluate mode
 
     # initialize test time augmentation
     transforms = tta.Compose([tta.HorizontalFlip(), ])
     # construct window for smoothing
-    WINDOW_SPLINE_2D = _window_2D(window_size=padded, power=2.0)
+    WINDOW_SPLINE_2D = _window_2D(window_size=pad, power=2.0)
     WINDOW_SPLINE_2D = torch.as_tensor(np.moveaxis(WINDOW_SPLINE_2D, 2, 0), ).type(torch.float)
     WINDOW_SPLINE_2D = WINDOW_SPLINE_2D.to(device)
 
     fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(h_padded, w_padded, num_classes))
-    sample = {'sat_img': None, 'map_img': None, 'metadata': None}
-    cnt = 0
-    subdiv = 2
     step = int(chunk_size / subdiv)
     total_inf_windows = int(np.ceil(input_image.height / step) * np.ceil(input_image.width / step))
-    img_gen = gen_img_samples(src=input_image,
-                              chunk_size=chunk_size,
-                              step=step)
-    single_class_mode = True
-    threshold = 0.5
-    if num_classes > 1:
-        single_class_mode = False
-    start_seg = time.time()
-    print_log = True
-    for img in tqdm(img_gen, position=1, leave=False,
+    img_gen = gen_img_samples(src=input_image, chunk_size=chunk_size, step=step)
+    single_class_mode = False if num_classes > 1 else True
+    for sub_image, row, col in tqdm(img_gen, position=1, leave=False,
                     desc=f'Inferring on window slices of size {chunk_size}',
                     total=total_inf_windows):
-        row = img[1]
-        col = img[2]
-        sub_image = img[0]
         image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
                                                             raster_handle=input_image,
                                                             raster_info={})
@@ -243,11 +232,10 @@ def segmentation(param,
         if single_class_mode:
             outputs = torch.sigmoid(outputs)
         outputs = outputs.permute(1, 2, 0)
-        outputs = outputs.reshape(padded, padded, num_classes).cpu().numpy().astype('float16')
+        outputs = outputs.reshape(pad, pad, num_classes).cpu().numpy().astype('float16')
         outputs = outputs[dist_samples:-dist_samples, dist_samples:-dist_samples, :]
         fp[row:row + chunk_size, col:col + chunk_size, :] = \
             fp[row:row + chunk_size, col:col + chunk_size, :] + outputs
-        cnt += 1
     fp.flush()
     del fp
 
@@ -264,7 +252,7 @@ def segmentation(param,
         else:
             arr1 = arr1.argmax(axis=-1).astype('uint8')
         pred_img[row:row + chunk_size, col:col + chunk_size] = arr1
-    pred_img = pred_img[:h, :w]
+    pred_img = pred_img[:h_padded-pad, :w_padded-pad]
     end_seg = time.time() - start_seg
     logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
 
@@ -289,7 +277,7 @@ def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 
     smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
     # rule of thumb to determine max chunk size based on approximate max pixels a gpu can handle during inference
     max_chunk_size = sqrt(max_pix_per_mb_gpu * smallest_gpu_ram)
-    max_chunk_size_rd = int(max_chunk_size - (max_chunk_size % 256))  # round to closest multiple of 256
+    max_chunk_size_rd = int(max_chunk_size - (max_chunk_size % 256))  # round to the closest multiple of 256
     logging.info(f'Data will be split into chunks of {max_chunk_size_rd}')
     return max_chunk_size_rd
 
@@ -308,9 +296,8 @@ def main(params: dict) -> None:
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
     modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
-    BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
     num_bands = len(modalities)
-    debug = get_key_def('debug', params, default=False, expected_type=bool)
+    BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
 
     # SETTING OUTPUT DIRECTORY
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
@@ -330,27 +317,25 @@ def main(params: dict) -> None:
                 tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
 
     # OPTIONAL PARAMETERS
-    num_devices = get_key_def('num_gpus', params['training'], default=0, expected_type=int)
-    default_max_used_ram = 25
-    max_used_ram = get_key_def('max_used_ram', params['training'], default=default_max_used_ram, expected_type=int)
-    max_used_perc = get_key_def('max_used_perc', params['training'], default=25, expected_type=int)
+    num_devices = get_key_def('gpu', params['inference'], default=0, expected_type=(int, bool))
+    max_used_ram = get_key_def('max_used_ram', params['inference'], default=25, expected_type=int)
+    if not (0 <= max_used_ram <= 100):
+        raise ValueError(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}.')
+    max_used_perc = get_key_def('max_used_perc', params['inference'], default=25, expected_type=int)
     scale = get_key_def('scale_data', params['augmentation'], default=[0, 1], expected_type=ListConfig)
-    raster_to_vec = get_key_def('ras2vec', params['inference'], False) # FIXME not implemented with hydra
-
+    raster_to_vec = get_key_def('ras2vec', params['inference'], default=False)
+    debug = get_key_def('debug', params, default=False, expected_type=bool)
     if debug:
         logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
 
     # list of GPU devices that are available and unused. If no GPUs, returns empty dict
     gpu_devices_dict = get_device_ids(num_devices, max_used_ram_perc=max_used_ram, max_used_perc=max_used_perc)
-    chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
-    chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict, max_pix_per_mb_gpu=50, default=chunk_size)
-
-    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
-    if not (0 <= max_used_ram <= 100):
-        logging.warning(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}. '
-                        f'Will set default value of {default_max_used_ram} %')
-        max_used_ram = default_max_used_ram
+    max_pix_per_mb_gpu = get_key_def('max_pix_per_mb_gpu', params['inference'], default=25, expected_type=int)
+    auto_chunk_size = calc_inference_chunk_size(gpu_devices_dict=gpu_devices_dict,
+                                                max_pix_per_mb_gpu=max_pix_per_mb_gpu, default=512)
+    chunk_size = get_key_def('chunk_size', params['inference'], default=auto_chunk_size, expected_type=int)
+    device = set_device(gpu_devices_dict=gpu_devices_dict)
 
     # AWS
     bucket = None
@@ -363,7 +348,6 @@ def main(params: dict) -> None:
                                                num_devices=1,
                                                net_params=params,
                                                inference_state_dict=state_dict)
-    device = set_device(gpu_devices_dict=gpu_devices_dict)
     model, _ = load_from_checkpoint(loaded_checkpoint, model, bucket=bucket, strict_loading=True)
     model.to(device)
 
@@ -372,7 +356,8 @@ def main(params: dict) -> None:
 
     # VALIDATION: anticipate problems with imagery before entering main for loop
     for info in tqdm(list_img, desc='Validating imagery'):
-        validate_raster(info['tif'], num_bands)
+        is_valid = validate_input_imagery(info['tif'], num_bands=num_bands, extended=debug)
+        # TODO: exclude invalid imagery at inference (prevent execution break)
     logging.info('\nSuccessfully validated imagery')
 
     # LOOP THROUGH LIST OF INPUT IMAGES
