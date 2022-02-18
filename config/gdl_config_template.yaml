@@ -32,7 +32,7 @@ general:
   min_epochs: 1 # for train only
   raw_data_dir: data
   raw_data_csv: data/images_to_samples_ci_csv.csv
-  sample_data_dir: data # where the hdf5 will be saved
+  tiles_data_dir: data # where the tiles will be saved
   state_dict_path:
   save_weights_dir: saved_model/${general.project_name}
 

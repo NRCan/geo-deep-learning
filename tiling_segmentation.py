@@ -17,7 +17,6 @@ import numpy as np
 from shapely.geometry import Polygon, box
 from tqdm import tqdm
 from omegaconf import DictConfig, open_dict
-from hydra.core.hydra_config import HydraConfig
 
 # Our modules
 from utils.utils import (
@@ -380,7 +379,7 @@ class Tiler(object):
         @return: Tiler instance
         """
         aois = {}
-        data_list = read_csv(csv_path, data_path=csv_path.parent)
+        data_list = read_csv(csv_path)
         logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
                      f'\tNumber of rows: {len(data_list)}\n'
                      f'\tCopying first row:\n{data_list[0]}\n')
@@ -752,42 +751,15 @@ def main(cfg: DictConfig) -> None:
     # TODO add the Victor module to manage the modalities
     in_bands = get_key_def('in_bands', cfg['dataset'], expected_type=Sequence)
     out_modalities = get_key_def('out_modalities', cfg['dataset'], expected_type=Sequence)
-    num_bands = len(out_modalities)
+    num_bands = len(cfg.dataset.out_modalities)
     bands_idxs = select_modalities(in_bands=in_bands, out_modalities=out_modalities)
     debug = cfg.debug
     dry_run = cfg.dry_run
 
     # RAW DATA PARAMETERS
-    # Data folder
-    try:
-        # check if the folder exist
-        raw_data_dir = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
-        logging.info("\nImage directory used '{}'".format(raw_data_dir))
-        data_path = Path(raw_data_dir)
-    except FileNotFoundError:
-        raise logging.critical(
-            "\nImage directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
-        )
-    # CSV file
-    try:
-        my_csv_path = Path(cfg.dataset.raw_data_csv).resolve(strict=True)
-        # path.exists(cfg.dataset.raw_data_csv)
-        logging.info("\nImage csv: '{}'".format(my_csv_path))
-        csv_file = my_csv_path
-    except FileNotFoundError:
-        raise logging.critical(
-            "\nImage csv '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_csv)
-        )
-    # Output tiles data
-    try:
-        tiles_dir = Path(str(cfg.dataset.tiles_data_dir)).resolve(strict=True)
-        logging.info("\nThe tiling directory used '{}'".format(tiles_dir))
-        Path.mkdir(Path(tiles_dir), exist_ok=True, parents=True)
-    except FileNotFoundError:
-        logging.info(
-            f"\nThe tiling directory '{cfg.dataset.tiles_data_dir}' doesn't exist, please change the path."
-            f"\nFor now the tiling directory will default to '{data_path}'")
-        cfg.general.tiles_data_dir = str(data_path)
+    data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
+    csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
+    tiles_dir = get_key_def('tiles_data_dir', cfg['dataset'], default=data_path, to_path=True, validate_path_exists=True)
 
     # SAMPLE PARAMETERS
     samples_size = get_key_def('tile_size', cfg['tiling'], default=512, expected_type=int)
@@ -808,7 +780,7 @@ def main(cfg: DictConfig) -> None:
         cfg.general.git_hash = get_git_hash()
 
     experiment_name = cfg.general.project_name
-    exp_dir = data_path / experiment_name
+    exp_dir = data_path / experiment_name if not tiles_dir else tiles_dir
     if exp_dir.is_dir():
         print(f'WARNING: Data path exists: {exp_dir}. Make sure samples belong to the same experiment.')
     Path.mkdir(exp_dir, exist_ok=True, parents=True)

@@ -423,7 +423,7 @@ def read_csv(csv_file_name):
             row_lengths_set.update([len(row)])
             if not len(row_lengths_set) == 1:
                 raise ValueError(f"Rows in csv should be of same length. Got rows with lenght: {row_lengths_set}")
-            row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
+            row.extend([None] * (6 - len(row)))  # fill row with None values to obtain row of length == 6
             row[0] = to_absolute_path(row[0])  # Convert relative paths to absolute with hydra's util to_absolute_path()
             if not Path(row[0]).is_file():
                 raise FileNotFoundError(f"Raster not found: {row[0]}")
@@ -438,7 +438,9 @@ def read_csv(csv_file_name):
                               f"csv will be ignored. Got: {row[3]}")
             # save all values
             list_values.append(
-                {'tif': str(row[0]), 'meta': row[1], 'gpkg': str(row[2]), 'attribute_name': row[3], 'dataset': row[4]})
+                {'tif': str(row[0]), 'meta': row[1], 'gpkg': str(row[2]), 'attribute_name': row[3], 'dataset': row[4],
+                 'aoi': row[5]}
+                )
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
         list_values = sorted(list_values, key=lambda k: k['dataset'])
@@ -571,6 +573,29 @@ def read_modalities(modalities: str) -> list:
     else:
         modalities = list(str(modalities))
     return modalities
+
+
+def select_modalities(in_bands: List, out_modalities: List) -> List:
+    """
+    Select and order bands from available input bands to desired output bands
+    -------
+    :param in_bands: (List) Original positions of the bands to select and move.
+    :param out_modalities: (List) Destination positions for the original bands being selected.
+                            This list must be a subset of in_bands list.
+    -------
+    :returns: tuple of indices of desired input bands according to desired output order.
+    Examples
+    --------
+    >>> select_modalities(in_bands=["B", "G", "R", "N"], out_modalities=["R", "G", "B", "N"])
+    (2, 1, 0, 3)
+    >>> select_modalities(in_bands=["B", "G", "R", "N"], out_modalities=["N", "G", "R"])
+    (3, 1, 2)
+    """
+    if not set(out_modalities).issubset(set(in_bands)):
+        raise ValueError("Desired output modalities must be a subset of in_bands list")
+    # *Note:* per ``rasterio`` convention, indexing starts at ``1``, not ``0``, thus the +1
+    out_band_idx = tuple([in_bands.index(x)+1 for x in out_modalities])
+    return out_band_idx
 
 
 def getpath(d, path):
