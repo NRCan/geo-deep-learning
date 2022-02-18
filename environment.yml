@@ -20,6 +20,7 @@ dependencies:
   - pytest>=7.0.0
   - python>=3.9.2
   - rich>=11.1.0
+  - rio-tiler>=3.0.3
   - rtree>=0.9.7
   - scikit-image>=0.18.1
   - setuptools=49.6.0
