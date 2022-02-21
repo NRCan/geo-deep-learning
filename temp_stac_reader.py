@@ -20,9 +20,11 @@ from solaris.utils import tile
 from solaris.utils.geo import split_geom
 import torch
 from torch import Tensor
+from torch.utils.data import DataLoader
 from torchgeo.samplers import GridGeoSampler
-from torchgeo.datasets import GeoDataset, BoundingBox, SpaceNet1, CDL, ChesapeakeCVPR, VisionDataset, RasterDataset
-from torchgeo.datasets.utils import download_url, disambiguate_timestamp
+from torchgeo.datasets import GeoDataset, BoundingBox, SpaceNet1, CDL, ChesapeakeCVPR, VisionDataset, RasterDataset, \
+    ChesapeakeNY
+from torchgeo.datasets.utils import download_url, disambiguate_timestamp, stack_samples
 from tqdm import tqdm
 
 test_asset_dict = {
@@ -64,107 +66,7 @@ class SingleBandItemEO(ItemEOExtension):
         return self._assets_by_common_name
 
 
-class InferenceDataset(VisionDataset):
-    def __init__(
-            self,
-            item_url: str,
-            chip_size: int = 512,
-            resize_factor: int = 1,
-            use_projection_units=False,
-            root: str = 'data',
-            modalities: Sequence = ("red", "blue", "green"),
-            download: bool = False,
-            debug: bool = False,
-    ) -> None:
-        """Initialize a new CCCOT Dataset instance.
-
-        Arguments
-        ---------
-            item_url: TODO
-            chip_size : `tuple` of `int`s
-                The size of the input chips in ``(y, x)`` coordinates. By default,
-                this is in pixel units; this can be changed to metric units using the
-                `use_metric_size` argument.
-                "Chip" is preferred to "tile" with respect to torchgeo's glossary
-                https://torchgeo.readthedocs.io/en/latest/user/glossary.html#term-chip
-            resize_factor: TODO
-            use_projection_units : bool, optional
-                Is `chip_size` in pixel units (default) or distance units? To set to distance units
-                use ``use_projection_units=True``. If False, resolution must be supplied.
-            root: root directory where dataset can be found
-            modalities: band selection which must be a list of STAC Item common names from eo extension.
-                        See: https://github.com/stac-extensions/eo/#common-band-names
-            download: if True, download dataset and store it in the root directory.
-        """
-        self.item_url = item_url
-        self.modalities = modalities
-        self.root = root
-        self.download = download
-        self.debug = debug
-
-        self.item = SingleBandItemEO(pystac.Item.from_file(item_url))
-        self.assets_dict = self.item.asset_by_common_name  # test_asset_dict
-        self.assets_name = tuple(self.assets_dict[band]['name'] for band in self.modalities)
-
-        self.src = rasterio.open(list(self.assets_dict.values())[0]['href'])
-        self.resizing_factor = resize_factor
-        self.dest_chip_size = chip_size
-        self.src_chip_size = self.get_src_tile_size()
-        self.use_projection_units = use_projection_units
-        self.chip_bounds = split_geom(
-            geometry=list(self.src.bounds),
-            tile_size=(self.src_chip_size, self.src_chip_size),
-            resolution=(self.src.transform[0], -self.src.transform[4]),
-            use_projection_units=self.use_projection_units,
-            src_img=self.src
-        )
-
-        if self.download:
-            for val in self.assets_dict.items():
-                download_url(val['href'], root=self.root)
-
-    def get_src_tile_size(self):
-        """
-        Sets outputs dimension of source tile if resizing, given destination size and resizing factor
-        @param dest_tile_size: (int) Size of tile that is expected as output
-        @param resize_factor: (float) Resize factor to apply to source imagery before outputting tiles
-        @return: (int) Source tile size
-        """
-        if self.resizing_factor:
-            return int(self.dest_chip_size / self.resizing_factor)
-        else:
-            return self.dest_chip_size
-
-    def __getitem__(self, index: int) -> Dict[str, Any]:
-        """Return an index within the dataset.
-
-        Args:
-            index: index to return
-
-        Returns:
-            imagery at that index
-
-        Raises:
-            IndexError: if index is out of range of the dataset
-        """
-        bbox = self.chip_bounds[index]
-        with STACReader(self.item_url) as stac:
-            img = stac.part(bbox, bounds_crs=self.src.crs, assets=self.assets_name)
-            if self.debug:
-                with open(f'test{index}.tif', 'wb') as f:
-                    f.write(img.render(img_format="GTIFF"))
-        return img
-
-    def __len__(self) -> int:
-        """Return the length of the dataset.
-
-        Returns:
-            length of the dataset
-        """
-        return len(self.chip_bounds)
-
-
-class TGInferenceDataset(RasterDataset):
+class InferenceDataset(RasterDataset):
     def __init__(
             self,
             item_url: str,
@@ -175,26 +77,12 @@ class TGInferenceDataset(RasterDataset):
             transforms: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
             cache: bool = False,
             download: bool = False,
-            chip_size: int = 512,
-            resize_factor: int = 1,
-            use_projection_units=False,
-            debug: bool = False,
     ) -> None:
         """Initialize a new CCCOT Dataset instance.
 
         Arguments
         ---------
             item_url: TODO
-            chip_size : `tuple` of `int`s
-                The size of the input chips in ``(y, x)`` coordinates. By default,
-                this is in pixel units; this can be changed to metric units using the
-                `use_metric_size` argument.
-                "Chip" is preferred to "tile" with respect to torchgeo's glossary
-                https://torchgeo.readthedocs.io/en/latest/user/glossary.html#term-chip
-            resize_factor: TODO
-            use_projection_units : bool, optional
-                Is `chip_size` in pixel units (default) or distance units? To set to distance units
-                use ``use_projection_units=True``. If False, resolution must be supplied.
             root: root directory where dataset can be found
             bands: band selection which must be a list of STAC Item common names from eo extension.
                         See: https://github.com/stac-extensions/eo/#common-band-names
@@ -207,30 +95,19 @@ class TGInferenceDataset(RasterDataset):
         self.separate_files = True
         self.cache = cache
         self.download = download
-        self.debug = debug
 
         # Create an R-tree to index the dataset
         self.index = Index(interleaved=False, properties=Property(dimension=3))
 
         self.item = SingleBandItemEO(pystac.Item.from_file(item_url))
         self.all_bands = [band for band in self.item.asset_by_common_name.keys()]
+        self.bands_dict = {k: v for k, v in self.item.asset_by_common_name.items() if k in self.bands}
         if not set(self.bands).issubset(set(self.all_bands)):
             raise ValueError(f"Selected bands ({self.bands}) should be a subset of available bands ({self.all_bands})")
 
-        self.first_asset = self.item.asset_by_common_name[self.bands[0]]['href']
+        self.first_asset = self.bands_dict[self.bands[0]]['href']
 
         self.src = rasterio.open(self.first_asset)
-        self.resizing_factor = resize_factor
-        self.dest_chip_size = chip_size
-        self.src_chip_size = self.get_src_tile_size()
-        self.use_projection_units = use_projection_units
-        self.chip_bounds = split_geom(
-            geometry=list(self.src.bounds),
-            tile_size=(self.src_chip_size, self.src_chip_size),
-            resolution=(self.src.transform[0], -self.src.transform[4]),
-            use_projection_units=self.use_projection_units,
-            src_img=self.src
-        )
 
         # See if file has a color map
         try:
@@ -251,26 +128,16 @@ class TGInferenceDataset(RasterDataset):
 
         coords = (minx, maxx, miny, maxy, mint, maxt)
         for i, cname in enumerate(self.bands):
-            self.index.insert(i, coords, self.item.asset_by_common_name[cname]['href'])
+            asset_url = self.bands_dict[cname]['href']
+            if self.download:
+                out_name = str(Path(self.root) / Path(asset_url).name)
+                download_url(asset_url, root=self.root, filename=out_name)
+                self.bands_dict[cname]['href'] = out_name
 
-        if self.download:
-            for _, val in self.assets_dict.items():
-                download_url(val['href'], root=self.root)
+            self.index.insert(i, coords, )
 
         self._crs = cast(CRS, crs)
         self.res = cast(float, res)
-
-    def get_src_tile_size(self):
-        """
-        Sets outputs dimension of source tile if resizing, given destination size and resizing factor
-        @param dest_tile_size: (int) Size of tile that is expected as output
-        @param resize_factor: (float) Resize factor to apply to source imagery before outputting tiles
-        @return: (int) Source tile size
-        """
-        if self.resizing_factor:
-            return int(self.dest_chip_size / self.resizing_factor)
-        else:
-            return self.dest_chip_size
 
     def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:
         """Retrieve image/mask and metadata indexed by query.
@@ -296,7 +163,7 @@ class TGInferenceDataset(RasterDataset):
             data_list: List[Tensor] = []
             for band in getattr(self, "bands", self.all_bands):
                 band_filepaths = []
-                filepath = self.item.asset_by_common_name[band]['href']  # hardcoded to this use case
+                filepath = self.bands_dict[band]['href']  # hardcoded to this use case
                 band_filepaths.append(filepath)
                 data_list.append(self._merge_files(band_filepaths, query))
             data = torch.cat(data_list)  # type: ignore[attr-defined]
@@ -312,53 +179,57 @@ class TGInferenceDataset(RasterDataset):
         return sample
 
 
-collection = "https://datacube-stage.services.geo.ca/api/collections/geoeye-1-ortho-pansharp"
+def get_src_tile_size(dest_chip_size, resizing_factor=1):
+    """
+    Sets outputs dimension of source tile if resizing, given destination size and resizing factor
+    @param dest_chip_size: (int) Size of tile that is expected as output
+    @param resizing_factor: (float) Resize factor to apply to source imagery before outputting tiles
+    @return: (int) Source tile size
+    """
+    return int(dest_chip_size / resizing_factor)
+
 
 item_url = "https://datacube-stage.services.geo.ca/api/collections/worldview-2-ortho-pansharp/items/VancouverP003_054230029070_01_P003_WV2"
-#item_url = "/media/data/GDL_all_images/QC22.json"
-item = pystac.Item.from_file(item_url)
-#eoitem = EOExtension.ext(item)
-# ...
+chip_size = 512
+stride = 128
+resize_factor = 1
 
-#item_com_names = [band.common_name for band in item]
+resizing_factor = resize_factor
+src_chip_size = get_src_tile_size(chip_size, resizing_factor)
 
-#eoitem = EOExtension.ext(item)
-#eoitem_com_names = [band.common_name for band in eoitem.bands]
+dataset = InferenceDataset(item_url, root='/media/data/GDL_all_images', bands=("red", "green", "blue", "nir")) #, download=True)
+sampler = GridGeoSampler(dataset, size=chip_size, stride=chip_size)
+dataloader = DataLoader(dataset, batch_size=1, sampler=sampler, collate_fn=stack_samples)
 
-# eoitem = SingleBandItemEO(item)
+for data in dataloader:
+    break
 
-inf_dataset = TGInferenceDataset(item_url, bands=("red", "green", "blue", "nir"))
+# for testing purposes only
+chip_bounds = split_geom(
+    geometry=list(dataset.src.bounds),
+    tile_size=(chip_size, chip_size),
+    resolution=(dataset.src.transform[0], -dataset.src.transform[4]),
+    use_projection_units=False,
+    src_img=dataset.src
+)
+
 start1 = time.time()
-for i, bounds in tqdm(enumerate(inf_dataset.chip_bounds)):
+for i, bounds in tqdm(enumerate(chip_bounds)):
     minx, miny, maxx, maxy = bounds
-    bounds = BoundingBox(minx, maxx, miny, maxy, mint=inf_dataset.bounds.mint, maxt=inf_dataset.bounds.maxt)
-    result = inf_dataset[bounds]
+    bounds = BoundingBox(minx, maxx, miny, maxy, mint=dataset.bounds.mint, maxt=dataset.bounds.maxt)
+    result = dataset[bounds]
     print(result['image'].shape)
     if i==20:
         break
 end1 = time.time()
 print(f"Time for execution of program: {round(end1-start1, 10)}")
 
-
-inf_dataset = InferenceDataset(item_url, modalities=("red", "green", "blue", "nir"))
-
-start2 = time.time()
-for i, inference_chip in tqdm(enumerate(inf_dataset)):
-    print(inference_chip.data.shape)
-    if i==20:
-        break
-end2 = time.time()
-print(f"Time for execution of program: {round(end2-start2, 10)}")
-
-#my_asset = eoitem.asset_by_common_name("blue")
-#tg_dataset = SpaceNet1(root="/media/data/spacenet", image="8band", download=True, api_key="2f56530ae7b25f7a5af1d0347bf0a2c73d8862f0ae3e061d3fcaf3ed778aaded")
-#cdl_dataset = CDL(root="/media/data/CDL", download=True, cache=True)
+cp_datasetNY = ChesapeakeNY(root="/media/data/Chesapeake/NY", download=True, cache=True)
 cp_dataset = ChesapeakeCVPR(root="/media/data/Chesapeake", download=True, cache=True)
+#cdl_dataset = CDL(root="/media/data/CDL", download=True, cache=True)
+#tg_dataset = SpaceNet1(root="/media/data/spacenet", image="8band", download=True, api_key="2f56530ae7b25f7a5af1d0347bf0a2c73d8862f0ae3e061d3fcaf3ed778aaded")
 #print(tg_dataset)
 
-#item3 = Item.open(item_url)
-#test = item3.assets_by_common_name
-#print(test)
 
 
 
