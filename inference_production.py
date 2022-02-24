@@ -2,11 +2,11 @@
 # Adapted from: https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/evaluate.py
 
 """CCMEO model inference script."""
-
+import argparse
 import logging
-import time
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable, Sequence, List, cast, OrderedDict, Iterable
+from typing import Dict, Any, Optional, Callable, Sequence, List, cast, OrderedDict, Iterable, Union, Tuple, Iterator, \
+    Mapping
 
 import numpy as np
 import pystac
@@ -14,24 +14,88 @@ import rasterio
 from omegaconf import OmegaConf
 from pystac.extensions.eo import ItemEOExtension, Band
 from pytorch_lightning import LightningDataModule, LightningModule, seed_everything
+import rasterio.windows
 from rasterio.crs import CRS
-from rasterio.vrt import WarpedVRT
 from rtree import Index
 from rtree.index import Property
 import segmentation_models_pytorch as smp
 import ttach as tta
 import torch
-from torch import Tensor, autocast
+from torch import Tensor, nn, autocast
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchgeo.samplers import GridGeoSampler
-from torchgeo.datasets import BoundingBox, RasterDataset
+from torchgeo.datasets import BoundingBox, RasterDataset, GeoDataset
 from torchgeo.datasets.utils import download_url, stack_samples, _list_dict_to_dict_list
+from torchgeo.samplers.constants import Units
+from torchgeo.samplers.utils import _to_tuple
 from torchgeo.trainers import SemanticSegmentationTask
 from torchvision.transforms import Compose
 from tqdm import tqdm
+from ttach.base import Merger
 
 from utils.utils import _window_2D
+
+
+# temporary until merged with hydra
+# adapted from: https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/evaluate.py#L21
+def set_up_parser() -> argparse.ArgumentParser:
+    """Set up the argument parser.
+    Returns:
+        the argument parser
+    """
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    parser.add_argument(
+        "--input-stac-item",
+        required=True,
+        help="url or path to stac item pointing to imagery stored one band / file and implementing stac's eo extension",
+        metavar="ITEM",
+    )
+    parser.add_argument(
+        "--input-checkpoint",
+        required=True,
+        help="path to the checkpoint file to test",
+        metavar="CKPT",
+    )
+    parser.add_argument(
+        "--gpu", default=0, type=int, help="GPU ID to use", metavar="ID"
+    )
+    parser.add_argument(
+        "--root-dir",
+        required=True,
+        type=str,
+        help="root directory of the dataset for the accompanying task",
+    )
+    parser.add_argument(
+        "-b",
+        "--batch-size",
+        default=1,
+        type=int,
+        help="number of samples in each mini-batch",
+        metavar="SIZE",
+    )
+    parser.add_argument(
+        "-w",
+        "--num-workers",
+        default=4,
+        type=int,
+        help="number of workers for parallel data loading",
+        metavar="NUM",
+    )
+    parser.add_argument(
+        "--seed", default=0, type=int, help="random seed for reproducibility"
+    )
+    parser.add_argument(
+        "-d", "--download_data", action="store_true", help="download local copy of data"
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", help="print results to stdout"
+    )
+
+    return parser
 
 
 class SingleBandItemEO(ItemEOExtension):
@@ -120,7 +184,7 @@ class InferenceDataset(RasterDataset):
             raise ValueError(f"Selected bands ({self.bands}) should be a subset of available bands ({self.all_bands})")
 
         # Open first asset with rasterio (for metadata: colormap, crs, resolution, etc.)
-        self.first_asset = "/media/data/GDL_all_images/temp/VancouverP003_054230029070_01_P003_WV2-R.tif" #self.bands_dict[self.bands[0]]['href']
+        self.first_asset = self.bands_dict[self.bands[0]]['href']  #"/media/data/GDL_all_images/temp/VancouverP003_054230029070_01_P003_WV2-R.tif"
 
         self.src = rasterio.open(self.first_asset)
 
@@ -284,7 +348,7 @@ class InferenceDataModule(LightningDataModule):
     def __init__(
         self,
         item_path: str,
-        root_dir: str,
+        root_dir: Union[str,Path],
         bands: Sequence = ('red', 'green', 'blue'),
         patch_size: int = 256,
         stride: int = 256,
@@ -392,21 +456,17 @@ class InferenceDataModule(LightningDataModule):
             pad=self.pad_size,
         )
 
-        if not self.use_projection_units:  # TODO: refactor --> proj2pix_units() in Dataset?
-            # convert pixel units to projection units
-            self.patch_size = int(self.patch_size * self.inference_dataset.res)
-            self.stride = int(self.stride * self.inference_dataset.res)
-            self.pad_size = int(self.pad_size * self.inference_dataset.res)
-
     def predict_dataloader(self) -> DataLoader[Any]:
         """Return a DataLoader for inference.
         Returns:
             inference data loader
         """
+        units = Units.PIXELS if not self.use_projection_units else Units.CRS
         self.sampler = GridGeoSamplerPlus(
             self.inference_dataset,
             size=self.patch_size,
             stride=self.stride,
+            units=units,
         )
         return DataLoader(
             self.inference_dataset,
@@ -438,46 +498,179 @@ class InferenceDataModule(LightningDataModule):
 
 
 class GridGeoSamplerPlus(GridGeoSampler):
-    def chip_indices_from_bbox(self, bounds):
+    def __init__(  # TODO: remove when issue #431 is solved
+        self,
+        dataset: GeoDataset,
+        size: Union[Tuple[float, float], float],
+        stride: Union[Tuple[float, float], float],
+        roi: Optional[BoundingBox] = None,
+        units: Units = Units.PIXELS,
+    ) -> None:
+        """Initialize a new Sampler instance.
+
+        The ``size`` and ``stride`` arguments can either be:
+
+        * a single ``float`` - in which case the same value is used for the height and
+          width dimension
+        * a ``tuple`` of two floats - in which case, the first *float* is used for the
+          height dimension, and the second *float* for the width dimension
+
+        Args:
+            dataset: dataset to index from
+            size: dimensions of each :term:`patch`
+            stride: distance to skip between each patch
+            roi: region of interest to sample from (minx, maxx, miny, maxy, mint, maxt)
+                (defaults to the bounds of ``dataset.index``)
+            units: defines if ``size`` and ``stride`` are in pixel or CRS units
+
+        .. versionchanged:: 0.3
+           Added ``units`` parameter, changed default to pixel units
+        """
+        super().__init__(dataset=dataset, roi=roi, stride=stride, size=size)
+        self.size = _to_tuple(size)
+        self.stride = _to_tuple(stride)
+
+        if units == Units.PIXELS:
+            self.size = (self.size[0] * self.res, self.size[1] * self.res)
+            self.stride = (self.stride[0] * self.res, self.stride[1] * self.res)
+
+        self.hits = []
+        for hit in self.index.intersection(tuple(self.roi), objects=True):
+            bounds = BoundingBox(*hit.bounds)
+            if (
+                bounds.maxx - bounds.minx > self.size[1]
+                and bounds.maxy - bounds.miny > self.size[0]
+            ):
+                self.hits.append(hit)
+
+        self.length: int = 0
+        for hit in self.hits:
+            bounds = BoundingBox(*hit.bounds)
+
+            rows = int((bounds.maxy - bounds.miny - self.size[0] + self.stride[0]) // self.stride[0]) + 1
+            cols = int((bounds.maxx - bounds.minx - self.size[1] + self.stride[1]) // self.stride[1]) + 1
+            self.length += rows * cols
+
+    def __iter__(self) -> Iterator[BoundingBox]:  # TODO: remove when issue #431 is solved
+        """Return the index of a dataset.
+
+        Returns:
+            (minx, maxx, miny, maxy, mint, maxt) coordinates to index a dataset
+        """
+        # For each tile...
+        for hit in self.hits:
+            bounds = BoundingBox(*hit.bounds)
+
+            rows = int((bounds.maxy - bounds.miny - self.size[0] + self.stride[0]) // self.stride[0]) + 1
+            cols = int((bounds.maxx - bounds.minx - self.size[1] + self.stride[1]) // self.stride[1]) + 1
+
+            mint = bounds.mint
+            maxt = bounds.maxt
+
+            # For each row...
+            for i in range(rows):
+                miny = bounds.miny + i * self.stride[0]
+                maxy = miny + self.size[0]
+                if maxy > bounds.maxy:
+                    maxy = bounds.maxy
+                    miny = bounds.maxy - self.size[0]
+
+                # For each column...
+                for j in range(cols):
+                    minx = bounds.minx + j * self.stride[1]
+                    maxx = minx + self.size[1]
+                    if maxx > bounds.maxx:
+                        maxx = bounds.maxx
+                        minx = bounds.maxx - self.size[1]
+
+                    yield BoundingBox(minx, maxx, miny, maxy, mint, maxt)
+
+    def chip_indices_from_bbox(self, bounds, source):
 
         chip_minx, chip_maxx, chip_miny, chip_maxy, *_ = bounds
-
-        rows = int((self.roi.maxy - self.roi.miny - self.size[0]) // self.stride[0]) + 1
-        cols = int((self.roi.maxx - self.roi.minx - self.size[1]) // self.stride[1]) + 1
-
-        # For each row...
-        for i in range(rows):
-            miny = self.roi.miny + i * self.stride[0]
-            maxy = miny + self.size[0]
-
-            # For each column...
-            for j in range(cols):
-                minx = self.roi.minx + j * self.stride[1]
-                maxx = minx + self.size[1]
-
-                if (minx, maxx, miny, maxy) == (chip_minx, chip_maxx, chip_miny, chip_maxy):
-                    return rows-i, j
+        try:
+            samp_window = rasterio.windows.from_bounds(chip_minx, chip_maxy, chip_maxx, chip_miny, transform=source.transform)
+        except rasterio.windows.WindowError:  # TODO how to deal with CRS units that don't go left->right, top->bottom
+            samp_window = rasterio.windows.from_bounds(chip_minx, chip_miny, chip_maxx, chip_maxy,
+                                                       transform=source.transform)
+        left, bottom, right, top = samp_window.col_off, samp_window.row_off+np.ceil(samp_window.height), samp_window.col_off+np.ceil(samp_window.width), samp_window.row_off
+        return [int(side) for side in (left, bottom, right, top)]
 
 
-def create_outraster():
-    path = "/media/data/GDL_all_images/VancouverP003_054230029070_01_P003_WV2-R.tif"
-    src = rasterio.open(path)
-    outpath = "/media/data/GDL_all_images/test.tif"
+class TTAWrapper(tta.SegmentationTTAWrapper):
+    def __init__(
+        self,
+        model: nn.Module,
+        transforms: Compose,
+        merge_mode: str = "mean",
+        output_mask_key: Optional[str] = None,
+        single_class_mode: bool = False,
+        pad: int = 0,
+    ):
+        super().__init__(model, transforms)
+        self.model = model
+        self.transforms = transforms
+        self.merge_mode = merge_mode
+        self.output_key = output_mask_key
+        self.single_class_mode = single_class_mode
+        self.pad = pad
 
-    pred = np.zeros(src.shape, dtype=np.uint8)
-    pred = pred[np.newaxis, :, :].astype(np.uint8)
-    out_meta = src.profile
-    out_meta.update({"driver": "GTiff",
-                     "height": pred.shape[1],
-                     "width": pred.shape[2],
-                     "count": pred.shape[0],
-                     "dtype": 'uint8',
-                     'tiled': True,
-                     'blockxsize': 256,
-                     'blockysize': 256,
-                     "compress": 'lzw'})
-    with rasterio.open(outpath, 'w+', **out_meta) as dest:
-        dest.write(pred)
+    def forward(
+            self, image: torch.Tensor, *args
+    ) -> Union[torch.Tensor, Mapping[str, torch.Tensor]]:
+        merger = Merger(type=self.merge_mode, n=len(self.transforms))
+        for transformer in self.transforms:
+            augmented_input = transformer.augment_image(image)
+            augmented_output = self.model(augmented_input)
+            if isinstance(augmented_output, OrderedDict) and 'out' in augmented_output.keys():
+                augmented_output = augmented_output['out']
+            logging.debug(f'Shape of augmented output: {augmented_output.shape}')
+            deaugmented_output = transformer.deaugment_mask(augmented_output)
+            if self.single_class_mode:
+                deaugmented_output = deaugmented_output.squeeze(dim=0)
+            else:
+                deaugmented_output = F.softmax(deaugmented_output, dim=1).squeeze(dim=0)
+            deaugmented_output = deaugmented_output[:, self.pad:-self.pad, self.pad:-self.pad]
+            merger.append(deaugmented_output)
+
+        result = merger.result
+
+        return result
+
+
+def auto_chip_size_finder(datamodule, device, model, single_class_mode=False, max_used_ram: float = 0.95):
+    """
+    TODO
+    @param datamodule:
+    @param device:
+    @param model:
+    @param single_class_mode:
+    @param max_used_ram:
+    @return:
+    """
+    for auto_chip_size in range(256, 5220, 128):
+        datamodule.patch_size = auto_chip_size
+        window_spline_2d = create_spline_window(auto_chip_size).to(device)
+        eval_gen2tune = run_eval_loop(
+            model=model,
+            dataloader=datamodule.predict_dataloader(),
+            device=device,
+            single_class_mode=single_class_mode,
+            window_spline_2d=window_spline_2d,
+            pad=datamodule.pad_size
+        )
+        _ = next(eval_gen2tune)
+        free, total = torch.cuda.mem_get_info(device)
+        if (total-free)/total > max_used_ram:
+            chip_size = auto_chip_size
+            print(f"Reached GPU RAM threshold of {int(max_used_ram*100)}%. Chip size tuned to {chip_size}.")
+            return chip_size
+
+
+def create_spline_window(chip_size, power=1):
+    window_spline_2d = _window_2D(window_size=chip_size, power=power)
+    window_spline_2d = torch.as_tensor(np.moveaxis(window_spline_2d, 2, 0), ).float()
+    return window_spline_2d
 
 
 def run_eval_loop(
@@ -485,7 +678,8 @@ def run_eval_loop(
     dataloader: Any,
     device: torch.device,
     single_class_mode: bool,
-    window_spline_2d,  # type: ignore[name-defined]
+    window_spline_2d,
+    pad,
 ) -> Any:
     """Runs an adapted version of test loop without label data over a dataloader and returns prediction.
     Args:
@@ -497,70 +691,51 @@ def run_eval_loop(
     Returns:
         the prediction for a dataloader batch
     """
-    # Reverse calculate pad and distance between samples
-    pad = window_spline_2d.shape[-1]
-    dist_samples = int(round(pad/2 * (1 - 1.0 / 2.0)))
     # initialize test time augmentation
-    transforms = tta.Compose([tta.HorizontalFlip(), ])
+    transforms = tta.aliases.d4_transform()  #tta.Compose([tta.HorizontalFlip(), ])
+    model = TTAWrapper(model, transforms, merge_mode="max", pad=pad)
 
     batch_output = {}
     for batch in tqdm(dataloader):
         batch_output['bbox'] = batch['bbox']
         batch_output['crs'] = batch['crs']
         inputs = batch["image"].to(device)
-        with torch.inference_mode():
-            output_lst = []
-            for transformer in transforms:
-                # augment inputs
-                augmented_input = transformer.augment_image(inputs)
-                with autocast(device_type=device.type):
-                    augmented_output = model(augmented_input)
-                if isinstance(augmented_output, OrderedDict) and 'out' in augmented_output.keys():
-                    augmented_output = augmented_output['out']
-                logging.debug(f'Shape of augmented output: {augmented_output.shape}')
-                # reverse augmentation for outputs
-                deaugmented_output = transformer.deaugment_mask(augmented_output)
-                if single_class_mode:
-                    deaugmented_output = deaugmented_output.squeeze(dim=0)
-                else:
-                    deaugmented_output = F.softmax(deaugmented_output, dim=1).squeeze(dim=0)
-                output_lst.append(deaugmented_output)
-            outputs = torch.stack(output_lst)
-            outputs = torch.mul(outputs, window_spline_2d)
-            outputs, _ = torch.max(outputs, dim=0)
-            if single_class_mode:
-                outputs = torch.sigmoid(outputs)
-            outputs = outputs.permute(1, 2, 0)
-            outputs = outputs.reshape(pad, pad, outputs.shape[-1]).cpu().numpy().astype('float16')
-            outputs = outputs[dist_samples:-dist_samples, dist_samples:-dist_samples, :]
-            batch_output['data'] = outputs
+        with autocast(device_type=device.type):
+            outputs = model(inputs)
+        outputs = torch.mul(outputs, window_spline_2d)
+        if single_class_mode:
+            outputs = torch.sigmoid(outputs)
+        outputs = outputs.permute(1, 2, 0).cpu().numpy().astype('float16')
+        batch_output['data'] = outputs
         yield batch_output
 
 
-def main():
+def main(args):
     """High-level pipeline.
     Runs a model checkpoint on non-labeled imagery and saves results to file.
     Args:
         args: command-line arguments
     """
-    root = '/media/data/GDL_all_images/temp'
-    #item_url = "https://datacube-stage.services.geo.ca/api/collections/worldview-2-ortho-pansharp/items/AB10-056102820020_01_P001-WV02"
-    item_url = "https://datacube-stage.services.geo.ca/api/collections/worldview-2-ortho-pansharp/items/VancouverP003_054230029070_01_P003_WV2"
-    checkpoint = "/media/data/operationalization/pl_manet_pretrained_bds3_cls1.pth.tar"
-    chip_size = 512
-    pad = 256
+    root = Path(args.root_dir)
+    item_url = args.input_stac_item
+    checkpoint = args.input_checkpoint
+    batch_size = args.batch_size  # FIXME not working with batch size of more than 1
+    num_workers = args.num_workers
+
+    chip_size = 2944
     stride = int(chip_size / 2)
-    batch_size = 1  # FIXME not working with batch size of more than 1
-    download_data = True
+    pad = 16
+    download_data = args.download_data
     gpu_id = 0
-    num_workers = 0
     seed = 123
+    auto_chip_size = True
+    max_used_ram = 0.95
 
     # Dataset params
     modalities = ("red", "green", "blue")  # Select bands from STAC EO's common_names
     classes = {1: "buildings"}
 
-    # Model params
+    # Model params  # TODO use model_choice()
     hparams = OmegaConf.create()
     hparams["segmentation_model"] = "manet"
     hparams["encoder_name"] = "resnext50_32x4d"
@@ -575,8 +750,6 @@ def main():
 
     seed_everything(seed)
 
-    # Loads the saved model from checkpoint based on the `args.task` name that was
-    # passed as input
     model = InferenceTask.load_from_checkpoint(checkpoint, hparams_file='hparams.yaml')
     model.freeze()
     model.eval()
@@ -590,59 +763,53 @@ def main():
                              num_workers=num_workers,
                              download=download_data,
                              seed=seed,
+                             pad=pad,
                              )  # TODO: test batch_size>1 for multi-gpu implementation
     dm.setup()
-    dm.inference_dataset.create_outraster()
+    dm.inference_dataset.create_outraster()  # Unknown bug when moved further down
 
     device = torch.device("cuda:%d" % (gpu_id))  # type: ignore[attr-defined]
     model = model.to(device)
 
-    # Main array configuration
-    tempfile = "data/test.dat"
+    h, w = [side for side in dm.inference_dataset.src.shape]
 
-    h_padded, w_padded = [side + chip_size*2 for side in dm.inference_dataset.src.shape]
-    dist_samples = int(round(chip_size * (1 - 1.0 / 2.0)))
+    if auto_chip_size:
+        chip_size = auto_chip_size_finder(dm, device, model, single_class_mode, max_used_ram)
 
-    # construct window for smoothing
-    WINDOW_SPLINE_2D = _window_2D(window_size=chip_size+2*pad, power=2.0)
-    WINDOW_SPLINE_2D = torch.as_tensor(np.moveaxis(WINDOW_SPLINE_2D, 2, 0), ).type(torch.float)
-    WINDOW_SPLINE_2D = WINDOW_SPLINE_2D.to(device)
-
-    fp = np.memmap(tempfile, dtype='float16', mode='w+', shape=(h_padded, w_padded, hparams["num_classes"]))
-
+    window_spline_2d = create_spline_window(chip_size).to(device)
     eval_gen = run_eval_loop(
-        model, dm.predict_dataloader(),
-        device,
+        model=model,
+        dataloader=dm.predict_dataloader(),
+        device=device,
         single_class_mode=single_class_mode,
-        window_spline_2d=WINDOW_SPLINE_2D
+        window_spline_2d=window_spline_2d,
+        pad=dm.pad_size
     )
 
-    for inference_prediction in eval_gen:
+    tempfile = root / f"{dm.inference_dataset.outpath.stem}.dat"
+    fp = np.memmap(tempfile, dtype='float16', mode='w+', shape=(h, w, hparams["num_classes"]))
+    for i, inference_prediction in enumerate(eval_gen):
         for bbox in inference_prediction['bbox']:
-            #print(bbox)
-            row, col = dm.sampler.chip_indices_from_bbox(bbox)
-            row, col = row*stride, col*stride
-            #print(row, col)
-            fp[row:row + chip_size, col:col + chip_size, :] = \
-                fp[row:row + chip_size, col:col + chip_size, :] + inference_prediction['data']
+            col_min, *_, row_min = dm.sampler.chip_indices_from_bbox(bbox, dm.inference_dataset.src)
+            right = col_min + chip_size if col_min + chip_size <= w else w
+            bottom = row_min + chip_size if row_min + chip_size <= h else h
+            fp[row_min:bottom, col_min:right, :] = \
+                fp[row_min:bottom, col_min:right, :] + inference_prediction['data'][:bottom-row_min, :right-col_min]
     fp.flush()
     del fp
 
-    fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h_padded, w_padded, hparams["num_classes"]))
-    pred_img = np.zeros((h_padded, w_padded), dtype=np.uint8)
-    arr1 = fp / (2 ** 2)
-    arr1 = arr1.argmax(axis=-1).astype('uint8')
-    pred_img = arr1
-    pred_img = pred_img[pad:h_padded - (chip_size+pad), :w_padded - (chip_size+2*pad)]  # TODO CRS units messes with rows and cols
+    fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, hparams["num_classes"]))
+    pred_img = fp.argmax(axis=-1).astype('uint8')
     pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
     outpath = dm.inference_dataset.outpath
     meta = rasterio.open(outpath).meta
     with rasterio.open(outpath, 'w+', **meta) as dest:
         dest.write(pred_img)
 
-
     print('Single prediction done')
 
 
 if __name__ == "__main__":
-    main()
+    parser = set_up_parser()
+    args = parser.parse_args()
+    main(args)
