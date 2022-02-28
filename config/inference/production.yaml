@@ -1,11 +1,12 @@
 # @package _global_
 inference:
   input_stac_item: https://datacube-stage.services.geo.ca/api/collections/worldview-2-ortho-pansharp/items/VancouverP003_054230029070_01_P003_WV2
-  root_dir: /media/data/GDL_all_images/temp/ #${general.raw_data_dir}
-  state_dict_path: /media/data/operationalization/pl_manet_pretrained_bds3_cls1.pth.tar
-  download_data: True #False  # if True, will download local copy of imagery and infer from this copy rather than from web
+  root_dir: ${general.raw_data_dir}
+  state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar
+  download_data: False  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer
-  chunk_size: 512 # if empty, will be calculated automatically to fill 95% of GPU Ram
+  chunk_size: # if empty, will be calculated automatically to fill "auto_cunk_size_threshold" % of GPU Ram
+  auto_chunk_size_threshold: 95
 
   tta_merge_mode: max
   tta_transforms: horizontal_flip
@@ -16,5 +17,8 @@ inference:
   max_used_ram: ${training.max_used_ram}  # If GPU's usage exceeds this percentage, it will be ignored
 
   # Post-processing
-  ras2vec: True  # if True, a polygonized version of the inference (.gpkg) will be created with rasterio tools
-  post_process: True
+  polygonization: True  # if True, a polygonized version of the inference (.gpkg) will be created with rasterio tools
+  generalization: True
+  qgis_models_dir: "/home/remi/.local/share/QGIS/QGIS3/profiles/default/processing/models"
+  docker_img: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
+  singularity_img: # ../singularity/qgis_pp.sif

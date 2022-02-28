@@ -34,5 +34,6 @@ dependencies:
     - pretrainedmodels>=0.7.4
     - segmentation-models-pytorch>=0.2.0
     - git+https://github.com/microsoft/torchgeo.git
+    - spython>=0.1.18
     - timm>=0.4.12
     - ttach>=0.0.3
