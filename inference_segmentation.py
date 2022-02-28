@@ -25,6 +25,7 @@ from rtree.index import Property
 import segmentation_models_pytorch as smp
 import ttach as tta
 import torch
+from spython.main import Client
 from torch import Tensor, nn, autocast
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -38,6 +39,7 @@ from torchvision.transforms import Compose
 from tqdm import tqdm
 from ttach import SegmentationTTAWrapper
 
+from inferencedev_segmentation import ras2vec
 from utils.logger import get_logger
 from utils.utils import _window_2D, get_device_ids, get_key_def, set_device
 
@@ -449,6 +451,9 @@ class InferenceDataModule(LightningDataModule):
             collate_fn=stack_samples,
         )
 
+    def postprocess(self):
+        pass  # TODO: move some/all post-processing operations to this method
+
 
 class GridGeoSamplerPlus(GridGeoSampler):
     def __init__(  # TODO: remove when issue #431 is solved
@@ -683,6 +688,9 @@ def main(params):
     auto_cs_threshold = get_key_def('auto_chunk_size_threshold', params['inference'], default=95, expected_type=int)
     stride_default = int(chip_size / 2)
     stride = get_key_def('stride', params['inference'], default=stride_default, expected_type=int)
+    if stride > chip_size*0.75:
+        logging.warning(f"Setting a large stride (more than 75% of chip size) will interfere with "
+                        f"spline window smoothing operations and may result in poor quality extraction.")
     pad = get_key_def('pad', params['inference'], default=16, expected_type=int)
     batch_size = num_devices  # for inference, batch size should be equal to number of GPU being used TODO implement bs>1
     # TODO implement with hydra for all possible ttach transforms
@@ -775,11 +783,13 @@ def main(params):
         out_vect = root / f"{outpath.stem}.gpkg"
         out_vect_temp = root / f"{outpath.stem}_temp.gpkg"
         logging.info(f"Vectorizing prediction to {out_vect}")
-        commands = [f"qgis_process run grass7:r.to.vect -- input=/home/{str(outpath.name)} type=2 "
+        commands = [f"qgis_process plugins enable grassprovider",
+                    f"qgis_process run grass7:r.to.vect -- input=/home/{str(outpath.name)} type=2 "
                     f"output=/home/{str(out_vect_temp.name)}",
-                    f'ogr2ogr /home/{str(out_vect.name)} /home/{str(out_vect_temp.name)} -where "value" > 0']  # FIXME
+                    f"ogr2ogr \"/home/{str(out_vect.name)}\" \"/home/{str(out_vect_temp.name)}\" -where \"value\" > 0"]  # FIXME
         for command in commands:
             print(command)
+            # Docker
             try:
                 client = docker.from_env()
                 qgis_pp_docker_img = [image for image in client.images.list() if "qgis_pp" in image.tags[0]][0]
@@ -788,13 +798,30 @@ def main(params):
                 container = client.containers.run(
                     image=qgis_pp_docker_img,
                     command=command,
-                    volumes={f'{str(outpath.parent)}': {'bind': '/home', 'mode': 'rw'}},
+                    volumes={f'{str(outpath.parent.absolute())}': {'bind': '/home', 'mode': 'rw'}},
                     detach=True)
                 exit_code = container.wait(timeout=1200)
                 logging.info(exit_code)
-                container.logs(stream=True)
+                container.logs(stream=True)  # FIXME: print logs!
+                continue
             except DockerException as e:
-                logging.info(f"Problem with docker client: {e}")
+                logging.info(f"Cannot postprocess using Docker: {e}\n"
+                             f"Will check for Singularity installation")
+            # Singularity
+            if Client.version() and int(Client.version().split(' ')[-1].split('.')[0]) >= 3:
+                # options = [f"--bind",
+                #            f"{str(outpath.parent.absolute())}:/home"]
+                print(command.split(" "))
+                executor = Client.execute('singularity/qgis_pp.sif', command.split(" "),
+                                          bind=f"{str(outpath.parent.absolute())}:/home", stream=True)
+                for line in executor:
+                    print(line)
+                continue
+            else:
+                logging.info(f"Cannot postprocess using Singularity, will resort to less efficient vectorization"
+                             f"with rasterio and shapely")
+            ras2vec(outpath, out_vect)
+
 
     logging.info('Single prediction done')
 
