@@ -13,6 +13,7 @@ from inference.GridGeoSamplerPlus import GridGeoSamplerPlus
 from inference.InferenceDataset import InferenceDataset
 
 
+# adapted from https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/torchgeo/datamodules/chesapeake.py
 class InferenceDataModule(LightningDataModule):
     """LightningDataModule implementation for the InferenceDataset.
     Uses the random splits defined per state to partition tiles into train, val,

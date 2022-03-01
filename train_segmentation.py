@@ -469,7 +469,8 @@ def train(cfg: DictConfig) -> None:
     # MANDATORY PARAMETERS
     class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
     num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
-    num_bands = len(read_modalities(cfg.dataset.modalities))
+    modalities = get_key_def('modalities', cfg['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
+    num_bands = len(modalities)
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
     num_epochs = get_key_def('max_epochs', cfg['training'], expected_type=int)
@@ -782,7 +783,7 @@ def main(cfg: DictConfig) -> None:
     :param cfg: (dict) Parameters found in the yaml config file.
     """
     # Limit of the NIR implementation TODO: Update after each version
-    if 'deeplabv3' not in cfg.model.model_name and 'IR' in read_modalities(cfg.dataset.modalities):
+    if 'deeplabv3' not in cfg.model.model_name and 'nir' in cfg.dataset.modalities:
         logging.info(
             '\nThe NIR modality will only be concatenate at the beginning,'
             '\nthe implementation of the concatenation point is only available'

@@ -1,16 +1,24 @@
 # @package _global_
 inference:
-  img_dir_or_csv_file: data/inference_sem_seg_ci_csv.csv
+  input_stac_item: data/STAC_VancouverP003/VancouverP003_054230029070_01_P003_WV2.json
+  root_dir: ${general.raw_data_dir}
   state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar
-  chunk_size:  # if empty, will be calculated automatically from max_pix_per_mb_gpu
-  # Maximum number of pixels each Mb of GPU Ram to allow. E.g. if GPU has 1000 Mb of Ram and this parameter is set to
-  # 10, chunk_size will be set to sqrt(1000 * 10) = 100.
-  max_pix_per_mb_gpu: 25
+  download_data: False  # if True, will download local copy of imagery and infer from this copy rather than from web
+                        # if network bandwidth is good, no need to download as only windows are downloaded to infer
+  chunk_size: 64 # if empty, will be calculated automatically to fill "auto_cunk_size_threshold" % of GPU Ram
+  auto_chunk_size_threshold: # 95
+
+  tta_merge_mode: max
+  tta_transforms: horizontal_flip
 
   # GPU parameters
-  gpu: ${training.num_gpus}
+  gpu: 0
   max_used_perc: ${training.max_used_perc}  # If RAM usage of detected GPU exceeds this percentage, it will be ignored
   max_used_ram: ${training.max_used_ram}  # If GPU's usage exceeds this percentage, it will be ignored
 
   # Post-processing
-  ras2vec: False  # if True, a polygonized version of the inference (.gpkg) will be created with rasterio tools
+  polygonization: True  # if True, a polygonized version of the inference (.gpkg) will be created with rasterio tools
+  generalization: False  # TODO: can generalization be tested in CI with docker image?
+  qgis_models_dir: # Could be: "/home/[user]/.local/share/QGIS/QGIS3/profiles/default/processing/models"
+  docker_img: # remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
+  singularity_img: # ../singularity/qgis_pp.sif

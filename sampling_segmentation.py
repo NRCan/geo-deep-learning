@@ -369,8 +369,8 @@ def main(cfg: DictConfig) -> None:
     """
     # PARAMETERS
     num_classes = len(cfg.dataset.classes_dict.keys())
-    num_bands = len(cfg.dataset.modalities)
-    modalities = read_modalities(cfg.dataset.modalities)  # TODO add the Victor module to manage the modalities
+    modalities = get_key_def('modalities', cfg['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
+    num_bands = len(modalities)
     debug = cfg.debug
 
     # RAW DATA PARAMETERS

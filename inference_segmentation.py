@@ -24,6 +24,7 @@ from ttach import SegmentationTTAWrapper
 
 import inference_postprocess
 from inference.InferenceDataModule import InferenceDataModule
+from models.model_choice import load_checkpoint
 from utils.logger import get_logger
 from utils.utils import _window_2D, get_device_ids, get_key_def, set_device
 
@@ -35,7 +36,7 @@ logging = get_logger(__name__)
 class InferenceTask(SemanticSegmentationTask):
     def config_task(self) -> None:  # TODO: use Hydra
         """Configures the task based on kwargs parameters passed to the constructor."""
-        if self.hparams["segmentation_model"] == "unet":
+        if self.hparams["segmentation_model"] == "unet_pretrained":
             self.model = smp.Unet(
                 encoder_name=self.hparams["encoder_name"],
                 encoder_weights=self.hparams["encoder_weights"],
@@ -49,7 +50,7 @@ class InferenceTask(SemanticSegmentationTask):
                 in_channels=self.hparams["in_channels"],
                 classes=self.hparams["num_classes"],
             )
-        elif self.hparams["segmentation_model"] == "manet":
+        elif self.hparams["segmentation_model"] == "manet_pretrained":
             self.model = smp.MAnet(
                 encoder_name=self.hparams["encoder_name"],
                 encoder_weights=self.hparams["encoder_weights"],
@@ -73,7 +74,7 @@ class InferenceTask(SemanticSegmentationTask):
         Raises:
             ValueError: if kwargs arguments are invalid
         """
-        super().__init__(ignore_zeros=False)
+        super().__init__(ignore_zeros=True)  # softcode once torchgeo's issue #444 is resolved
         self.save_hyperparameters()  # creates `self.hparams` from kwargs
 
         self.config_task()
@@ -91,7 +92,54 @@ class InferenceTask(SemanticSegmentationTask):
         return y_hat
 
 
-# adapted from https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/torchgeo/datamodules/chesapeake.py
+def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
+    """
+    Converts a geo-deep-learning/pytorch checkpoint (from v2.0.0+) to a pytorch lightning checkpoint.
+    The outputted model should remain compatible with geo-deep-learning's checkpoint loading.
+    @param in_pth_path: path to input checkpoint
+    @param out_pth_path: path where pytorch-lightning adapted checkpoint should be written. Default to same as input,
+                         but with "pl_" prefix in front of name
+    @return: path to outputted checkpoint and path to outputted yaml to use when loading with pytorch lightning
+    """
+    if not out_pth_path:
+        out_pth_path = Path(in_pth_path).parent / f'pl_{Path(in_pth_path).name}'
+    if Path(out_pth_path).is_file():
+        return out_pth_path
+    # load with geo-deep-learning method
+    checkpoint = load_checkpoint(in_pth_path)
+
+    hparams = OmegaConf.create()
+    if 'general' in checkpoint['params'].keys():  # for models saved as of v2.0.0
+        class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
+        num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
+        # Store hyper parameters to checkpoint as expected by pytorch lightning
+        hparams["segmentation_model"] = checkpoint['params']['model']['model_name']  # TODO temporary
+        hparams["in_channels"] = len(checkpoint['params']['dataset']['modalities'])
+    else:  # for models saved before v2.0.0
+        num_classes = int(checkpoint['params']['global']['num_classes']) + 1
+        # Store hyper parameters to checkpoint as expected by pytorch lightning
+        hparams["segmentation_model"] = checkpoint['params']['global']['model_name']  # TODO temporary
+        hparams["in_channels"] = checkpoint['params']['global']['number_of_bands']
+
+    hparams["encoder_name"] = "resnext50_32x4d"  # TODO temporary
+    hparams["encoder_weights"] = 'imagenet'
+    hparams["num_classes"] = num_classes
+    hparams["ignore_zeros"] = True  #False if num_classes == 1 else True
+
+    # adapt to what pytorch lightning expects: add "model" prefix to model keys
+    if not list(checkpoint['model'].keys())[0].startswith('model'):
+        new_state_dict = {}
+        new_state_dict['model'] = checkpoint['model'].copy()
+        new_state_dict['model'] = {'model.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
+        checkpoint['model'] = new_state_dict['model']
+
+    # keep all keys and copy model weights to new state_dict key
+    pl_checkpoint = checkpoint.copy()
+    pl_checkpoint['state_dict'] = pl_checkpoint['model']
+    pl_checkpoint['hyper_parameters'] = hparams
+    torch.save(pl_checkpoint, out_pth_path)
+
+    return out_pth_path
 
 
 def auto_chip_size_finder(datamodule, device, model, tta_transforms, single_class_mode=False, max_used_ram: int = 95):
@@ -199,14 +247,15 @@ def main(params):
     item_url = get_key_def('input_stac_item', params['inference'], expected_type=str)  #, to_path=True, validate_path_exists=True) TODO implement for url
     checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
     root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
-    # model_name = get_key_def('model_name', params['model'], expected_type=str).lower()  # TODO couple with model_choice.py
+    model_name = get_key_def('model_name', params['model'], expected_type=str).lower()  # TODO couple with model_choice.py
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
 
     # Dataset params
     modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
     num_bands = len(modalities)
-    num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
-    num_classes = num_classes + 1 #if num_classes > 1 else num_classes  # multiclass account for background TODO bug fix for old models
+    class_keys = len(get_key_def('classes_dict', params['dataset']).keys())
+    num_classes = class_keys + 1  # if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
+    single_class_mode = False  # if num_classes > 2 else True TODO bug fix in GDL
 
     # Hardware
     num_devices = get_key_def('gpu', params['inference'], default=1, expected_type=(int, bool))  # TODO implement >1
@@ -230,28 +279,25 @@ def main(params):
         logging.warning(f"Setting a large stride (more than 75% of chip size) will interfere with "
                         f"spline window smoothing operations and may result in poor quality extraction.")
     pad = get_key_def('pad', params['inference'], default=16, expected_type=int)
-    batch_size = num_devices  # for inference, batch size should be equal to number of GPU being used TODO implement bs>1
+    # for inference, batch size should be equal to number of GPUs being used TODO implement bs>1
+    batch_size = num_devices if num_devices else 1
     # TODO implement with hydra for all possible ttach transforms
     tta_transforms = get_key_def('tta_transforms', params['inference'], default="horizontal_flip", expected_type=str)
     tta_merge_mode = get_key_def('tta_merge_mode', params['inference'], default="max", expected_type=str)
 
-    # Create yaml to use pytorch lightning model management
-    hparams = OmegaConf.create()
-    hparams["segmentation_model"] = "manet"  # TODO temporary
-    hparams["encoder_name"] = "resnext50_32x4d"
-    hparams["encoder_weights"] = 'imagenet'
-    hparams["in_channels"] = num_bands
-    hparams["num_classes"] = num_classes
-    single_class_mode = False #if hparams["num_classes"] > 2 else True TODO bug fix in GDL
-    hparams["ignore_zeros"] = None
-
-    with open('hparams.yaml', 'w') as fp:
-        OmegaConf.save(config=hparams, f=fp)
-
     seed = 123
     seed_everything(seed)
 
-    model = InferenceTask.load_from_checkpoint(checkpoint, hparams_file='hparams.yaml')
+    try:
+        model = InferenceTask.load_from_checkpoint(checkpoint)
+    except (KeyError, AssertionError) as e:
+        logging.warning(f"\nModel checkpoint is not compatible with pytorch-ligthning's load_from_checkpoint method:\n"
+                        f"Key error: {e}\n"
+                        f"Will try to use geo-deep-learning to pytorch lightning adapter...")
+        checkpoint = gdl2pl_checkpoint(checkpoint)
+        # Create yaml to use pytorch lightning model management
+        model = InferenceTask.load_from_checkpoint(checkpoint)
+
     model.freeze()
     model.eval()
 
@@ -300,7 +346,7 @@ def main(params):
 
     # Create a numpy memory map to write results from per-chip inference to full-size prediction
     tempfile = root / f"{Path(dm.inference_dataset.outpath).stem}.dat"
-    fp = np.memmap(tempfile, dtype='float16', mode='w+', shape=(h, w, hparams["num_classes"]))
+    fp = np.memmap(tempfile, dtype='float16', mode='w+', shape=(h, w, num_classes))
     for i, inference_prediction in enumerate(eval_gen):
         for bbox in inference_prediction['bbox']:
             col_min, *_, row_min = dm.sampler.chip_indices_from_bbox(bbox, dm.inference_dataset.src)
@@ -313,7 +359,7 @@ def main(params):
     del fp
 
     # Read full-size prediction memory-map and write to final raster after argmax operation (discard confidence info)
-    fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, hparams["num_classes"]))
+    fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, num_classes))
     pred_img = fp.argmax(axis=-1).astype('uint8')
     pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
     dm.inference_dataset.create_outraster()  # Unknown bug when moved further down

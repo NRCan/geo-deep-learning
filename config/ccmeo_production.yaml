@@ -1,5 +1,5 @@
 defaults:
-  - model: unet
+  - model: manet_pretrained
   - training: default_training
   - loss: binary/softbce
   - optimizer: adamw

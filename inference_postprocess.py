@@ -35,12 +35,10 @@ def main(params):
     # Postprocessing
     polygonization = get_key_def('polygonization', params['inference'], expected_type=bool, default=True)
     generalization = get_key_def('generalization', params['inference'], expected_type=bool, default=True)
-    docker_img = get_key_def('docker_img', params['inference'], default='remtav/qgis_pp:latest', expected_type=str)
+    docker_img = get_key_def('docker_img', params['inference'], expected_type=str)
     singularity_img = get_key_def('singularity_img', params['inference'], default=None, expected_type=str,
                                   validate_path_exists=True)
-    qgis_models_dir = get_key_def('qgis_models_dir', params['inference'],
-                                  default="/home/user/.local/share/QGIS/QGIS3/profiles/default/processing/models",
-                                  expected_type=str, validate_path_exists=True)
+    qgis_models_dir = get_key_def('qgis_models_dir', params['inference'], expected_type=str, validate_path_exists=True)
 
     dm = InferenceDataModule(root_dir=root,
                              item_path=item_url,
@@ -60,7 +58,7 @@ def main(params):
                     f"output=/home/{str(out_vect_temp.name)}",
                     f"ogr2ogr \"/home/{str(out_vect.name)}\" \"/home/{str(out_vect_temp.name)}\" -where \"value\" > 0"]  # FIXME
         for command in commands:
-            print(command)
+            logging.debug(command)
             # Docker
             if docker_img:
                 try:
@@ -79,12 +77,12 @@ def main(params):
                     logging.info(f"Cannot postprocess using Docker: {e}\n")
             # Singularity: validate installation and assert version >= 3.0.0
             if singularity_img and Client.version() and int(Client.version().split(' ')[-1].split('.')[0]) >= 3:
-                print(command.split(" "))
+                logging.debug(command.split(" "))
                 try:
                     executor = Client.execute(to_absolute_path(str(singularity_img)), command.split(" "),
                                               bind=f"{str(outpath.parent.absolute())}:/home", stream=True)
                     for line in executor:
-                        print(line)
+                        logging.info(line)
                 except subprocess.CalledProcessError as e:
                     logging.info(e)
                 continue
@@ -99,7 +97,7 @@ def main(params):
             command = [f"qgis_process run model:cleanup_building -- building=/home/{str(out_vect_temp.name)} "
                         f"Geopackagename=/home/{str(out_vect.name)} "
                         f"NomdelacoucheBatimentdanslegpkg=building Simplify=0.3 Deletehole=40"]
-            print(command)
+            logging.debug(command)
             if docker_img:
                 try:
                     client = docker.from_env()

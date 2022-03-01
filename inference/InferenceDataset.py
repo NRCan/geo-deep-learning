@@ -5,6 +5,7 @@ import numpy as np
 import pystac
 import rasterio
 import torch
+from hydra.utils import to_absolute_path
 from rasterio.crs import CRS
 from rtree import Index
 from rtree.index import Property
@@ -56,7 +57,7 @@ class InferenceDataset(RasterDataset):
 
         # Read Stac item from url
         if self.separate_files:
-            self.item = SingleBandItemEO(pystac.Item.from_file(self.item_url))
+            self.item = SingleBandItemEO(pystac.Item.from_file(to_absolute_path(self.item_url)))
         else:
             pass  # TODO: implement
 
@@ -71,9 +72,9 @@ class InferenceDataset(RasterDataset):
             raise ValueError(f"Selected bands ({self.bands}) should be a subset of available bands ({self.all_bands})")
 
         # Open first asset with rasterio (for metadata: colormap, crs, resolution, etc.)
-        self.first_asset = self.bands_dict[self.bands[0]]['href']  # "/media/data/GDL_all_images/temp/VancouverP003_054230029070_01_P003_WV2-R.tif" TODO: just for testing
+        self.first_asset = self.bands_dict[self.bands[0]]['href']
 
-        self.src = rasterio.open(self.first_asset)
+        self.src = rasterio.open(to_absolute_path(self.first_asset))
 
         # See if file has a color map
         try:
@@ -149,8 +150,8 @@ class InferenceDataset(RasterDataset):
                 data_list: List[Tensor] = []
                 for band in getattr(self, "bands", self.all_bands):
                     band_filepaths = []
-                    filepath = self.bands_dict[band]['href']  # hardcoded to this use case
-                    band_filepaths.append(filepath)
+                    filepath = self.bands_dict[band]['href']  # hardcoded: needs assets_from_common_name_dict
+                    band_filepaths.append(to_absolute_path(filepath))
                     data_list.append(self._merge_files(band_filepaths, query))
                 data = torch.cat(data_list)  # type: ignore[attr-defined]
             else:
