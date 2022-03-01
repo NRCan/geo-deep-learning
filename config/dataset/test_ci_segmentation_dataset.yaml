@@ -15,7 +15,7 @@ dataset:
   # ground truth
   attribute_field: properties/class
   attribute_values: [1]
-  min_annot_perc:
+  min_annotated_percent:
   class_name: # will follow in the next version
   classes_dict: {'Building':1}
   class_weights:
