@@ -223,10 +223,10 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
     if validate_path_exists and is_url(val):
         logging.warning(f"\nProvided path is url. Cannot validate it's existence. Got:"
                         f"\n{val}")
-    elif validate_path_exists and not Path(val).exists():
+    elif validate_path_exists and not Path(to_absolute_path(val)).exists():
         raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
     elif validate_path_exists:
-        val = Path(val)
+        val = Path(to_absolute_path(val))
     return val
 
 
