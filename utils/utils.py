@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Sequence, List
 
 from hydra.utils import to_absolute_path
+from pandas.io.common import is_url
 from pytorch_lightning.utilities import rank_zero_only
 import rich.syntax
 import rich.tree
@@ -18,7 +19,6 @@ from torchvision import models
 import numpy as np
 import scipy.signal
 import requests
-from urllib.parse import urlparse
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
@@ -215,13 +215,18 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
                     raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
     if not val:  # Skips below if statements if val is None
         return val
-    if to_path or validate_path_exists:
+    if to_path:
         try:
             val = Path(to_absolute_path(val))
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
-    if validate_path_exists and not val.exists():
+    if validate_path_exists and is_url(val):
+        logging.warning(f"\nProvided path is url. Cannot validate it's existence. Got:"
+                        f"\n{val}")
+    elif validate_path_exists and not Path(val).exists():
         raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
+    elif validate_path_exists:
+        val = Path(val)
     return val
 
 
@@ -325,13 +330,6 @@ def BGR_to_RGB(array):
     RGB_channels = np.ascontiguousarray(BGR_channels[..., ::-1])
     array[:, :, :3] = RGB_channels
     return array
-
-
-def is_url(url):
-    if urlparse(url).scheme in ('http', 'https', 's3'):
-        return True
-    else:
-        return False
 
 
 def checkpoint_url_download(url: str):

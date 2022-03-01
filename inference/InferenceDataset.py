@@ -6,6 +6,7 @@ import pystac
 import rasterio
 import torch
 from hydra.utils import to_absolute_path
+from pandas.io.common import is_url
 from rasterio.crs import CRS
 from rtree import Index
 from rtree.index import Property
@@ -55,9 +56,10 @@ class InferenceDataset(RasterDataset):
         # Create an R-tree to index the dataset
         self.index = Index(interleaved=False, properties=Property(dimension=3))
 
+        self.item_url = self.item_url if is_url(self.item_url) else to_absolute_path(self.item_url)
         # Read Stac item from url
         if self.separate_files:
-            self.item = SingleBandItemEO(pystac.Item.from_file(to_absolute_path(self.item_url)))
+            self.item = SingleBandItemEO(pystac.Item.from_file(self.item_url))
         else:
             pass  # TODO: implement
 
@@ -73,8 +75,9 @@ class InferenceDataset(RasterDataset):
 
         # Open first asset with rasterio (for metadata: colormap, crs, resolution, etc.)
         self.first_asset = self.bands_dict[self.bands[0]]['href']
+        self.first_asset = self.first_asset if is_url(self.first_asset) else to_absolute_path(self.first_asset)
 
-        self.src = rasterio.open(to_absolute_path(self.first_asset))
+        self.src = rasterio.open(self.first_asset)
 
         # See if file has a color map
         try:
@@ -150,8 +153,9 @@ class InferenceDataset(RasterDataset):
                 data_list: List[Tensor] = []
                 for band in getattr(self, "bands", self.all_bands):
                     band_filepaths = []
-                    filepath = self.bands_dict[band]['href']  # hardcoded: needs assets_from_common_name_dict
-                    band_filepaths.append(to_absolute_path(filepath))
+                    filepath = self.bands_dict[band]['href']  # hardcoded: stac item reader needs asset_by_common_name()
+                    filepath = filepath if is_url(filepath) else to_absolute_path(filepath)
+                    band_filepaths.append(filepath)
                     data_list.append(self._merge_files(band_filepaths, query))
                 data = torch.cat(data_list)  # type: ignore[attr-defined]
             else:

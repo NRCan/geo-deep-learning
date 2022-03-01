@@ -40,4 +40,4 @@ AWS:
 
 print_config: True # save the config in the log folder
 mode: {sampling, train, evaluate, inference, hyperparameters_search}
-debug: False #False # will print the complete yaml config plus run a validation test
+debug: True # will print the complete yaml config plus run a validation test

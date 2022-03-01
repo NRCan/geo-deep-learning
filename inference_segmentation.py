@@ -244,8 +244,8 @@ def main(params):
         params: configuration parameters
     """
     # Main params
-    item_url = get_key_def('input_stac_item', params['inference'], expected_type=str)  #, to_path=True, validate_path_exists=True) TODO implement for url
-    checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
+    item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, validate_path_exists=True)
+    checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, validate_path_exists=True)
     root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
     model_name = get_key_def('model_name', params['model'], expected_type=str).lower()  # TODO couple with model_choice.py
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
@@ -272,10 +272,13 @@ def main(params):
     # Sampling, batching and augmentations configuration
     chip_size = get_key_def('chunk_size', params['inference'], default=None, expected_type=int)
     auto_chip_size = True if not chip_size else False
+    if auto_chip_size and device.type == 'cpu':
+        logging.warning(f"Auto chip size not implemented for cpu execution. Chip size will default to 512.")
+        chip_size = 512
     auto_cs_threshold = get_key_def('auto_chunk_size_threshold', params['inference'], default=95, expected_type=int)
     stride_default = int(chip_size / 2) if chip_size else 256
     stride = get_key_def('stride', params['inference'], default=stride_default, expected_type=int)
-    if chip_size and stride > chip_size*0.75:
+    if chip_size and stride > chip_size * 0.75:
         logging.warning(f"Setting a large stride (more than 75% of chip size) will interfere with "
                         f"spline window smoothing operations and may result in poor quality extraction.")
     pad = get_key_def('pad', params['inference'], default=16, expected_type=int)
@@ -319,7 +322,7 @@ def main(params):
 
     h, w = [side for side in dm.inference_dataset.src.shape]
 
-    if auto_chip_size and device != "cpu":
+    if auto_chip_size and device.type != "cpu":
         chip_size = auto_chip_size_finder(datamodule=dm,
                                           device=device,
                                           model=model,
