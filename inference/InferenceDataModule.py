@@ -132,7 +132,6 @@ class InferenceDataModule(LightningDataModule):
             transforms=test_transforms,
             download=self.download,
             pad=self.pad_size,
-            save_heatmap=self.save_heatmap,
         )
 
     def predict_dataloader(self) -> DataLoader[Any]:

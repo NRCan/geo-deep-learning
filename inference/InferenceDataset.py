@@ -30,7 +30,6 @@ class InferenceDataset(RasterDataset):
             cache: bool = False,
             download: bool = False,
             singleband_files: bool = True,
-            save_heatmap: bool = False,
             pad: int = 256,  # TODO softcode pad mode (currently: reflect)
     ) -> None:
         """Initialize a new CCCOT Dataset instance.
@@ -53,9 +52,7 @@ class InferenceDataset(RasterDataset):
         self.pad = pad
         self.outpath = outpath
         self.outpath_vec = self.root / f"{outpath.stem}.gpkg"
-        self.save_heatmap = save_heatmap
-        if self.save_heatmap:
-            self.outpath_heat = self.root / f"{outpath.stem}_heatmap.tif"
+        self.outpath_heat = self.root / f"{outpath.stem}_heatmap.tif"
 
         # Create an R-tree to index the dataset
         self.index = Index(interleaved=False, properties=Property(dimension=3))
@@ -104,12 +101,10 @@ class InferenceDataset(RasterDataset):
 
         # Add paths to Rtree index
         coords = (minx, maxx, miny, maxy, mint, maxt)
-        for cname in self.bands:
-            asset_path = Path(self.bands_dict[cname]['href'])
-
-            if self.download:
-                out_name = self.root / asset_path.name
-                download_url(str(asset_path), root=str(self.root), filename=str(out_name))  # FIXME on HPC errno 111
+        if self.download:
+            for cname in self.bands:
+                out_name = self.root / Path(self.bands_dict[cname]['href']).name
+                download_url(self.bands_dict[cname]['href'], root=str(self.root), filename=str(out_name))
                 self.bands_dict[cname]['href'] = out_name
 
         self.index.insert(0, coords, self.first_asset)

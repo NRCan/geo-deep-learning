@@ -1,4 +1,6 @@
 # Licensed under the MIT License.
+# Authors: Victor Alhassan, Rémi Tavon
+
 # Adapted from: https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/evaluate.py
 # Also see: https://gist.github.com/calebrob6/7b226eb73877187f85fb5e1621bb7971
 
@@ -88,7 +90,6 @@ class InferenceTask(SemanticSegmentationTask):
         """
         x = batch["image"]
         y_hat = self.forward(x)
-        # y_hat_hard = y_hat.argmax(dim=1)
 
         return y_hat
 
@@ -166,7 +167,7 @@ def auto_batch_size_finder(datamodule, device, model, tta_transforms, single_cla
             logging.info(f"Reached maximum batch size for image size. "
                          f"Batch size tuned to {batch_size_trial-batch_size_init}.")
             return batch_size_trial-batch_size_init
-        eval_gen2tune = run_eval_loop(
+        eval_gen2tune = eval_batch_generator(
             model=model,
             dataloader=datamodule.predict_dataloader(),
             device=device,
@@ -174,6 +175,7 @@ def auto_batch_size_finder(datamodule, device, model, tta_transforms, single_cla
             window_spline_2d=window_spline_2d,
             pad=datamodule.pad_size,
             tta_transforms=tta_transforms,
+            verbose=False,
         )
         _ = next(eval_gen2tune)
         free, total = torch.cuda.mem_get_info(device)
@@ -188,7 +190,7 @@ def create_spline_window(chip_size, power=1):
     return window_spline_2d
 
 
-def run_eval_loop(
+def eval_batch_generator(
     model: LightningModule,
     dataloader: Any,
     device: torch.device,
@@ -197,17 +199,19 @@ def run_eval_loop(
     pad,
     tta_transforms: Union[List, str] = "horizontal_flip",
     tta_merge_mode: str = 'max',
+    verbose: bool = True,
 ) -> Any:
     """Runs an adapted version of test loop without label data over a dataloader and returns prediction.
-    Args:
+    Args:  TODO
         model: the model used for inference
         dataloader: the dataloader to get samples from
         device: the device to put data on
-        single_class_mode: TODO
-        window_spline_2d: TODO
-        pad: TODO
+        single_class_mode:
+        window_spline_2d:
+        pad:
         tta_transforms:
-        tta_merge_mode: TODO
+        tta_merge_mode:
+        verbose:
     Returns:
         the prediction for a dataloader batch
     """
@@ -219,7 +223,7 @@ def run_eval_loop(
     model = SegmentationTTAWrapper(model, transforms, merge_mode=tta_merge_mode)
 
     batch_output = {}
-    for batch in tqdm(dataloader):
+    for batch in tqdm(dataloader, disable=not verbose):
         batch_output['bbox'] = batch['bbox']
         batch_output['crs'] = batch['crs']
         inputs = batch["image"].to(device)
@@ -334,7 +338,7 @@ def main(params):
 
     window_spline_2d = create_spline_window(chip_size).to(device)
     # Instantiate inference generator for looping over imagery chips
-    eval_gen = run_eval_loop(
+    eval_gen = eval_batch_generator(
         model=model,
         dataloader=dm.predict_dataloader(),
         device=device,
