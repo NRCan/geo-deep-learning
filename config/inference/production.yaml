@@ -1,24 +1,26 @@
 # @package _global_
 inference:
-  input_stac_item: https://datacube-stage.services.geo.ca/api/collections/worldview-2-ortho-pansharp/items/VancouverP003_054230029070_01_P003_WV2
+  input_stac_item: https://datacube-stage.services.geo.ca/api/collections/worldview-3-ortho-pansharp/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03
   root_dir: ${general.raw_data_dir}
   state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar
   download_data: False  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer
+  save_heatmap: True
   chunk_size: # if empty, will be calculated automatically to fill "auto_cunk_size_threshold" % of GPU Ram
   auto_chunk_size_threshold: 95
 
-  tta_merge_mode: max
-  tta_transforms: horizontal_flip
+  tta_merge_mode: max  # Test time augmentation merge mode. See: https://github.com/qubvel/ttach#merge-modes
+  tta_transforms: horizontal_flip  # Test-time augmentation tranforms. See: https://github.com/qubvel/ttach#transforms
 
   # GPU parameters
-  gpu: 1
+  gpu: 1  # Number of gpus to use. TODO implement >1
   max_used_perc: ${training.max_used_perc}  # If RAM usage of detected GPU exceeds this percentage, it will be ignored
   max_used_ram: ${training.max_used_ram}  # If GPU's usage exceeds this percentage, it will be ignored
 
-  # Post-processing
-  polygonization: True  # if True, a polygonized version of the inference (.gpkg) will be created with rasterio tools
-  generalization: True
-  qgis_models_dir: "/home/remi/.local/share/QGIS/QGIS3/profiles/default/processing/models"
+  # Post-processing TODO move to its own postprocessing yaml
+  postprocess: True  # if True, will proceed to postprocessing directly after inference
+  polygonization: True  # if True, a polygonized version of the inference (.gpkg) will be created from grass or rasterio
+  generalization: True  # if True, a generalized version of the inference (.gpkg) will be created with qgis models
+  qgis_models_dir: "/home/remi/.local/share/QGIS/QGIS3/profiles/default/processing/models"  # TODO softcode use of models?
   docker_img: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
   singularity_img: # ../singularity/qgis_pp.sif

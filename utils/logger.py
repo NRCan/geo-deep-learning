@@ -89,11 +89,10 @@ def dict_path(param_dict, param_name):
     }
 
 
-def get_logger(name=__name__, level=logging.INFO) -> logging.Logger:
+def get_logger(name=__name__) -> logging.Logger:
     """Initializes multi-GPU-friendly python logger."""
 
     logger = logging.getLogger(name)
-    logger.setLevel(level)
 
     # this ensures all logging levels get marked with the rank zero decorator
     # otherwise logs would get multiplied for each GPU process in multi-GPU setup

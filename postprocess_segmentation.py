@@ -4,11 +4,13 @@
 # Hardware requirements: 64 Gb RAM (cpu), 8 Gb GPU RAM.
 
 """CCMEO postprocess script."""
-import logging
+import codecs
 import subprocess
 from pathlib import Path
 
 import docker
+import geopandas
+import rasterio
 from docker.errors import DockerException
 from hydra.utils import to_absolute_path
 from spython.main import Client
@@ -49,14 +51,16 @@ def main(params):
     outpath = Path(dm.inference_dataset.outpath)
     out_vect = Path(dm.inference_dataset.outpath_vec)
 
-    # Postprocess final raster prediction (polygonization)
+    # Postprocess final raster prediction (polygonization) TODO: refactor docker/singularity calls
     if polygonization:
         out_vect_temp = root / f"{out_vect.stem}_temp.gpkg"
+        out_vect_raw = root / f"{out_vect.stem}_raw.gpkg"
         logging.info(f"Vectorizing prediction to {out_vect}")
         commands = [f"qgis_process plugins enable grassprovider",
                     f"qgis_process run grass7:r.to.vect -- input=/home/{str(outpath.name)} type=2 "
                     f"output=/home/{str(out_vect_temp.name)}",
-                    f"ogr2ogr \"/home/{str(out_vect.name)}\" \"/home/{str(out_vect_temp.name)}\" -where \"value\" > 0"]  # FIXME
+                    f"qgis_process run native:extractbyattribute -- INPUT=/home/{str(out_vect_temp.name)} "
+                    f"FIELD=value OPERATOR=2 VALUE=0 OUTPUT=/home/{str(out_vect_raw.name)}"]
         for command in commands:
             logging.debug(command)
             # Docker
@@ -71,7 +75,9 @@ def main(params):
                         detach=True)
                     exit_code = container.wait(timeout=1200)
                     logging.info(exit_code)
-                    container.logs(stream=True)  # FIXME: print logs!
+                    logs = container.logs(stream=True)
+                    for line in logs:
+                        print(codecs.decode(line))
                     continue
                 except DockerException as e:
                     logging.info(f"Cannot postprocess using Docker: {e}\n")
@@ -87,35 +93,65 @@ def main(params):
                     logging.info(e)
                 continue
             else:
-                logging.info(f"Cannot postprocess using Singularity, will resort to less efficient vectorization"
-                             f"with rasterio and shapely\n")
-            ras2vec(outpath, out_vect)
+                logging.info(f"\nCannot postprocess using Singularity, will resort to less efficient vectorization"
+                             f"with rasterio and shapely")
+        ras2vec(outpath, out_vect_raw)
 
-        if generalization:
-            out_vect_temp = root / f"{out_vect.stem}_temp.gpkg"
-            logging.info(f"Simplifying prediction to {out_vect}")
-            command = [f"qgis_process run model:cleanup_building -- building=/home/{str(out_vect_temp.name)} "
+        # in some cases, Grass fails to read source epsg and writes output without crs
+        with rasterio.open(outpath) as src:
+            gdf = geopandas.read_file(out_vect_raw)
+            if gdf.crs != src.crs:
+                gdf.set_crs(crs=src.crs, allow_override=True)
+                # write file
+                out_vect_raw_crs = out_vect_raw.parent / f"{out_vect_raw.stem}_crs.gpkg"
+                gdf.to_file(out_vect_raw_crs)
+
+        if out_vect_raw.is_file():
+            logging.info(f'\nPolygonization completed. Raw prediction: {out_vect_raw}')
+
+        if out_vect_raw.is_file() and generalization:  # generalize only polygonization is successful
+            logging.info(f"Generalizing prediction to {out_vect}")
+            commands = [f"qgis_process plugins enable geo_sim_processing",
+                        f"qgis_process plugins enable processing",
+                        f"qgis_process run /models/1classe_cleanup_building_v2.model3 -- "
+                        f"building=/home/{str(out_vect_raw.name)} "
                         f"Geopackagename=/home/{str(out_vect.name)} "
                         f"NomdelacoucheBatimentdanslegpkg=building Simplify=0.3 Deletehole=40"]
-            logging.debug(command)
-            if docker_img:
-                try:
-                    client = docker.from_env()
-                    qgis_pp_docker_img = client.images.pull(docker_img)
-                    container = client.containers.run(
-                        image=qgis_pp_docker_img,
-                        command=command,
-                        volumes={f'{str(outpath.parent.absolute())}': {'bind': '/home', 'mode': 'rw'},
-                                 f'{str(qgis_models_dir)}':
-                                     {'bind': '/usr/share/qgis/profiles/default/processing/models', 'mode': 'rw'}},
-                        detach=True)
-                    exit_code = container.wait(timeout=1200)
-                    logging.info(exit_code)
-                    container.logs(stream=True)  # FIXME: print logs!
-                except DockerException as e:
-                    logging.info(f"Cannot postprocess using Docker: {e}\n")
-            if singularity_img:
-                pass
+            for command in commands:
+                logging.debug(command)
+                if docker_img:
+                    try:
+                        client = docker.from_env()
+                        qgis_pp_docker_img = client.images.pull(docker_img)
+                        container = client.containers.run(
+                            image=qgis_pp_docker_img,
+                            command=command,
+                            volumes={f'{str(outpath.parent.absolute())}': {'bind': '/home', 'mode': 'rw'},
+                                     f'{str(qgis_models_dir)}':
+                                         {'bind': '/models',
+                                          'mode': 'rw'}},
+                            detach=True)
+                        exit_code = container.wait(timeout=1200)
+                        logging.info(exit_code)
+                        logs = container.logs(stream=True)
+                        for line in logs:
+                            print(codecs.decode(line))
+                    except DockerException as e:
+                        logging.info(f"Cannot postprocess using Docker: {e}\n")
+                # Singularity: validate installation and assert version >= 3.0.0
+                if singularity_img and Client.version() and int(Client.version().split(' ')[-1].split('.')[0]) >= 3:
+                    logging.debug(command.split(" "))
+                    try:
+                        executor = Client.execute(to_absolute_path(str(singularity_img)), command.split(" "),
+                                                  bind=f"{str(outpath.parent.absolute())}:/home", stream=True)
+                        for line in executor:
+                            logging.info(line)
+                    except subprocess.CalledProcessError as e:
+                        logging.info(e)
+                    continue
+                else:
+                    logging.info(f"\nCannot postprocess using Singularity")
+            if out_vect.is_file():
+                logging.info(f'\nGeneralization completed. Final prediction: {out_vect}')
 
-    logging.info(f'\nPostprocessing completed on {dm.inference_dataset.item_url}'
-                 f'\nFinal prediction written to {dm.inference_dataset.outpath_vec}')
+    logging.info(f'\nEnd of postprocessing')

@@ -34,7 +34,7 @@ def run_gdl(cfg: DictConfig) -> None:
 
     # debug config
     if cfg.debug:
-        pass
+        logging.getLogger().setLevel(logging.DEBUG)
         # cfg.training.num_sanity_val_steps = 1  # only work with pytorch lightning
         # logging.info(OmegaConf.to_yaml(cfg, resolve=True))
 

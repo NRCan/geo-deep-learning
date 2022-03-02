@@ -32,6 +32,7 @@ class InferenceDataModule(LightningDataModule):
         num_workers: int = 0,
         download: bool = False,
         use_projection_units: bool = False,
+        save_heatmap: bool = False,
         **kwargs: Any,
     ) -> None:
         """Initialize a LightningDataModule for InferenceDataset based Dataloader.
@@ -59,6 +60,7 @@ class InferenceDataModule(LightningDataModule):
         self.download = download
         self.use_projection_units = use_projection_units
         self.bands = bands
+        self.save_heatmap = save_heatmap
 
     # adapted from: https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/torchgeo/datamodules/chesapeake.py#L100
     def pad(
@@ -130,6 +132,7 @@ class InferenceDataModule(LightningDataModule):
             transforms=test_transforms,
             download=self.download,
             pad=self.pad_size,
+            save_heatmap=self.save_heatmap,
         )
 
     def predict_dataloader(self) -> DataLoader[Any]:

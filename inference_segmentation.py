@@ -1,11 +1,11 @@
 # Licensed under the MIT License.
 # Adapted from: https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/evaluate.py
+# Also see: https://gist.github.com/calebrob6/7b226eb73877187f85fb5e1621bb7971
 
 # Hardware requirements: 64 Gb RAM (cpu), 8 Gb GPU RAM.
 
 """CCMEO model inference script."""
 import argparse
-import logging
 from pathlib import Path
 from typing import Dict, Any, Sequence, List, Union
 
@@ -16,13 +16,14 @@ from pytorch_lightning import LightningModule, seed_everything
 import segmentation_models_pytorch as smp
 import ttach as tta
 import torch
+from rasterio.plot import reshape_as_raster
 from torch import autocast
 import torch.nn.functional as F
 from torchgeo.trainers import SemanticSegmentationTask
 from tqdm import tqdm
 from ttach import SegmentationTTAWrapper
 
-import inference_postprocess
+import postprocess_segmentation
 from inference.InferenceDataModule import InferenceDataModule
 from models.model_choice import load_checkpoint
 from utils.logger import get_logger
@@ -142,7 +143,7 @@ def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
     return out_pth_path
 
 
-def auto_chip_size_finder(datamodule, device, model, tta_transforms, single_class_mode=False, max_used_ram: int = 95):
+def auto_batch_size_finder(datamodule, device, model, tta_transforms, single_class_mode=False, max_used_ram: int = 95):
     """
     TODO
     @param datamodule:
@@ -153,18 +154,18 @@ def auto_chip_size_finder(datamodule, device, model, tta_transforms, single_clas
     @param max_used_ram:
     @return:
     """
-    chip_size_init = chip_size_trial = 256
-    _tqdm = tqdm(range(32), desc=f"Finding chip size filling GPU to {max_used_ram} % or less")
+    src_size = datamodule.inference_dataset.src.height * datamodule.inference_dataset.src.width
+    batch_size_init = batch_size_trial = 1
+    window_spline_2d = create_spline_window(datamodule.patch_size).to(device)
+    _tqdm = tqdm(range(64), desc=f"Finding batch size filling GPU to {max_used_ram} % or less")
     for trial in _tqdm:
-        chip_size_trial += chip_size_init*(trial+1)
-        _tqdm.set_postfix_str(f"Trying: {chip_size_trial}")
-        datamodule.patch_size = chip_size_trial
-        datamodule.stride = int(chip_size_trial / 2)
-        if chip_size_trial > min(datamodule.inference_dataset.src.shape):
-            logging.info(f"Reached maximum chip size for image size. "
-                         f"Chip size tuned to {chip_size_trial-chip_size_init}.")
-            return chip_size_trial-chip_size_init
-        window_spline_2d = create_spline_window(chip_size_trial).to(device)
+        batch_size_trial += batch_size_init*(trial+1)
+        _tqdm.set_postfix_str(f"Trying: {batch_size_trial}")
+        datamodule.batch_size = batch_size_trial
+        if batch_size_trial*datamodule.patch_size**2 > src_size:
+            logging.info(f"Reached maximum batch size for image size. "
+                         f"Batch size tuned to {batch_size_trial-batch_size_init}.")
+            return batch_size_trial-batch_size_init
         eval_gen2tune = run_eval_loop(
             model=model,
             dataloader=datamodule.predict_dataloader(),
@@ -177,8 +178,8 @@ def auto_chip_size_finder(datamodule, device, model, tta_transforms, single_clas
         _ = next(eval_gen2tune)
         free, total = torch.cuda.mem_get_info(device)
         if (total-free)/total > max_used_ram/100:
-            logging.info(f"Reached GPU RAM threshold of {int(max_used_ram)}%. Chip size tuned to {chip_size_trial}.")
-            return chip_size_trial
+            logging.info(f"Reached GPU RAM threshold of {int(max_used_ram)}%. Batch size tuned to {batch_size_trial}.")
+            return batch_size_trial
 
 
 def create_spline_window(chip_size, power=1):
@@ -225,15 +226,12 @@ def run_eval_loop(
         with autocast(device_type=device.type):
             outputs = model(inputs)
         if single_class_mode:
-            outputs = outputs.squeeze(dim=0)
+            outputs = torch.sigmoid(outputs)  # TODO test this
         else:
-            outputs = F.softmax(outputs, dim=1).squeeze(dim=0)
-        outputs = outputs[:, pad:-pad, pad:-pad]
+            outputs = F.softmax(outputs, dim=1)
+        outputs = outputs[..., pad:-pad, pad:-pad]
         outputs = torch.mul(outputs, window_spline_2d)
-        if single_class_mode:
-            outputs = torch.sigmoid(outputs)
-        outputs = outputs.permute(1, 2, 0).cpu().numpy().astype('float16')
-        batch_output['data'] = outputs
+        batch_output['data'] = outputs.permute(0, 2, 3, 1).cpu().numpy().astype('float16')
         yield batch_output
 
 
@@ -249,6 +247,7 @@ def main(params):
     root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
     model_name = get_key_def('model_name', params['model'], expected_type=str).lower()  # TODO couple with model_choice.py
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
+    save_heatmap = get_key_def('save_heatmap', params['inference'], default=False, expected_type=bool)
 
     # Dataset params
     modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
@@ -270,11 +269,12 @@ def main(params):
     num_workers = get_key_def('num_workers', params['inference'], default=num_workers_default, expected_type=int)
 
     # Sampling, batching and augmentations configuration
-    chip_size = get_key_def('chunk_size', params['inference'], default=None, expected_type=int)
-    auto_chip_size = True if not chip_size else False
-    if auto_chip_size and device.type == 'cpu':
-        logging.warning(f"Auto chip size not implemented for cpu execution. Chip size will default to 512.")
-        chip_size = 512
+    batch_size = get_key_def('batch_size', params['inference'], default=None, expected_type=int)
+    chip_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
+    auto_batch_size = True if not batch_size else False
+    if auto_batch_size and device.type == 'cpu':
+        logging.warning(f"Auto batch size not implemented for cpu execution. Batch size will default to 1.")
+        batch_size = 1
     auto_cs_threshold = get_key_def('auto_chunk_size_threshold', params['inference'], default=95, expected_type=int)
     stride_default = int(chip_size / 2) if chip_size else 256
     stride = get_key_def('stride', params['inference'], default=stride_default, expected_type=int)
@@ -282,8 +282,6 @@ def main(params):
         logging.warning(f"Setting a large stride (more than 75% of chip size) will interfere with "
                         f"spline window smoothing operations and may result in poor quality extraction.")
     pad = get_key_def('pad', params['inference'], default=16, expected_type=int)
-    # for inference, batch size should be equal to number of GPUs being used TODO implement bs>1
-    batch_size = num_devices if num_devices else 1
     # TODO implement with hydra for all possible ttach transforms
     tta_transforms = get_key_def('tta_transforms', params['inference'], default="horizontal_flip", expected_type=str)
     tta_merge_mode = get_key_def('tta_merge_mode', params['inference'], default="max", expected_type=str)
@@ -315,24 +313,24 @@ def main(params):
                              download=download_data,
                              seed=seed,
                              pad=pad,
-                             )  # TODO: test batch_size>1 for multi-gpu implementation
+                             save_heatmap=save_heatmap,
+                             )
     dm.setup()
 
-    model = model.to(device)
+    model = model.to(device)  # TODO test multi-gpu implementation
 
     h, w = [side for side in dm.inference_dataset.src.shape]
 
-    if auto_chip_size and device.type != "cpu":
-        chip_size = auto_chip_size_finder(datamodule=dm,
-                                          device=device,
-                                          model=model,
-                                          tta_transforms=tta_transforms,
-                                          single_class_mode=single_class_mode,
-                                          max_used_ram=auto_cs_threshold,
-                                          )
-        # Set final chip size and stride from auto found values
-        dm.patch_size = chip_size
-        dm.stride = int(chip_size / 2)
+    if auto_batch_size and device.type != "cpu":
+        batch_size = auto_batch_size_finder(datamodule=dm,
+                                            device=device,
+                                            model=model,
+                                            tta_transforms=tta_transforms,
+                                            single_class_mode=single_class_mode,
+                                            max_used_ram=auto_cs_threshold,
+                                            )
+        # Set final batch size from auto found value
+        dm.batch_size = batch_size
 
     window_spline_2d = create_spline_window(chip_size).to(device)
     # Instantiate inference generator for looping over imagery chips
@@ -350,14 +348,20 @@ def main(params):
     # Create a numpy memory map to write results from per-chip inference to full-size prediction
     tempfile = root / f"{Path(dm.inference_dataset.outpath).stem}.dat"
     fp = np.memmap(tempfile, dtype='float16', mode='w+', shape=(h, w, num_classes))
-    for i, inference_prediction in enumerate(eval_gen):
-        for bbox in inference_prediction['bbox']:
-            col_min, *_, row_min = dm.sampler.chip_indices_from_bbox(bbox, dm.inference_dataset.src)
+    transform = dm.inference_dataset.src.transform
+    for inference_prediction in eval_gen:
+        # iterate through the batch and paste the predictions where they belong
+        for i in range(len(inference_prediction['bbox'])):
+            bb = inference_prediction["bbox"][i]
+            col_min, row_min = ~transform * (bb.minx, bb.maxy)  # top left
+            col_min, row_min = round(col_min), round(row_min)
             right = col_min + chip_size if col_min + chip_size <= w else w
             bottom = row_min + chip_size if row_min + chip_size <= h else h
+
+            pred = inference_prediction['data'][i]
             # Write prediction on top of existing prediction for smoothing purposes
             fp[row_min:bottom, col_min:right, :] = \
-                fp[row_min:bottom, col_min:right, :] + inference_prediction['data'][:bottom-row_min, :right-col_min]
+                fp[row_min:bottom, col_min:right, :] + pred[:bottom-row_min, :right-col_min]
     fp.flush()
     del fp
 
@@ -365,17 +369,27 @@ def main(params):
     fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, num_classes))
     pred_img = fp.argmax(axis=-1).astype('uint8')
     pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
-    dm.inference_dataset.create_outraster()  # Unknown bug when moved further down
+    dm.inference_dataset.create_empty_outraster()
     outpath = Path(dm.inference_dataset.outpath)
     meta = rasterio.open(outpath).meta
     with rasterio.open(outpath, 'w+', **meta) as dest:
         dest.write(pred_img)
 
-    # Postprocess final raster prediction (polygonization and simplification)
-    inference_postprocess.main(params)
-
     logging.info(f'\nInference completed on {dm.inference_dataset.item_url}'
-                 f'\nFinal prediction written to {dm.inference_dataset.outpath}')
+                 f'\nFinal prediction written to {outpath}')
+
+    if dm.save_heatmap:
+        dm.inference_dataset.create_empty_outraster_heatmap(num_classes)
+        outpath_heat = Path(dm.inference_dataset.outpath_heat)
+        meta = rasterio.open(outpath_heat).meta
+        heatmap_arr = np.array(fp) / fp.max() * 100
+        heatmap_arr = reshape_as_raster(heatmap_arr).astype(np.uint8)
+        with rasterio.open(outpath_heat, 'w+', **meta) as dest:
+            dest.write(heatmap_arr)
+        logging.info(f'\nSaved heatmap to {outpath_heat}')
+
+    # Postprocess final raster prediction (polygonization and simplification)
+    postprocess_segmentation.main(params)
 
 
 if __name__ == "__main__":  # serves as back up

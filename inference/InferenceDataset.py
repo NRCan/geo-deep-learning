@@ -30,6 +30,7 @@ class InferenceDataset(RasterDataset):
             cache: bool = False,
             download: bool = False,
             singleband_files: bool = True,
+            save_heatmap: bool = False,
             pad: int = 256,  # TODO softcode pad mode (currently: reflect)
     ) -> None:
         """Initialize a new CCCOT Dataset instance.
@@ -52,6 +53,9 @@ class InferenceDataset(RasterDataset):
         self.pad = pad
         self.outpath = outpath
         self.outpath_vec = self.root / f"{outpath.stem}.gpkg"
+        self.save_heatmap = save_heatmap
+        if self.save_heatmap:
+            self.outpath_heat = self.root / f"{outpath.stem}_heatmap.tif"
 
         # Create an R-tree to index the dataset
         self.index = Index(interleaved=False, properties=Property(dimension=3))
@@ -112,7 +116,11 @@ class InferenceDataset(RasterDataset):
         self._crs = cast(CRS, crs)
         self.res = cast(float, res)
 
-    def create_outraster(self):
+    def create_empty_outraster(self):
+        """
+        TODO
+        @return:
+        """
         pred = np.zeros(self.src.shape, dtype=np.uint8)
         pred = pred[np.newaxis, :, :].astype(np.uint8)
         out_meta = self.src.profile
@@ -126,6 +134,26 @@ class InferenceDataset(RasterDataset):
                          'blockysize': 256,
                          "compress": 'lzw'})
         with rasterio.open(self.outpath, 'w+', **out_meta) as dest:
+            dest.write(pred)
+
+    def create_empty_outraster_heatmap(self, num_classes: int):
+        """
+        TODO
+        @param num_classes:
+        @return:
+        """
+        pred = np.zeros((num_classes, self.src.shape[0], self.src.shape[1]), dtype=np.uint8)
+        out_meta = self.src.profile
+        out_meta.update({"driver": "GTiff",
+                         "height": pred.shape[1],
+                         "width": pred.shape[2],
+                         "count": pred.shape[0],
+                         "dtype": 'uint8',
+                         'tiled': True,
+                         'blockxsize': 256,
+                         'blockysize': 256,
+                         "compress": 'lzw'})
+        with rasterio.open(self.outpath_heat, 'w+', **out_meta) as dest:
             dest.write(pred)
 
     def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:

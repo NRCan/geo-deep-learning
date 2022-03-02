@@ -1,7 +1,6 @@
+import warnings
 from typing import Union, Tuple, Optional, Iterator
 
-import numpy as np
-import rasterio
 from torchgeo.datasets import GeoDataset, BoundingBox
 from torchgeo.samplers import GridGeoSampler, Units
 from torchgeo.samplers.utils import _to_tuple
@@ -77,31 +76,31 @@ class GridGeoSamplerPlus(GridGeoSampler):
             mint = bounds.mint
             maxt = bounds.maxt
 
-            # For each row...
             for i in range(rows):
                 miny = bounds.miny + i * self.stride[0]
                 maxy = miny + self.size[0]
                 if maxy > bounds.maxy:
+                    last_stride_y = self.stride[0] - (miny - (bounds.maxy - self.size[0]))
                     maxy = bounds.maxy
                     miny = bounds.maxy - self.size[0]
+                    warnings.warn(
+                        f"Max y coordinate of bounding box reaches passed y bounds of source tile. "
+                        f"Bounding box will be moved to set max y at source tile's max y. Stride will be adjusted "
+                        f"from {self.stride[0]:.2f} to {last_stride_y:.2f}"
+                    )
 
                 # For each column...
                 for j in range(cols):
                     minx = bounds.minx + j * self.stride[1]
                     maxx = minx + self.size[1]
                     if maxx > bounds.maxx:
+                        last_stride_x = self.stride[1] - (minx - (bounds.maxx - self.size[1]))
                         maxx = bounds.maxx
                         minx = bounds.maxx - self.size[1]
+                        warnings.warn(
+                            f"Max x coordinate of bounding box reaches passed x bounds of source tile. "
+                            f"Bounding box will be moved to set max x at source tile's max x. Stride will be adjusted "
+                            f"from {self.stride[1]:.2f} to {last_stride_x:.2f}"
+                        )
 
                     yield BoundingBox(minx, maxx, miny, maxy, mint, maxt)
-
-    def chip_indices_from_bbox(self, bounds, source):
-
-        chip_minx, chip_maxx, chip_miny, chip_maxy, *_ = bounds
-        try:
-            samp_window = rasterio.windows.from_bounds(chip_minx, chip_maxy, chip_maxx, chip_miny, transform=source.transform)
-        except rasterio.windows.WindowError:  # TODO how to deal with CRS units that don't go left->right, top->bottom
-            samp_window = rasterio.windows.from_bounds(chip_minx, chip_miny, chip_maxx, chip_maxy,
-                                                       transform=source.transform)
-        left, bottom, right, top = samp_window.col_off, samp_window.row_off+np.ceil(samp_window.height), samp_window.col_off+np.ceil(samp_window.width), samp_window.row_off
-        return [int(side) for side in (left, bottom, right, top)]
