@@ -2,6 +2,7 @@
 inference:
   input_stac_item: https://datacube-stage.services.geo.ca/api/collections/worldview-3-ortho-pansharp/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03
   root_dir: ${general.raw_data_dir}
+  output_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred.tif  # name of output file to write in root
   state_dict_path: /models/manet_pretrained_bds3_cls1.pth.tar
   download_data: False  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer

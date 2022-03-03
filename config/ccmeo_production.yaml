@@ -1,18 +1,15 @@
 defaults:
   - model: manet_pretrained
-  - training: default_training
-  - loss: binary/softbce
-  - optimizer: adamw
+  - inference: production
+  - postprocess: production
   - callbacks: default_callbacks
-  - scheduler: plateau
   - dataset: ccmeo_datacube_sat_dataset
   - augmentation: basic_augmentation_segmentation
   - tracker: # set logger here or use command line (e.g. `python GDL.py tracker=mlflow`)
-  - visualization: default_visualization
-  - inference: production
   - hydra: default
   - override hydra/hydra_logging: colorlog # enable color logging to make it pretty
   - override hydra/job_logging: colorlog # enable color logging to make it pretty
+  - loss: binary/softbce  # TODO: remove from utils/print_config()
   - _self_
 
 general:
@@ -27,8 +24,6 @@ general:
   config_path: ${hydra:runtime.config_sources}
   project_name: template_project
   workspace: your_name
-  max_epochs: 2 # for train only
-  min_epochs: 1 # for train only
   raw_data_dir: data
   raw_data_csv: data/images_to_samples_ci_csv.csv
   sample_data_dir: data # where the hdf5 will be saved
@@ -39,5 +34,5 @@ AWS:
   bucket_name:
 
 print_config: True # save the config in the log folder
-mode: {sampling, train, evaluate, inference, postprocess, hyperparameters_search}
+mode: {inference, postprocess}
 debug: False # will print the complete yaml config plus run a validation test

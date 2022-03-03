@@ -44,6 +44,8 @@ class InferenceDataset(RasterDataset):
         """
         self.item_url = item_path
         self.bands = bands
+        if len(self.bands) == 0:
+            raise ValueError(f"At least one band should be chosen")
         self.root = Path(root)
         self.transforms = transforms
         self.separate_files = singleband_files
@@ -60,7 +62,7 @@ class InferenceDataset(RasterDataset):
         self.item_url = self.item_url if is_url(self.item_url) else to_absolute_path(self.item_url)
         # Read Stac item from url
         if self.separate_files:
-            self.item = SingleBandItemEO(pystac.Item.from_file(self.item_url))
+            self.item = SingleBandItemEO(pystac.Item.from_file(str(self.item_url)))
         else:
             pass  # TODO: implement
 
