@@ -155,7 +155,9 @@ def add_confidence_from_heatmap(in_heatmap: Union[str, Path], in_vect: Union[str
     with rasterio.open(in_heatmap, 'r') as src:
         gdf = geopandas.read_file(in_vect)
         confidences = []
-        for row, bbox in tqdm(zip(gdf.iterrows(), gdf.envelope), desc=f"Calculating confidence values per feature"):
+        for row, bbox in tqdm(zip(gdf.iterrows(), gdf.envelope),
+                              desc=f"Calculating confidence values per feature",
+                              total=len(gdf)):
             index, feature = row
             left, bottom, right, top = bbox.bounds
             window = rasterio.windows.from_bounds(left, bottom, right, top, transform=src.transform)
