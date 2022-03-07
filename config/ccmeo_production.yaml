@@ -8,6 +8,7 @@ defaults:
   - tracker: # set logger here or use command line (e.g. `python GDL.py tracker=mlflow`)
   - hydra: default
   - loss: binary/softbce  # TODO: remove from utils/print_config()
+  - training: default_training
   - override hydra/hydra_logging: colorlog # enable color logging to make it pretty
   - override hydra/job_logging: colorlog # enable color logging to make it pretty
   - _self_

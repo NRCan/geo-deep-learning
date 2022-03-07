@@ -13,6 +13,7 @@ inference:
 
   tta_merge_mode: max  # Test time augmentation merge mode. See: https://github.com/qubvel/ttach#merge-modes
   tta_transforms: horizontal_flip  # Test-time augmentation tranforms. See: https://github.com/qubvel/ttach#transforms
+  postprocess: True  # if True, will proceed to postprocessing directly after inference  # TODO is this flag necessary?
 
   # GPU parameters
   gpu: 1  # Number of gpus to use. TODO implement >1

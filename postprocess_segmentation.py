@@ -18,6 +18,7 @@ from rasterio import features
 from rasterio.windows import Window
 from spython.main import Client
 from tqdm import tqdm
+from regularization import regularize
 
 from inference.InferenceDataset import InferenceDataset
 from utils.logger import get_logger
@@ -191,6 +192,7 @@ def main(params):
     modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
 
     # Postprocessing
+    regularization = get_key_def('regularization', params['postprocess'], expected_type=bool, default=True)
     polygonization = get_key_def('polygonization', params['postprocess'], expected_type=bool, default=True)
     confidence_values = get_key_def('confidence_values', params['postprocess'], expected_type=bool, default=True)
     generalization = get_key_def('generalization', params['postprocess'], expected_type=bool, default=True)
@@ -217,6 +219,19 @@ def main(params):
     if not outpath.is_file():
         raise FileNotFoundError(f"\nCannot find raster prediction file to use for postprocessing."
                                 f"\nGot:{outpath}")
+
+    # Regularize buildings
+    if regularization:
+        building_value = get_key_def('building', params['dataset']['classes_dict'], default=1)
+        outpath_reg = outpath.parent / f"{outpath.stem}_reg.tif"
+        regularize.main(
+            in_raster=outpath,
+            out_raster=outpath_reg,
+            build_val=building_value,
+            models_dir="/home/remi/PycharmProjects/projectRegularization/regularization/saved_models_gan"  # TODO softcode
+        )
+        # if regularizing, use new file for the rest of pp.  FIXME: not robust
+        poly_commands = [command.replace(outpath.name, outpath_reg.name) for command in poly_commands]
 
     # Postprocess final raster prediction (polygonization)
     if polygonization:

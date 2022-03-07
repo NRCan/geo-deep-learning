@@ -291,6 +291,7 @@ def main(params):
     # TODO implement with hydra for all possible ttach transforms
     tta_transforms = get_key_def('tta_transforms', params['inference'], default="horizontal_flip", expected_type=str)
     tta_merge_mode = get_key_def('tta_merge_mode', params['inference'], default="max", expected_type=str)
+    postprocess = get_key_def('postprocess', params['inference'], default=False, expected_type=bool)
 
     seed = 123
     seed_everything(seed)
@@ -398,7 +399,8 @@ def main(params):
         logging.info(f'\nSaved heatmap to {outpath_heat}')
 
     # Postprocess final raster prediction (polygonization and simplification)
-    postprocess_segmentation.main(params)
+    if postprocess:
+        postprocess_segmentation.main(params)
 
 
 if __name__ == "__main__":  # serves as back up
