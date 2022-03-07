@@ -22,6 +22,6 @@ postprocess:
                            VALUE=0 OUTPUT=/home/${postprocess.output_vect_name}
   generalization_commands: qgis_process plugins enable geo_sim_processing,
                            qgis_process plugins enable processing,
-                           qgis_process run /models/${postprocess.qgis_models_building} -- building=/home/${postprocess.output_vect_name}}
-                           Geopackagename=/home/${postprocess.output_gen_name}}
+                           qgis_process run /models/${postprocess.qgis_models_building} -- building=/home/${postprocess.output_vect_name}
+                           Geopackagename=/home/${postprocess.output_gen_name}
                            NomdelacoucheBatimentdanslegpkg=building Simplify=0.3 Deletehole=40  # FIXME: convert to degrees if crs 4326

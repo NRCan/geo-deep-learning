@@ -261,10 +261,10 @@ def main(params):
 
         # set confidence values to features in polygonized prediction
         if confidence_values and dataset.outpath_heat.is_file():
-            outpath_heat_vec = dataset.outpath_heat.parent / f"{dataset.outpath_heat.stem}.gpkg"
+            outpath_heat_vec = out_vect_raw.parent / f"{dataset.outpath_heat.stem}.gpkg"
             add_confidence_from_heatmap(in_heatmap=dataset.outpath_heat, in_vect=out_vect_raw, out_vect=outpath_heat_vec)
-            # if outputting confidence levels, use new file for the rest of pp.
-            params['postprocess']['output_vect_name'] = str(outpath_heat_vec)
+            # if outputting confidence levels, use new file for the rest of pp.  FIXME: not robust
+            gen_commands = [command.replace(out_vect_raw_name, outpath_heat_vec.name) for command in gen_commands]
         elif confidence_values:
             logging.error(f"Cannot add confidence levels to polygons. A heatmap must be generated at inference")
 
