@@ -173,7 +173,9 @@ class InferenceDataset(RasterDataset):
                 f"query: {query} not found in index with bounds: {self.bounds}"
             )
 
-        with rasterio.Env(CPL_CURL_VERBOSE=False):  # TODO: turn off rasterio._env warnings
+        # TODO: turn off external logs (ex.: rasterio._env)
+        # TODO: https://stackoverflow.com/questions/35325042/python-logging-disable-logging-from-imported-modules
+        with rasterio.Env(CPL_CURL_VERBOSE=False):
             if self.separate_files:
                 data_list: List[Tensor] = []
                 for band in getattr(self, "bands", self.all_bands):

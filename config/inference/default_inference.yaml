@@ -1,12 +1,15 @@
 # @package _global_
 inference:
-  input_stac_item: data/STAC_VancouverP003/VancouverP003_054230029070_01_P003_WV2.json
+  input_stac_item: data/STAC_SpaceNet1_AOI_2/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
   root_dir: ${general.raw_data_dir}
-  state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar
+  output_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred.tif  # name of output file to write in root
+  state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar  # TODO: use valid model
   download_data: False  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer
-  chunk_size: 64 # if empty, will be calculated automatically to fill "auto_cunk_size_threshold" % of GPU Ram
-  auto_chunk_size_threshold: # 95
+  save_heatmap: True
+  batch_size: # if empty, will be calculated automatically to fill "auto_batch_size_threshold" % of GPU Ram
+  chunk_size: 256 # Defaults to 512
+  auto_batch_size_threshold: 90
 
   tta_merge_mode: max
   tta_transforms: horizontal_flip
@@ -15,10 +18,3 @@ inference:
   gpu: 0
   max_used_perc: ${training.max_used_perc}  # If RAM usage of detected GPU exceeds this percentage, it will be ignored
   max_used_ram: ${training.max_used_ram}  # If GPU's usage exceeds this percentage, it will be ignored
-
-  # Post-processing
-  polygonization: True  # if True, a polygonized version of the inference (.gpkg) will be created with rasterio tools
-  generalization: False  # TODO: can generalization be tested in CI with docker image?
-  qgis_models_dir: # Could be: "/home/[user]/.local/share/QGIS/QGIS3/profiles/default/processing/models"
-  docker_img: # remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
-  singularity_img: # ../singularity/qgis_pp.sif

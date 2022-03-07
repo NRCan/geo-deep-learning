@@ -1,0 +1,29 @@
+# @package _global_
+postprocess:
+  input_stac_item: data/STAC_SpaceNet1_AOI_2/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
+  root_dir: ${general.raw_data_dir}  # can be a local directory or url TODO test this
+  output_vect_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred_raw.gpkg  # name of output file to write in root
+  # output_gen_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred.gpkg  # name of output file to write in root
+
+  # Post-processing
+  postprocess: True  # if True, will proceed to postprocessing directly after inference
+  polygonization: True  # if True, a polygonized version of the inference (.gpkg) will be created from grass or rasterio
+  generalization: False  # if True, a generalized version of the inference (.gpkg) will be created with qgis models
+  # FIXME: needs docker client and image on github CI
+  # qgis_models_dir: "/home/remi/.local/share/QGIS/QGIS3/profiles/default/processing/models"
+  # qgis_models_building: 1classe_cleanup_building_v2.model3
+  # docker_img: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
+  # singularity_img: # ../singularity/qgis_pp.sif
+
+  # commands to execute in containers separated by comma
+  # FIXME softcode temp file name?
+#  polygonization_commands: qgis_process plugins enable grassprovider,
+#                           qgis_process run grass7:r.to.vect -- input=/home/${inference.output_name} type=2 output=/home/temp.gpkg,
+#                           qgis_process run native:extractbyattribute -- INPUT=/home/temp.gpkg FIELD=value OPERATOR=2
+#                           VALUE=0 OUTPUT=/home/${postprocess.output_vect_name},
+#                           rm /home/temp.gpkg
+#  generalization_commands: qgis_process plugins enable geo_sim_processing,
+#                           qgis_process plugins enable processing,
+#                           qgis_process run /models/${postprocess.qgis_models_building} -- building=/home/${postprocess.output_vect_name}}
+#                           Geopackagename=/home/${postprocess.output_gen_name}}
+#                           NomdelacoucheBatimentdanslegpkg=building Simplify=0.3 Deletehole=40

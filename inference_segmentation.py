@@ -281,7 +281,7 @@ def main(params):
     if auto_batch_size and device.type == 'cpu':
         logging.warning(f"Auto batch size not implemented for cpu execution. Batch size will default to 1.")
         batch_size = 1
-    auto_cs_threshold = get_key_def('auto_chunk_size_threshold', params['inference'], default=95, expected_type=int)
+    auto_bs_threshold = get_key_def('auto_batch_size_threshold', params['inference'], default=95, expected_type=int)
     stride_default = int(chip_size / 2) if chip_size else 256
     stride = get_key_def('stride', params['inference'], default=stride_default, expected_type=int)
     if chip_size and stride > chip_size * 0.75:
@@ -333,7 +333,7 @@ def main(params):
                                             model=model,
                                             tta_transforms=tta_transforms,
                                             single_class_mode=single_class_mode,
-                                            max_used_ram=auto_cs_threshold,
+                                            max_used_ram=auto_bs_threshold,
                                             )
         # Set final batch size from auto found value
         dm.batch_size = batch_size

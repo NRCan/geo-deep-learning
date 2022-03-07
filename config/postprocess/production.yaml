@@ -5,9 +5,8 @@ postprocess:
   output_vect_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred_raw.gpkg  # name of output file to write in root
   output_gen_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred.gpkg  # name of output file to write in root
 
-
-  # Post-processing TODO move to its own postprocessing yaml
-  postprocess: True  # if True, will proceed to postprocessing directly after inference
+  # Post-processing
+  postprocess: True  # if True, will proceed to postprocessing directly after inference  # TODO is this flag necessary?
   polygonization: True  # if True, a polygonized version of the inference (.gpkg) will be created from grass or rasterio
   generalization: True  # if True, a generalized version of the inference (.gpkg) will be created with qgis models
   qgis_models_dir: "/home/remi/.local/share/QGIS/QGIS3/profiles/default/processing/models"  # TODO softcode use of models?

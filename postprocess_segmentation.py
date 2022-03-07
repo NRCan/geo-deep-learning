@@ -13,7 +13,6 @@ import docker
 import fiona
 import geopandas
 import rasterio
-from fiona.crs import to_string
 from hydra.utils import to_absolute_path
 from rasterio import features
 from rasterio.windows import Window
@@ -117,13 +116,17 @@ def ras2vec(raster_file, output_path):
 
     logging.info("\n   - Writing output vector file: {}".format(output_path))
     num_layers = list(class_value_domain)  # Number of unique pixel value
+    if not num_layers:
+        logging.critical(f"\nRaster prediction contains only background pixels. An empty output will be written")
+        fiona.open(output_path, 'w', crs=src.crs, layer='empty', schema=feat_schema, driver='GPKG')
+        return
     for num_layer in num_layers:
         polygons = [feature for feature in out_features if feature['properties']['value'] == num_layer]
         layer_name = 'vector_' + str(num_layer).rjust(3, '0')
         logging.info("   - Writing layer: {}".format(layer_name))
 
         with fiona.open(output_path, 'w',
-                        crs=to_string(src.crs),
+                        crs=src.crs,
                         layer=layer_name,
                         schema=feat_schema,
                         driver='GPKG') as dest:
@@ -154,6 +157,9 @@ def add_confidence_from_heatmap(in_heatmap: Union[str, Path], in_vect: Union[str
     """
     with rasterio.open(in_heatmap, 'r') as src:
         gdf = geopandas.read_file(in_vect)
+        if gdf.empty:
+            logging.warning(f"\nNo features in polygonized output. No confidence values can be written.")
+            return
         confidences = []
         for row, bbox in tqdm(zip(gdf.iterrows(), gdf.envelope),
                               desc=f"Calculating confidence values per feature",
@@ -168,6 +174,7 @@ def add_confidence_from_heatmap(in_heatmap: Union[str, Path], in_vect: Union[str
             confidences.append(confidence)
         gdf['confidence'] = confidences
         gdf.to_file(out_vect)
+        logging.info(f'\nConfidence values added to polygonized prediction. Output: {out_vect}')
 
 
 def main(params):
@@ -196,15 +203,15 @@ def main(params):
 
     # Container commands
     poly_commands = get_key_def('polygonization_commands', params['postprocess'], expected_type=str)
-    poly_commands = poly_commands.replace(', ', ',').split(',')
+    poly_commands = poly_commands.replace(', ', ',').split(',') if poly_commands else []
     gen_commands = get_key_def('generalization_commands', params['postprocess'], expected_type=Sequence)
-    gen_commands = gen_commands.replace(', ', ',').split(',')
+    gen_commands = gen_commands.replace(', ', ',').split(',') if gen_commands else []
 
     # output paths
     dataset = InferenceDataset(root=root, item_path=item_url, outpath=outpath, bands=modalities)
-    out_vect_name = get_key_def('output_vect_name', params['inference'], default=dataset.outpath_vec.name)
+    out_vect_name = get_key_def('output_gen_name', params['postprocess'], default=dataset.outpath_vec.name)
     out_vect = root / out_vect_name
-    out_vect_raw_name = get_key_def('output_gen_name', params['inference'], default=f"{out_vect.stem}_raw.gpkg")
+    out_vect_raw_name = get_key_def('output_vect_name', params['postprocess'], default=f"{out_vect.stem}_raw.gpkg")
     out_vect_raw = root / out_vect_raw_name
 
     if not outpath.is_file():
@@ -225,10 +232,24 @@ def main(params):
                               f"\nCommand: {command}"
                               f"\nError {type(e)}: {e}")
                 ras2vec(outpath, out_vect_raw)
+        if not poly_commands:
+            ras2vec(outpath, out_vect_raw)
+
+        if out_vect_raw.is_file():
+            logging.info(f'\nPolygonization completed. Raw prediction: {out_vect_raw}')
+        else:
+            logging.critical(f'\nPolygonization failed. Raw prediction not found: {out_vect_raw}')
+            raise FileNotFoundError(f'Raw prediction not found: {out_vect_raw}')
 
         # in some cases, Grass fails to read source epsg and writes output without crs
         with rasterio.open(outpath) as src:
-            gdf = geopandas.read_file(out_vect_raw)
+            try:
+                gdf = geopandas.read_file(out_vect_raw)
+            except fiona.errors.DriverError as e:
+                logging.critical(f"\nOutputted polygonized prediction may be empty."
+                                 f"\n{type(e)}: {e}"
+                                 f"\nSkipping all remaining postprocessing and exiting...")
+                return
             if gdf.crs != src.crs:
                 logging.warning(f"Outputted polygonized prediction may not have valid CRS. Will attempt to set it to"
                                 f"raster prediction's CRS")
@@ -238,17 +259,16 @@ def main(params):
                 gdf.to_file(out_vect_raw_crs)
                 out_vect_raw = out_vect_raw_crs
 
-        if out_vect_raw.is_file():
-            logging.info(f'\nPolygonization completed. Raw prediction: {out_vect_raw}')
-
-        if confidence_values and dataset.outpath_heat.is_file() and out_vect_raw.is_file():
+        # set confidence values to features in polygonized prediction
+        if confidence_values and dataset.outpath_heat.is_file():
             outpath_heat_vec = dataset.outpath_heat.parent / f"{dataset.outpath_heat.stem}.gpkg"
             add_confidence_from_heatmap(in_heatmap=dataset.outpath_heat, in_vect=out_vect_raw, out_vect=outpath_heat_vec)
-            out_vect_raw = outpath_heat_vec  # if outputting confidence levels, use new file for the rest of pp.
+            # if outputting confidence levels, use new file for the rest of pp.
+            params['postprocess']['output_vect_name'] = str(outpath_heat_vec)
         elif confidence_values:
             logging.error(f"Cannot add confidence levels to polygons. A heatmap must be generated at inference")
 
-        if out_vect_raw.is_file() and generalization:  # generalize only if polygonization is successful
+        if generalization:  # generalize only if polygonization is successful
             logging.info(f"Generalizing prediction to {out_vect}")
             for command in gen_commands:
                 logging.debug(command)
@@ -265,5 +285,6 @@ def main(params):
                 logging.info(f'\nGeneralization completed. Final prediction: {out_vect}')
             else:
                 logging.error(f'\nGeneralization failed. See logs...')
+                raise FileNotFoundError()
 
     logging.info(f'\nEnd of postprocessing')
