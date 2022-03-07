@@ -263,7 +263,7 @@ def main(params):
     single_class_mode = False  # if num_classes > 2 else True TODO bug fix in GDL
 
     # Hardware
-    num_devices = get_key_def('gpu', params['inference'], default=1, expected_type=(int, bool))  # TODO implement >1
+    num_devices = get_key_def('gpu', params['inference'], default=1, expected_type=(int, bool))
     max_used_ram = get_key_def('max_used_ram', params['inference'], default=50, expected_type=int)
     if not (0 <= max_used_ram <= 100):
         raise ValueError(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}.')
@@ -323,7 +323,11 @@ def main(params):
                              )
     dm.setup()
 
-    model = model.to(device)  # TODO test multi-gpu implementation
+    # TODO test multi-gpu implementation
+    # https://pytorch-lightning.readthedocs.io/en/stable/starter/new-project.html
+    # https://github.com/PyTorchLightning/pytorch-lightning/discussions/9259
+    # https://pytorch-lightning.readthedocs.io/en/latest/notebooks/lightning_examples/cifar10-baseline.html?highlight=ligthning%20module#Lightning-Module
+    model = model.to(device)
 
     h, w = [side for side in dm.inference_dataset.src.shape]
 
