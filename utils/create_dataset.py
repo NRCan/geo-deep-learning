@@ -66,6 +66,7 @@ class SegmentationDataset(Dataset):
     def __init__(self, work_folder,
                  dataset_type,
                  num_bands,
+                 dontcare=255,
                  max_sample_count=None,
                  radiom_transform=None,
                  geom_transform=None,
@@ -76,6 +77,7 @@ class SegmentationDataset(Dataset):
         self.max_sample_count = max_sample_count
         self.dataset_type = dataset_type
         self.num_bands = num_bands
+        self.dontcare = dontcare
         self.metadata = []
         self.radiom_transform = radiom_transform
         self.geom_transform = geom_transform

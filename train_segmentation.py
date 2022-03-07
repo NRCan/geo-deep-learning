@@ -90,6 +90,7 @@ def create_dataloader(samples_folder: Path,
 
     for subset in ["trn", "val", "tst"]:
         datasets.append(dataset_constr(samples_folder, subset, num_bands,
+                                       dontcare=dontcare_val,
                                        max_sample_count=num_samples[subset],
                                        radiom_transform=aug.compose_transforms(params=cfg,
                                                                                dataset=subset,
