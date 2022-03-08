@@ -381,7 +381,7 @@ def main(cfg: DictConfig) -> None:
     # SAMPLE PARAMETERS
     samples_size = get_key_def('input_dim', cfg['dataset'], default=256, expected_type=int)
     overlap = get_key_def('overlap', cfg['dataset'], default=0)
-    min_annot_perc = get_key_def('min_annot_perc', cfg['dataset'], default=0)
+    min_annot_perc = get_key_def('min_annotated_percent', cfg['dataset'], default=0)
     val_percent = get_key_def('train_val_percent', cfg['dataset'], default=0.3)['val'] * 100
     samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' \
                           f'_{num_bands}bands_{cfg.general.project_name}'
