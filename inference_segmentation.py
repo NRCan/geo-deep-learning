@@ -249,8 +249,8 @@ def main(params):
     item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
     checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
     root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
-    outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred.tif")
-    outpath = root / outname
+    outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
+    outpath = root / f"{outname}.tif"
     model_name = get_key_def('model_name', params['model'], expected_type=str).lower()  # TODO couple with model_choice.py
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
     save_heatmap = get_key_def('save_heatmap', params['inference'], default=False, expected_type=bool)

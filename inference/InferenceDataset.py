@@ -76,6 +76,13 @@ class InferenceDataset(RasterDataset):
         if not set(self.bands).issubset(set(self.all_bands)):
             raise ValueError(f"Selected bands ({self.bands}) should be a subset of available bands ({self.all_bands})")
 
+        # Download assets if desired
+        if self.download:
+            for cname in self.bands:
+                out_name = self.root / Path(self.bands_dict[cname]['href']).name
+                download_url(self.bands_dict[cname]['href'], root=str(self.root), filename=str(out_name))
+                self.bands_dict[cname]['href'] = out_name
+
         # Open first asset with rasterio (for metadata: colormap, crs, resolution, etc.)
         self.first_asset = self.bands_dict[self.bands[0]]['href']
         self.first_asset = self.first_asset if is_url(self.first_asset) else to_absolute_path(self.first_asset)
@@ -103,11 +110,6 @@ class InferenceDataset(RasterDataset):
 
         # Add paths to Rtree index
         coords = (minx, maxx, miny, maxy, mint, maxt)
-        if self.download:
-            for cname in self.bands:
-                out_name = self.root / Path(self.bands_dict[cname]['href']).name
-                download_url(self.bands_dict[cname]['href'], root=str(self.root), filename=str(out_name))
-                self.bands_dict[cname]['href'] = out_name
 
         self.index.insert(0, coords, self.first_asset)
         self._crs = cast(CRS, crs)

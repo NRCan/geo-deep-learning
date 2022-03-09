@@ -5,6 +5,8 @@
 
 """CCMEO postprocess script."""
 import codecs
+import os
+import shutil
 from typing import Dict, Union, Sequence
 from collections import OrderedDict
 from pathlib import Path
@@ -28,6 +30,52 @@ from utils.utils import get_key_def
 logging = get_logger(__name__)
 
 
+def polygonize(in_raster, 
+               out_vector, 
+               container_image: str = None, 
+               container_type: str = 'docker', 
+               container_command: str = ''):
+    logging.info(f"Polygonizing prediction to {out_vector}...")
+    if not (container_image or container_command or container_type):
+        ras2vec(in_raster, out_vector)
+    logging.debug(container_command)
+    try:  # will raise Exception if image is None --> default to ras2vec
+        run_from_container(image=container_image, command=container_command,
+                           binds={f"{str(in_raster.parent.absolute())}": "/home"},
+                           container_type=container_type)
+    except Exception as e:
+        logging.error(f"\nError polygonizing using {container_type} container with image {container_image}."
+                      f"\nCommand: {container_command}"
+                      f"\nError {type(e)}: {e}")
+        ras2vec(in_raster, out_vector)
+
+    if out_vector.is_file():
+        logging.info(f'\nPolygonization completed. Raw prediction: {out_vector}')
+    else:
+        logging.critical(f'\nPolygonization failed. Raw prediction not found: {out_vector}')
+        raise FileNotFoundError(f'Raw prediction not found: {out_vector}')
+
+    # in some cases, Grass fails to read source epsg and writes output without crs
+    with rasterio.open(in_raster) as src:
+        out_vect_no_crs = out_vector.parent / f"{out_vector.stem}_no_crs.gpkg"
+        try:
+            gdf = geopandas.read_file(out_vector)
+        except fiona.errors.DriverError as e:
+            logging.critical(f"\nOutputted polygonized prediction may be empty."
+                             f"\n{type(e)}: {e}"
+                             f"\nSkipping all remaining postprocessing and exiting...")
+            return
+        if gdf.crs != src.crs:
+            shutil.copy(out_vector, out_vect_no_crs)
+            gdf = geopandas.read_file(out_vect_no_crs)
+            logging.warning(f"Outputted polygonized prediction may not have valid CRS. Will attempt to set it to"
+                            f"raster prediction's CRS")
+            gdf.set_crs(crs=src.crs, allow_override=True)
+            # write file
+            gdf.to_file(out_vector)
+            os.remove(out_vect_no_crs)
+
+
 def run_from_container(image: str, command: str, binds: Dict = {}, container_type='docker', verbose: bool = True):
     """
     Runs a command inside a docker or singularity container and returns when container has exited (on success or fail)
@@ -49,11 +97,14 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
     if container_type == 'docker':
         binds = {k: {'bind': v, 'mode': 'rw'} for k, v in binds.items()}
         client = docker.from_env()
-        qgis_pp_docker_img = client.images.pull(image)
+        qgis_pp_docker_img = client.images.get(image)
         container = client.containers.run(
             image=qgis_pp_docker_img,
             command=command,
             volumes=binds,
+            device_requests=[
+                docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])
+            ],
             detach=True)
         logs = container.logs(stream=stream)
         if stream:
@@ -136,7 +187,7 @@ def ras2vec(raster_file, output_path):
     logging.info("\nNumber of features written: {}".format(i))
 
 
-def add_confidence_from_heatmap(in_heatmap: Union[str, Path], in_vect: Union[str, Path], out_vect: Union[str, Path]):
+def add_confidence_from_heatmap(in_heatmap: Union[str, Path], in_vect: Union[str, Path]):
     """
     Writes confidence values to polygonized prediction from heatmap outputted by pytorch semantic segmentation models.
     @param in_heatmap: str, file object or pathlib.Path object
@@ -151,13 +202,12 @@ def add_confidence_from_heatmap(in_heatmap: Union[str, Path], in_vect: Union[str
         This function will iterate over predicted features. For each feature, a corresponding window is read in
         heatmap, mean confidence is computted, then written to output GeoDataFrame
         See polygonization tools used in this script (ex.: Grass' r.to.vect)
-    @param out_vect:
-        Path to output polygonized prediction containing confidence values as integers in "confidence" column. This
-        is basically a copy of input polygonized prediction, with added confidence values.
     @return:
     """
+    in_vect_copy = in_vect.parent / f"{in_vect.stem}_no_confid.gpkg"
+    shutil.copy(in_vect, in_vect_copy)
     with rasterio.open(in_heatmap, 'r') as src:
-        gdf = geopandas.read_file(in_vect)
+        gdf = geopandas.read_file(in_vect_copy)
         if gdf.empty:
             logging.warning(f"\nNo features in polygonized output. No confidence values can be written.")
             return
@@ -174,26 +224,27 @@ def add_confidence_from_heatmap(in_heatmap: Union[str, Path], in_vect: Union[str
             confidence = round(confidence.astype(int)) if confidence >= 0 else None
             confidences.append(confidence)
         gdf['confidence'] = confidences
-        gdf.to_file(out_vect)
-        logging.info(f'\nConfidence values added to polygonized prediction. Output: {out_vect}')
+        gdf.to_file(in_vect)
+        os.remove(in_vect_copy)
+        logging.info(f'\nConfidence values added to polygonized prediction. Output: {in_vect}')
 
 
 def main(params):
     """High-level postprocess pipeline.
-    Runs polygonization and simplificaiton of a raster prediction and saves results to gpkg file.
+    Runs building regularization, polygonization and generalization of a raster prediction and saves results to gpkg.
     Args:
         params: configuration parameters
     """
     # Main params
     item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
+    download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
     root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
-    outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred.tif")
-    outpath = root / outname
+    outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
+    outpath = root / f"{outname}.tif"
     modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
 
     # Postprocessing
     regularization = get_key_def('regularization', params['postprocess'], expected_type=bool, default=True)
-    polygonization = get_key_def('polygonization', params['postprocess'], expected_type=bool, default=True)
     confidence_values = get_key_def('confidence_values', params['postprocess'], expected_type=bool, default=True)
     generalization = get_key_def('generalization', params['postprocess'], expected_type=bool, default=True)
     docker_img = get_key_def('docker_img', params['postprocess'], expected_type=str)
@@ -204,102 +255,75 @@ def main(params):
     qgis_models_dir = get_key_def('qgis_models_dir', params['postprocess'], expected_type=str, validate_path_exists=True)
 
     # Container commands
-    poly_commands = get_key_def('polygonization_commands', params['postprocess'], expected_type=str)
-    poly_commands = poly_commands.replace(', ', ',').split(',') if poly_commands else []
-    gen_commands = get_key_def('generalization_commands', params['postprocess'], expected_type=Sequence)
-    gen_commands = gen_commands.replace(', ', ',').split(',') if gen_commands else []
+    poly_command = get_key_def('polygonization_command', params['postprocess'], expected_type=str)
+    reg_command = get_key_def('regularization_command', params['postprocess'], expected_type=str)
+    gen_command = get_key_def('generalization_command', params['postprocess'], expected_type=str)
 
     # output paths
-    dataset = InferenceDataset(root=root, item_path=item_url, outpath=outpath, bands=modalities)
-    out_vect_name = get_key_def('output_gen_name', params['postprocess'], default=dataset.outpath_vec.name)
-    out_vect = root / out_vect_name
-    out_vect_raw_name = get_key_def('output_vect_name', params['postprocess'], default=f"{out_vect.stem}_raw.gpkg")
-    out_vect_raw = root / out_vect_raw_name
+    dataset = InferenceDataset(root=root, item_path=item_url, outpath=outpath, bands=modalities, download=download_data)
+    out_poly_suffix = get_key_def('polygonization', params['postprocess']['output_suffixes'], default='_raw',
+                                  expected_type=str)
+    out_reg_suffix = get_key_def('regularization', params['postprocess']['output_suffixes'], default='_reg',
+                                  expected_type=str)
+    out_gen_suffix = get_key_def('generalization', params['postprocess']['output_suffixes'], default='_post',
+                                  expected_type=str)
+    out_reg = root / f"{outname}{out_reg_suffix}.tif"
+    out_poly = root / f"{outname}{out_poly_suffix}.gpkg"
+    out_gen = root / f"{outname}{out_gen_suffix}.gpkg"
 
     if not outpath.is_file():
         raise FileNotFoundError(f"\nCannot find raster prediction file to use for postprocessing."
                                 f"\nGot:{outpath}")
 
-    # Regularize buildings
-    if regularization:
-        building_value = get_key_def('building', params['dataset']['classes_dict'], default=1)
-        outpath_reg = outpath.parent / f"{outpath.stem}_reg.tif"
-        regularize.main(
-            in_raster=outpath,
-            out_raster=outpath_reg,
-            build_val=building_value,
-            models_dir="/home/remi/PycharmProjects/projectRegularization/regularization/saved_models_gan"  # TODO softcode
-        )
-        # if regularizing, use new file for the rest of pp.  FIXME: not robust
-        poly_commands = [command.replace(outpath.name, outpath_reg.name) for command in poly_commands]
+    if regularization:  # TODO: process from vector to vector after polygonization?
+        logging.info(f"Regularizing prediction. Polygonized output will be overwritten."
+                     f"\nOutput: {out_poly}")
+        logging.debug(reg_command)
+        try:  # will raise Exception if image is None --> default to ras2vec
+            run_from_container(image='remtav/gdl', command=reg_command,  # FIXME softcode reg image
+                               binds={f"{str(outpath.parent.absolute())}": "/home",
+                                      f"/home/remi/PycharmProjects/projectRegularization/regularization": "/media"},
+                               container_type=container_type)
+            logging.info(f'\nRegularization completed')
+        except Exception as e:
+            logging.error(f"\nError regularizing using {container_type} container with image {image}."
+                          f"\ncommand: {reg_command}"
+                          f"\nError {type(e)}: {e}")
+        # TODO: assumes knowledge of command from config
+        poly_command = poly_command.replace(f"{outname}.tif", f"{out_reg.stem}.tif")
+        out_reg_raster = out_reg.parent / f"{out_reg.stem}.tif"
 
     # Postprocess final raster prediction (polygonization)
-    if polygonization:
-        logging.info(f"Polygonizing prediction to {out_vect}...")
-        for command in poly_commands:
-            logging.debug(command)
-            try:  # will raise Exception if image is None --> default to ras2vec
-                run_from_container(image=image, command=command,
-                                   binds={f"{str(outpath.parent.absolute())}": "/home"},
-                                   container_type=container_type)
-            except Exception as e:
-                logging.error(f"\nError polygonizing using {container_type} container with image {image}."
-                              f"\nCommand: {command}"
-                              f"\nError {type(e)}: {e}")
-                ras2vec(outpath, out_vect_raw)
-        if not poly_commands:
-            ras2vec(outpath, out_vect_raw)
+    polygonize(
+        in_raster=out_reg_raster,
+        out_vector=out_poly,
+        container_image=image,
+        container_type=container_type,
+        container_command=poly_command
+    )
 
-        if out_vect_raw.is_file():
-            logging.info(f'\nPolygonization completed. Raw prediction: {out_vect_raw}')
+    # set confidence values to features in polygonized prediction
+    if confidence_values and dataset.outpath_heat.is_file():
+        add_confidence_from_heatmap(in_heatmap=dataset.outpath_heat, in_vect=out_poly)
+    elif confidence_values:
+        logging.error(f"Cannot add confidence levels to polygons. A heatmap must be generated at inference")
+
+    if generalization:
+        logging.info(f"Generalizing prediction to {out_gen}")
+        logging.debug(gen_command)
+        try:  # will raise Exception if image is None --> default to ras2vec
+            run_from_container(image=image, command=gen_command,
+                               binds={f"{str(outpath.parent.absolute())}": "/home",
+                                      f"{str(qgis_models_dir)}": "/models"},
+                               container_type=container_type)
+        except Exception as e:
+            logging.error(f"\nError generalizing using {container_type} container with image {image}."
+                          f"\ncommand: {gen_command}"
+                          f"\nError {type(e)}: {e}")
+        if out_gen.is_file():
+            logging.info(f'\nGeneralization completed. Final prediction: {out_gen}')
         else:
-            logging.critical(f'\nPolygonization failed. Raw prediction not found: {out_vect_raw}')
-            raise FileNotFoundError(f'Raw prediction not found: {out_vect_raw}')
-
-        # in some cases, Grass fails to read source epsg and writes output without crs
-        with rasterio.open(outpath) as src:
-            try:
-                gdf = geopandas.read_file(out_vect_raw)
-            except fiona.errors.DriverError as e:
-                logging.critical(f"\nOutputted polygonized prediction may be empty."
-                                 f"\n{type(e)}: {e}"
-                                 f"\nSkipping all remaining postprocessing and exiting...")
-                return
-            if gdf.crs != src.crs:
-                logging.warning(f"Outputted polygonized prediction may not have valid CRS. Will attempt to set it to"
-                                f"raster prediction's CRS")
-                gdf.set_crs(crs=src.crs, allow_override=True)
-                # write file
-                out_vect_raw_crs = out_vect_raw.parent / f"{out_vect_raw.stem}_crs.gpkg"
-                gdf.to_file(out_vect_raw_crs)
-                out_vect_raw = out_vect_raw_crs
-
-        # set confidence values to features in polygonized prediction
-        if confidence_values and dataset.outpath_heat.is_file():
-            outpath_heat_vec = out_vect_raw.parent / f"{dataset.outpath_heat.stem}.gpkg"
-            add_confidence_from_heatmap(in_heatmap=dataset.outpath_heat, in_vect=out_vect_raw, out_vect=outpath_heat_vec)
-            # if outputting confidence levels, use new file for the rest of pp.  FIXME: not robust
-            gen_commands = [command.replace(out_vect_raw_name, outpath_heat_vec.name) for command in gen_commands]
-        elif confidence_values:
-            logging.error(f"Cannot add confidence levels to polygons. A heatmap must be generated at inference")
-
-        if generalization:  # generalize only if polygonization is successful
-            logging.info(f"Generalizing prediction to {out_vect}")
-            for command in gen_commands:
-                logging.debug(command)
-                try:  # will raise Exception if image is None --> default to ras2vec
-                    run_from_container(image=image, command=command,
-                                       binds={f"{str(outpath.parent.absolute())}": "/home",
-                                              f"{str(qgis_models_dir)}": "/models"},
-                                       container_type=container_type)
-                except Exception as e:
-                    logging.error(f"\nError generalizing using {container_type} container with image {image}."
-                                  f"\nCommand: {command}"
-                                  f"\nError {type(e)}: {e}")
-            if out_vect.is_file():
-                logging.info(f'\nGeneralization completed. Final prediction: {out_vect}')
-            else:
-                logging.error(f'\nGeneralization failed. See logs...')
-                raise FileNotFoundError()
+            logging.error(f'\nGeneralization failed. See logs...')
+            raise FileNotFoundError(f"{out_gen}")
 
     logging.info(f'\nEnd of postprocessing')
