@@ -16,6 +16,7 @@ import fiona
 import geopandas
 import rasterio
 from hydra.utils import to_absolute_path
+from omegaconf import DictConfig
 from rasterio import features
 from rasterio.windows import Window
 from spython.main import Client
@@ -29,7 +30,24 @@ from utils.utils import get_key_def
 logging = get_logger(__name__)
 
 
-def regularize_buildings(in_pred, out_pred, image, container_type, command, building_value=1):
+def regularize_buildings(in_pred,
+                         out_pred,
+                         image,
+                         container_type,
+                         command,
+                         building_value=1,
+                         fallback: bool = True):
+    """
+    TODO
+    @param in_pred:
+    @param out_pred:
+    @param image:
+    @param container_type:
+    @param command:
+    @param building_value:
+    @param fallback:
+    @return:
+    """
     try:  # will raise Exception if image is None --> default to ras2vec
         run_from_container(image='remtav/gdl', command=command,  # FIXME softcode reg image
                            binds={f"{str(in_pred.parent.absolute())}": "/home",
@@ -41,28 +59,28 @@ def regularize_buildings(in_pred, out_pred, image, container_type, command, buil
                       f"\ncommand: {command}"
                       f"\nError {type(e)}: {e}"
                       f"\nWill try regularizing without container...")
-        try:
-            from regularization import regularize
-            regularize.main(
-                in_raster=in_pred,
-                out_raster=out_pred,
-                build_val=building_value,
-                models_dir="/home/remi/PycharmProjects/projectRegularization/regularization/saved_models_gan"
-                # TODO softcode
-            )
-        except ImportError:
-            logging.critical(f"Failed to regularize buildings")
+        if fallback:
+            try:
+                from regularization import regularize
+                regularize.main(
+                    in_raster=in_pred,
+                    out_raster=out_pred,
+                    build_val=building_value,
+                    models_dir="/home/remi/PycharmProjects/projectRegularization/regularization/saved_models_gan"
+                    # TODO softcode
+                )
+            except ImportError:
+                logging.critical(f"Failed to regularize buildings")
 
 
 def polygonize(in_raster, 
                out_vector, 
                container_image: str = None, 
                container_type: str = 'docker', 
-               container_command: str = ''):
+               container_command: str = '',
+               fallback: bool = True):
     logging.info(f"Polygonizing prediction to {out_vector}...")
-    if not (container_image or container_command or container_type):
-        ras2vec(in_raster, out_vector)
-    try:  # will raise Exception if image is None --> default to ras2vec
+    try:  # will raise Exception if image, command or container type is None --> fallback to ras2vec
         run_from_container(image=container_image, command=container_command,
                            binds={f"{str(in_raster.parent.absolute())}": "/home"},
                            container_type=container_type)
@@ -70,7 +88,8 @@ def polygonize(in_raster,
         logging.error(f"\nError polygonizing using {container_type} container with image {container_image}."
                       f"\nCommand: {container_command}"
                       f"\nError {type(e)}: {e}")
-        ras2vec(in_raster, out_vector)
+        if fallback:
+            ras2vec(in_raster, out_vector)
 
     if out_vector.is_file():
         logging.info(f'\nPolygonization completed. Raw prediction: {out_vector}')
@@ -147,7 +166,7 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
             for line in logs:
                 logging.info(codecs.decode(line))
     else:
-        logging.info(f"\nContainer type is not valid. Choose 'docker' or 'singularity'")
+        logging.error(f"\nContainer type is not valid. Choose 'docker' or 'singularity'")
 
 
 def ras2vec(raster_file, output_path):
@@ -259,46 +278,56 @@ def main(params):
     Args:
         params: configuration parameters
     """
-    # Main params
-    item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
-    download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
-    root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
-    outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
-    outpath = root / f"{outname}.tif"
-    modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
+    in_name = get_key_def('input_name', params['postprocess'], expected_type=str)
+    root = get_key_def('root_dir', params['postprocess'], default="data", to_path=True, validate_path_exists=True)
 
-    # Postprocessing
-    regularization = get_key_def('regularization', params['postprocess'], expected_type=bool, default=True)
-    building_value = get_key_def('building', params['dataset']['classes_dict'], default=1)
+    # Post-processing
     confidence_values = get_key_def('confidence_values', params['postprocess'], expected_type=bool, default=True)
+    regularization = get_key_def('regularization', params['postprocess'], expected_type=bool, default=True)
     generalization = get_key_def('generalization', params['postprocess'], expected_type=bool, default=True)
-    docker_img = get_key_def('docker_img', params['postprocess'], expected_type=str)
-    singularity_img = get_key_def('singularity_img', params['postprocess'], expected_type=str,
-                                  validate_path_exists=True)
-    image = docker_img if docker_img else singularity_img if singularity_img else None
-    container_type = 'docker' if docker_img else 'singularity' if singularity_img else None
-    qgis_models_dir = get_key_def('qgis_models_dir', params['postprocess'], expected_type=str, validate_path_exists=True)
 
-    # Container commands
-    poly_command = get_key_def('polygonization_command', params['postprocess'], expected_type=str)
-    reg_command = get_key_def('regularization_command', params['postprocess'], expected_type=str)
-    gen_command = get_key_def('generalization_command', params['postprocess'], expected_type=str)
-
-    # output paths
-    dataset = InferenceDataset(root=root, item_path=item_url, outpath=outpath, bands=modalities, download=download_data)
-    out_poly_suffix = get_key_def('polygonization', params['postprocess']['output_suffixes'], default='_raw',
-                                  expected_type=str)
+    # output suffixes
     out_reg_suffix = get_key_def('regularization', params['postprocess']['output_suffixes'], default='_reg',
+                                  expected_type=str)
+    out_poly_suffix = get_key_def('polygonization', params['postprocess']['output_suffixes'], default='_raw',
                                   expected_type=str)
     out_gen_suffix = get_key_def('generalization', params['postprocess']['output_suffixes'], default='_post',
                                   expected_type=str)
-    out_reg = root / f"{outname}{out_reg_suffix}.tif"
-    out_poly = root / f"{outname}{out_poly_suffix}.gpkg"
-    out_gen = root / f"{outname}{out_gen_suffix}.gpkg"
 
+    # regularization container parameters
+    reg_fallback = get_key_def('fallback', params['postprocess']['reg_cont'], expected_type=bool, default=True)
+    reg_cont_type = get_key_def('cont_type', params['postprocess']['reg_cont'], expected_type=str)
+    reg_cont_image = get_key_def('cont_image', params['postprocess']['reg_cont'], expected_type=str)
+    reg_command = get_key_def('command', params['postprocess']['reg_cont'], expected_type=str)
+    
+    # polygonization container parameters
+    poly_fallback = get_key_def('fallback', params['postprocess']['poly_cont'], expected_type=bool, default=True)
+    poly_cont_type = get_key_def('cont_type', params['postprocess']['poly_cont'], expected_type=str)
+    poly_cont_image = get_key_def('cont_image', params['postprocess']['poly_cont'], expected_type=str)
+    poly_command = get_key_def('command', params['postprocess']['poly_cont'], expected_type=str)
+
+    # generalization container parameters
+    qgis_models_dir = get_key_def('qgis_models_dir', params['postprocess']['gen_cont'], expected_type=str, validate_path_exists=True)
+    gen_cont_type = get_key_def('cont_type', params['postprocess']['gen_cont'], expected_type=str)
+    gen_cont_image = get_key_def('cont_image', params['postprocess']['gen_cont'], expected_type=str)
+    gen_commands = get_key_def('command', params['postprocess']['gen_cont'], expected_type=DictConfig)
+
+    # filter generalization commands based on extracted classes
+    classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
+    gen_cmds_pruned = {data_class: cmd for data_class, cmd in gen_commands.items() if data_class in classes_dict.keys()}
+
+    # build inputs paths and check building value expected from model
+    outpath = root / f"{in_name}.tif"
     if not outpath.is_file():
         raise FileNotFoundError(f"\nCannot find raster prediction file to use for postprocessing."
                                 f"\nGot:{outpath}")
+    in_heatmap = root / f"{in_name}_heatmap.tif"
+    building_value = classes_dict['BUIL']
+
+    # build output paths
+    out_reg = root / f"{in_name}{out_reg_suffix}.tif"
+    out_poly = root / f"{in_name}{out_poly_suffix}.gpkg"
+    out_gen = root / f"{in_name}{out_gen_suffix}.gpkg"
 
     if regularization:  # TODO: adapt regularization to process from vector to vector?
         logging.info(f"Regularizing prediction. Polygonized output will be overwritten."
@@ -306,42 +335,45 @@ def main(params):
         regularize_buildings(
             in_pred=outpath,
             out_pred=out_reg,
-            image=image,
-            container_type=container_type,
+            image=reg_cont_image,
+            container_type=reg_cont_type,
             command=reg_command,
-            building_value=building_value
+            building_value=building_value,
+            fallback=reg_fallback,
         )
         # TODO: assumes knowledge of command from config
         if out_reg.is_file():
-            poly_command = poly_command.replace(f"{outname}.tif", f"{out_reg.stem}.tif")
+            poly_command = poly_command.replace(f"{in_name}.tif", f"{out_reg.stem}.tif")
             outpath = outpath.parent / f"{out_reg.stem}.tif"
 
     # Postprocess final raster prediction (polygonization)
     polygonize(
         in_raster=outpath,
         out_vector=out_poly,
-        container_image=image,
-        container_type=container_type,
-        container_command=poly_command
+        container_image=poly_cont_image,
+        container_type=poly_cont_type,
+        container_command=poly_command,
+        fallback=poly_fallback,
     )
 
     # set confidence values to features in polygonized prediction
-    if confidence_values and dataset.outpath_heat.is_file():
-        add_confidence_from_heatmap(in_heatmap=dataset.outpath_heat, in_vect=out_poly)
+    if confidence_values and in_heatmap.is_file():
+        add_confidence_from_heatmap(in_heatmap=in_heatmap, in_vect=out_poly)
     elif confidence_values:
         logging.error(f"Cannot add confidence levels to polygons. A heatmap must be generated at inference")
 
     if generalization:
         logging.info(f"Generalizing prediction to {out_gen}")
-        try:  # will raise Exception if image is None --> default to ras2vec
-            run_from_container(image=image, command=gen_command,
-                               binds={f"{str(outpath.parent.absolute())}": "/home",
-                                      f"{str(qgis_models_dir)}": "/models"},
-                               container_type=container_type)
-        except Exception as e:
-            logging.error(f"\nError generalizing using {container_type} container with image {image}."
-                          f"\ncommand: {gen_command}"
-                          f"\nError {type(e)}: {e}")
+        for command in gen_cmds_pruned.values():
+            try:  # will raise Exception if image is None --> default to ras2vec
+                run_from_container(image=gen_cont_image, command=command,
+                                   binds={f"{str(outpath.parent.absolute())}": "/home",
+                                          f"{str(qgis_models_dir)}": "/models"},
+                                   container_type=gen_cont_type)
+            except Exception as e:
+                logging.error(f"\nError generalizing using {gen_cont_type} container with image {gen_cont_image}."
+                              f"\ncommand: {command}"
+                              f"\nError {type(e)}: {e}")
         if out_gen.is_file():
             logging.info(f'\nGeneralization completed. Final prediction: {out_gen}')
         else:

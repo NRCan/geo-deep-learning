@@ -3,7 +3,7 @@ defaults:
   - inference: production
   - postprocess: production
   - callbacks: default_callbacks
-  - dataset: ccmeo_datacube_sat_dataset
+  - dataset: ccmeo_datacube_dataset
   - augmentation: basic_augmentation_segmentation
   - tracker: # set logger here or use command line (e.g. `python GDL.py tracker=mlflow`)
   - hydra: default

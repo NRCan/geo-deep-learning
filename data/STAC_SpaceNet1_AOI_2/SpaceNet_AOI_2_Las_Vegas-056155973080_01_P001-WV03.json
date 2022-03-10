@@ -107,7 +107,7 @@
                     "full_width_half_max": 0.040000000000000036
                 }
             ],
-            "href": "http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/worldview-3-ortho-pansharp/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-Y.tif",
+            "href": "https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-Y.tif",
             "title": "Yellow band",
             "description": "COG - Yellow Single spectral band / COG - Bande spectrale unique Jaune",
             "roles":
@@ -170,7 +170,7 @@
                     "full_width_half_max": 0.04999999999999999
                 }
             ],
-            "href": "http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/worldview-3-ortho-pansharp/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-C.tif",
+            "href": "https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-C.tif",
             "title": "Coastal band",
             "description": "COG - Coastal Single spectral band / COG - Bande spectrale unique Côtier",
             "roles":
@@ -181,7 +181,7 @@
         },
         "metadata":
         {
-            "href": "http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/worldview-3-ortho-pansharp/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-metadata.xml",
+            "href": "https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-metadata.xml",
             "title": "Metadata file from satellite provider",
             "roles":
             [
@@ -201,7 +201,7 @@
                     "full_width_half_max": 0.18000000000000005
                 }
             ],
-            "href": "http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/worldview-3-ortho-pansharp/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N2.tif",
+            "href": "https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N2.tif",
             "title": "Near infrared 2 band",
             "description": "COG - Near infrared 2 Single spectral band / COG - Bande spectrale unique Proche infrarouge 2",
             "roles":
@@ -222,7 +222,7 @@
                     "full_width_half_max": 0.040000000000000036
                 }
             ],
-            "href": "http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/worldview-3-ortho-pansharp/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RE.tif",
+            "href": "https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RE.tif",
             "title": "Red Edge - single spectral band",
             "description": "COG - Red Edge Single spectral band / COG - Bande spectrale unique Bordure rouge",
             "roles":

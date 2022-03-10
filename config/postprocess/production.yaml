@@ -2,45 +2,86 @@
 postprocess:
   input_name: ${inference.output_name}
   root_dir: ${inference.root_dir}
-  # TODO: order all of this yaml under 3 keys: reg, poly, gen?
+
+  # Post-processing: minimally, a polygonized version of the inference (.gpkg) will be created
+  regularization: True # if True, building features will be regularized using: https://github.com/remtav/projectRegularization/tree/light
+  generalization: True  # if True, a generalized version of the inference (.gpkg) will be created with qgis models
+  # if True, confidence values are added as an attribute to polygons
+  # based on heatmap from inference (requires inference.save_heatmap=True)
+  confidence_values: True
+
   output_suffixes:
     regularization: _reg
     polygonization: _raw
     generalization: _post
 
-  # Post-processing: minimally, a polygonized version of the inference (.gpkg) will be created from grass or rasterio
-  regularization: True # if True, building features will be regularized using: https://github.com/remtav/projectRegularization/tree/light
-  generalization: True  # if True, a generalized version of the inference (.gpkg) will be created with qgis models
-  qgis_models_dir: "/home/remi/.local/share/QGIS/QGIS3/profiles/default/processing/models"  # TODO softcode use of models?
+  # Container config - Volume binding arguments are hardcoded in scripts. Modify commands at your own risk!
+  reg_cont:
+    # Will resort to using direct python method if an error occurs with container approach.
+    # To use fallback, install regularization module: pip install git+https://github.com/remtav/projectRegularization.git@light
+    fallback: True
+    cont_type: docker  # "docker" or "singularity"
+    # tag of docker image or path to singularity image file (e.g. remtav/gdl or gdl.sif, respectively)
+    cont_image: remtav/gdl
+    # command to execute in container.
+    # TODO add regularization scripts to docker/singularity image
+    command:
+      /bin/bash -c "
+      python /media/regularize.py --input-inf /home/${inference.output_name}.tif
+      --output /home/${postprocess.input_name}${postprocess.output_suffixes.regularization}.tif
+      --build-val ${dataset.classes_dict.BUIL} --models-dir /media/saved_models_gan --log-conf-path /media/logging.conf
+      "
 
-  docker_img: # remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
-  singularity_img: ../singularity/qgis_pp.sif
+  poly_cont:
+    fallback: True  # Fallback to rasterio. This method is less efficient than Grass' r.to.vect. for large predictions
+    cont_type: docker  # "docker" or "singularity"
+    # tag of docker image or path to singularity image file (e.g. remtav/gdl or gdl.sif, respectively)
+    cont_image: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
+    # cont_image: ../singularity/qgis_pp.sif  # for singularity
+    # input prediction for polygonization gets overridden by regularized prediction's name if regularization is done
+    # FIXME: test with single-class pred
+    command:
+      /bin/bash -c "
+      qgis_process plugins enable grassprovider;
+      qgis_process run grass7:r.to.vect -- input=/home/${inference.output_name}.tif type=2 output=/tmp/rtovect.gpkg;
+      qgis_process run native:extractbyattribute -- INPUT=/tmp/rtovect.gpkg FIELD=value OPERATOR=2
+      VALUE=0 OUTPUT=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
+      "
 
-  # commands to execute in containers separated by comma - FOR DEBUGGING PURPOSES ONLY
-  # volume binding arguments are hardcoded in scripts
-  # TODO add regularization scripts to docker/singularity image
-  regularization_command:
-    /bin/bash -c "
-    python /media/regularize.py --input-inf /home/${inference.output_name}.tif
-    --output /home/${postprocess.input_name}${postprocess.output_suffixes.regularization}.tif
-    --build-val ${dataset.classes_dict.BUIL} --models-dir /media/saved_models_gan --log-conf-path /media/logging.conf
-    "
-  # input raster to polygonization gets overridden by regularized prediction's name if regularization is performed
-  # FIXME: test with single-class pred
-  polygonization_command:
-    /bin/bash -c " 
-    qgis_process plugins enable grassprovider;
-    qgis_process run grass7:r.to.vect -- input=/home/${inference.output_name}.tif type=2 output=/tmp/rtovect.gpkg;
-    qgis_process run native:extractbyattribute -- INPUT=/tmp/rtovect.gpkg FIELD=value OPERATOR=2 
-    VALUE=0 OUTPUT=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
-    "
-  # TODO: add one command per class!
-  generalization_command:
-    /bin/bash -c "
-    qgis_process plugins enable geo_sim_processing;
-    qgis_process plugins enable processing;
-    qgis_process run /models/BUIL.model3 -- 
-    building=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}m.gpkg
-    Geopackagename=/home/${postprocess.input_name}${postprocess.output_suffixes.generalization}.gpkg
-    NomdelacoucheBatimentdanslegpkg=BUIL_2 Simplify=0.5 Deletehole=40
-    "
+  gen_cont:
+    qgis_models_dir: /home/remi/.local/share/QGIS/QGIS3/profiles/default/processing/models  # TODO softcode use of models?
+    cont_type: docker  # "docker" or "singularity"
+    cont_image: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
+    # cont_image: ../singularity/qgis_pp.sif  # for singularity
+  # TODO: add other classes' commands!
+    command:
+      WAER:
+        /bin/bash -c "
+        qgis_process plugins enable geo_sim_processing;
+        qgis_process plugins enable processing;
+        qgis_process run /models/WAER.model3 --
+        param1=foo
+        "
+      FORE:
+        /bin/bash -c "
+        qgis_process plugins enable geo_sim_processing;
+        qgis_process plugins enable processing;
+        qgis_process run /models/FORE.model3 --
+        param1=foo
+        "
+      ROAI:
+        /bin/bash -c "
+        qgis_process plugins enable geo_sim_processing;
+        qgis_process plugins enable processing;
+        qgis_process run /models/ROAI.model3 --
+        param1=foo
+        "
+      BUIL:
+        /bin/bash -c "
+        qgis_process plugins enable geo_sim_processing;
+        qgis_process plugins enable processing;
+        qgis_process run /models/BUIL.model3 -- 
+        building=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
+        Geopackagename=/home/${postprocess.input_name}${postprocess.output_suffixes.generalization}.gpkg
+        NomdelacoucheBatimentdanslegpkg=BUIL_2 Simplify=0.5 Deletehole=40
+        "

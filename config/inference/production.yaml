@@ -1,12 +1,12 @@
 # @package _global_
 inference:
-  input_stac_item: data/STAC_SpaceNet1_AOI_2/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
+  input_stac_item: https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03
   root_dir: ${general.raw_data_dir}
   output_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred  # name of output file to write in root
   state_dict_path: saved_model/manet_pretrained_bds3_cls1.pth.tar
   download_data: False  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer
-  save_heatmap: True
+  save_heatmap: True  # saves a heatmap to root_dir/{output_name}_heatmap.tif
   batch_size: # if empty, will be calculated automatically to fill "auto_batch_size_threshold" % of GPU Ram
   chunk_size: # Defaults to 512
   auto_batch_size_threshold: 90
