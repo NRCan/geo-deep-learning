@@ -34,6 +34,7 @@ postprocess:
     qgis_process run native:extractbyattribute -- INPUT=/tmp/rtovect.gpkg FIELD=value OPERATOR=2 
     VALUE=0 OUTPUT=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
     "
+  # TODO: add one command per class!
   generalization_command:
     /bin/bash -c "
     qgis_process plugins enable geo_sim_processing;

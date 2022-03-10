@@ -20,7 +20,6 @@ from rasterio import features
 from rasterio.windows import Window
 from spython.main import Client
 from tqdm import tqdm
-from regularization import regularize
 
 from inference.InferenceDataset import InferenceDataset
 from utils.logger import get_logger
@@ -28,6 +27,31 @@ from utils.utils import get_key_def
 
 # Set the logging file
 logging = get_logger(__name__)
+
+
+def regularize_buildings(in_pred, out_pred, image, container_type, command, building_value=1):
+    try:  # will raise Exception if image is None --> default to ras2vec
+        run_from_container(image='remtav/gdl', command=command,  # FIXME softcode reg image
+                           binds={f"{str(in_pred.parent.absolute())}": "/home",
+                                  f"/home/remi/PycharmProjects/projectRegularization/regularization": "/media"},
+                           container_type=container_type)
+        logging.info(f'\nRegularization completed')
+    except Exception as e:
+        logging.error(f"\nError regularizing using {container_type} container with image {image}."
+                      f"\ncommand: {command}"
+                      f"\nError {type(e)}: {e}"
+                      f"\nWill try regularizing without container...")
+        try:
+            from regularization import regularize
+            regularize.main(
+                in_raster=in_pred,
+                out_raster=out_pred,
+                build_val=building_value,
+                models_dir="/home/remi/PycharmProjects/projectRegularization/regularization/saved_models_gan"
+                # TODO softcode
+            )
+        except ImportError:
+            logging.critical(f"Failed to regularize buildings")
 
 
 def polygonize(in_raster, 
@@ -38,7 +62,6 @@ def polygonize(in_raster,
     logging.info(f"Polygonizing prediction to {out_vector}...")
     if not (container_image or container_command or container_type):
         ras2vec(in_raster, out_vector)
-    logging.debug(container_command)
     try:  # will raise Exception if image is None --> default to ras2vec
         run_from_container(image=container_image, command=container_command,
                            binds={f"{str(in_raster.parent.absolute())}": "/home"},
@@ -94,6 +117,7 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
     @return:
     """
     stream = True if verbose else False
+    logging.debug(command)
     if container_type == 'docker':
         binds = {k: {'bind': v, 'mode': 'rw'} for k, v in binds.items()}
         client = docker.from_env()
@@ -245,6 +269,7 @@ def main(params):
 
     # Postprocessing
     regularization = get_key_def('regularization', params['postprocess'], expected_type=bool, default=True)
+    building_value = get_key_def('building', params['dataset']['classes_dict'], default=1)
     confidence_values = get_key_def('confidence_values', params['postprocess'], expected_type=bool, default=True)
     generalization = get_key_def('generalization', params['postprocess'], expected_type=bool, default=True)
     docker_img = get_key_def('docker_img', params['postprocess'], expected_type=str)
@@ -275,27 +300,25 @@ def main(params):
         raise FileNotFoundError(f"\nCannot find raster prediction file to use for postprocessing."
                                 f"\nGot:{outpath}")
 
-    if regularization:  # TODO: process from vector to vector after polygonization?
+    if regularization:  # TODO: adapt regularization to process from vector to vector?
         logging.info(f"Regularizing prediction. Polygonized output will be overwritten."
                      f"\nOutput: {out_poly}")
-        logging.debug(reg_command)
-        try:  # will raise Exception if image is None --> default to ras2vec
-            run_from_container(image='remtav/gdl', command=reg_command,  # FIXME softcode reg image
-                               binds={f"{str(outpath.parent.absolute())}": "/home",
-                                      f"/home/remi/PycharmProjects/projectRegularization/regularization": "/media"},
-                               container_type=container_type)
-            logging.info(f'\nRegularization completed')
-        except Exception as e:
-            logging.error(f"\nError regularizing using {container_type} container with image {image}."
-                          f"\ncommand: {reg_command}"
-                          f"\nError {type(e)}: {e}")
+        regularize_buildings(
+            in_pred=outpath,
+            out_pred=out_reg,
+            image=image,
+            container_type=container_type,
+            command=reg_command,
+            building_value=building_value
+        )
         # TODO: assumes knowledge of command from config
-        poly_command = poly_command.replace(f"{outname}.tif", f"{out_reg.stem}.tif")
-        out_reg_raster = out_reg.parent / f"{out_reg.stem}.tif"
+        if out_reg.is_file():
+            poly_command = poly_command.replace(f"{outname}.tif", f"{out_reg.stem}.tif")
+            outpath = outpath.parent / f"{out_reg.stem}.tif"
 
     # Postprocess final raster prediction (polygonization)
     polygonize(
-        in_raster=out_reg_raster,
+        in_raster=outpath,
         out_vector=out_poly,
         container_image=image,
         container_type=container_type,
@@ -310,7 +333,6 @@ def main(params):
 
     if generalization:
         logging.info(f"Generalizing prediction to {out_gen}")
-        logging.debug(gen_command)
         try:  # will raise Exception if image is None --> default to ras2vec
             run_from_container(image=image, command=gen_command,
                                binds={f"{str(outpath.parent.absolute())}": "/home",
