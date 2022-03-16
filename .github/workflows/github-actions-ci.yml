@@ -1,4 +1,4 @@
-name: GitHub Actions CI
+name: GitHub Actions Demo
 on: [push, pull_request]
 jobs:
   Github-Actions-CI:
