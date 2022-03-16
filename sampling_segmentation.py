@@ -558,9 +558,7 @@ def main(cfg: DictConfig) -> None:
             elif info['dataset'] == 'tst':
                 out_file = tst_hdf5
             else:
-                raise logging.critical(
-                    ValueError(f"\nDataset value must be trn or tst. Provided value is {info['dataset']}")
-                )
+                raise ValueError(f"\nDataset value must be trn or tst. Provided value is {info['dataset']}")
             val_file = val_hdf5
 
             metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,

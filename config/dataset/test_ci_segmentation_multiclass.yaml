@@ -1,0 +1,26 @@
+# @package _global_
+dataset:
+  # dataset-wide
+  name:
+  input_dim: 256
+  overlap:
+  use_stratification: False
+  train_val_percent: {'trn':0.7, 'val':0.3, 'tst':0}
+  raw_data_csv: tests/sampling/sampling_segmentation_multiclass_ci.csv
+  raw_data_dir: ${general.raw_data_dir}
+
+  # imagery
+  modalities: RGB
+
+  # ground truth
+  attribute_field: properties/Quatreclasses
+  attribute_values: [1,2,3,4]
+  min_annotated_percent:
+  class_name: # will follow in the next version
+  classes_dict: {'WAER':1, 'FORE':2, 'ROAI':3, 'BUIL':4}
+  class_weights:
+  ignore_index: 255
+
+  # outputs
+  sample_data_dir: ${general.sample_data_dir}
+
