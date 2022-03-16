@@ -8,7 +8,7 @@ dependencies:
   - fiona>=1.8.0
   - gdal>=3.0.0
   - boto3>=1.19.2
-  - coverage
+  - coverage>=6.3.1
   - cudatoolkit=10.2.89
   - docker-py>=4.4.4
   - h5py>=3.1.0
