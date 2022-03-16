@@ -17,7 +17,7 @@ dataset:
   attribute_values: [1]
   min_annotated_percent:
   class_name: # will follow in the next version
-  classes_dict: {'Building':1}
+  classes_dict: {'BUIL':1}
   class_weights:
   ignore_index: -1
 
