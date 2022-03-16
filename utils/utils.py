@@ -5,61 +5,40 @@ import subprocess
 from functools import reduce
 from pathlib import Path
 from typing import Sequence, List
-from pytorch_lightning.utilities import rank_zero_only
 
+from hydra.utils import to_absolute_path
+from pytorch_lightning.utilities import rank_zero_only
 import rich.syntax
 import rich.tree
-from omegaconf import DictConfig, OmegaConf
-
+from omegaconf import DictConfig, OmegaConf, ListConfig
 import torch
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 from torch import nn
+from torchvision import models
 import numpy as np
 import scipy.signal
-import warnings
 import requests
-import collections
+from urllib.parse import urlparse
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
 from affine import Affine
 
-from urllib.parse import urlparse
-
-try:
-    from ruamel_yaml import YAML
-except ImportError:
-    from ruamel.yaml import YAML
-# NVIDIA library
-try:
-    from pynvml import *
-except ModuleNotFoundError:
-    warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
-# AWS module
-try:
-    import boto3
-except ModuleNotFoundError:
-    warnings.warn('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
-    pass
-
-
-def get_logger(name=__name__, level=logging.INFO) -> logging.Logger:
-    """Initializes multi-GPU-friendly python logger."""
-
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
-
-    # this ensures all logging levels get marked with the rank zero decorator
-    # otherwise logs would get multiplied for each GPU process in multi-GPU setup
-    for level in ("debug", "info", "warning", "error", "exception", "fatal", "critical"):
-        setattr(logger, level, rank_zero_only(getattr(logger, level)))
-
-    return logger
-
+from utils.logger import get_logger
 
 # Set the logging file
 log = get_logger(__name__)  # need to be different from logging in this case
 
+# NVIDIA library
+try:
+    from pynvml import *
+except ModuleNotFoundError:
+    logging.warning(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
+# AWS module
+try:
+    import boto3
+except ModuleNotFoundError:
+    logging.warning('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
 
 class Interpolate(torch.nn.Module):
     def __init__(self, mode, scale_factor):
@@ -73,14 +52,16 @@ class Interpolate(torch.nn.Module):
         return x
 
 
-def load_from_checkpoint(checkpoint, model, optimizer=None, inference: str = ''):
+def load_from_checkpoint(checkpoint, model, optimizer=None, strict_loading: bool = False, bucket: str = None):
     """Load weights from a previous checkpoint
     Args:
         checkpoint: (dict) checkpoint
         model: model to replace
         optimizer: optimiser to be used
-        inference: (str) path to inference state_dict. If given, loading will be strict (see pytorch doc)
+        strict_loading: (bool) If True, loading will be strict (see pytorch doc)
     """
+    if bucket:
+        checkpoint = bucket.download_file(checkpoint, "saved_model.pth.tar")  # TODO: is this still valid?
     # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
     # model.load_state_dict(checkpoint['model'])
     # https://github.com/bearpaw/pytorch-classification/issues/27
@@ -92,7 +73,6 @@ def load_from_checkpoint(checkpoint, model, optimizer=None, inference: str = '')
         checkpoint = {}
         checkpoint['model'] = new_state_dict['model']
 
-    strict_loading = False if not inference else True
     model.load_state_dict(checkpoint['model'], strict=strict_loading)
     log.info(f"\n=> loaded model")
     if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
@@ -125,10 +105,9 @@ def get_device_ids(
     """
     lst_free_devices = {}
     if not number_requested:
-        log.warning(f'\nNo GPUs requested. This training will run on CPU')
         return lst_free_devices
     if not torch.cuda.is_available():
-        log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This training will run on CPU')
+        log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found')
         return lst_free_devices
     try:
         nvmlInit()
@@ -157,7 +136,6 @@ def get_device_ids(
                 log.warning(f"\nYou requested {number_requested} devices. {device_count} devices are available and "
                             f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
         else:
-            log.warning('\nNo gpu devices requested. Will run on cpu')
             return lst_free_devices
     except NameError as error:
         raise log.critical(
@@ -184,39 +162,66 @@ def gpu_stats(device=0):
     return res, mem
 
 
-def get_key_def(key, config, default=None, msg=None, delete=False, expected_type=None):
+def set_device(gpu_devices_dict: dict = {}):
+    """
+    From dictionary of available devices, sets the device to be used
+    @param gpu_devices_dict: dictionary containing info on GPU devices as returned by lst_device_ids
+    @return: torch.device
+    """
+    if gpu_devices_dict:
+        logging.info(f"\nCuda devices available: {gpu_devices_dict}.\nUsing {list(gpu_devices_dict.keys())[0]}\n\n")
+        device = torch.device(f'cuda:{list(range(len(gpu_devices_dict.keys())))[0]}')
+    else:
+        logging.warning(f"\nNo Cuda device available. This process will only run on CPU")
+        device = torch.device('cpu')
+        try:
+            models.resnet18().to(device)  # test with a small model
+        except (RuntimeError, AssertionError):  # HPC: when device 0 not available. Error: Cuda invalid device ordinal.
+            logging.warning(f"\nUnable to use device. Trying device 'cuda', not {device}")
+            device = torch.device(f'cuda')
+    return device
+
+
+def get_key_def(key, config, default=None, expected_type=None, to_path: bool = False,
+                validate_path_exists: bool = False):
     """Returns a value given a dictionary key, or the default value if it cannot be found.
     :param key: key in dictionary (e.g. generated from .yaml)
     :param config: (dict) dictionary containing keys corresponding to parameters used in script
     :param default: default value assigned if no value found with provided key
-    :param msg: message returned with AssertionError si length of key is smaller or equal to 1
-    :param delete: (bool) if True, deletes parameter, e.g. for one-time use.
     :param expected_type: (type) type of the expected variable.
+    :param to_path: (bool) if True, parameter will be converted to a pathlib.Path object (warns if cannot be converted)
+    :param validate_path_exists: (bool) if True, checks if path exists (is_path must be True)
     :return:
     """
+    val = default
     if not config:
-        return default
-    elif isinstance(key, list):  # is key a list?
-        if len(key) <= 1:  # is list of length 1 or shorter? else --> default
-            if msg is not None:
-                raise log.critical(AssertionError(msg))
-            else:
-                raise log.critical(AssertionError("Must provide at least two valid keys to test"))
+        pass
+    elif isinstance(key, (list, ListConfig)):
+        if len(key) <= 1:  # expects list of length more than 1 to search inside a dictionary recursively
+            raise ValueError("Must provide at least two valid keys to search recursively in dictionary")
         for k in key:  # iterate through items in list
-            if k in config:  # if item is a key in config, set value.
-                val = config[k]
-                if delete:  # optionally delete parameter after defining a variable with it
-                    del config[k]
-        val = default
-    else:  # if key is not a list
-        if key not in config or config[key] is None:  # if key not in config dict
-            val = default
+            if k in config:  # if item is a key in config, check if dictionary, else set value.
+                if isinstance(config[k], (dict, DictConfig)):
+                    config = config[k]
+                else:
+                    val = config[k]
+    else:
+        if key not in config or config[key] is None:  # if config exists, but key not in it
+            pass
         else:
             val = config[key] if config[key] != 'None' else None
             if expected_type and val is not False:
-                assert isinstance(val, expected_type), f"{val} is of type {type(val)}, expected {expected_type}"
-            if delete:
-                del config[key]
+                if not isinstance(val, expected_type):
+                    raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
+    if not val:  # Skips below if statements if val is None
+        return val
+    if to_path or validate_path_exists:
+        try:
+            val = Path(to_absolute_path(val))
+        except TypeError:
+            logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
+    if validate_path_exists and not val.exists():
+        raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
     return val
 
 
@@ -322,20 +327,6 @@ def BGR_to_RGB(array):
     return array
 
 
-def ind2rgb(arr, color):
-    """
-    :param arr: (numpy array) index image to be color mapped
-    :param color: (dict of RGB color values) for each class
-    :return: (numpy_array) RGB image
-    """
-    h, w = arr.shape
-    rgb = np.empty((h, w, 3), dtype=np.uint8)
-    for cl in color:
-        for ch in range(3):
-          rgb[..., ch][arr == cl] = (color[cl][ch])
-    return rgb
-
-
 def is_url(url):
     if urlparse(url).scheme in ('http', 'https', 's3'):
         return True
@@ -363,10 +354,9 @@ def checkpoint_url_download(url: str):
         raise SystemExit(e)
 
 
-def list_input_images(img_dir_or_csv: str,
+def list_input_images(img_dir_or_csv: Path,
                       bucket_name: str = None,
-                      glob_patterns: List = None,
-                      in_case_of_path: str = None):
+                      glob_patterns: List = None):
     """
     Create list of images from given directory or csv file.
 
@@ -374,7 +364,6 @@ def list_input_images(img_dir_or_csv: str,
     :param bucket_name: (str, optional) name of aws s3 bucket
     :param glob_patterns: (list of str) if directory is given as input (not csv),
                            these are the glob patterns that will be used to find desired images
-    :param in_case_of_path: (str) directory that can contain the images if not the good one in the csv
 
     returns list of dictionaries where keys are "tif" and values are paths to found images. "meta" key is also added
         if input is csv and second column contains a metadata file. Then, value is path to metadata file.
@@ -382,29 +371,29 @@ def list_input_images(img_dir_or_csv: str,
     if bucket_name:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
-        if img_dir_or_csv.endswith('.csv'):
-            bucket.download_file(img_dir_or_csv, 'img_csv_file.csv')
+        if img_dir_or_csv.suffix == '.csv':
+            bucket.download_file(str(img_dir_or_csv), 'img_csv_file.csv')
             list_img = read_csv('img_csv_file.csv')
         else:
             raise NotImplementedError(
                 'Specify a csv file containing images for inference. Directory input not implemented yet')
     else:
-        if img_dir_or_csv.endswith('.csv'):
-            list_img = read_csv(img_dir_or_csv, in_case_of_path)
-        elif is_url(img_dir_or_csv):
+        if img_dir_or_csv.suffix == '.csv':
+            list_img = read_csv(img_dir_or_csv)
+        elif is_url(str(img_dir_or_csv)):
             list_img = []
-            img_path = Path(img_dir_or_csv)
-            img = {}
-            img['tif'] = img_path
+            img = {'tif': img_dir_or_csv}
             list_img.append(img)
         else:
-            img_dir = Path(img_dir_or_csv)
-            assert img_dir.is_dir() or img_dir.is_file(), f'Could not find directory/file "{img_dir_or_csv}"'
+            img_dir = img_dir_or_csv
+            if not img_dir.is_dir():
+                raise NotADirectoryError(f'Could not find directory/file "{img_dir_or_csv}"')
 
             list_img_paths = set()
             if img_dir.is_dir():
                 for glob_pattern in glob_patterns:
-                    assert isinstance(glob_pattern, str), f'Invalid glob pattern: "{glob_pattern}"'
+                    if not isinstance(glob_pattern, str):
+                        raise TypeError(f'Invalid glob pattern: "{glob_pattern}"')
                     list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
             else:
                 list_img_paths.update([img_dir])
@@ -412,29 +401,12 @@ def list_input_images(img_dir_or_csv: str,
             for img_path in list_img_paths:
                 img = {'tif': img_path}
                 list_img.append(img)
-            assert len(list_img) >= 0, f'No .tif files found in {img_dir_or_csv}'
+            if not len(list_img) >= 0:
+                raise ValueError(f'No .tif files found in {img_dir_or_csv}')
     return list_img
 
 
-def try2read_csv(path_file, in_case_of_path, msg):
-    """
-    TODO
-    """
-    try:
-        Path(path_file).resolve(strict=True)
-    except FileNotFoundError:
-        if in_case_of_path:
-            path_file = str(Path(in_case_of_path) / (path_file.split('./')[-1]))
-            try:
-                Path(path_file).resolve(strict=True)
-            except FileNotFoundError:
-                raise log.critical(f'\n{msg} "{path_file}"')
-        else:
-            raise log.critical(f'\n{msg} "{path_file}"')
-    return path_file
-
-
-def read_csv(csv_file_name, data_path=None):
+def read_csv(csv_file_name):
     """
     Open csv file and parse it, returning a list of dict.
     - tif full path
@@ -446,14 +418,20 @@ def read_csv(csv_file_name, data_path=None):
     list_values = []
     with open(csv_file_name, 'r') as f:
         reader = csv.reader(f)
-        for index, row in enumerate(reader):
-            row_length = len(row) if index == 0 else row_length
-            assert len(row) == row_length, "Rows in csv should be of same length"
+        row_lengths_set = set()
+        for row in reader:
+            row_lengths_set.update([len(row)])
+            if not len(row_lengths_set) == 1:
+                raise ValueError(f"Rows in csv should be of same length. Got rows with lenght: {row_lengths_set}")
             row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
-            # verify if the path is correct, change it if not and raise error msg if not existing
-            row[0] = try2read_csv(row[0], data_path, 'Tif raster not found:')
-            if row[2]:
-                row[2] = try2read_csv(row[2], data_path, 'Gpkg not found:')
+            row[0] = to_absolute_path(row[0])  # Convert relative paths to absolute with hydra's util to_absolute_path()
+            if not Path(row[0]).is_file():
+                logging.critical(f"Raster not found: {row[0]}. This data will be removed from input data list"
+                                 f"since all geo-deep-learning modules require imagery.")
+                continue
+            row[2] = to_absolute_path(row[2])
+            if not Path(row[2]).is_file():
+                logging.critical(f"Ground truth not found: {row[2]}")
             if not isinstance(row[3], str):
                 logging.error(f"Attribute name should be a string")
             if row[3] != "":
@@ -462,8 +440,7 @@ def read_csv(csv_file_name, data_path=None):
                               f"csv will be ignored. Got: {row[3]}")
             # save all values
             list_values.append(
-                {'tif': row[0], 'meta': row[1], 'gpkg': row[2], 'attribute_name': row[3], 'dataset': row[4]}
-            )
+                {'tif': str(row[0]), 'meta': row[1], 'gpkg': str(row[2]), 'attribute_name': row[3], 'dataset': row[4]})
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
         list_values = sorted(list_values, key=lambda k: k['dataset'])
@@ -486,7 +463,7 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
     assert 'dtype' in raster_handle.meta.keys(), "\"dtype\" could not be found in source image metadata"
     metadata_dict.update(raster_handle.meta)
     if not metadata_dict['dtype'] in ["uint8", "uint16"]:
-        warnings.warn(f"Datatype should be \"uint8\" or \"uint16\". Got \"{metadata_dict['dtype']}\". ")
+        logging.warning(f"Datatype should be \"uint8\" or \"uint16\". Got \"{metadata_dict['dtype']}\". ")
         if sat_img_arr.min() >= 0 and sat_img_arr.max() <= 255:
             metadata_dict['dtype'] = "uint8"
         elif sat_img_arr.min() >= 0 and sat_img_arr.max() <= 65535:
@@ -577,56 +554,6 @@ def ordereddict_eval(str_to_eval: str):
         return str_to_eval
 
 
-def compare_config_yamls(yaml1: dict, yaml2: dict, update_yaml1: bool = False) -> List:
-    """
-    Checks if values for same keys or subkeys (max depth of 2) of two dictionaries match.
-    :param yaml1: (dict) first dict to evaluate
-    :param yaml2: (dict) second dict to evaluate
-    :param update_yaml1: (bool) it True, values in yaml1 will be replaced with values in yaml2,
-                         if the latters are different
-    :return: dictionary of keys or subkeys for which there is a value mismatch if there is, or else returns None
-    """
-    # TODO need to be change if the training or testing config are not the same as when the sampling have been create
-    # TODO maybe only check and save a small part of the config like the model or something
-
-    if not (isinstance(yaml1, dict) or isinstance(yaml2, dict)):
-        raise TypeError(f"\nExpected both yamls to be dictionaries. \n"
-                        f"Yaml1's type is  {type(yaml1)}\n"
-                        f"Yaml2's type is  {type(yaml2)}")
-    for section, params in yaml2.items():  # loop through main sections of config yaml ('global', 'sample', etc.)
-        if section in {'task', 'mode', 'debug'}:  # the task is not the same as the hdf5 since the hdf5 is in sampling
-            continue
-        if section not in yaml1.keys():  # create key if not in dictionary as we loop
-            yaml1[section] = {}
-        for param, val2 in params.items():  # loop through parameters of each section ('samples_size','debug_mode',...)
-            if param in {'config_override_dirname'}:  # the config_override_dirname is not the same as the hdf5 since the hdf5 is in sampling
-                continue
-            if param not in yaml1[section].keys():  # create key if not in dictionary as we loop
-                yaml1[section][param] = {}
-            # set to None if no value for that key
-            val1 = get_key_def(param, yaml1[section], default=None)
-            if isinstance(val2, dict):  # if value is a dict, loop again to fetch end val (only recursive twice)
-                for subparam, subval2 in val2.items():
-                    if subparam not in yaml1[section][param].keys():  # create key if not in dictionary as we loop
-                        yaml1[section][param][subparam] = {}
-                    # set to None if no value for that key
-                    subval1 = get_key_def(subparam, yaml1[section][param], default=None)
-                    if subval2 != subval1:
-                        # if value doesn't match between yamls, emit warning
-                        log.warning(f"\nYAML value mismatch: section \"{section}\", key \"{param}/{subparam}\"\n"
-                                        f"Current yaml value: \"{subval1}\"\nHDF5s yaml value: \"{subval2}\"\n")
-                        if update_yaml1:  # update yaml1 with subvalue of yaml2
-                            yaml1[section][param][subparam] = subval2
-                            log.info(f'Value in yaml1 updated')
-            elif val2 != val1:
-                log.warning(f"\nYAML value mismatch: section \"{section}\", key \"{param}\"\n"
-                                f"Current yaml value: \"{val2}\"\nHDF5s yaml value: \"{val1}\"\n"
-                                f"Problems may occur.")
-                if update_yaml1:  # update yaml1 with value of yaml2
-                    yaml1[section][param] = val2
-                    log.info(f'Value in yaml1 updated')
-
-
 def read_modalities(modalities: str) -> list:
     """
     Function that read the modalities from the yaml and convert it to a list
@@ -645,21 +572,6 @@ def read_modalities(modalities: str) -> list:
     else:
         modalities = list(str(modalities))
     return modalities
-
-
-def find_first_file(name, list_path):
-    """
-    TODO
-    """
-    for dirname in list_path:
-        # print("dir:", dirname)
-        for root, dirs, files in os.walk(os.path.dirname(dirname)):
-            # print(root, dirs, files)
-            for filename in files:
-                # print("file:", filename)
-                if filename == name:
-                    return dirname
-                    # return os.path.join(dirname, name)
 
 
 def getpath(d, path):
@@ -682,7 +594,6 @@ def print_config(
         "general.config_path",
         "general.project_name",
         "general.workspace",
-        "general.device",
     ),
     resolve: bool = True,
 ) -> None:

@@ -3,27 +3,31 @@ from typing import Sequence
 
 import rasterio
 import numpy as np
-from os import path
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 from omegaconf import DictConfig, open_dict
-from hydra.core.hydra_config import HydraConfig
 
 # Our modules
+from utils.logger import get_logger
 from utils.geoutils import vector_to_raster
-from utils.readers import read_parameters, image_reader_as_array
+from utils.readers import image_reader_as_array
 from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.utils import (
     get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash,
     read_modalities,
 )
 from utils.verifications import (
-    validate_num_classes, validate_raster, assert_crs_match, validate_features_from_gpkg
+    validate_num_classes, assert_crs_match, validate_features_from_gpkg, validate_input_imagery
 )
 # Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)  # import logging
+logging = get_logger(__name__)  # import logging
+
+try:
+    import boto3
+except ModuleNotFoundError:
+    logging.warning("\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
+
 # Set random seed for reproducibility
 np.random.seed(1234)
 
@@ -363,15 +367,6 @@ def main(cfg: DictConfig) -> None:
     -------
     :param cfg: (dict) Parameters found in the yaml config file.
     """
-    try:
-        import boto3
-    except ModuleNotFoundError:
-        logging.warning(
-            "\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets",
-            ImportWarning
-        )
-        pass
-
     # PARAMETERS
     num_classes = len(cfg.dataset.classes_dict.keys())
     num_bands = len(cfg.dataset.modalities)
@@ -379,51 +374,23 @@ def main(cfg: DictConfig) -> None:
     debug = cfg.debug
 
     # RAW DATA PARAMETERS
-    # Data folder
-    try:
-        # check if the folder exist
-        my_data_path = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
-        logging.info("\nImage directory used '{}'".format(my_data_path))
-        data_path = Path(my_data_path)
-    except FileNotFoundError:
-        raise logging.critical(
-            "\nImage directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
-        )
-    # CSV file
-    try:
-        my_csv_path = Path(cfg.dataset.raw_data_csv).resolve(strict=True)
-        # path.exists(cfg.dataset.raw_data_csv)
-        logging.info("\nImage csv: '{}'".format(my_csv_path))
-        csv_file = my_csv_path
-    except FileNotFoundError:
-        raise logging.critical(
-            "\nImage csv '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_csv)
-        )
-    # HDF5 data
-    try:
-        my_hdf5_path = Path(str(cfg.dataset.sample_data_dir)).resolve(strict=True)
-        logging.info("\nThe HDF5 directory used '{}'".format(my_hdf5_path))
-        Path.mkdir(Path(my_hdf5_path), exist_ok=True, parents=True)
-    except FileNotFoundError:
-        logging.info(
-            "\nThe HDF5 directory '{}' doesn't exist, please change the path.".format(cfg.dataset.sample_data_dir) +
-            "\nFor now the HDF5 directory use will be change for '{}'".format(data_path)
-        )
-        cfg.general.sample_data_dir = str(data_path)
+    data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
+    csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
+    out_path = get_key_def('sample_data_dir', cfg['dataset'], default=data_path, to_path=True, validate_path_exists=True)
 
     # SAMPLE PARAMETERS
     samples_size = get_key_def('input_dim', cfg['dataset'], default=256, expected_type=int)
     overlap = get_key_def('overlap', cfg['dataset'], default=0)
-    min_annot_perc = get_key_def('min_annot_perc', cfg['dataset'], default=0)
+    min_annot_perc = get_key_def('min_annotated_percent', cfg['dataset'], default=0)
     val_percent = get_key_def('train_val_percent', cfg['dataset'], default=0.3)['val'] * 100
     samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' \
                           f'_{num_bands}bands_{cfg.general.project_name}'
-    samples_dir = data_path.joinpath(samples_folder_name)
+    samples_dir = out_path.joinpath(samples_folder_name)
     if samples_dir.is_dir():
         if debug:
             # Move existing data folder with a random suffix.
             last_mod_time_suffix = datetime.fromtimestamp(samples_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-            shutil.move(samples_dir, data_path.joinpath(f'{str(samples_dir)}_{last_mod_time_suffix}'))
+            shutil.move(samples_dir, out_path.joinpath(f'{str(samples_dir)}_{last_mod_time_suffix}'))
         else:
             logging.critical(
                 f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.'
@@ -436,20 +403,13 @@ def main(cfg: DictConfig) -> None:
     # mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
 
     # OTHER PARAMETERS
-    metadata = None
-    meta_map = {}  # TODO get_key_def('meta_map', params['global'], default={})
     # TODO class_prop get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
     class_prop = None
     mask_reference = False  # TODO get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
     # set dontcare (aka ignore_index) value
     dontcare = cfg.dataset.ignore_index if cfg.dataset.ignore_index is not None else -1
     if dontcare == 0:
-        logging.warning(
-            "\nThe 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero."
-            " All valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-            " will be remapped to -1 while loading the dataset, and inside the config from now on."
-        )
-        dontcare = -1
+        raise ValueError("\nThe 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero.")
     attribute_field = get_key_def('attribute_field', cfg['dataset'], None, expected_type=str)
     # Assert that all items in attribute_values are integers (ex.: single-class samples from multi-class label)
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=Sequence)
@@ -482,9 +442,9 @@ def main(cfg: DictConfig) -> None:
         s3 = boto3.resource('s3')
         bucket = s3.Bucket(bucket_name)
         bucket.download_file(csv_file, 'samples_prep.csv')
-        list_data_prep = read_csv('samples_prep.csv', data_path)
+        list_data_prep = read_csv('samples_prep.csv')
     else:
-        list_data_prep = read_csv(csv_file, data_path)
+        list_data_prep = read_csv(csv_file)
 
     # IF DEBUG IS ACTIVATE
     if debug:
@@ -495,7 +455,7 @@ def main(cfg: DictConfig) -> None:
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
     for info in tqdm(list_data_prep, position=0):
-        validate_raster(info['tif'], num_bands, meta_map)
+        validate_input_imagery(info['tif'], num_bands)
         if info['gpkg'] not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(
                 info['gpkg'], num_classes, attribute_field, dontcare, attribute_values=attr_vals,
@@ -514,11 +474,8 @@ def main(cfg: DictConfig) -> None:
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 
-    # with open_dict(cfg):
-    #     print(cfg)
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
                                                              number_of_bands=num_bands,
-                                                             meta_map=meta_map,
                                                              samples_folder=samples_dir,
                                                              cfg=cfg)
 

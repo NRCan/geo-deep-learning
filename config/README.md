@@ -76,20 +76,19 @@ The chosen `yaml` from the task categories will gather all the parameters releva
 #### General Section
 ```YAML
 general:
-  work_dir: ${hydra:runtime.cwd}
+  work_dir: ${hydra:runtime.cwd}  # where the code is executed
   config_name: ${hydra:job.config_name}
   config_override_dirname: ${hydra:job.override_dirname}
   config_path: ${hydra:runtime.config_sources}
   project_name: template_project
   workspace: your_name
-  device: cuda
   max_epochs: 2 # for train only
   min_epochs: 1 # for train only
-  raw_data_dir: ${general.work_dir}/data
-  raw_data_csv: ${general.work_dir}/data/images_to_samples_ci_csv.csv
-  sample_data_dir: ${general.work_dir}/data
+  raw_data_dir: data
+  raw_data_csv: data/images_to_samples_ci_csv.csv
+  sample_data_dir: data # where the hdf5 will be saved
   state_dict_path:
-  save_weights_dir: ${general.work_dir}/weights_saved
+  save_weights_dir: saved_model/${general.project_name}
 ```
 This section contains general information that will be read by the code. Other `yaml` files read information from here.
 
@@ -101,7 +100,7 @@ If `True`, will save the config in the log folder.
 
 #### Mode Section
 ```YAML
-mode: {sampling, train, evaluate, inference, hyperparameters_search}
+mode: {sampling, train, inference, evaluate, hyperparameters_search}
 ```
 **GDL** has five modes: sampling, train, evaluate, inference and hyperparameters search.
 - *sampling*, generates `hdf5` files from a folder containing folders for each individual image with their ground truth.

@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Union, List
 
 import fiona
+import numpy as np
 import rasterio
 from rasterio.features import is_valid_geom
 from tqdm import tqdm
@@ -67,29 +68,77 @@ def validate_num_classes(vector_file: Union[str, Path],
     return num_classes_
 
 
-def validate_raster(raster_path: Union[str, Path], num_bands: int, meta_map):
+def validate_raster(raster_path: Union[str, Path], extended: bool = False) -> bool:
     """
-    Assert number of bands found in raster is equal to desired number of bands
-    :param raster_path: (str or Path) path to raster file
-    :param num_bands: number of bands raster file is expected to have
-    :param meta_map:
+    Checks if raster is valid, i.e. not corrupted (based on metadata, or actual byte info if under size threshold)
+    @param raster_path: Path to raster to be validated
+    @param extended: if True, raster data will be entirely read to detect any problem
+    @return: if raster is valid, returns True, else False (with logging.critical)
     """
-    # FIXME: think this through. User will have to calculate the total number of bands including meta layers and
-    #  specify it in yaml. Is this the best approach? What if metalayers are added on the fly ?
-    if isinstance(raster_path, str):
-        raster_path = Path(raster_path)
-    if not raster_path.is_file():
-        raise FileNotFoundError(f"Could not locate raster file at {raster_path}")
+    if not raster_path:
+        return False
+    try:
+        raster_path = Path(raster_path) if isinstance(raster_path, str) else raster_path
+    except TypeError as e:
+        logging.critical(f"Invalid raster.\nRaster path: {raster_path}\n{e}")
+        return False
+    try:
+        logging.debug(f'Raster to validate: {raster_path}\n'
+                      f'Size: {raster_path.stat().st_size}\n'
+                      f'Extended check: {extended}')
+        with rasterio.open(raster_path, 'r') as raster:
+            if not raster.meta['dtype'] in ['uint8', 'uint16']:  # will trigger exception if invalid raster
+                logging.warning(f"Only uint8 and uint16 are supported in current version.\n"
+                                f"Datatype {raster.meta['dtype']} for {raster.name} may cause problems.")
+        if extended:
+            logging.debug(f'Will perform extended check.\nWill read first band: {raster_path}')
+            with rasterio.open(raster_path, 'r') as raster:
+                raster_np = raster.read(1)
+            logging.debug(raster_np.shape)
+            if not np.any(raster_np):
+                logging.critical(f"Raster data filled with zero values.\nRaster path: {raster_path}")
+                return False
+    except FileNotFoundError as e:
+        logging.critical(f"Could not locate raster file.\nRaster path: {raster_path}\n{e}")
+        return False
+    except rasterio.errors.RasterioIOError as e:
+        logging.critical(f"Invalid raster.\nRaster path: {raster_path}\n{e}")
+        return False
+    return True
+
+
+def validate_num_bands(raster_path: Union[str, Path], num_bands: int) -> bool:
+    """
+    Checks match between expected and actual number of bands
+    @param raster_path: Path to raster to be validated
+    @param num_bands: Number of bands expected
+    @return: if expected and actual number of bands match, returns True, else False (with logging.critical)
+    """
     with rasterio.open(raster_path, 'r') as raster:
         input_band_count = raster.meta['count']
-        if not raster.meta['dtype'] in ['uint8', 'uint16']:
-            logging.error(f"Invalid datatype {raster.meta['dtype']} for {raster.name}. "
-                          f"Only uint8 and uint16 are supported in current version")
-
     if not input_band_count == num_bands:
-        raise ValueError(f"The number of bands in the input image ({input_band_count}) "
-                         f"and the parameter 'number_of_bands' in the yaml file ({num_bands}) "
-                         f"should be identical")
+        logging.critical(f"The number of bands expected doesn't match number of bands in input image.\n"
+                         f"Expected: {num_bands} bands\n"
+                         f"Got: {input_band_count} bands\n"
+                         f"Raster path: {raster_path}")
+        return False
+    else:
+        return True
+
+
+def validate_input_imagery(raster_path: Union[str, Path], num_bands: int, extended: bool = False) -> bool:
+    """
+    Validates raster and checks match between expected and actual number of bands
+    @param raster_path: Path to raster to be validated
+    @param extended: if True, raster data will be entirely read to detect any problem
+    @param num_bands: Number of bands expected
+    @return:
+    """
+    if not validate_raster(raster_path, extended):
+        return False
+    if not validate_num_bands(raster_path, num_bands):
+        return False
+    return True
 
 
 def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path]):

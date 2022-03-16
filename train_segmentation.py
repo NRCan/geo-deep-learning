@@ -1,9 +1,7 @@
-import os
+import shutil
 import time
 import h5py
 import torch
-import warnings
-import functools
 import numpy as np
 from PIL import Image
 from hydra.utils import to_absolute_path
@@ -14,26 +12,22 @@ from datetime import datetime
 from typing import Sequence
 from collections import OrderedDict
 from omegaconf import DictConfig
-from omegaconf.errors import ConfigKeyError
-
-try:
-    from pynvml import *
-except ModuleNotFoundError:
-    warnings.warn(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 from torch.utils.data import DataLoader
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
-from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path
+from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path, get_logger, set_tracker
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import net, load_checkpoint, verify_weights
-from utils.utils import load_from_checkpoint, get_device_ids, gpu_stats, get_key_def, read_modalities
+from utils.utils import load_from_checkpoint, gpu_stats, get_key_def, read_modalities
 from utils.visualization import vis_from_batch
-from mlflow import log_params, set_tracking_uri, set_experiment, start_run
 # Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)  # import logging
+logging = get_logger(__name__)  # import logging
 
+try:
+    from pynvml import *
+except ModuleNotFoundError:
+    logging.warning(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 def flatten_labels(annotations):
     """Flatten labels"""
@@ -228,14 +222,8 @@ def vis_from_dataloader(vis_params,
         for batch_index, data in enumerate(_tqdm):
             if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
                 with torch.no_grad():
-                    try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-                        inputs = data['sat_img'].to(device)
-                        labels = data['map_img'].to(device)
-                    except RuntimeError:
-                        logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-                        device = torch.device('cuda')
-                        inputs = data['sat_img'].to(device)
-                        labels = data['map_img'].to(device)
+                    inputs = data['sat_img'].to(device)
+                    labels = data['map_img'].to(device)
 
                     outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
@@ -289,14 +277,8 @@ def training(train_loader,
     for batch_index, data in enumerate(tqdm(train_loader, desc=f'Iterating train batches with {device.type}')):
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
-        try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-            inputs = data['sat_img'].to(device)
-            labels = data['map_img'].to(device)
-        except RuntimeError:
-            logging.exception(f'Unable to use device {device}. Trying "cuda:0"')
-            device = torch.device('cuda')
-            inputs = data['sat_img'].to(device)
-            labels = data['map_img'].to(device)
+        inputs = data['sat_img'].to(device)
+        labels = data['map_img'].to(device)
 
         # forward
         optimizer.zero_grad()
@@ -388,14 +370,8 @@ def evaluation(eval_loader,
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
         with torch.no_grad():
-            try:  # For HPC when device 0 not available. Error: RuntimeError: CUDA error: invalid device ordinal
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
-            except RuntimeError:
-                logging.exception(f'\nUnable to use device {device}. Trying "cuda"')
-                device = torch.device('cuda')
-                inputs = data['sat_img'].to(device)
-                labels = data['map_img'].to(device)
+            inputs = data['sat_img'].to(device)
+            labels = data['map_img'].to(device)
 
             labels_flatten = flatten_labels(labels)
 
@@ -542,23 +518,14 @@ def train(cfg: DictConfig) -> None:
     # GPU PARAMETERS
     num_devices = get_key_def('num_gpus', cfg['training'], default=0)
     if num_devices and not num_devices >= 0:
-        raise logging.critical(ValueError("\nmissing mandatory num gpus parameter"))
-    default_max_used_ram = 15
-    max_used_ram = get_key_def('max_used_ram', cfg['training'], default=default_max_used_ram)
+        raise ValueError("\nMissing mandatory num gpus parameter")
+    max_used_ram = get_key_def('max_used_ram', cfg['training'], default=15)
     max_used_perc = get_key_def('max_used_perc', cfg['training'], default=15)
 
-    # LOGGING PARAMETERS TODO put option not just mlflow
+    # LOGGING PARAMETERS
+    run_name = get_key_def(['tracker', 'run_name'], cfg, default='gdl')
+    tracker_uri = get_key_def(['tracker', 'uri'], cfg, default=None, expected_type=str)
     experiment_name = get_key_def('project_name', cfg['general'], default='gdl-training')
-    try:
-        tracker_uri = get_key_def('uri', cfg['tracker'])
-        Path(tracker_uri).mkdir(exist_ok=True)
-        run_name = get_key_def('run_name', cfg['tracker'], default='gdl')  # TODO change for something meaningful
-    # meaning no logging tracker as been assigned or it doesnt exist in config/logging
-    except ConfigKeyError:
-        logging.info(
-            "\nNo logging tracker as been assigned or the yaml config doesnt exist in 'config/tracker'."
-            "\nNo tracker file will be saved in this case."
-        )
 
     # PARAMETERS FOR hdf5 SAMPLES
     # info on the hdf5 name
@@ -568,26 +535,12 @@ def train(cfg: DictConfig) -> None:
     samples_folder_name = (
         f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{experiment_name}'
     )
-    try:
-        my_hdf5_path = Path(str(cfg.dataset.sample_data_dir)).resolve(strict=True)
-        samples_folder = Path(my_hdf5_path.joinpath(samples_folder_name)).resolve(strict=True)
-        logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
-    except FileNotFoundError:
-        samples_folder = Path(str(cfg.dataset.sample_data_dir)).joinpath(samples_folder_name)
-        logging.info(
-            f"\nThe HDF5 directory '{samples_folder}' doesn't exist, please change the path." +
-            f"\nWe will try to find '{samples_folder_name}' in '{cfg.dataset.raw_data_dir}'."
-        )
-        try:
-            my_data_path = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
-            samples_folder = Path(my_data_path.joinpath(samples_folder_name)).resolve(strict=True)
-            logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
-            cfg.general.sample_data_dir = str(my_data_path)  # need to be done for when the config will be saved
-        except FileNotFoundError:
-            raise logging.critical(
-                f"\nThe HDF5 directory '{samples_folder_name}' doesn't exist in '{cfg.dataset.raw_data_dir}'" +
-                f"\n or in '{cfg.dataset.sample_data_dir}', please verify the location of your HDF5."
-            )
+
+    data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
+    my_hdf5_path = get_key_def('sample_data_dir', cfg['dataset'], default=data_path, to_path=True,
+                                 validate_path_exists=True)
+    samples_folder = my_hdf5_path.joinpath(samples_folder_name).resolve(strict=True)
+    logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
 
     # visualization parameters
     vis_at_train = get_key_def('vis_at_train', cfg['visualization'], default=False)
@@ -611,26 +564,23 @@ def train(cfg: DictConfig) -> None:
     for list_path in cfg.general.config_path:
         if list_path['provider'] == 'main':
             config_path = list_path['path']
-    config_name = str(cfg.general.config_name)
-    model_id = config_name
-    output_path = Path(to_absolute_path(f'model/{model_id}'))
-    output_path.mkdir(parents=True, exist_ok=True)  # FIXME: restore exist_ok=False when PR#274 is merged
-    logging.info(f'\nModel and log files will be saved to: {output_path}')
+    default_output_path = Path(to_absolute_path(f'{samples_folder}/model/{experiment_name}/{run_name}'))
+    output_path = get_key_def('save_weights_dir', cfg['general'], default=default_output_path, to_path=True)
+    if output_path.is_dir():
+        last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+        archive_output_path = output_path.parent / f"{output_path.stem}_{last_mod_time_suffix}"
+        shutil.move(output_path, archive_output_path)
+    output_path.mkdir(parents=True, exist_ok=False)
+    logging.info(f'\nModel will be saved to: {output_path}')
     if debug:
         logging.warning(f'\nDebug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
     if dontcare_val < 0 and vis_batch_range:
         logging.warning(f'\nVisualization: expected positive value for ignore_index, got {dontcare_val}.'
-                        f'Will be overridden to 255 during visualization only. Problems may occur.')
+                        f'\nWill be overridden to 255 during visualization only. Problems may occur.')
 
-    # overwrite dontcare values in label if loss is not lovasz or crossentropy. FIXME: hacky fix.
-    dontcare2backgr = False
-    if loss_fn not in ['Lovasz', 'CrossEntropy', 'OhemCrossEntropy']:
-        dontcare2backgr = True
-        logging.warning(
-            f'\nDontcare is not implemented for loss function "{loss_fn}". '
-            f'\nDontcare values ({dontcare_val}) in label will be replaced with background value (0)'
-        )
+    # overwrite dontcare values in label if loss doens't implement ignore_index
+    dontcare2backgr = False if 'ignore_index' in loss_fn.keys() else True
 
     # Will check if batch size needs to be a lower value only if cropping samples during training
     calc_eval_bs = True if crop_size else False
@@ -667,25 +617,11 @@ def train(cfg: DictConfig) -> None:
                                                                        calc_eval_bs=calc_eval_bs,
                                                                        debug=debug)
 
-    # Save tracking TODO put option not just mlflow
-    if 'tracker_uri' in locals() and 'run_name' in locals():
-        mode = get_key_def('mode', cfg, expected_type=str)
-        task = get_key_def('task_name', cfg['task'], expected_type=str)
-        run_name = '{}_{}_{}'.format(run_name, mode, task)
-        # tracking path + parameters logging
-        set_tracking_uri(tracker_uri)
-        set_experiment(experiment_name)
-        start_run(run_name=run_name)
-        log_params(dict_path(cfg, 'training'))
-        log_params(dict_path(cfg, 'dataset'))
-        log_params(dict_path(cfg, 'model'))
-        log_params(dict_path(cfg, 'optimizer'))
-        log_params(dict_path(cfg, 'scheduler'))
-        log_params(dict_path(cfg, 'augmentation'))
-        # TODO change something to not only have the mlflow option
-        trn_log = InformationLogger('trn')
-        val_log = InformationLogger('val')
-        tst_log = InformationLogger('tst')
+    # Save tracking
+    set_tracker(mode='train', type='mlflow', task='segmentation', experiment_name=experiment_name, run_name=run_name,
+                tracker_uri=tracker_uri, params=cfg,
+                keys2log=['general', 'training', 'dataset', 'model', 'optimizer', 'scheduler', 'augmentation'])
+    trn_log, val_log, tst_log = [InformationLogger(dataset) for dataset in ['trn', 'val', 'tst']]
 
     if bucket_name:
         from utils.aws import download_s3_files

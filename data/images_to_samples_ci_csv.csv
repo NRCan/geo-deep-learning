@@ -1,2 +1,2 @@
-./22978945_15_uint8_clipped.tif,,./massachusetts_buildings.gpkg,,trn
-./23429155_15_uint8_clipped.tif,,./massachusetts_buildings.gpkg,,tst
+data/22978945_15_uint8_clipped.tif,,data/massachusetts_buildings.gpkg,,trn
+data/23429155_15_uint8_clipped.tif,,data/massachusetts_buildings.gpkg,,tst

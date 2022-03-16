@@ -17,7 +17,7 @@ from tqdm import tqdm
 from utils.optimizer import create_optimizer
 import torch.optim as optim
 from models import TernausNet, unet, checkpointed_unet, inception
-from utils.utils import load_from_checkpoint, get_device_ids, get_key_def
+from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, set_device
 
 logging.getLogger(__name__)
 
@@ -246,8 +246,6 @@ def net(model_name: str,
         # list of GPU devices that are available and unused. If no GPUs, returns empty list
         gpu_devices_dict = get_device_ids(num_devices, max_used_perc=100, max_used_ram_perc=100)  # FIXME: set back to default after issue #246
         num_devices = len(gpu_devices_dict.keys())
-        logging.info(f"Number of cuda devices requested: {num_devices}. "
-                     f"Cuda devices available: {list(gpu_devices_dict.keys())}\n")
         if num_devices == 1:
             logging.info(f"\nUsing Cuda device 'cuda:{list(gpu_devices_dict.keys())[0]}'")
         elif num_devices > 1:
@@ -263,13 +261,9 @@ def net(model_name: str,
         else:
             logging.warning(f"No Cuda device available. This process will only run on CPU\n")
         logging.info(f'\nSetting model, criterion, optimizer and learning rate scheduler...')
-        device = torch.device(f'cuda:{list(range(len(gpu_devices_dict.keys())))[0]}' if gpu_devices_dict else 'cpu')
-        try:  # For HPC when device 0 not available. Error: Cuda invalid device ordinal.
-            model.to(device)
-        except AssertionError:
-            logging.exception(f"Unable to use device. Trying device 0...\n")
-            device = torch.device(f'cuda' if gpu_devices_dict else 'cpu')
-            model.to(device)
+
+        device = set_device(gpu_devices_dict=gpu_devices_dict)
+        model.to(device)
 
         model, criterion, optimizer, lr_scheduler = set_hyperparameters(params=net_params,
                                                                         model=model,
