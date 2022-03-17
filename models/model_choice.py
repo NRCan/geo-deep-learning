@@ -14,7 +14,7 @@ from models.deeplabv3_dualhead import DeepLabV3_dualhead
 from tqdm import tqdm
 from utils.optimizer import create_optimizer
 import torch.optim as optim
-from models import TernausNet, unet, checkpointed_unet, inception
+from models import unet, checkpointed_unet
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, set_device
 
 logging.getLogger(__name__)
@@ -173,19 +173,8 @@ def net(model_name: str,
         model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'unet':
         model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
-    elif model_name == 'ternausnet':
-        if not num_bands == 3:
-            raise logging.critical(NotImplementedError(msg))
-        model = TernausNet.ternausnet(num_channels)
     elif model_name == 'checkpointed_unet':
         model = checkpointed_unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
-    elif model_name == 'inception':
-        model = inception.Inception3(num_channels, num_bands)
-    elif model_name == 'fcn_resnet101':
-        if not num_bands == 3:
-            raise logging.critical(NotImplementedError(msg))
-        model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
-                                                  aux_loss=None)
     elif model_name == 'deeplabv3_pretrained':
         model = DeepLabV3(encoder_name='resnet101', in_channels=num_bands, classes=num_channels)
     elif model_name == 'deeplabv3_resnet101_dualhead':

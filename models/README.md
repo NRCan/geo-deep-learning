@@ -1,14 +1,11 @@
 ## **Models available**
 
 ## Train from Scratch
-- [Inception V3](https://arxiv.org/pdf/1512.00567.pdf)
-- [Ternausnet](https://arxiv.org/abs/1801.05746.pdf)
 - [Unet](https://arxiv.org/abs/1505.04597.pdf)
 - Unet small (less deep version of [Unet](https://arxiv.org/abs/1505.04597.pdf))
 - Checkpointed Unet (same as [Unet](https://arxiv.org/abs/1505.04597.pdf) small, but uses less GPU memory and recomputes data during the backward pass)
 
 ## Pre-trained (torch vision by default pretrained on coco dataset)
-- [FCN with backbone resnet101](https://people.eecs.berkeley.edu/~jonlong/long_shelhamer_fcn.pdf)
 - [Deeplabv3 with backbone resnet101](https://arxiv.org/abs/1706.05587.pdf)
 - Experimental: [Deeplabv3 with backbone resnet101](https://arxiv.org/abs/1706.05587.pdf)  adapted for RGB-NIR (4 Bands)
 
