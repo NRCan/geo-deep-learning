@@ -793,8 +793,8 @@ def main(cfg: DictConfig) -> None:
     # Limit of the NIR implementation TODO: Update after each version
     if 'deeplabv3' not in cfg.model.model_name and 'IR' in read_modalities(cfg.dataset.modalities):
         logging.info(
-            '\nThe NIR modality will only be concatenate at the beginning,'
-            '\nthe implementation of the concatenation point is only available'
+            '\nThe NIR modality will be fed at first layer of model alongside other bands,'
+            '\nthe implementation of concatenation point at an intermediary layer is only available'
             '\nfor the deeplabv3 model for now. \nMore will follow on demand.'
         )
 

@@ -1,8 +1,5 @@
-import logging
-from pathlib import Path
 from typing import Sequence
 
-import numpy as np
 import logging
 import torch
 import torch.nn as nn
@@ -10,8 +7,9 @@ import segmentation_models_pytorch as smp
 import torchvision.models as models
 ###############################
 from hydra.utils import instantiate
+from segmentation_models_pytorch import DeepLabV3
 
-from utils.layersmodules import LayersEnsemble
+from models.deeplabv3_dualhead import DeepLabV3_dualhead
 ###############################
 from tqdm import tqdm
 from utils.optimizer import create_optimizer
@@ -177,39 +175,11 @@ def net(model_name: str,
         model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'checkpointed_unet':
         model = checkpointed_unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
-    elif model_name == 'deeplabv3_resnet101':
-        if not (num_bands == 3 or num_bands == 4):
-            raise logging.critical(NotImplementedError(msg))
-        if num_bands == 3:
-            model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
-            classifier = list(model.classifier.children())
-            model.classifier = nn.Sequential(*classifier[:-1])
-            model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
-        elif num_bands == 4:
-            model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
-
-            if conc_point == 'baseline':
-                logging.info('\nTesting with 4 bands, concatenating at {}.'.format(conc_point))
-                conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-                depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
-                conv1 = np.append(conv1, depth, axis=1)
-                conv1 = torch.from_numpy(conv1).float()
-                model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-                classifier = list(model.classifier.children())
-                model.classifier = nn.Sequential(*classifier[:-1])
-                model.classifier.add_module(
-                    '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
-                )
-            else:
-                classifier = list(model.classifier.children())
-                model.classifier = nn.Sequential(*classifier[:-1])
-                model.classifier.add_module(
-                        '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
-                )
-                conc_point = 'conv1' if not conc_point else conc_point
-                model = LayersEnsemble(model, conc_point=conc_point)
-        logging.info(f'\nFinetuning pretrained deeplabv3 with {num_bands} input channels (imagery bands). '
-                     f'Concatenation point: "{conc_point}"')
+    elif model_name == 'deeplabv3_pretrained':
+        model = DeepLabV3(encoder_name='resnet101', in_channels=num_bands, classes=num_channels)
+    elif model_name == 'deeplabv3_resnet101_dualhead':
+        model = DeepLabV3_dualhead(encoder_name='resnet101', in_channels=num_bands, classes=num_channels,
+                                   conc_point=conc_point)
     elif model_name in lm_smp.keys():
         lsmp = lm_smp[model_name]
         # TODO: add possibility of our own weights
@@ -264,3 +234,24 @@ def net(model_name: str,
         criterion = criterion.to(device)
 
         return model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict
+
+
+if __name__ == '__main__':
+    # TODO convert to unit test
+    rand_img = torch.rand((2, 4, 64, 64))
+    for layer in ['conv1', 'maxpool', 'layer2', 'layer3', 'layer4']:
+        logging.info(layer)
+        model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict = net(
+            model_name='deeplabv3_resnet101_dualhead',
+            num_bands=4,
+            num_channels=4,
+            num_devices=0,
+            net_params={'training': None, 'optimizer': {'params': None},
+                        'scheduler': {'params': None}},
+            inference_state_dict=None,
+            conc_point=layer,
+            loss_fn={'_target_': 'torch.nn.CrossEntropyLoss'},
+            optimizer='sgd',
+        )
+        output = model(rand_img)
+        logging.info(output.shape)
