@@ -9,7 +9,7 @@ from models.model_choice import set_hyperparameters
 
 
 class Test_Losses(object):
-    """Tests geo-deep-learning's pipeline"""
+    """Tests all geo-deep-learning's losses instantiation"""
     def test_set_hyperparameters(self) -> None:
         with initialize(config_path="../../config", job_name="test_ci"):
             for dataset_type in ['binary', 'multiclass']:
