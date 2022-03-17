@@ -203,7 +203,7 @@ def net(model_name: str,
         else:
             checkpoint = None
         # list of GPU devices that are available and unused. If no GPUs, returns empty list
-        gpu_devices_dict = get_device_ids(num_devices, max_used_perc=100, max_used_ram_perc=100)  # FIXME: set back to default after issue #246
+        gpu_devices_dict = get_device_ids(num_devices)
         num_devices = len(gpu_devices_dict.keys())
         if num_devices == 1:
             logging.info(f"\nUsing Cuda device 'cuda:{list(gpu_devices_dict.keys())[0]}'")
