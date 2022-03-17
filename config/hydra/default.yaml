@@ -26,7 +26,7 @@ sweeper:
       choices: ["binary/softbce", "binary/lovasz", "binary/dice"]
     model:
       type: categorical
-      choices: ['deeplabv3_resnet101']
+      choices: ['deeplabv3_pretrained']
     optimizer:
       type: categorical
       choices: ['adam', 'adabound']
