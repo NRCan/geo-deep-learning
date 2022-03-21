@@ -1,8 +1,5 @@
-import logging
-from pathlib import Path
 from typing import Sequence
 
-import numpy as np
 import logging
 import torch
 import torch.nn as nn
@@ -10,13 +7,14 @@ import segmentation_models_pytorch as smp
 import torchvision.models as models
 ###############################
 from hydra.utils import instantiate
+from segmentation_models_pytorch import DeepLabV3
 
-from utils.layersmodules import LayersEnsemble
+from models.deeplabv3_dualhead import DeepLabV3_dualhead
 ###############################
 from tqdm import tqdm
 from utils.optimizer import create_optimizer
 import torch.optim as optim
-from models import TernausNet, unet, checkpointed_unet, inception
+from models import unet, checkpointed_unet
 from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, set_device
 
 logging.getLogger(__name__)
@@ -175,52 +173,13 @@ def net(model_name: str,
         model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'unet':
         model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
-    elif model_name == 'ternausnet':
-        if not num_bands == 3:
-            raise logging.critical(NotImplementedError(msg))
-        model = TernausNet.ternausnet(num_channels)
     elif model_name == 'checkpointed_unet':
         model = checkpointed_unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
-    elif model_name == 'inception':
-        model = inception.Inception3(num_channels, num_bands)
-    elif model_name == 'fcn_resnet101':
-        if not num_bands == 3:
-            raise logging.critical(NotImplementedError(msg))
-        model = models.segmentation.fcn_resnet101(pretrained=False, progress=True, num_classes=num_channels,
-                                                  aux_loss=None)
-    elif model_name == 'deeplabv3_resnet101':
-        if not (num_bands == 3 or num_bands == 4):
-            raise logging.critical(NotImplementedError(msg))
-        if num_bands == 3:
-            model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
-            classifier = list(model.classifier.children())
-            model.classifier = nn.Sequential(*classifier[:-1])
-            model.classifier.add_module('4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1)))
-        elif num_bands == 4:
-            model = models.segmentation.deeplabv3_resnet101(pretrained=pretrained, progress=True)
-
-            if conc_point == 'baseline':
-                logging.info('\nTesting with 4 bands, concatenating at {}.'.format(conc_point))
-                conv1 = model.backbone._modules['conv1'].weight.detach().numpy()
-                depth = np.expand_dims(conv1[:, 1, ...], axis=1)  # reuse green weights for infrared.
-                conv1 = np.append(conv1, depth, axis=1)
-                conv1 = torch.from_numpy(conv1).float()
-                model.backbone._modules['conv1'].weight = nn.Parameter(conv1, requires_grad=True)
-                classifier = list(model.classifier.children())
-                model.classifier = nn.Sequential(*classifier[:-1])
-                model.classifier.add_module(
-                    '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
-                )
-            else:
-                classifier = list(model.classifier.children())
-                model.classifier = nn.Sequential(*classifier[:-1])
-                model.classifier.add_module(
-                        '4', nn.Conv2d(classifier[-1].in_channels, num_channels, kernel_size=(1, 1))
-                )
-                conc_point = 'conv1' if not conc_point else conc_point
-                model = LayersEnsemble(model, conc_point=conc_point)
-        logging.info(f'\nFinetuning pretrained deeplabv3 with {num_bands} input channels (imagery bands). '
-                     f'Concatenation point: "{conc_point}"')
+    elif model_name == 'deeplabv3_pretrained':
+        model = DeepLabV3(encoder_name='resnet101', in_channels=num_bands, classes=num_channels)
+    elif model_name == 'deeplabv3_resnet101_dualhead':
+        model = DeepLabV3_dualhead(encoder_name='resnet101', in_channels=num_bands, classes=num_channels,
+                                   conc_point=conc_point)
     elif model_name in lm_smp.keys():
         lsmp = lm_smp[model_name]
         # TODO: add possibility of our own weights

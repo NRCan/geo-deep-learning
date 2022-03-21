@@ -1,17 +1,16 @@
 import logging
+from typing import Optional
 
 import torch
-import copy
+
+from segmentation_models_pytorch import DeepLabV3
 from torch import nn
-import torchvision.models as models
 from collections import OrderedDict
-from torch.nn import functional as F
 
 logging.getLogger(__name__)
 
-nir_layers = {'conv1': 1, 'maxpool': 4, 'layer2': 6, 'layer3': 7, 'layer4': 8}
 
-class LayersEnsemble(nn.Module):
+class DeepLabV3_dualhead(nn.Module):
     """
     Class create a model where 2 heads concatenate at a specific point.
 
@@ -30,7 +29,20 @@ class LayersEnsemble(nn.Module):
     .. note:: Only available for **DeeplabV3** with a backbone of a **Resnet101**.
     .. todo:: Make it more general to be able to be apply on a **UNet** or others.
     """
-    def __init__(self, model, conc_point='conv1'):
+    
+    def __init__(
+            self,
+            encoder_name: str = "resnet34",
+            encoder_depth: int = 5,
+            encoder_weights: Optional[str] = "imagenet",
+            decoder_channels: int = 256,
+            in_channels: int = 3,
+            classes: int = 1,
+            activation: Optional[str] = None,
+            upsampling: int = 8,
+            aux_params: Optional[dict] = None,
+            conc_point: Optional[str] = 'conv1',
+    ):
         """
         In the constructor we instantiate all the part needed for the* model*:
 
@@ -44,55 +56,60 @@ class LayersEnsemble(nn.Module):
 
         And assign them as member variables.
         """
-        super(LayersEnsemble, self).__init__()
+        super().__init__()
+
+        self.nir_layers = {'conv1': 1, 'maxpool': 4, 'layer2': 6, 'layer3': 7, 'layer4': 8}
+
+        if not in_channels == 4:
+            raise NotImplementedError(f"The dual head Deeplabv3 is implemented only for 4 band imagery. "
+                                      f"\nGot {in_channels} bands")
+
+        logging.info(f'\nFinetuning pretrained deeplabv3 with 4 input channels (imagery bands). '
+                     f'Concatenation point: "{conc_point}"')
+
         # Init model
-        model_rgb = model
-        model_nir = copy.deepcopy(model)
-
-        # Ajusting the second entry
-        model_nir.backbone.conv1 = nn.Conv2d(
-                1, model_rgb.backbone.conv1.out_channels, kernel_size=(7, 7),
-                stride=(2, 2), padding=(3, 3), bias=False
-        )
-
-        # Adding the weight of the green channel of the pretrained weight (if load)
-        # to the nir conv1 (if the image in input is a RGB).
-        # Otherwise it will only copy random initiation weight from the rgb model.
-        conv1_w = model_rgb.backbone.conv1.weight.detach() # shape: [64, 3, 7, 7]
-        green_weight = conv1_w[:, 1] # [R, G, B] -> [0, 1, 2], shape: [64, 7, 7]
-        green_weight.unsqueeze_(1) # shape: [64, 1, 7, 7], otherwise didn't work
-        model_nir.backbone.conv1.weight = nn.Parameter(green_weight, requires_grad=True)
+        model_rgb = DeepLabV3(encoder_name, encoder_depth, encoder_weights, decoder_channels, in_channels-1, classes,
+                              activation, upsampling, aux_params)
+        # SMP carries over pretrained weights to models with input channels != 3
+        # https://github.com/qubvel/segmentation_models.pytorch#input-channels
+        model_nir = DeepLabV3(encoder_name, encoder_depth, encoder_weights, decoder_channels, 1, classes, activation,
+                              upsampling, aux_params)
 
         # Concatenation point output channels dimension
         if conc_point in ['conv1', 'maxpool']:
-            out_channels = model_rgb.backbone.conv1.out_channels
+            out_channels = model_rgb.encoder.conv1.out_channels
         elif conc_point == 'layer2':
-            out_channels = model_rgb.backbone.layer2[-1].conv3.out_channels
+            out_channels = model_rgb.encoder.layer2[-1].conv3.out_channels
         elif conc_point == 'layer3':
-            out_channels = model_rgb.backbone.layer3[-1].conv3.out_channels
+            out_channels = model_rgb.encoder.layer3[-1].conv3.out_channels
         elif conc_point == 'layer4':
-            out_channels = model_rgb.backbone.layer4[-1].conv3.out_channels
+            out_channels = model_rgb.encoder.layer4[-1].conv3.out_channels
         else:
             raise ValueError('The layer you want is not in the layers available!')
 
-        # Init all part of the model 
+        # Init all parts of the model
+        # An alternate implementation could use torchvision.models._utils.IntermediateLayerGetter
+        # https://github.com/pytorch/vision/blob/main/torchvision/models/_utils.py
         self.modelNIR = nn.Sequential(
-            *list(model_nir.backbone.children())[:nir_layers[conc_point]]
+            *list(model_nir.encoder.children())[:self.nir_layers[conc_point]]
         )
         self.modelRGB = nn.Sequential(
-                *list(model_rgb.backbone.children())[:nir_layers[conc_point]]
+                *list(model_rgb.encoder.children())[:self.nir_layers[conc_point]]
         )
-        self.leftover = nn.Sequential(
-                *list(model_rgb.backbone.children())[nir_layers[conc_point]:]
-        )
-        self.classifier = model_rgb.classifier
 
-        # Conv Layer to fit the size of the next layer
+        # Conv Layer to fit the size of the first leftover layer
         self.conv1x1 = nn.Conv2d(
             in_channels=out_channels * 2, out_channels=out_channels, kernel_size=1
         )
 
-        del model_nir, model_rgb, conv1_w, green_weight
+        self.leftover = nn.Sequential(
+                *list(model_rgb.encoder.children())[self.nir_layers[conc_point]:]
+        )
+        self.decoder = model_rgb.decoder
+
+        self.segmentation_head = model_rgb.segmentation_head
+
+        del model_nir, model_rgb
 
     def forward(self, inputs):
         """
@@ -121,18 +138,18 @@ class LayersEnsemble(nn.Module):
         rgb = self.modelRGB(x1)
         nir = self.modelNIR(x2)
         # Concatenation
-        x = torch.cat((rgb, nir), dim=1)
-        # Conv 1x1 need to match the enter of the next layer
-        x = self.conv1x1(x)
+        x3 = torch.cat((rgb, nir), dim=1)
+        # Conv 1x1 need to match the input dimensions of the next layer
+        x4 = self.conv1x1(x3)
         # Give the result to the rest of the network
-        x = self.leftover(x)
-        # Give the result to the classifier
-        x = self.classifier(x)
-        # See https://github.com/pytorch/vision/blob/master/torchvision/models/segmentation/_utils.py
-        # for more info on the use of the interpolation
-        x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
-        result['out'] = x
-        return result
+        x5 = self.leftover(x4)
+        # Give the result to the decoder
+        decoder_output = self.decoder(x5)
+
+        # segmentation head performs upsampling to input image size
+        masks = self.segmentation_head(decoder_output)
+
+        return masks
 
     @staticmethod
     def split_RGB_NIR(inputs):

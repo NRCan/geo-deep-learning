@@ -1,15 +1,15 @@
 defaults:
-  - model: unet_pretrained
+  - model: unet
   - training: default_training
   - loss: binary/softbce
   - optimizer: adamw
   - callbacks: default_callbacks
   - scheduler: plateau
-  - dataset: test_ci_segmentation_dataset
+  - dataset: test_ci_segmentation_binary
   - augmentation: basic_augmentation_segmentation
   - tracker: # set logger here or use command line (e.g. `python GDL.py tracker=mlflow`)
   - visualization: default_visualization
-  - inference: default_inference
+  - inference: default_binary
   - postprocess: default_postprocess
   - hydra: default
   - override hydra/hydra_logging: colorlog # enable color logging to make it pretty
@@ -31,7 +31,7 @@ general:
   max_epochs: 2 # for train only
   min_epochs: 1 # for train only
   raw_data_dir: data
-  raw_data_csv: data/images_to_samples_ci_csv.csv
+  raw_data_csv: tests/sampling/sampling_segmentation_binary_ci.csv
   sample_data_dir: data # where the hdf5 will be saved
   state_dict_path:
   save_weights_dir: saved_model/${general.project_name}
@@ -40,5 +40,5 @@ AWS:
   bucket_name:
 
 print_config: True # save the config in the log folder
-mode: {sampling, train, evaluate, inference, hyperparameters_search}
+mode: {sampling, train, inference, evaluate}
 debug: True #False # will print the complete yaml config plus run a validation test
