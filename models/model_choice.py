@@ -1,21 +1,13 @@
-from typing import Sequence
-
+from collections import OrderedDict
+from typing import Union, List
 import logging
+
+import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
-import segmentation_models_pytorch as smp
-import torchvision.models as models
-###############################
-from hydra.utils import instantiate
-from segmentation_models_pytorch import DeepLabV3
 
 from models.deeplabv3_dualhead import DeepLabV3_dualhead
-###############################
-from tqdm import tqdm
-from utils.optimizer import create_optimizer
-import torch.optim as optim
 from models import unet, checkpointed_unet
-from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, set_device
 
 logging.getLogger(__name__)
 
@@ -69,106 +61,17 @@ except AttributeError:
     logging.exception("Couldn't load MAnet from segmentation models pytorch package. Check installed version")
 
 
-def load_checkpoint(filename):
+def define_model_architecture(
+    model_name: str,
+    num_bands: int,
+    num_channels: int,
+    dropout_prob: float = False,
+    conc_point: str = None,
+):
     """
-    Loads checkpoint from provided path
-    :param filename: path to checkpoint as .pth.tar or .pth
-    :return: (dict) checkpoint ready to be loaded into model instance
+    Define the model architecture from config parameters
     """
-    try:
-        logging.info(f"\n=> loading model '{filename}'")
-        # For loading external models with different structure in state dict.
-        # May cause problems when trying to load optimizer
-        checkpoint = torch.load(filename, map_location='cpu')
-        if 'model' not in checkpoint.keys():
-            temp_checkpoint = {}
-            # Place entire state_dict inside 'model' key
-            temp_checkpoint['model'] = {k: v for k, v in checkpoint.items()}
-            del checkpoint
-            checkpoint = temp_checkpoint
-        return checkpoint
-    except FileNotFoundError:
-        raise logging.critical(FileNotFoundError(f"\n=> No model found at '{filename}'"))
-
-
-def verify_weights(num_classes, weights):
-    """Verifies that the number of weights equals the number of classes if any are given
-    Args:
-        num_classes: number of classes defined in the configuration file
-        weights: weights defined in the configuration file
-    """
-    if num_classes == 1 and len(weights) == 2:
-        logging.warning(
-            "got two class weights for single class defined in configuration file; will assume index 0 = background")
-    elif num_classes != len(weights):
-        raise ValueError(f'The number of class weights {len(weights)} '
-                         f'in the configuration file is different than the number of classes {num_classes}')
-
-
-def set_hyperparameters(params,
-                        model,
-                        checkpoint,
-                        loss_fn,
-                        optimizer,
-                        class_weights=None,
-                        inference: str = ''):
-    """
-    Function to set hyperparameters based on values provided in yaml config file.
-    If none provided, default functions values may be used.
-    :param params: (dict) Parameters found in the yaml config file
-    :param num_classes: (int) number of classes for current task
-    :param model: initialized model
-    :param checkpoint: (dict) state dict as loaded by model_choice.py
-    :param dontcare_val: value in label to ignore during loss calculation
-    :param loss_fn: loss function
-    :param optimizer: optimizer function
-    :param class_weights: class weights for loss function
-    :param inference: (str) path to inference checkpoint (used in load_from_checkpoint())
-    :return: model, criterion, optimizer, lr_scheduler, num_gpus
-    """
-    # set mandatory hyperparameters values with those in config file if they exist
-    lr = get_key_def('lr', params['training'], 0.0001)
-    weight_decay = get_key_def('weight_decay', params['optimizer']['params'], 0)
-    step_size = get_key_def('step_size', params['scheduler']['params'], 4)
-    gamma = get_key_def('gamma', params['scheduler']['params'], 0.9)
-    class_weights = torch.tensor(class_weights) if class_weights else None
-    # Loss function
-    if loss_fn['_target_'] in ['torch.nn.CrossEntropyLoss', 'losses.focal_loss.FocalLoss',
-                               'losses.ohem_loss.OhemCrossEntropy2d']:
-        criterion = instantiate(loss_fn, weight=class_weights)
-    else:
-        criterion = instantiate(loss_fn)
-    # Optimizer
-    opt_fn = optimizer
-    optimizer = create_optimizer(params=model.parameters(), mode=opt_fn, base_lr=lr, weight_decay=weight_decay)
-    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
-
-    if checkpoint:
-        tqdm.write(f'Loading checkpoint...')
-        model, optimizer = load_from_checkpoint(checkpoint, model, optimizer=optimizer, inference=inference)
-
-    return model, criterion, optimizer, lr_scheduler
-
-
-def net(model_name: str,
-        num_bands: int,
-        num_channels: int,
-        num_devices: int,
-        train_state_dict_path: str = None,
-        pretrained: bool = True,
-        dropout_prob: float = False,
-        loss_fn: str = None,
-        optimizer: str = None,
-        class_weights: Sequence = None,
-        net_params=None,
-        conc_point: str = None,
-        inference_state_dict: str = None):
-    """Define the neural net"""
-    msg = f'\nNumber of bands specified incompatible with this model. Requires 3 band data.'
-    pretrained = False if train_state_dict_path or inference_state_dict else pretrained
     dropout = True if dropout_prob else False
-    model = None
-
     if model_name == 'unetsmall':
         model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'unet':
@@ -176,7 +79,7 @@ def net(model_name: str,
     elif model_name == 'checkpointed_unet':
         model = checkpointed_unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
     elif model_name == 'deeplabv3_pretrained':
-        model = DeepLabV3(encoder_name='resnet101', in_channels=num_bands, classes=num_channels)
+        model = smp.DeepLabV3(encoder_name='resnet101', in_channels=num_bands, classes=num_channels)
     elif model_name == 'deeplabv3_resnet101_dualhead':
         model = DeepLabV3_dualhead(encoder_name='resnet101', in_channels=num_bands, classes=num_channels,
                                    conc_point=conc_point)
@@ -192,45 +95,129 @@ def net(model_name: str,
     else:
         raise logging.critical(ValueError(f'\nThe model name {model_name} in the config.yaml is not defined.'))
 
-    if inference_state_dict:
-        state_dict_path = inference_state_dict
-        checkpoint = load_checkpoint(state_dict_path)
-        return model, checkpoint, model_name
+    return model
 
+
+def read_checkpoint(filename):
+    """
+    Loads checkpoint from provided path to GDL's expected format,
+    ie model's state dictionary should be under "model_state_dict" and
+    optimizer's state dict should be under "optimizer_state_dict" as suggested by pytorch:
+    https://pytorch.org/tutorials/beginner/saving_loading_models.html#save
+    :param filename: path to checkpoint as .pth.tar or .pth
+    :return: (dict) checkpoint ready to be loaded into model instance
+    """
+    if not filename:
+        logging.warning(f"No path to checkpoint provided.")
+        return None
+    try:
+        logging.info(f"\n=> loading model '{filename}'")
+        # For loading external models with different structure in state dict.
+        checkpoint = torch.load(filename, map_location='cpu')
+        if 'model_state_dict' not in checkpoint.keys():
+            val_set = set()
+            for val in checkpoint.values():
+                val_set.add(type(val))
+            if len(val_set) == 1 and list(val_set)[0] == torch.Tensor:
+                # places entire state_dict inside expected key
+                new_checkpoint = OrderedDict()
+                new_checkpoint['model_state_dict'] = OrderedDict({k: v for k, v in checkpoint.items()})
+                del checkpoint
+                checkpoint = new_checkpoint
+            # Covers gdl's checkpoints at version <=2.0.1
+            elif 'model' in checkpoint.keys():
+                checkpoint['model_state_dict'] = checkpoint['model']
+                del checkpoint['model']
+            else:
+                raise ValueError(f"GDL cannot find weight in provided checkpoint")
+        if 'optimizer_state_dict' not in checkpoint.keys():
+            try:
+                # Covers gdl's checkpoints at version <=2.0.1
+                checkpoint['optimizer_state_dict'] = checkpoint['optimizer']
+                del checkpoint['optimizer']
+            except KeyError:
+                logging.critical(f"No optimizer state dictionary was found in provided checkpoint")
+        return checkpoint
+    except FileNotFoundError:
+        raise logging.critical(FileNotFoundError(f"\n=> No model found at '{filename}'"))
+
+
+def adapt_checkpoint_to_dp_model(checkpoint: dict, model: Union[nn.Module, nn.DataParallel]):
+    """
+    Adapts a generic checkpoint to be loaded to a DataParallel model.
+    See: https://github.com/bearpaw/pytorch-classification/issues/27
+    Also: https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
+
+    Args:
+        checkpoint: a dict containing parameters and
+            persistent buffers under "model_state_dict" key
+        model: a pytorch model to adapt checkpoint to (especially if model is a nn.DataParallel class)
+    """
+    if isinstance(model, nn.DataParallel):
+        new_state_dict = OrderedDict()
+        for k, v in checkpoint['model_state_dict'].items():
+            if 'module' not in k:
+                k = 'module.'+k
+            else:
+                k = k.replace('features.module.', 'module.features.')
+            new_state_dict[k]=v
+        new_state_dict['model_state_dict'] = {'module.' + k: v for k, v in checkpoint['model_state_dict'].items()}
+        del checkpoint
+        checkpoint = {}
+        checkpoint['model_state_dict'] = new_state_dict['model_state_dict']
+    elif isinstance(model, nn.Module):
+        logging.info(f"Provided model is not a DataParallel model. No need to adapt checkpoint to ordinary model")
     else:
-        if train_state_dict_path is not None:
-            checkpoint = load_checkpoint(train_state_dict_path)
-        else:
-            checkpoint = None
-        # list of GPU devices that are available and unused. If no GPUs, returns empty list
-        gpu_devices_dict = get_device_ids(num_devices)
-        num_devices = len(gpu_devices_dict.keys())
-        if num_devices == 1:
-            logging.info(f"\nUsing Cuda device 'cuda:{list(gpu_devices_dict.keys())[0]}'")
-        elif num_devices > 1:
-            logging.info(f"\nUsing data parallel on devices: {list(gpu_devices_dict.keys())[1:]}. "
-                         f"Main device: 'cuda:{list(gpu_devices_dict.keys())[0]}'")
-            try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
-                # DataParallel adds prefix 'module.' to state_dict keys
-                model = nn.DataParallel(model, device_ids=list(gpu_devices_dict.keys()))
-            except AssertionError:
-                logging.warning(f"\nUnable to use devices with ids {gpu_devices_dict.keys()}"
-                                f"Trying devices with ids {list(range(len(gpu_devices_dict.keys())))}")
-                model = nn.DataParallel(model, device_ids=list(range(len(gpu_devices_dict.keys()))))
-        else:
-            logging.warning(f"No Cuda device available. This process will only run on CPU\n")
-        logging.info(f'\nSetting model, criterion, optimizer and learning rate scheduler...')
+        return ValueError(f"Cannot adapt checkpoint to model of class '{type(model)}'."
+                          f"\nThis adapter only supports 'nn.Module' and 'nn.DataParallel' models")
+    return checkpoint
 
-        device = set_device(gpu_devices_dict=gpu_devices_dict)
-        model.to(device)
 
-        model, criterion, optimizer, lr_scheduler = set_hyperparameters(params=net_params,
-                                                                        model=model,
-                                                                        checkpoint=checkpoint,
-                                                                        loss_fn=loss_fn,
-                                                                        optimizer=optimizer,
-                                                                        class_weights=class_weights,
-                                                                        inference=inference_state_dict)
-        criterion = criterion.to(device)
+def to_dp_model(model, devices: List):
+    """
+    Converts a model to a DataParallel model given a list of device ids as integers
+    @param model: nn.Module (pytorch model)
+    @param devices: list of devices ids as integers
+    @return:
+    """
+    if not devices or len(devices) == 1:
+        return model
+    logging.info(f"\nUsing data parallel on devices: {devices}. "
+                 f"Main device: 'cuda:{devices[0]}'")
+    try:  # For HPC when device 0 not available. Error: Invalid device id (in torch/cuda/__init__.py).
+        model = nn.DataParallel(model, device_ids=devices)
+    except AssertionError:
+        logging.warning(f"\nUnable to use devices with ids {devices}"
+                        f"Trying devices with ids {list(range(len(devices)))}")
+        model = nn.DataParallel(model, device_ids=list(range(len(devices))))
+    return model
 
-        return model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict
+
+def define_model(
+        model_name,
+        num_bands,
+        num_classes,
+        dropout_prob,
+        conc_point: str = None,
+        main_device: str = 'cpu',
+        devices: List = [],
+        state_dict_path: str = None,
+        state_dict_strict_load: bool = True,
+):
+    """
+    Defines model's architecture with weights from provided checkpoint and pushes to device(s)
+    @return:
+    """
+    model = define_model_architecture(
+        model_name=model_name,
+        num_bands=num_bands,
+        num_channels=num_classes,
+        dropout_prob=dropout_prob,
+        conc_point=conc_point
+    )
+    model = to_dp_model(model=model, devices=devices[1:]) if len(devices) > 1 else model
+    model.to(main_device)
+    if state_dict_path:
+        checkpoint = read_checkpoint(state_dict_path)
+        model.load_state_dict(state_dict=checkpoint['model_state_dict'], strict=state_dict_strict_load)
+    return model

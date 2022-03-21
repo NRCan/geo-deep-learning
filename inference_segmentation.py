@@ -20,9 +20,9 @@ from pathlib import Path
 from omegaconf.listconfig import ListConfig
 
 from utils.logger import get_logger, set_tracker
-from models.model_choice import net
+from models.model_choice import define_model
 from utils import augmentation
-from utils.utils import load_from_checkpoint, get_device_ids, get_key_def, \
+from utils.utils import get_device_ids, get_key_def, \
     list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, set_device
 from utils.verifications import validate_input_imagery
 
@@ -318,6 +318,9 @@ def main(params: dict) -> None:
 
     # OPTIONAL PARAMETERS
     num_devices = get_key_def('gpu', params['inference'], default=0, expected_type=(int, bool))
+    if num_devices > 1:
+        logging.warning(f"Inference is not yet implemented for multi-gpu use. Will request only 1 GPU.")
+        num_devices = 1
     max_used_ram = get_key_def('max_used_ram', params['inference'], default=25, expected_type=int)
     if not (0 <= max_used_ram <= 100):
         raise ValueError(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}.')
@@ -336,20 +339,23 @@ def main(params: dict) -> None:
                                                 max_pix_per_mb_gpu=max_pix_per_mb_gpu, default=512)
     chunk_size = get_key_def('chunk_size', params['inference'], default=auto_chunk_size, expected_type=int)
     device = set_device(gpu_devices_dict=gpu_devices_dict)
+    # Read the concatenation point if requested model is deeplabv3 dualhead
+    conc_point = get_key_def('conc_point', params['model'], None)
 
     # AWS
     bucket = None
     bucket_name = get_key_def('bucket_name', params['AWS'], default=None)
 
     # CONFIGURE MODEL
-    model, loaded_checkpoint, model_name = net(model_name=model_name,
-                                               num_bands=num_bands,
-                                               num_channels=num_classes,
-                                               num_devices=1,
-                                               net_params=params,
-                                               inference_state_dict=state_dict)
-    model, _ = load_from_checkpoint(loaded_checkpoint, model, bucket=bucket, strict_loading=True)
-    model.to(device)
+    model = define_model(
+        model_name=model_name,
+        num_bands=num_bands,
+        num_classes=num_classes,
+        conc_point=conc_point,
+        main_device=device,
+        devices=[list(gpu_devices_dict.keys())],
+        state_dict_path=state_dict,
+    )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
     list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])

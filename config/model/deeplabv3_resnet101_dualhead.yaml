@@ -1,5 +1,6 @@
 # @package _global_
 model:
   model_name: deeplabv3_resnet101_dualhead
+  conc_point: conv1
   pretrained: True
   
