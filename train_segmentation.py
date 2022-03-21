@@ -511,9 +511,9 @@ def train(cfg: DictConfig) -> None:
     # Read the concatenation point if requested model is deeplabv3 dualhead  
     conc_point = get_key_def('conc_point', cfg['model'], None)
     lr = get_key_def('lr', cfg['training'], default=0.0001, expected_type=float)
-    weight_decay = get_key_def('weight_decay', cfg['optimizer']['cfg'], default=0, expected_type=float)
-    step_size = get_key_def('step_size', cfg['scheduler']['cfg'], default=4, expected_type=int)
-    gamma = get_key_def('gamma', cfg['scheduler']['cfg'], default=0.9, expected_type=float)
+    weight_decay = get_key_def('weight_decay', cfg['optimizer']['params'], default=0, expected_type=float)
+    step_size = get_key_def('step_size', cfg['scheduler']['params'], default=4, expected_type=int)
+    gamma = get_key_def('gamma', cfg['scheduler']['params'], default=0.9, expected_type=float)
 
     # GPU PARAMETERS
     num_devices = get_key_def('num_gpus', cfg['training'], default=0)
