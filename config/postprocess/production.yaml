@@ -49,39 +49,61 @@ postprocess:
       "
 
   gen_cont:
-    qgis_models_dir: /home/remi/.local/share/QGIS/QGIS3/profiles/default/processing/models  # TODO softcode use of models?
+    qgis_models_dir: postprocess  # TODO softcode use of models?
     cont_type: docker  # "docker" or "singularity"
     cont_image: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
     # cont_image: ../singularity/qgis_pp.sif  # for singularity
-  # TODO: add other classes' commands!
+  # FIXME: add other classes' commands!
     command:
+      # FIXME: get specific layer for input?
       WAER:
         /bin/bash -c "
         qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/WAER.model3 --
-        param1=foo
+        inlayer=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
+        inminarea=
+        inredbendtol=
+        inrmvholesunder=
+        insimpdiamtol=
+        outgpkgpath=/home/${postprocess.input_name}${postprocess.output_suffixes.generalization}.gpkg
+        outlayername=WAER
         "
       FORE:
         /bin/bash -c "
         qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/FORE.model3 --
-        param1=foo
+        inlayer=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
+        inminarea=
+        inredbendtol=
+        inrmvholesunder=
+        insimpdiamtol=
+        outgpkgpath=/home/${postprocess.input_name}${postprocess.output_suffixes.generalization}.gpkg
+        outlayername=FORE
         "
       ROAI:
         /bin/bash -c "
         qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/ROAI.model3 --
-        param1=foo
+        inlayer=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
+        inminarea=
+        inredbendtol=
+        inrmvholesunder=
+        insimpdiamtol=
+        outgpkgpath=/home/${postprocess.input_name}${postprocess.output_suffixes.generalization}.gpkg
+        outlayernameline=ROAI_1
+        outlayernamepoly=ROAI_2
         "
       BUIL:
         /bin/bash -c "
         qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/BUIL.model3 -- 
-        building=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
-        Geopackagename=/home/${postprocess.input_name}${postprocess.output_suffixes.generalization}.gpkg
-        NomdelacoucheBatimentdanslegpkg=BUIL_2 Simplify=0.5 Deletehole=40
+        inlayer=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
+        inrmvholesunder=
+        insimpdiamtol=
+        outgpkgpath=/home/${postprocess.input_name}${postprocess.output_suffixes.generalization}.gpkg
+        outlayername=BUIL
         "
