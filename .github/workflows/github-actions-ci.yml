@@ -23,8 +23,7 @@ jobs:
         run: |
           source /usr/share/miniconda/etc/profile.d/conda.sh
           conda activate geo_deep_env
-          # hyperparameter optimization with optuna
-          python GDL.py mode=train general.max_epochs=1 --multirun
           coverage run -m pytest --log-cli-level=INFO --capture=tee-sys
           coverage report -m --sort=Cover
-          
+          # hyperparameter optimization with optuna
+          python GDL.py mode=train general.max_epochs=1 --multirun
