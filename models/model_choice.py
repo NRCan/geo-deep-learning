@@ -234,24 +234,3 @@ def net(model_name: str,
         criterion = criterion.to(device)
 
         return model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict
-
-
-if __name__ == '__main__':
-    # TODO convert to unit test
-    rand_img = torch.rand((2, 4, 64, 64))
-    for layer in ['conv1', 'maxpool', 'layer2', 'layer3', 'layer4']:
-        logging.info(layer)
-        model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict = net(
-            model_name='deeplabv3_resnet101_dualhead',
-            num_bands=4,
-            num_channels=4,
-            num_devices=0,
-            net_params={'training': None, 'optimizer': {'params': None},
-                        'scheduler': {'params': None}},
-            inference_state_dict=None,
-            conc_point=layer,
-            loss_fn={'_target_': 'torch.nn.CrossEntropyLoss'},
-            optimizer='sgd',
-        )
-        output = model(rand_img)
-        logging.info(output.shape)
