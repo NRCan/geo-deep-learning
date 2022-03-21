@@ -197,7 +197,7 @@ def define_model(
         model_name,
         num_bands,
         num_classes,
-        dropout_prob,
+        dropout_prob: float = 0.5,
         conc_point: str = None,
         main_device: str = 'cpu',
         devices: List = [],

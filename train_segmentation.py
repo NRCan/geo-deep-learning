@@ -5,6 +5,7 @@ import torch
 import numpy as np
 from PIL import Image
 from hydra.utils import to_absolute_path
+from torch import optim
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
@@ -15,7 +16,7 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
-from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path, get_logger, set_tracker
+from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, get_logger, set_tracker
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_to_dp_model
 from utils.loss import verify_weights, define_loss
@@ -604,7 +605,7 @@ def train(cfg: DictConfig) -> None:
     criterion = define_loss(loss_params=cfg.loss, class_weights=class_weights)
     criterion = criterion.to(device) 
     optimizer = create_optimizer(model.parameters(), mode=optimizer, base_lr=lr, weight_decay=weight_decay)
-    lr_scheduler = optimizer.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
     logging.info(f'Instantiated {model_name} model with {num_classes} output channels.\n')
 

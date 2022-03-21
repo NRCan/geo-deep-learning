@@ -601,14 +601,13 @@ def print_config(
             'scheduler',
             'augmentation',
             "general.sample_data_dir",
-            "general.state_dict_path",
             "general.save_weights_dir",
         )
     elif config.get('mode') == 'inference':
         fields += (
+            "inference",
             "model",
             "general.sample_data_dir",
-            "general.state_dict_path",
         )
 
     if getpath(config, 'AWS.bucket_name'):
