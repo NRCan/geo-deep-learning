@@ -3,7 +3,6 @@ import time
 import h5py
 import torch
 import numpy as np
-from PIL import Image
 from hydra.utils import to_absolute_path
 from torch import optim
 from tqdm import tqdm
@@ -43,11 +42,6 @@ def flatten_outputs(predictions, number_of_classes):
     logits_permuted_cont = logits_permuted.contiguous()
     outputs_flatten = logits_permuted_cont.view(-1, number_of_classes)
     return outputs_flatten
-
-
-def loader(path):
-    img = Image.open(path)
-    return img
 
 
 def create_dataloader(samples_folder: Path,
@@ -752,7 +746,7 @@ def train(cfg: DictConfig) -> None:
     if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = read_checkpoint(filename)
         checkpoint = adapt_checkpoint_to_dp_model(checkpoint, model)
-        model.load_state_dict(state_dict=checkpoint)
+        model.load_state_dict(state_dict=checkpoint['model_state_dict'])
 
     if tst_dataloader:
         tst_report = evaluation(eval_loader=tst_dataloader,
