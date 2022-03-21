@@ -428,7 +428,8 @@ def evaluation(eval_loader,
                     gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'
                 ))
 
-    logging.info(f"\n{dataset} Loss: {eval_metrics['loss'].avg:.4f}")
+    if eval_metrics['loss'].avg:
+        logging.info(f"\n{dataset} Loss: {eval_metrics['loss'].avg:.4f}")
     if batch_metrics is not None:
         logging.info(f"\n{dataset} precision: {eval_metrics['precision'].avg}"
                      f"\n{dataset} recall: {eval_metrics['recall'].avg}"
@@ -489,7 +490,7 @@ def train(cfg: DictConfig) -> None:
     bucket_name = get_key_def('bucket_name', cfg['AWS'])
     scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
     batch_metrics = get_key_def('batch_metrics', cfg['training'], default=None)
-    crop_size = get_key_def('target_size', cfg['training'], default=None)
+    crop_size = get_key_def('crop_size', cfg['augmentation'], default=None)
 
     # MODEL PARAMETERS
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
@@ -739,10 +740,6 @@ def train(cfg: DictConfig) -> None:
 
         cur_elapsed = time.time() - since
         # logging.info(f'\nCurrent elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
-
-    # copy the checkpoint in 'save_weights_dir'
-    Path(cfg['general']['save_weights_dir']).mkdir(parents=True, exist_ok=True)
-    copy(filename, cfg['general']['save_weights_dir'])
 
     # load checkpoint model and evaluate it on test dataset.
     if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
