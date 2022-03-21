@@ -485,7 +485,7 @@ def train(cfg: DictConfig) -> None:
     bucket_name = get_key_def('bucket_name', cfg['AWS'])
     scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
     batch_metrics = get_key_def('batch_metrics', cfg['training'], default=None)
-    crop_size = get_key_def('target_size', cfg['training'], default=None)
+    crop_size = get_key_def('crop_size', cfg['augmentation'], default=None)
 
     # MODEL PARAMETERS
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
