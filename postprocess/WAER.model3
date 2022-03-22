@@ -17,9 +17,9 @@
         <Option name="parameters_collapsed" value="true" type="bool"/>
       </Option>
       <Option name="component_description" value="Reduce bend" type="QString"/>
-      <Option name="component_height" value="45.20811048177461" type="double"/>
-      <Option name="component_pos_x" value="1086.7227742525367" type="double"/>
-      <Option name="component_pos_y" value="775.0100857327074" type="double"/>
+      <Option name="component_height" value="44.88918505836318" type="double"/>
+      <Option name="component_pos_x" value="1586.7227742525367" type="double"/>
+      <Option name="component_pos_y" value="1045.8601519441495" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="geo_sim_processing:reducebend_1" type="QString"/>
@@ -77,8 +77,8 @@
       </Option>
       <Option name="component_description" value="Simplify" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="417" type="double"/>
-      <Option name="component_pos_y" value="552" type="double"/>
+      <Option name="component_pos_x" value="917" type="double"/>
+      <Option name="component_pos_y" value="824.529133674328" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="geo_sim_processing:simplify_1" type="QString"/>
@@ -118,8 +118,8 @@
       </Option>
       <Option name="component_description" value="Delete holes" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="887.6007069652075" type="double"/>
-      <Option name="component_pos_y" value="694.9026192019664" type="double"/>
+      <Option name="component_pos_x" value="1387.6007069652073" type="double"/>
+      <Option name="component_pos_y" value="966.4236311510132" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="native:deleteholes_1" type="QString"/>
@@ -159,8 +159,8 @@
       </Option>
       <Option name="component_description" value="Fix geometries" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="245" type="double"/>
-      <Option name="component_pos_y" value="245" type="double"/>
+      <Option name="component_pos_x" value="745" type="double"/>
+      <Option name="component_pos_y" value="519.6948978246966" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="native:fixgeometries_1" type="QString"/>
@@ -194,8 +194,8 @@
       </Option>
       <Option name="component_description" value="Fix geometries" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="626.8209331747671" type="double"/>
-      <Option name="component_pos_y" value="633.9277464760683" type="double"/>
+      <Option name="component_pos_x" value="1126.820933174767" type="double"/>
+      <Option name="component_pos_y" value="905.87891214962" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="native:fixgeometries_2" type="QString"/>
@@ -229,8 +229,8 @@
       </Option>
       <Option name="component_description" value="Force right-hand-rule" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="312.3054755043229" type="double"/>
-      <Option name="component_pos_y" value="454.664265129683" type="double"/>
+      <Option name="component_pos_x" value="812.3054755043229" type="double"/>
+      <Option name="component_pos_y" value="727.8800640976002" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="native:forcerhr_1" type="QString"/>
@@ -264,8 +264,8 @@
       </Option>
       <Option name="component_description" value="Multipart to singleparts1" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="120" type="double"/>
-      <Option name="component_pos_y" value="160" type="double"/>
+      <Option name="component_pos_x" value="620" type="double"/>
+      <Option name="component_pos_y" value="435.2945393647008" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="native:multiparttosingleparts_1" type="QString"/>
@@ -275,8 +275,9 @@
       <Option name="params" type="Map">
         <Option name="INPUT" type="List">
           <Option type="Map">
-            <Option name="parameter_name" value="inlayer" type="QString"/>
-            <Option name="source" value="0" type="int"/>
+            <Option name="child_id" value="qgis:selectbyattribute_2" type="QString"/>
+            <Option name="output_name" value="OUTPUT" type="QString"/>
+            <Option name="source" value="1" type="int"/>
           </Option>
         </Option>
       </Option>
@@ -298,8 +299,8 @@
       </Option>
       <Option name="component_description" value="Multipart to singleparts" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="393" type="double"/>
-      <Option name="component_pos_y" value="340" type="double"/>
+      <Option name="component_pos_x" value="893" type="double"/>
+      <Option name="component_pos_y" value="614.0247102211623" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="native:multiparttosingleparts_2" type="QString"/>
@@ -333,8 +334,8 @@
       </Option>
       <Option name="component_description" value="Package layers" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="1851.1022890728573" type="double"/>
-      <Option name="component_pos_y" value="1073.8773470047054" type="double"/>
+      <Option name="component_pos_x" value="2351.1022890728573" type="double"/>
+      <Option name="component_pos_y" value="1342.7248414313717" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="native:package_1" type="QString"/>
@@ -397,9 +398,9 @@
         <Option name="parameters_collapsed" value="true" type="bool"/>
       </Option>
       <Option name="component_description" value="Rename layer" type="QString"/>
-      <Option name="component_height" value="39.87911202650959" type="double"/>
-      <Option name="component_pos_x" value="1611.1022890728573" type="double"/>
-      <Option name="component_pos_y" value="983.9377909914507" type="double"/>
+      <Option name="component_height" value="39.597780589455624" type="double"/>
+      <Option name="component_pos_x" value="2111.1022890728573" type="double"/>
+      <Option name="component_pos_y" value="1253.3139544860583" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="native:renamelayer_1" type="QString"/>
@@ -439,8 +440,8 @@
       </Option>
       <Option name="component_description" value="Add geometry attributes" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="1231.5025758039155" type="double"/>
-      <Option name="component_pos_y" value="840.3627415765397" type="double"/>
+      <Option name="component_pos_x" value="1731.5025758039155" type="double"/>
+      <Option name="component_pos_y" value="1110.857589622176" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="qgis:exportaddgeometrycolumns_1" type="QString"/>
@@ -480,8 +481,8 @@
       </Option>
       <Option name="component_description" value="Select by attribute" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="1465.1895115811417" type="double"/>
-      <Option name="component_pos_y" value="912.6156794798527" type="double"/>
+      <Option name="component_pos_x" value="1965.1895115811417" type="double"/>
+      <Option name="component_pos_y" value="1182.6008114907336" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="dependencies"/>
       <Option name="id" value="qgis:selectbyattribute_1" type="QString"/>
@@ -522,18 +523,78 @@
         </Option>
       </Option>
     </Option>
+    <Option name="qgis:selectbyattribute_2" type="Map">
+      <Option name="active" value="true" type="bool"/>
+      <Option name="alg_config"/>
+      <Option name="alg_id" value="qgis:selectbyattribute" type="QString"/>
+      <Option name="color" value="" type="QString"/>
+      <Option name="comment" type="Map">
+        <Option name="color" value="" type="QString"/>
+        <Option name="component_description" value="" type="QString"/>
+        <Option name="component_height" value="60" type="double"/>
+        <Option name="component_pos_x" value="2387.7370866938327" type="double"/>
+        <Option name="component_pos_y" value="1165.2383262682029" type="double"/>
+        <Option name="component_width" value="100" type="double"/>
+        <Option name="outputs_collapsed" value="true" type="bool"/>
+        <Option name="parameters_collapsed" value="true" type="bool"/>
+      </Option>
+      <Option name="component_description" value="Select by attribute" type="QString"/>
+      <Option name="component_height" value="30" type="double"/>
+      <Option name="component_pos_x" value="541.7370866938327" type="double"/>
+      <Option name="component_pos_y" value="334.23832626820285" type="double"/>
+      <Option name="component_width" value="200" type="double"/>
+      <Option name="dependencies"/>
+      <Option name="id" value="qgis:selectbyattribute_2" type="QString"/>
+      <Option name="outputs"/>
+      <Option name="outputs_collapsed" value="true" type="bool"/>
+      <Option name="parameters_collapsed" value="true" type="bool"/>
+      <Option name="params" type="Map">
+        <Option name="FIELD" type="List">
+          <Option type="Map">
+            <Option name="parameter_name" value="inselectattrname" type="QString"/>
+            <Option name="source" value="0" type="int"/>
+          </Option>
+        </Option>
+        <Option name="INPUT" type="List">
+          <Option type="Map">
+            <Option name="parameter_name" value="inlayer" type="QString"/>
+            <Option name="source" value="0" type="int"/>
+          </Option>
+        </Option>
+        <Option name="METHOD" type="List">
+          <Option type="Map">
+            <Option name="source" value="2" type="int"/>
+            <Option name="static_value" value="0" type="int"/>
+          </Option>
+        </Option>
+        <Option name="OPERATOR" type="List">
+          <Option type="Map">
+            <Option name="source" value="2" type="int"/>
+            <Option name="static_value" value="0" type="int"/>
+          </Option>
+        </Option>
+        <Option name="VALUE" type="List">
+          <Option type="Map">
+            <Option name="parameter_name" value="inselectattrint" type="QString"/>
+            <Option name="source" value="0" type="int"/>
+          </Option>
+        </Option>
+      </Option>
+    </Option>
   </Option>
   <Option name="designerParameterValues" type="Map">
-    <Option name="Geopackagename" value="D:\pro\data\production\ortho_resultats_4classes\lv1\NFL\3166_lv1.gpkg" type="QString"/>
-    <Option name="symplify03pourNBetQC201805pourQC2015etNFL" value="0.5" type="double"/>
-    <Option name="vegetation" value="vector_002_106d820a_6816_4ad7_842e_68970a697c96" type="QString"/>
+    <Option name="inlayer" value="SpaceNet_AOI_2_Las_Vegas_056155973080_01_P001_WV03_pred_utm_8e000a83_6abd_4504_9b52_4762ac8b17e3" type="QString"/>
+    <Option name="outgpkgpath" value="/media/data/GDL_all_images/temp/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_WAER.gpkg" type="QString"/>
   </Option>
   <Option name="groupBoxes"/>
-  <Option name="help"/>
+  <Option name="help" type="Map">
+    <Option name="ALG_DESC" value="" type="QString"/>
+    <Option name="EXAMPLES" value="With qgis_process:&#xa;blablabla&#xa;" type="QString"/>
+  </Option>
   <Option name="internal_version" value="Version1" type="QString"/>
   <Option name="modelVariables"/>
   <Option name="model_group" value="" type="QString"/>
-  <Option name="model_name" value="cleanup_hydro" type="QString"/>
+  <Option name="model_name" value="WAER" type="QString"/>
   <Option name="parameterDefinitions" type="Map">
     <Option name="inlayer" type="Map">
       <Option name="data_types" type="List">
@@ -587,6 +648,30 @@
       <Option name="name" value="inrmvholesunder" type="QString"/>
       <Option name="parameter_type" value="number" type="QString"/>
     </Option>
+    <Option name="inselectattrint" type="Map">
+      <Option name="data_type" value="0" type="int"/>
+      <Option name="default" value="1" type="double"/>
+      <Option name="defaultGui" type="invalid"/>
+      <Option name="description" value="in_select_attr_int" type="QString"/>
+      <Option name="flags" value="0" type="int"/>
+      <Option name="help" value="" type="QString"/>
+      <Option name="max" value="255" type="double"/>
+      <Option name="metadata"/>
+      <Option name="min" value="0" type="double"/>
+      <Option name="name" value="inselectattrint" type="QString"/>
+      <Option name="parameter_type" value="number" type="QString"/>
+    </Option>
+    <Option name="inselectattrname" type="Map">
+      <Option name="default" value="value" type="QString"/>
+      <Option name="defaultGui" type="invalid"/>
+      <Option name="description" value="in_select_attr_name" type="QString"/>
+      <Option name="flags" value="0" type="int"/>
+      <Option name="help" value="" type="QString"/>
+      <Option name="metadata"/>
+      <Option name="multiline" value="false" type="bool"/>
+      <Option name="name" value="inselectattrname" type="QString"/>
+      <Option name="parameter_type" value="string" type="QString"/>
+    </Option>
     <Option name="insimpdiamtol" type="Map">
       <Option name="data_type" value="1" type="int"/>
       <Option name="default" value="0.3" type="double"/>
@@ -601,7 +686,7 @@
       <Option name="parameter_type" value="number" type="QString"/>
     </Option>
     <Option name="outgpkgpath" type="Map">
-      <Option name="default" value="D:\pro\data\production\ortho_resultats_4classes\lv1\QC\mos_2015_21l11_se_lv1.gpkg" type="QString"/>
+      <Option name="default" value="" type="QString"/>
       <Option name="defaultGui" type="invalid"/>
       <Option name="description" value="out_gpkg_path" type="QString"/>
       <Option name="flags" value="0" type="int"/>
@@ -646,8 +731,8 @@
       </Option>
       <Option name="component_description" value="inlayer" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="120" type="double"/>
-      <Option name="component_pos_y" value="60" type="double"/>
+      <Option name="component_pos_x" value="302" type="double"/>
+      <Option name="component_pos_y" value="194" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="name" value="inlayer" type="QString"/>
       <Option name="outputs_collapsed" value="true" type="bool"/>
@@ -667,8 +752,8 @@
       </Option>
       <Option name="component_description" value="inminarea" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="1185.776331295615" type="double"/>
-      <Option name="component_pos_y" value="1062.0499680297119" type="double"/>
+      <Option name="component_pos_x" value="1685.776331295615" type="double"/>
+      <Option name="component_pos_y" value="1330.9808999592342" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="name" value="inminarea" type="QString"/>
       <Option name="outputs_collapsed" value="true" type="bool"/>
@@ -688,8 +773,8 @@
       </Option>
       <Option name="component_description" value="inredbendtol" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="919.116795878827" type="double"/>
-      <Option name="component_pos_y" value="960.2909747235636" type="double"/>
+      <Option name="component_pos_x" value="1419.116795878827" type="double"/>
+      <Option name="component_pos_y" value="1229.9397762937374" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="name" value="inredbendtol" type="QString"/>
       <Option name="outputs_collapsed" value="true" type="bool"/>
@@ -709,10 +794,52 @@
       </Option>
       <Option name="component_description" value="inrmvholesunder" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="682.5261298987092" type="double"/>
-      <Option name="component_pos_y" value="842.2236437931515" type="double"/>
+      <Option name="component_pos_x" value="1182.5261298987093" type="double"/>
+      <Option name="component_pos_y" value="1112.7053639061878" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="name" value="inrmvholesunder" type="QString"/>
+      <Option name="outputs_collapsed" value="true" type="bool"/>
+      <Option name="parameters_collapsed" value="true" type="bool"/>
+    </Option>
+    <Option name="inselectattrint" type="Map">
+      <Option name="color" value="" type="QString"/>
+      <Option name="comment" type="Map">
+        <Option name="color" value="" type="QString"/>
+        <Option name="component_description" value="" type="QString"/>
+        <Option name="component_height" value="60" type="double"/>
+        <Option name="component_pos_x" value="2634" type="double"/>
+        <Option name="component_pos_y" value="-12" type="double"/>
+        <Option name="component_width" value="100" type="double"/>
+        <Option name="outputs_collapsed" value="true" type="bool"/>
+        <Option name="parameters_collapsed" value="true" type="bool"/>
+      </Option>
+      <Option name="component_description" value="inselectattrint" type="QString"/>
+      <Option name="component_height" value="30" type="double"/>
+      <Option name="component_pos_x" value="306" type="double"/>
+      <Option name="component_pos_y" value="359" type="double"/>
+      <Option name="component_width" value="200" type="double"/>
+      <Option name="name" value="inselectattrint" type="QString"/>
+      <Option name="outputs_collapsed" value="true" type="bool"/>
+      <Option name="parameters_collapsed" value="true" type="bool"/>
+    </Option>
+    <Option name="inselectattrname" type="Map">
+      <Option name="color" value="" type="QString"/>
+      <Option name="comment" type="Map">
+        <Option name="color" value="" type="QString"/>
+        <Option name="component_description" value="" type="QString"/>
+        <Option name="component_height" value="60" type="double"/>
+        <Option name="component_pos_x" value="2634" type="double"/>
+        <Option name="component_pos_y" value="-12" type="double"/>
+        <Option name="component_width" value="100" type="double"/>
+        <Option name="outputs_collapsed" value="true" type="bool"/>
+        <Option name="parameters_collapsed" value="true" type="bool"/>
+      </Option>
+      <Option name="component_description" value="inselectattrname" type="QString"/>
+      <Option name="component_height" value="30" type="double"/>
+      <Option name="component_pos_x" value="308" type="double"/>
+      <Option name="component_pos_y" value="327" type="double"/>
+      <Option name="component_width" value="200" type="double"/>
+      <Option name="name" value="inselectattrname" type="QString"/>
       <Option name="outputs_collapsed" value="true" type="bool"/>
       <Option name="parameters_collapsed" value="true" type="bool"/>
     </Option>
@@ -730,8 +857,8 @@
       </Option>
       <Option name="component_description" value="insimpdiamtol" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="178.34965928626596" type="double"/>
-      <Option name="component_pos_y" value="635.9755292378476" type="double"/>
+      <Option name="component_pos_x" value="678.3496592862659" type="double"/>
+      <Option name="component_pos_y" value="907.9122486101185" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="name" value="insimpdiamtol" type="QString"/>
       <Option name="outputs_collapsed" value="true" type="bool"/>
@@ -751,8 +878,8 @@
       </Option>
       <Option name="component_description" value="outgpkgpath" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="1776.8850700995285" type="double"/>
-      <Option name="component_pos_y" value="1164.0108291949314" type="double"/>
+      <Option name="component_pos_x" value="2276.8850700995285" type="double"/>
+      <Option name="component_pos_y" value="1432.2224673855212" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="name" value="outgpkgpath" type="QString"/>
       <Option name="outputs_collapsed" value="true" type="bool"/>
@@ -772,8 +899,8 @@
       </Option>
       <Option name="component_description" value="outlayername" type="QString"/>
       <Option name="component_height" value="30" type="double"/>
-      <Option name="component_pos_x" value="1455.5483292359681" type="double"/>
-      <Option name="component_pos_y" value="1141.405745006516" type="double"/>
+      <Option name="component_pos_x" value="1955.5483292359681" type="double"/>
+      <Option name="component_pos_y" value="1409.7768531676313" type="double"/>
       <Option name="component_width" value="200" type="double"/>
       <Option name="name" value="outlayername" type="QString"/>
       <Option name="outputs_collapsed" value="true" type="bool"/>

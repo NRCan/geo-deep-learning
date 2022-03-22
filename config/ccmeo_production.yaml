@@ -1,5 +1,5 @@
 defaults:
-  - model: manet_pretrained
+  - model: unet_pretrained
   - inference: production
   - postprocess: production
   - callbacks: default_callbacks

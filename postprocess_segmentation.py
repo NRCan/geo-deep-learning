@@ -307,13 +307,15 @@ def main(params):
     poly_command = get_key_def('command', params['postprocess']['poly_cont'], expected_type=str)
 
     # generalization container parameters
-    qgis_models_dir = get_key_def('qgis_models_dir', params['postprocess']['gen_cont'], expected_type=str, validate_path_exists=True)
+    qgis_models_dir = get_key_def('qgis_models_dir', params['postprocess']['gen_cont'], expected_type=str,
+                                  to_path=True, validate_path_exists=True)
     gen_cont_type = get_key_def('cont_type', params['postprocess']['gen_cont'], expected_type=str)
     gen_cont_image = get_key_def('cont_image', params['postprocess']['gen_cont'], expected_type=str)
     gen_commands = get_key_def('command', params['postprocess']['gen_cont'], expected_type=DictConfig)
 
     # filter generalization commands based on extracted classes
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
+    classes_dict = {k: v for k, v in classes_dict.items() if v}  # Discard keys where value is None
     gen_cmds_pruned = {data_class: cmd for data_class, cmd in gen_commands.items() if data_class in classes_dict.keys()}
 
     # build inputs paths and check building value expected from model

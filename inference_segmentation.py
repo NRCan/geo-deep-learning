@@ -110,15 +110,23 @@ def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
     # load with geo-deep-learning method
     checkpoint = load_checkpoint(in_pth_path)
 
+    # covers gdl models generated at version <= 2.0.1
+    if 'model' in checkpoint.keys():
+        checkpoint['model_state_dict'] = checkpoint['model']
+        del checkpoint['model']
+    if 'optimizer' in checkpoint.keys():
+        checkpoint['optimizer_state_dict'] = checkpoint['optimizer']
+        del checkpoint['optimizer']
+
     hparams = OmegaConf.create()
-    if 'general' in checkpoint['params'].keys():  # for models saved as of v2.0.0
+    if 'general' in checkpoint['params'].keys():  # for models saved as of v2.0.0 (hydra)
         class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
         num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
         # Store hyper parameters to checkpoint as expected by pytorch lightning
         hparams["segmentation_model"] = checkpoint['params']['model']['model_name']  # TODO temporary
         hparams["in_channels"] = len(checkpoint['params']['dataset']['modalities'])
     else:  # for models saved before v2.0.0
-        num_classes = int(checkpoint['params']['global']['num_classes']) + 1
+        num_classes = int(checkpoint['params']['global']['num_classes'])  # + 1 FIXME
         # Store hyper parameters to checkpoint as expected by pytorch lightning
         hparams["segmentation_model"] = checkpoint['params']['global']['model_name']  # TODO temporary
         hparams["in_channels"] = checkpoint['params']['global']['number_of_bands']
@@ -129,15 +137,15 @@ def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
     hparams["ignore_zeros"] = True  #False if num_classes == 1 else True
 
     # adapt to what pytorch lightning expects: add "model" prefix to model keys
-    if not list(checkpoint['model'].keys())[0].startswith('model'):
+    if not list(checkpoint['model_state_dict'].keys())[0].startswith('model'):
         new_state_dict = {}
-        new_state_dict['model'] = checkpoint['model'].copy()
-        new_state_dict['model'] = {'model.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
-        checkpoint['model'] = new_state_dict['model']
+        new_state_dict['model_state_dict'] = checkpoint['model_state_dict'].copy()
+        new_state_dict['model_state_dict'] = {'model.'+k: v for k, v in checkpoint['model_state_dict'].items()}
+        checkpoint['model_state_dict'] = new_state_dict['model_state_dict']
 
     # keep all keys and copy model weights to new state_dict key
     pl_checkpoint = checkpoint.copy()
-    pl_checkpoint['state_dict'] = pl_checkpoint['model']
+    pl_checkpoint['state_dict'] = pl_checkpoint['model_state_dict']
     pl_checkpoint['hyper_parameters'] = hparams
     torch.save(pl_checkpoint, out_pth_path)
 
