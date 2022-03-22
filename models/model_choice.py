@@ -2,100 +2,25 @@ from collections import OrderedDict
 from typing import Union, List
 import logging
 
-import segmentation_models_pytorch as smp
+from hydra.utils import instantiate
 import torch
 import torch.nn as nn
 
-from models.deeplabv3_dualhead import DeepLabV3_dualhead
-from models import unet, checkpointed_unet
-
 logging.getLogger(__name__)
-
-lm_smp = {
-    'pan_pretrained': {
-        'fct': smp.PAN, 'params': {
-            'encoder_name': 'se_resnext101_32x4d',
-        }},
-    'unet_pretrained': {
-        'fct': smp.Unet, 'params': {
-            'encoder_name': 'resnext50_32x4d',
-            'encoder_depth': 5,
-        }},
-    'unet_pretrained_101': {
-        'fct': smp.Unet, 'params': {
-            'encoder_name': 'resnext101_32x8d',
-            'encoder_depth': 4,
-            'decoder_channels': [256, 128, 64, 32]
-        }},
-    'unet_plus_pretrained': {
-        'fct': smp.UnetPlusPlus, 'params': {
-            'encoder_name': 'se_resnext50_32x4d',
-            'encoder_depth': 4,
-            'decoder_channels': [256, 128, 64, 32],
-            'decoder_attention_type': 'scse'
-        }},
-    'deeplabv3+_pretrained': {
-        'fct': smp.DeepLabV3Plus, 'params': {
-            'encoder_name': 'resnext50_32x4d',
-        }},
-    'spacenet_unet_efficientnetb5_pretrained': {
-        'fct': smp.Unet, 'params': {
-            'encoder_name': "efficientnet-b5",
-        }},
-    'spacenet_unet_senet152_pretrained': {
-        'fct': smp.Unet, 'params': {
-            'encoder_name': 'senet154',
-        }},
-    'spacenet_unet_baseline_pretrained': {
-        # In the article of SpaceNet, the baseline is originaly pretrained on 'SN6 PS-RGB Imagery'.
-        'fct': smp.Unet, 'params': {
-            'encoder_name': 'vgg11',
-        }},
-}
-try:
-    lm_smp['manet_pretrained'] = {
-        # https://ieeexplore.ieee.org/abstract/document/9201310
-        'fct': smp.MAnet, 'params': {
-            'encoder_name': 'resnext50_32x4d'}}
-except AttributeError:
-    logging.exception("Couldn't load MAnet from segmentation models pytorch package. Check installed version")
 
 
 def define_model_architecture(
-    model_name: str,
-    num_bands: int,
-    num_channels: int,
-    dropout_prob: float = False,
-    conc_point: str = None,
-):
+        net_params: dict,
+        in_channels: int,
+        out_classes: int):
     """
     Define the model architecture from config parameters
+    @param net_params: (dict) parameters as expected by hydra's instantiate() function
+    @param in_channels: number of input channels, i.e. raster bands
+    @param out_classes: number of output classes
+    @return: torch model as nn.Module object
     """
-    dropout = True if dropout_prob else False
-    if model_name == 'unetsmall':
-        model = unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
-    elif model_name == 'unet':
-        model = unet.UNet(num_channels, num_bands, dropout, dropout_prob)
-    elif model_name == 'checkpointed_unet':
-        model = checkpointed_unet.UNetSmall(num_channels, num_bands, dropout, dropout_prob)
-    elif model_name == 'deeplabv3_pretrained':
-        model = smp.DeepLabV3(encoder_name='resnet101', in_channels=num_bands, classes=num_channels)
-    elif model_name == 'deeplabv3_resnet101_dualhead':
-        model = DeepLabV3_dualhead(encoder_name='resnet101', in_channels=num_bands, classes=num_channels,
-                                   conc_point=conc_point)
-    elif model_name in lm_smp.keys():
-        lsmp = lm_smp[model_name]
-        # TODO: add possibility of our own weights
-        lsmp['params']['encoder_weights'] = "imagenet" if 'pretrained' in model_name.split("_") else None
-        lsmp['params']['in_channels'] = num_bands
-        lsmp['params']['classes'] = num_channels
-        lsmp['params']['activation'] = None
-
-        model = lsmp['fct'](**lsmp['params'])
-    else:
-        raise logging.critical(ValueError(f'\nThe model name {model_name} in the config.yaml is not defined.'))
-
-    return model
+    return instantiate(net_params, in_channels=in_channels, classes=out_classes)
 
 
 def read_checkpoint(filename):
@@ -194,11 +119,9 @@ def to_dp_model(model, devices: List):
 
 
 def define_model(
-        model_name,
-        num_bands,
-        num_classes,
-        dropout_prob: float = 0.5,
-        conc_point: str = None,
+        net_params: dict,
+        in_channels: int,
+        out_classes: int,
         main_device: str = 'cpu',
         devices: List = [],
         state_dict_path: str = None,
@@ -209,11 +132,9 @@ def define_model(
     @return:
     """
     model = define_model_architecture(
-        model_name=model_name,
-        num_bands=num_bands,
-        num_channels=num_classes,
-        dropout_prob=dropout_prob,
-        conc_point=conc_point
+        net_params=net_params,
+        in_channels=in_channels,
+        out_classes=out_classes,
     )
     model = to_dp_model(model=model, devices=devices[1:]) if len(devices) > 1 else model
     model.to(main_device)

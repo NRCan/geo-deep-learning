@@ -292,7 +292,6 @@ def main(params: dict) -> None:
     :param params: (dict) Parameters inputted during execution.
     """
     # PARAMETERS
-    model_name = get_key_def('model_name', params['model'], expected_type=str).lower()
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
     modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
@@ -348,10 +347,9 @@ def main(params: dict) -> None:
 
     # CONFIGURE MODEL
     model = define_model(
-        model_name=model_name,
-        num_bands=num_bands,
-        num_classes=num_classes,
-        conc_point=conc_point,
+        net_params=params.model,
+        in_channels=num_bands,
+        out_classes=num_classes,
         main_device=device,
         devices=[list(gpu_devices_dict.keys())],
         state_dict_path=state_dict,

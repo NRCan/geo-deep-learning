@@ -11,9 +11,8 @@ from pytorch_lightning.utilities import rank_zero_only
 import rich.syntax
 import rich.tree
 from omegaconf import DictConfig, OmegaConf, ListConfig
+# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2575
 import torch
-# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
-from torch import nn
 from torchvision import models
 import numpy as np
 import scipy.signal

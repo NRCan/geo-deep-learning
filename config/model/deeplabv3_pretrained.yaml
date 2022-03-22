@@ -1,5 +1,0 @@
-# @package _global_
-model:
-  model_name: deeplabv3_pretrained
-  pretrained: True
-  
