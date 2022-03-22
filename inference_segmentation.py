@@ -12,15 +12,17 @@ import rasterio
 import ttach as tta
 from collections import OrderedDict
 from fiona.crs import to_string
+from hydra.utils import to_absolute_path
 from tqdm import tqdm
 from rasterio import features
 from rasterio.windows import Window
 from rasterio.plot import reshape_as_image
 from pathlib import Path
+from omegaconf import OmegaConf, DictConfig
 from omegaconf.listconfig import ListConfig
 
 from utils.logger import get_logger, set_tracker
-from models.model_choice import define_model
+from models.model_choice import define_model, read_checkpoint
 from utils import augmentation
 from utils.utils import get_device_ids, get_key_def, \
     list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, set_device
@@ -282,6 +284,54 @@ def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 
     return max_chunk_size_rd
 
 
+def override_model_params_from_checkpoint(
+        params: DictConfig,
+        checkpoint_params,
+        num_bands,
+        num_classes):
+    """
+    Overrides model-architecture related parameters from provided checkpoint parameters
+    @param params: Original parameters as inputted through hydra
+    @param checkpoint_params: Checkpoint parameters as saved during checkpoint creation when training
+    @param num_bands: number of bands from original parameters
+    @param num_classes: number of classes from original parameters
+    @return:
+    """
+    try:
+        classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=DictConfig)
+        num_classes_ckpt = len(classes_ckpt.keys())
+        modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=str)
+        num_bands_ckpt = len(modalities_ckpt)
+        model_ckpt = get_key_def('model', checkpoint_params, expected_type=DictConfig)
+        OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt)
+        OmegaConf.update(params, 'dataset.modalities', modalities_ckpt)
+    except KeyError:
+        # covers GDL pre-hydra (<=2.0.0)
+        num_classes_ckpt = get_key_def('num_classes', checkpoint_params['global'], expected_type=int)
+        num_bands_ckpt = get_key_def('number_of_bands', checkpoint_params['global'], expected_type=int)
+        model_name = get_key_def('model_name', checkpoint_params['global'], expected_type=str)
+        try:
+            model_ckpt = OmegaConf.load(to_absolute_path(f'config/model/{model_name}.yaml'))['model']
+        except FileNotFoundError as e:
+            logging.critical(f"\nCouldn't locate yaml configuration for model architecture {model_name} as found "
+                             f"in provided checkpoint. Name of yaml may have changed")  # FIXME?
+            raise e
+
+        num_bands = num_bands_ckpt
+        num_classes = num_classes_ckpt
+        del params.dataset.classes_dict
+        del params.dataset.modalities
+
+    if model_ckpt != params.model or num_classes_ckpt != num_classes or num_bands_ckpt != num_bands:
+        logging.warning(f"\nParameters from checkpoint will override inputted parameters."
+                        f"\n\t\t\t Inputted | Overriden"
+                        f"\nModel:\t\t {params.model} | {model_ckpt}"
+                        f"\nInput bands:\t\t{num_bands} | {num_bands_ckpt}"
+                        f"\nOutput classes:\t\t{num_classes} | {num_classes_ckpt}")
+        OmegaConf.update(params, 'model', model_ckpt)
+    return params, num_bands, num_classes
+
+
 def main(params: dict) -> None:
     """
     Function to manage details about the inference on segmentation task.
@@ -346,13 +396,21 @@ def main(params: dict) -> None:
     bucket_name = get_key_def('bucket_name', params['AWS'], default=None)
 
     # CONFIGURE MODEL
+    checkpoint = read_checkpoint(state_dict)
+    params, num_bands, num_classes = override_model_params_from_checkpoint(
+        params=params,
+        checkpoint_params=checkpoint,
+        num_bands=num_bands,
+        num_classes=num_classes
+    )
+
     model = define_model(
-        net_params=params.model,
-        in_channels=num_bands,
-        out_classes=num_classes,
-        main_device=device,
-        devices=[list(gpu_devices_dict.keys())],
-        state_dict_path=state_dict,
+            net_params=params.model,
+            in_channels=num_bands,
+            out_classes=num_classes,
+            main_device=device,
+            devices=[list(gpu_devices_dict.keys())],
+            state_dict_path=state_dict,
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
