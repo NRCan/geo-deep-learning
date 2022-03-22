@@ -1,6 +1,6 @@
 import itertools
 from math import sqrt
-from typing import List
+from typing import List, Union
 
 import torch
 import torch.nn.functional as F
@@ -12,7 +12,6 @@ import rasterio
 import ttach as tta
 from collections import OrderedDict
 from fiona.crs import to_string
-from hydra.utils import to_absolute_path
 from tqdm import tqdm
 from rasterio import features
 from rasterio.windows import Window
@@ -22,7 +21,7 @@ from omegaconf import OmegaConf, DictConfig, open_dict
 from omegaconf.listconfig import ListConfig
 
 from utils.logger import get_logger, set_tracker
-from models.model_choice import define_model, read_checkpoint, update_gdl_checkpoint
+from models.model_choice import define_model, read_checkpoint
 from utils import augmentation
 from utils.utils import get_device_ids, get_key_def, \
     list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, set_device
@@ -286,38 +285,34 @@ def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 
 
 def override_model_params_from_checkpoint(
         params: DictConfig,
-        checkpoint_params,
-        num_bands,
-        num_classes):
+        checkpoint_params):
     """
     Overrides model-architecture related parameters from provided checkpoint parameters
     @param params: Original parameters as inputted through hydra
     @param checkpoint_params: Checkpoint parameters as saved during checkpoint creation when training
-    @param num_bands: number of bands from original parameters
-    @param num_classes: number of classes from original parameters
     @return:
     """
-    checkpoint_params = update_gdl_checkpoint(checkpoint_params)
-    modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=str)
-    num_bands_ckpt = len(modalities_ckpt)
+    modalities = get_key_def('modalities', params['dataset'], expected_type=(ListConfig, List))
+    classes = get_key_def('classes_dict', params['dataset'], expected_type=(dict, DictConfig))
+
+    modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=(ListConfig, List))
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
-    num_classes_ckpt = len(classes_ckpt.keys())
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
 
-    if model_ckpt != params.model or num_classes_ckpt != num_classes or num_bands_ckpt != num_bands:
+    if model_ckpt != params.model or classes_ckpt != classes or modalities_ckpt != modalities:
         logging.warning(f"\nParameters from checkpoint will override inputted parameters."
                         f"\n\t\t\t Inputted | Overriden"
                         f"\nModel:\t\t {params.model} | {model_ckpt}"
-                        f"\nInput bands:\t\t{num_bands} | {num_bands_ckpt}"
-                        f"\nOutput classes:\t\t{num_classes} | {num_classes_ckpt}")
+                        f"\nInput bands:\t\t{modalities} | {modalities_ckpt}"
+                        f"\nOutput classes:\t\t{classes} | {classes_ckpt}")
         with open_dict(params):
             OmegaConf.update(params, 'dataset.modalities', modalities_ckpt)
             OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt)
             OmegaConf.update(params, 'model', model_ckpt)
-    return params, num_bands, num_classes
+    return params
 
 
-def main(params: dict) -> None:
+def main(params: Union[DictConfig, dict]) -> None:
     """
     Function to manage details about the inference on segmentation task.
     1. Read the parameters from the config given.
@@ -326,15 +321,20 @@ def main(params: dict) -> None:
     -------
     :param params: (dict) Parameters inputted during execution.
     """
-    # PARAMETERS
-    num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
-    num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
-    modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
-    num_bands = len(modalities)
-    BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
-
     # SETTING OUTPUT DIRECTORY
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
+
+    # Override params from checkpoint
+    checkpoint = read_checkpoint(state_dict)
+    params, modalities, classes_dict = override_model_params_from_checkpoint(
+        params=params,
+        checkpoint_params=checkpoint
+    )
+
+    num_classes = len(classes_dict)
+    num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
+    num_bands = len(modalities)
+
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     logging.info("\nThe state dict path directory used '{}'".format(working_folder))
     Path.mkdir(working_folder, parents=True, exist_ok=True)
@@ -342,6 +342,7 @@ def main(params: dict) -> None:
     # Default input directory based on default output directory
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=working_folder,
                                  expected_type=str, to_path=True, validate_path_exists=True)
+    BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
 
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
@@ -380,22 +381,13 @@ def main(params: dict) -> None:
     bucket = None
     bucket_name = get_key_def('bucket_name', params['AWS'], default=None)
 
-    # CONFIGURE MODEL
-    checkpoint = read_checkpoint(state_dict)
-    params, num_bands, num_classes = override_model_params_from_checkpoint(
-        params=params,
-        checkpoint_params=checkpoint['params'],
-        num_bands=num_bands,
-        num_classes=num_classes
-    )
-
     model = define_model(
-            net_params=params.model,
-            in_channels=num_bands,
-            out_classes=num_classes,
-            main_device=device,
-            devices=[list(gpu_devices_dict.keys())],
-            state_dict_path=state_dict,
+        net_params=params.model,
+        in_channels=num_bands,
+        out_classes=num_classes,
+        main_device=device,
+        devices=[list(gpu_devices_dict.keys())],
+        state_dict_path=state_dict,
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
