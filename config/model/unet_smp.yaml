@@ -4,4 +4,3 @@ model:
   encoder_name: resnext50_32x4d
   encoder_depth: 5
   encoder_weights: imagenet
-
