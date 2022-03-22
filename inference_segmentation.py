@@ -399,7 +399,7 @@ def main(params: dict) -> None:
     checkpoint = read_checkpoint(state_dict)
     params, num_bands, num_classes = override_model_params_from_checkpoint(
         params=params,
-        checkpoint_params=checkpoint,
+        checkpoint_params=checkpoint['params'],
         num_bands=num_bands,
         num_classes=num_classes
     )
