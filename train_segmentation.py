@@ -3,11 +3,10 @@ import time
 import h5py
 import torch
 import numpy as np
-from PIL import Image
 from hydra.utils import to_absolute_path
+from torch import optim
 from tqdm import tqdm
 from pathlib import Path
-from shutil import copy
 from datetime import datetime
 from typing import Sequence
 from collections import OrderedDict
@@ -16,10 +15,12 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
-from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, dict_path, get_logger, set_tracker
+from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, get_logger, set_tracker
 from utils.metrics import report_classification, create_metrics_dict, iou
-from models.model_choice import net, load_checkpoint, verify_weights
-from utils.utils import load_from_checkpoint, gpu_stats, get_key_def, read_modalities
+from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_to_dp_model
+from utils.loss import verify_weights, define_loss
+from utils.optimizer import create_optimizer
+from utils.utils import gpu_stats, get_key_def, read_modalities, get_device_ids, set_device
 from utils.visualization import vis_from_batch
 # Set the logging file
 logging = get_logger(__name__)  # import logging
@@ -41,11 +42,6 @@ def flatten_outputs(predictions, number_of_classes):
     logits_permuted_cont = logits_permuted.contiguous()
     outputs_flatten = logits_permuted_cont.view(-1, number_of_classes)
     return outputs_flatten
-
-
-def loader(path):
-    img = Image.open(path)
-    return img
 
 
 def create_dataloader(samples_folder: Path,
@@ -490,15 +486,15 @@ def train(cfg: DictConfig) -> None:
 
     # MODEL PARAMETERS
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
-    loss_fn = cfg.loss
-    if loss_fn.is_binary and not num_classes == 1:
+    if cfg.loss.is_binary and not num_classes == 1:
         raise ValueError(f"Parameter mismatch: a binary loss was chosen for a {num_classes}-class task")
-    elif not loss_fn.is_binary and num_classes == 1:
+    elif not cfg.loss.is_binary and num_classes == 1:
         raise ValueError(f"Parameter mismatch: a multiclass loss was chosen for a 1-class (binary) task")
-    del loss_fn.is_binary  # prevent exception at instantiation
+    del cfg.loss.is_binary  # prevent exception at instantiation
     optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam', expected_type=str)  # TODO change something to call the function
     pretrained = get_key_def('pretrained', cfg['model'], default=True, expected_type=bool)
-    train_state_dict_path = get_key_def('state_dict_path', cfg['general'], default=None, expected_type=str)
+    train_state_dict_path = get_key_def('state_dict_path', cfg['training'], default=None, expected_type=str)
+    state_dict_strict = get_key_def('state_dict_strict_load', cfg['training'], default=True, expected_type=bool)
     dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None, expected_type=float)
     # if error
     if train_state_dict_path and not Path(train_state_dict_path).is_file():
@@ -507,10 +503,12 @@ def train(cfg: DictConfig) -> None:
         )
     if class_weights:
         verify_weights(num_classes, class_weights)
-    # Read the concatenation point
-    # TODO: find a way to maybe implement it in classification one day
-    conc_point = None
-    # conc_point = get_key_def('concatenate_depth', params['global'], None)
+    # Read the concatenation point if requested model is deeplabv3 dualhead  
+    conc_point = get_key_def('conc_point', cfg['model'], None)
+    lr = get_key_def('lr', cfg['training'], default=0.0001, expected_type=float)
+    weight_decay = get_key_def('weight_decay', cfg['optimizer']['params'], default=0, expected_type=float)
+    step_size = get_key_def('step_size', cfg['scheduler']['params'], default=4, expected_type=int)
+    gamma = get_key_def('gamma', cfg['scheduler']['params'], default=0.9, expected_type=float)
 
     # GPU PARAMETERS
     num_devices = get_key_def('num_gpus', cfg['training'], default=0)
@@ -577,24 +575,31 @@ def train(cfg: DictConfig) -> None:
                         f'\nWill be overridden to 255 during visualization only. Problems may occur.')
 
     # overwrite dontcare values in label if loss doens't implement ignore_index
-    dontcare2backgr = False if 'ignore_index' in loss_fn.keys() else True
+    dontcare2backgr = False if 'ignore_index' in cfg.loss.keys() else True
 
     # Will check if batch size needs to be a lower value only if cropping samples during training
     calc_eval_bs = True if crop_size else False
+    
+    # Set device(s)
+    gpu_devices_dict = get_device_ids(num_devices)
+    device = set_device(gpu_devices_dict=gpu_devices_dict)
+
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    model, model_name, criterion, optimizer, lr_scheduler, device, gpu_devices_dict = \
-        net(model_name=model_name,
-            num_bands=num_bands,
-            num_channels=num_classes,
-            num_devices=num_devices,
-            train_state_dict_path=train_state_dict_path,
-            pretrained=pretrained,
-            dropout_prob=dropout_prob,
-            loss_fn=loss_fn,
-            class_weights=class_weights,
-            optimizer=optimizer,
-            net_params=cfg,
-            conc_point=conc_point)
+    model = define_model(
+        model_name=model_name,
+        num_bands=num_bands,
+        num_classes=num_classes,
+        dropout_prob=dropout_prob, 
+        conc_point=conc_point,
+        main_device=device,
+        devices=list(gpu_devices_dict.keys()),
+        state_dict_path=train_state_dict_path,
+        state_dict_strict_load=state_dict_strict,
+    )
+    criterion = define_loss(loss_params=cfg.loss, class_weights=class_weights)
+    criterion = criterion.to(device) 
+    optimizer = create_optimizer(model.parameters(), mode=optimizer, base_lr=lr, weight_decay=weight_decay)
+    lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
     logging.info(f'Instantiated {model_name} model with {num_classes} output channels.\n')
 
@@ -708,9 +713,9 @@ def train(cfg: DictConfig) -> None:
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
             torch.save({'epoch': epoch,
                         'params': cfg,
-                        'model': state_dict,
+                        'model_state_dict': state_dict,
                         'best_loss': best_loss,
-                        'optimizer': optimizer.state_dict()}, filename)
+                        'optimizer_state_dict': optimizer.state_dict()}, filename)
             if bucket_name:
                 bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
                 bucket.upload_file(filename, bucket_filename)
@@ -739,8 +744,9 @@ def train(cfg: DictConfig) -> None:
 
     # load checkpoint model and evaluate it on test dataset.
     if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
-        checkpoint = load_checkpoint(filename)
-        model, _ = load_from_checkpoint(checkpoint, model)
+        checkpoint = read_checkpoint(filename)
+        checkpoint = adapt_checkpoint_to_dp_model(checkpoint, model)
+        model.load_state_dict(state_dict=checkpoint['model_state_dict'])
 
     if tst_dataloader:
         tst_report = evaluation(eval_loader=tst_dataloader,

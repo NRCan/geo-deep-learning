@@ -40,6 +40,7 @@ try:
 except ModuleNotFoundError:
     logging.warning('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
 
+
 class Interpolate(torch.nn.Module):
     def __init__(self, mode, scale_factor):
         super(Interpolate, self).__init__()
@@ -50,35 +51,6 @@ class Interpolate(torch.nn.Module):
     def forward(self, x):
         x = self.interp(x, scale_factor=self.scale_factor, mode=self.mode, align_corners=False)
         return x
-
-
-def load_from_checkpoint(checkpoint, model, optimizer=None, strict_loading: bool = False, bucket: str = None):
-    """Load weights from a previous checkpoint
-    Args:
-        checkpoint: (dict) checkpoint
-        model: model to replace
-        optimizer: optimiser to be used
-        strict_loading: (bool) If True, loading will be strict (see pytorch doc)
-    """
-    if bucket:
-        checkpoint = bucket.download_file(checkpoint, "saved_model.pth.tar")  # TODO: is this still valid?
-    # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
-    # model.load_state_dict(checkpoint['model'])
-    # https://github.com/bearpaw/pytorch-classification/issues/27
-    # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
-    if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
-        new_state_dict = model.state_dict().copy()
-        new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
-        del checkpoint
-        checkpoint = {}
-        checkpoint['model'] = new_state_dict['model']
-
-    model.load_state_dict(checkpoint['model'], strict=strict_loading)
-    log.info(f"\n=> loaded model")
-    if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-        optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
-
-    return model, optimizer
 
 
 def list_s3_subfolders(bucket, data_path):
@@ -105,9 +77,10 @@ def get_device_ids(
     """
     lst_free_devices = {}
     if not number_requested:
+        logging.warning(f"No GPUs requested. This process will run on CPU")
         return lst_free_devices
     if not torch.cuda.is_available():
-        log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found')
+        log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This process will run on CPU')
         return lst_free_devices
     try:
         nvmlInit()
@@ -628,14 +601,13 @@ def print_config(
             'scheduler',
             'augmentation',
             "general.sample_data_dir",
-            "general.state_dict_path",
             "general.save_weights_dir",
         )
     elif config.get('mode') == 'inference':
         fields += (
+            "inference",
             "model",
             "general.sample_data_dir",
-            "general.state_dict_path",
         )
 
     if getpath(config, 'AWS.bucket_name'):
