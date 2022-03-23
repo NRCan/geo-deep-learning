@@ -1,0 +1,7 @@
+# @package _global_
+model:
+  _target_: segmentation_models_pytorch.Unet
+  encoder_name: resnext101_32x8d
+  encoder_depth: 4
+  decoder_channels: [ 256, 128, 64, 32 ]
+  encoder_weights: imagenet

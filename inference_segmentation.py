@@ -13,7 +13,8 @@ from typing import Dict, Any, Sequence, List, Union
 
 import numpy as np
 import rasterio
-from omegaconf import OmegaConf
+from hydra.utils import to_absolute_path
+from omegaconf import OmegaConf, DictConfig
 from pytorch_lightning import LightningModule, seed_everything
 import segmentation_models_pytorch as smp
 import ttach as tta
@@ -27,7 +28,7 @@ from ttach import SegmentationTTAWrapper
 
 import postprocess_segmentation
 from inference.InferenceDataModule import InferenceDataModule
-from models.model_choice import load_checkpoint
+from models.model_choice import read_checkpoint
 from utils.logger import get_logger
 from utils.utils import _window_2D, get_device_ids, get_key_def, set_device
 
@@ -108,7 +109,7 @@ def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
     if Path(out_pth_path).is_file():
         return out_pth_path
     # load with geo-deep-learning method
-    checkpoint = load_checkpoint(in_pth_path)
+    checkpoint = read_checkpoint(in_pth_path)
 
     # covers gdl models generated at version <= 2.0.1
     if 'model' in checkpoint.keys():
@@ -247,6 +248,54 @@ def eval_batch_generator(
         yield batch_output
 
 
+def override_model_params_from_checkpoint(
+        params: DictConfig,
+        checkpoint_params,
+        num_bands,
+        num_classes):
+    """
+    Overrides model-architecture related parameters from provided checkpoint parameters
+    @param params: Original parameters as inputted through hydra
+    @param checkpoint_params: Checkpoint parameters as saved during checkpoint creation when training
+    @param num_bands: number of bands from original parameters
+    @param num_classes: number of classes from original parameters
+    @return:
+    """
+    try:
+        classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=DictConfig)
+        num_classes_ckpt = len(classes_ckpt.keys())
+        modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=str)
+        num_bands_ckpt = len(modalities_ckpt)
+        model_ckpt = get_key_def('model', checkpoint_params, expected_type=DictConfig)
+        OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt)
+        OmegaConf.update(params, 'dataset.modalities', modalities_ckpt)
+    except KeyError:
+        # covers GDL pre-hydra (<=2.0.0)
+        num_classes_ckpt = get_key_def('num_classes', checkpoint_params['global'], expected_type=int)
+        num_bands_ckpt = get_key_def('number_of_bands', checkpoint_params['global'], expected_type=int)
+        model_name = get_key_def('model_name', checkpoint_params['global'], expected_type=str)
+        try:
+            model_ckpt = OmegaConf.load(to_absolute_path(f'config/model/{model_name}.yaml'))['model']
+        except FileNotFoundError as e:
+            logging.critical(f"\nCouldn't locate yaml configuration for model architecture {model_name} as found "
+                             f"in provided checkpoint. Name of yaml may have changed")  # FIXME?
+            raise e
+
+        num_bands = num_bands_ckpt
+        num_classes = num_classes_ckpt
+        del params.dataset.classes_dict
+        del params.dataset.modalities
+
+    if model_ckpt != params.model or num_classes_ckpt != num_classes or num_bands_ckpt != num_bands:
+        logging.warning(f"\nParameters from checkpoint will override inputted parameters."
+                        f"\n\t\t\t Inputted | Overriden"
+                        f"\nModel:\t\t {params.model} | {model_ckpt}"
+                        f"\nInput bands:\t\t{num_bands} | {num_bands_ckpt}"
+                        f"\nOutput classes:\t\t{num_classes} | {num_classes_ckpt}")
+        OmegaConf.update(params, 'model', model_ckpt)
+    return params, num_bands, num_classes
+
+
 def main(params):
     """High-level pipeline.
     Runs a model checkpoint on non-labeled imagery and saves results to file.
@@ -316,6 +365,15 @@ def main(params):
 
     model.freeze()
     model.eval()
+
+    # CONFIGURE MODEL
+    checkpoint = read_checkpoint(checkpoint)
+    params, num_bands, num_classes = override_model_params_from_checkpoint(
+        params=params,
+        checkpoint_params=checkpoint['params'],
+        num_bands=num_bands,
+        num_classes=num_classes
+    )
 
     dm = InferenceDataModule(root_dir=root,
                              item_path=item_url,

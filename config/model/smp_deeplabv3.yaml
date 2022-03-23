@@ -1,0 +1,5 @@
+# @package _global_
+model:
+  _target_: segmentation_models_pytorch.DeepLabV3
+  encoder_name: resnet101
+  encoder_weights: imagenet

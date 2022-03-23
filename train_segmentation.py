@@ -3,7 +3,7 @@ import time
 import h5py
 import torch
 import numpy as np
-from hydra.utils import to_absolute_path
+from hydra.utils import to_absolute_path, instantiate
 from torch import optim
 from tqdm import tqdm
 from pathlib import Path
@@ -19,8 +19,7 @@ from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, get_l
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_to_dp_model
 from utils.loss import verify_weights, define_loss
-from utils.optimizer import create_optimizer
-from utils.utils import gpu_stats, get_key_def, read_modalities, get_device_ids, set_device
+from utils.utils import gpu_stats, get_key_def, get_device_ids, set_device
 from utils.visualization import vis_from_batch
 # Set the logging file
 logging = get_logger(__name__)  # import logging
@@ -471,7 +470,6 @@ def train(cfg: DictConfig) -> None:
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
     num_epochs = get_key_def('max_epochs', cfg['training'], expected_type=int)
-    model_name = get_key_def('model_name', cfg['model'], expected_type=str).lower()
     # TODO need to keep in parameters? see victor stuff
     # BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
     BGR_to_RGB = False
@@ -493,7 +491,7 @@ def train(cfg: DictConfig) -> None:
         raise ValueError(f"Parameter mismatch: a multiclass loss was chosen for a 1-class (binary) task")
     del cfg.loss.is_binary  # prevent exception at instantiation
     optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam', expected_type=str)  # TODO change something to call the function
-    pretrained = get_key_def('pretrained', cfg['model'], default=True, expected_type=bool)
+    pretrained = get_key_def('pretrained', cfg['model'], default=True, expected_type=(bool, str))
     train_state_dict_path = get_key_def('state_dict_path', cfg['training'], default=None, expected_type=str)
     state_dict_strict = get_key_def('state_dict_strict_load', cfg['training'], default=True, expected_type=bool)
     dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None, expected_type=float)
@@ -504,10 +502,8 @@ def train(cfg: DictConfig) -> None:
         )
     if class_weights:
         verify_weights(num_classes, class_weights)
-    # Read the concatenation point if requested model is deeplabv3 dualhead  
+    # Read the concatenation point if requested model is deeplabv3 dualhead
     conc_point = get_key_def('conc_point', cfg['model'], None)
-    lr = get_key_def('lr', cfg['training'], default=0.0001, expected_type=float)
-    weight_decay = get_key_def('weight_decay', cfg['optimizer']['params'], default=0, expected_type=float)
     step_size = get_key_def('step_size', cfg['scheduler']['params'], default=4, expected_type=int)
     gamma = get_key_def('gamma', cfg['scheduler']['params'], default=0.9, expected_type=float)
 
@@ -580,31 +576,30 @@ def train(cfg: DictConfig) -> None:
 
     # Will check if batch size needs to be a lower value only if cropping samples during training
     calc_eval_bs = True if crop_size else False
-    
+
     # Set device(s)
     gpu_devices_dict = get_device_ids(num_devices)
     device = set_device(gpu_devices_dict=gpu_devices_dict)
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     model = define_model(
-        model_name=model_name,
-        num_bands=num_bands,
-        num_classes=num_classes,
-        dropout_prob=dropout_prob, 
-        conc_point=conc_point,
+        net_params=cfg.model,
+        in_channels=num_bands,
+        out_classes=num_classes,
         main_device=device,
         devices=list(gpu_devices_dict.keys()),
         state_dict_path=train_state_dict_path,
         state_dict_strict_load=state_dict_strict,
     )
     criterion = define_loss(loss_params=cfg.loss, class_weights=class_weights)
-    criterion = criterion.to(device) 
-    optimizer = create_optimizer(model.parameters(), mode=optimizer, base_lr=lr, weight_decay=weight_decay)
+    criterion = criterion.to(device)
+    optimizer = instantiate(cfg.optimizer, params=model.parameters())
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer=optimizer, step_size=step_size, gamma=gamma)
 
-    logging.info(f'Instantiated {model_name} model with {num_classes} output channels.\n')
+    logging.info(f'\nInstantiated {cfg.model._target_} model with {num_bands} input channels and {num_classes} output '
+                 f'classes.')
 
-    logging.info(f'Creating dataloaders from data in {samples_folder}...\n')
+    logging.info(f'\nCreating dataloaders from data in {samples_folder}...')
     trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=samples_folder,
                                                                        batch_size=batch_size,
                                                                        eval_batch_size=eval_batch_size,
@@ -785,13 +780,14 @@ def main(cfg: DictConfig) -> None:
     -------
     :param cfg: (dict) Parameters found in the yaml config file.
     """
-    # Limit of the NIR implementation TODO: Update after each version
-    if 'deeplabv3' not in cfg.model.model_name and 'nir' in cfg.dataset.modalities:
-        logging.info(
-            '\nThe NIR modality will be fed at first layer of model alongside other bands,'
-            '\nthe implementation of concatenation point at an intermediary layer is only available'
-            '\nfor the deeplabv3 model for now. \nMore will follow on demand.'
-        )
+    # Limit of the NIR implementation
+    # FIXME: keep this warning?
+    # if 'deeplabv3' not in cfg.model.model_name and 'IR' in read_modalities(cfg.dataset.modalities):
+    #     logging.info(
+    #         '\nThe NIR modality will be fed at first layer of model alongside other bands,'
+    #         '\nthe implementation of concatenation point at an intermediary layer is only available'
+    #         '\nfor the deeplabv3 model for now. \nMore will follow on demand.'
+    #     )
 
     # Preprocessing
     # HERE the code to do for the preprocessing for the segmentation
