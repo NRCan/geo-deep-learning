@@ -5,8 +5,66 @@ import logging
 from hydra.utils import instantiate
 import torch
 import torch.nn as nn
+from omegaconf import DictConfig
+
+from utils.utils import get_key_def
 
 logging.getLogger(__name__)
+
+
+def update_gdl_checkpoint(checkpoint_params):
+    bands = ['R', 'G', 'B', 'N']
+    old2new = {
+        'unet_pretrained': {
+            '_target_': 'segmentation_models_pytorch.Unet', 'encoder_name': 'resnext50_32x4d',
+            'encoder_depth': 4, 'encoder_weights': 'imagenet', 'decoder_channels': [256, 128, 64, 32]
+        },
+        'unet': {
+            '_target_': 'models.unet.UNet', 'dropout': False, 'prob': False
+        },
+        'unet_small': {
+            '_target_': 'models.unet.UNetSmall', 'dropout': False, 'prob': False
+        },
+        'deeplabv3_pretrained': {
+            '_target_': 'segmentation_models_pytorch.DeepLabV3', 'encoder_name': 'resnet101',
+            'encoder_weights': 'imagenet'
+        },
+        'deeplabv3_resnet101_dualhead': {
+            '_target_': 'models.deeplabv3_dualhead.DeepLabV3_dualhead', 'conc_point': 'conv1',
+            'encoder_weights': 'imagenet'
+        },
+        'deeplabv3+_pretrained': {
+            '_target_': 'segmentation_models_pytorch.DeepLabV3Plus', 'encoder_name': 'resnext50_32x4d',
+            'encoder_weights': 'imagenet'
+        },
+    }
+    try:
+        get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=DictConfig)
+        get_key_def('modalities', checkpoint_params['dataset'], expected_type=str)
+        get_key_def('model', checkpoint_params, expected_type=DictConfig)
+        return checkpoint_params
+    except KeyError:
+        # covers GDL pre-hydra (<=2.0.0)
+        num_classes_ckpt = get_key_def('num_classes', checkpoint_params['global'], expected_type=int)
+        num_bands_ckpt = get_key_def('number_of_bands', checkpoint_params['global'], expected_type=int)
+        model_name = get_key_def('model_name', checkpoint_params['global'], expected_type=str)
+        try:
+            model_ckpt = old2new[model_name]
+        except KeyError as e:
+            logging.critical(f"\nCouldn't locate yaml configuration for model architecture {model_name} as found "
+                             f"in provided checkpoint. Name of yaml may have changed."
+                             f"\nError {type(e)}: {e}")
+            raise e
+        bands_ckpt = ''
+        bands_ckpt = bands_ckpt.join([bands[i] for i in range(num_bands_ckpt)])
+        checkpoint_params.update({
+            'dataset': {
+                'modalities': bands_ckpt,
+                "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)}
+            }
+        })
+        checkpoint_params.update({'model': model_ckpt})
+        return checkpoint_params
 
 
 def define_model_architecture(
