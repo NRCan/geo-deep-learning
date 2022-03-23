@@ -13,61 +13,38 @@ from typing import Dict, Any, Sequence, List, Union
 
 import numpy as np
 import rasterio
-from hydra.utils import to_absolute_path
-from omegaconf import OmegaConf, DictConfig, open_dict
+from omegaconf import DictConfig
 from pytorch_lightning import LightningModule, seed_everything
-import segmentation_models_pytorch as smp
 import ttach as tta
 import torch
 from rasterio.plot import reshape_as_raster
-from torch import autocast
+from torch import autocast, Tensor
 import torch.nn.functional as F
-from torchgeo.trainers import SemanticSegmentationTask
 from tqdm import tqdm
 from ttach import SegmentationTTAWrapper
 
 import postprocess_segmentation
 from inference.InferenceDataModule import InferenceDataModule
-from models.model_choice import read_checkpoint, update_gdl_checkpoint
+from models.model_choice import read_checkpoint, define_model_architecture
 from utils.logger import get_logger
-from utils.utils import _window_2D, get_device_ids, get_key_def, set_device
+from utils.utils import _window_2D, get_device_ids, get_key_def, set_device, override_model_params_from_checkpoint, \
+    update_gdl_checkpoint
 
 # Set the logging file
 logging = get_logger(__name__)
 
 
 # TODO merge with GDL then remove this class
-class InferenceTask(SemanticSegmentationTask):
-    def config_task(self) -> None:  # TODO: use Hydra
+class InferenceTask(LightningModule):
+    """
+    Inspiration: torchgeo.trainers.SemanticSegmentationTask
+    """
+    def config_task(self) -> None:
         """Configures the task based on kwargs parameters passed to the constructor."""
-        if self.hparams["segmentation_model"] == "unet_pretrained":
-            self.model = smp.Unet(
-                encoder_name=self.hparams["encoder_name"],
-                encoder_weights=self.hparams["encoder_weights"],
-                in_channels=self.hparams["in_channels"],
-                classes=self.hparams["num_classes"],
-            )
-        elif self.hparams["segmentation_model"] == "deeplabv3+":
-            self.model = smp.DeepLabV3Plus(
-                encoder_name=self.hparams["encoder_name"],
-                encoder_weights=self.hparams["encoder_weights"],
-                in_channels=self.hparams["in_channels"],
-                classes=self.hparams["num_classes"],
-            )
-        elif self.hparams["segmentation_model"] == "manet_pretrained":
-            self.model = smp.MAnet(
-                encoder_name=self.hparams["encoder_name"],
-                encoder_weights=self.hparams["encoder_weights"],
-                in_channels=self.hparams["in_channels"],
-                classes=self.hparams["num_classes"],
-            )
-        else:
-            raise ValueError(
-                f"Model type '{self.hparams['segmentation_model']}' is not valid."
-            )
+        self.model = define_model_architecture(self.hparams, self.hparams["in_channels"], self.hparams["classes"])
 
     def __init__(self, **kwargs: Any) -> None:
-        """Initialize the LightningModule with a model and loss function.
+        """Initialize the LightningModule with a model.
         Keyword Args:
             segmentation_model: Name of the segmentation model type to use
             encoder_name: Name of the encoder model backbone to use
@@ -78,8 +55,9 @@ class InferenceTask(SemanticSegmentationTask):
         Raises:
             ValueError: if kwargs arguments are invalid
         """
-        super().__init__(ignore_zeros=True)  # softcode once torchgeo's issue #444 is resolved
+        super().__init__()
         self.save_hyperparameters()  # creates `self.hparams` from kwargs
+        self.model = None
 
         self.config_task()
 
@@ -93,6 +71,17 @@ class InferenceTask(SemanticSegmentationTask):
         y_hat = self.forward(x)
 
         return y_hat
+
+    def forward(self, x: Tensor) -> Any:  # type: ignore[override]
+        """Forward pass of the model.
+
+        Args:
+            x: tensor of data to run through the model
+
+        Returns:
+            output from the model
+        """
+        return self.model(x)
 
 
 def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
@@ -110,32 +99,14 @@ def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
         return out_pth_path
     # load with geo-deep-learning method
     checkpoint = read_checkpoint(in_pth_path)
+    checkpoint['params'] = update_gdl_checkpoint(checkpoint['params'])
 
-    # covers gdl models generated at version <= 2.0.1
-    if 'model' in checkpoint.keys():
-        checkpoint['model_state_dict'] = checkpoint['model']
-        del checkpoint['model']
-    if 'optimizer' in checkpoint.keys():
-        checkpoint['optimizer_state_dict'] = checkpoint['optimizer']
-        del checkpoint['optimizer']
-
-    hparams = OmegaConf.create()
-    if 'general' in checkpoint['params'].keys():  # for models saved as of v2.0.0 (hydra)
-        class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
-        num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
-        # Store hyper parameters to checkpoint as expected by pytorch lightning
-        hparams["segmentation_model"] = checkpoint['params']['model']['model_name']  # TODO temporary
-        hparams["in_channels"] = len(checkpoint['params']['dataset']['modalities'])
-    else:  # for models saved before v2.0.0
-        num_classes = int(checkpoint['params']['global']['num_classes'])  # + 1 FIXME
-        # Store hyper parameters to checkpoint as expected by pytorch lightning
-        hparams["segmentation_model"] = checkpoint['params']['global']['model_name']  # TODO temporary
-        hparams["in_channels"] = checkpoint['params']['global']['number_of_bands']
-
-    hparams["encoder_name"] = "resnext50_32x4d"  # TODO temporary
-    hparams["encoder_weights"] = 'imagenet'
-    hparams["num_classes"] = num_classes
-    hparams["ignore_zeros"] = True  #False if num_classes == 1 else True
+    hparams = get_key_def('model', checkpoint['params'])
+    class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
+    num_classes = class_keys +1 #if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
+    # Store hyper parameters to checkpoint as expected by pytorch lightning
+    hparams["in_channels"] = len(checkpoint['params']['dataset']['modalities'])
+    hparams["classes"] = num_classes
 
     # adapt to what pytorch lightning expects: add "model" prefix to model keys
     if not list(checkpoint['model_state_dict'].keys())[0].startswith('model'):
@@ -248,39 +219,6 @@ def eval_batch_generator(
         yield batch_output
 
 
-def override_model_params_from_checkpoint(
-        params: DictConfig,
-        checkpoint_params,
-        num_bands,
-        num_classes):
-    """
-    Overrides model-architecture related parameters from provided checkpoint parameters
-    @param params: Original parameters as inputted through hydra
-    @param checkpoint_params: Checkpoint parameters as saved during checkpoint creation when training
-    @param num_bands: number of bands from original parameters
-    @param num_classes: number of classes from original parameters
-    @return:
-    """
-    checkpoint_params = update_gdl_checkpoint(checkpoint_params)
-    modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=str)
-    num_bands_ckpt = len(modalities_ckpt)
-    classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
-    num_classes_ckpt = len(classes_ckpt.keys())
-    model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
-
-    if model_ckpt != params.model or num_classes_ckpt != num_classes or num_bands_ckpt != num_bands:
-        logging.warning(f"\nParameters from checkpoint will override inputted parameters."
-                        f"\n\t\t\t Inputted | Overriden"
-                        f"\nModel:\t\t {params.model} | {model_ckpt}"
-                        f"\nInput bands:\t\t{num_bands} | {num_bands_ckpt}"
-                        f"\nOutput classes:\t\t{num_classes} | {num_classes_ckpt}")
-        with open_dict(params):
-            OmegaConf.update(params, 'dataset.modalities', modalities_ckpt)
-            OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt)
-            OmegaConf.update(params, 'model', model_ckpt)
-    return params, num_bands, num_classes
-
-
 def main(params):
     """High-level pipeline.
     Runs a model checkpoint on non-labeled imagery and saves results to file.
@@ -293,15 +231,21 @@ def main(params):
     root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
     outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
     outpath = root / f"{outname}.tif"
-    model_name = get_key_def('model_name', params['model'], expected_type=str).lower()  # TODO couple with model_choice.py
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
     save_heatmap = get_key_def('save_heatmap', params['inference'], default=False, expected_type=bool)
 
+    # Create yaml to use pytorch lightning model management
+    logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
+    checkpoint = gdl2pl_checkpoint(checkpoint)
+    checkpoint_dict = read_checkpoint(checkpoint)
+    params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
+
     # Dataset params
     modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
-    num_bands = len(modalities)
-    class_keys = len(get_key_def('classes_dict', params['dataset']).keys())
-    num_classes = class_keys + 1  # if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
+    classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
+    classes_dict = {k: v for k, v in classes_dict.items() if v}  # Discard keys where value is None
+    class_keys = len(classes_dict)
+    num_classes = class_keys# if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
     single_class_mode = False  # if num_classes > 2 else True TODO bug fix in GDL
 
     # Hardware
@@ -342,23 +286,11 @@ def main(params):
         model = InferenceTask.load_from_checkpoint(checkpoint)
     except (KeyError, AssertionError) as e:
         logging.warning(f"\nModel checkpoint is not compatible with pytorch-ligthning's load_from_checkpoint method:\n"
-                        f"Key error: {e}\n"
-                        f"Will try to use geo-deep-learning to pytorch lightning adapter...")
-        checkpoint = gdl2pl_checkpoint(checkpoint)
-        # Create yaml to use pytorch lightning model management
-        model = InferenceTask.load_from_checkpoint(checkpoint)
+                        f"Key error: {e}\n")
+        raise e
 
     model.freeze()
     model.eval()
-
-    # CONFIGURE MODEL
-    checkpoint = read_checkpoint(checkpoint)
-    params, num_bands, num_classes = override_model_params_from_checkpoint(
-        params=params,
-        checkpoint_params=checkpoint['params'],
-        num_bands=num_bands,
-        num_classes=num_classes
-    )
 
     dm = InferenceDataModule(root_dir=root,
                              item_path=item_url,

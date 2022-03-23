@@ -7,7 +7,7 @@
 import codecs
 import os
 import shutil
-from typing import Dict, Union, Sequence
+from typing import Dict, Union
 from collections import OrderedDict
 from pathlib import Path
 
@@ -22,9 +22,9 @@ from rasterio.windows import Window
 from spython.main import Client
 from tqdm import tqdm
 
-from inference.InferenceDataset import InferenceDataset
+from models.model_choice import read_checkpoint
 from utils.logger import get_logger
-from utils.utils import get_key_def
+from utils.utils import get_key_def, override_model_params_from_checkpoint
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -280,6 +280,13 @@ def main(params):
     """
     in_name = get_key_def('input_name', params['postprocess'], expected_type=str)
     root = get_key_def('root_dir', params['postprocess'], default="data", to_path=True, validate_path_exists=True)
+    checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, to_path=True,
+                             validate_path_exists=True)  # FIXME: add to postprocess config
+
+    # Create yaml to use pytorch lightning model management
+    logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
+    checkpoint = read_checkpoint(checkpoint)
+    params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint['params'])
 
     # Post-processing
     confidence_values = get_key_def('confidence_values', params['postprocess'], expected_type=bool, default=True)
@@ -324,16 +331,16 @@ def main(params):
         raise FileNotFoundError(f"\nCannot find raster prediction file to use for postprocessing."
                                 f"\nGot:{outpath}")
     in_heatmap = root / f"{in_name}_heatmap.tif"
-    building_value = classes_dict['BUIL']
 
     # build output paths
     out_reg = root / f"{in_name}{out_reg_suffix}.tif"
     out_poly = root / f"{in_name}{out_poly_suffix}.gpkg"
     out_gen = root / f"{in_name}{out_gen_suffix}.gpkg"
 
-    if regularization:  # TODO: adapt regularization to process from vector to vector?
+    if 'BUIL' in classes_dict and regularization:  # TODO: adapt regularization to process from vector to vector?
         logging.info(f"Regularizing prediction. Polygonized output will be overwritten."
                      f"\nOutput: {out_poly}")
+        building_value = classes_dict['BUIL']
         regularize_buildings(
             in_pred=outpath,
             out_pred=out_reg,

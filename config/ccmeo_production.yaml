@@ -1,5 +1,5 @@
 defaults:
-  - model: unet_pretrained
+  - model: smp_unet
   - inference: production
   - postprocess: production
   - callbacks: default_callbacks
