@@ -637,10 +637,10 @@ def override_model_params_from_checkpoint(
     @param checkpoint_params: Checkpoint parameters as saved during checkpoint creation when training
     @return:
     """
-    modalities = get_key_def('modalities', params['dataset'], expected_type=(ListConfig, List))
+    modalities = get_key_def('modalities', params['dataset'], expected_type=Sequence)
     classes = get_key_def('classes_dict', params['dataset'], expected_type=(dict, DictConfig))
 
-    modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=(ListConfig, List))
+    modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=Sequence)
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
 
@@ -660,16 +660,14 @@ def override_model_params_from_checkpoint(
 def update_gdl_checkpoint(checkpoint_params):
     # covers gdl checkpoints from version <= 2.0.1
     if 'model' in checkpoint_params.keys():
-        with open_dict(checkpoint_params):
-            checkpoint_params['model_state_dict'] = checkpoint_params['model']
-            del checkpoint_params['model']
+        checkpoint_params['model_state_dict'] = checkpoint_params['model']
+        del checkpoint_params['model']
     if 'optimizer' in checkpoint_params.keys():
-        with open_dict(checkpoint_params):
-            checkpoint_params['optimizer_state_dict'] = checkpoint_params['optimizer']
-            del checkpoint_params['optimizer']
+        checkpoint_params['optimizer_state_dict'] = checkpoint_params['optimizer']
+        del checkpoint_params['optimizer']
 
     # covers gdl checkpoints pre-hydra (<=2.0.0)
-    bands = ['red', 'green', 'blue', 'nir']  # ['R', 'G', 'B', 'N']
+    bands = {'red': 'R', 'green': 'G', 'blue': 'B', 'nir': 'N'}
     old2new = {
         'manet_pretrained': {
             '_target_': 'segmentation_models_pytorch.MAnet', 'encoder_name': 'resnext50_32x4d',
@@ -701,8 +699,13 @@ def update_gdl_checkpoint(checkpoint_params):
     try:
         # don't update if already a recent checkpoint
         get_key_def('classes_dict', checkpoint_params['params']['dataset'], expected_type=(dict, DictConfig))
-        get_key_def('modalities', checkpoint_params['params']['dataset'], expected_type=(ListConfig, List))
         get_key_def('model', checkpoint_params['params'], expected_type=(dict, DictConfig))
+        modalities = get_key_def('modalities', checkpoint_params['params']['dataset'], expected_type=Sequence)
+        if isinstance(modalities, str):
+            mod_old2new = {v: k for k, v in bands.items()}
+            checkpoint_params['params']['dataset'].update(
+                {'modalities': [mod_old2new[band] for band in modalities]}
+            )
         return checkpoint_params
     except KeyError:
         num_classes_ckpt = get_key_def('num_classes', checkpoint_params['params']['global'], expected_type=int)
@@ -720,7 +723,7 @@ def update_gdl_checkpoint(checkpoint_params):
         #bands_ckpt = bands_ckpt.join([bands[i] for i in range(num_bands_ckpt)])
         checkpoint_params['params'].update({
             'dataset': {
-                'modalities': [bands[i] for i in range(num_bands_ckpt)], #bands_ckpt,
+                'modalities': [list(bands.keys())[i] for i in range(num_bands_ckpt)], #bands_ckpt,
                 #"classes_dict": {f"BUIL": 1}
                 "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)}
             }
@@ -798,7 +801,7 @@ def read_checkpoint(filename, update=True):
                 checkpoint = new_checkpoint
             else:
                 raise ValueError(f"GDL cannot find weight in provided checkpoint")
-        if update:
+        elif update:
             checkpoint = update_gdl_checkpoint(checkpoint)
         return checkpoint
     except FileNotFoundError:

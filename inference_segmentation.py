@@ -208,9 +208,9 @@ def main(params):
     modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
     classes_dict = {k: v for k, v in classes_dict.items() if v}  # Discard keys where value is None
-    class_keys = len(classes_dict)
-    num_classes = class_keys# if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
-    single_class_mode = False  # if num_classes > 2 else True TODO bug fix in GDL
+    # +1 for background if multiclass mode
+    num_classes = len(classes_dict) if len(classes_dict) == 1 else len(classes_dict) + 1
+    single_class_mode = False if num_classes > 2 else True
 
     # Hardware
     num_devices = get_key_def('gpu', params['inference'], default=1, expected_type=(int, bool))
