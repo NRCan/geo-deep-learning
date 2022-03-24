@@ -25,10 +25,10 @@ from ttach import SegmentationTTAWrapper
 
 import postprocess_segmentation
 from inference.InferenceDataModule import InferenceDataModule
-from models.model_choice import read_checkpoint, define_model_architecture
+from models.model_choice import define_model_architecture
 from utils.logger import get_logger
 from utils.utils import _window_2D, get_device_ids, get_key_def, set_device, override_model_params_from_checkpoint, \
-    update_gdl_checkpoint
+    gdl2pl_checkpoint, read_checkpoint
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -61,7 +61,7 @@ class InferenceTask(LightningModule):
 
         self.config_task()
 
-    def inference_step(self, batch: Dict[str, Any], batch_idx: int) -> None:
+    def predict_step(self, batch: Dict[str, Any], batch_idx: int) -> None:
         """Inference step - outputs prediction for non-labeled imagery.
         Args:
             batch: Current batch
@@ -84,56 +84,18 @@ class InferenceTask(LightningModule):
         return self.model(x)
 
 
-def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
-    """
-    Converts a geo-deep-learning/pytorch checkpoint (from v2.0.0+) to a pytorch lightning checkpoint.
-    The outputted model should remain compatible with geo-deep-learning's checkpoint loading.
-    @param in_pth_path: path to input checkpoint
-    @param out_pth_path: path where pytorch-lightning adapted checkpoint should be written. Default to same as input,
-                         but with "pl_" prefix in front of name
-    @return: path to outputted checkpoint and path to outputted yaml to use when loading with pytorch lightning
-    """
-    if not out_pth_path:
-        out_pth_path = Path(in_pth_path).parent / f'pl_{Path(in_pth_path).name}'
-    if Path(out_pth_path).is_file():
-        return out_pth_path
-    # load with geo-deep-learning method
-    checkpoint = read_checkpoint(in_pth_path)
-    checkpoint['params'] = update_gdl_checkpoint(checkpoint['params'])
-
-    hparams = get_key_def('model', checkpoint['params'])
-    class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
-    num_classes = class_keys +1 #if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
-    # Store hyper parameters to checkpoint as expected by pytorch lightning
-    hparams["in_channels"] = len(checkpoint['params']['dataset']['modalities'])
-    hparams["classes"] = num_classes
-
-    # adapt to what pytorch lightning expects: add "model" prefix to model keys
-    if not list(checkpoint['model_state_dict'].keys())[0].startswith('model'):
-        new_state_dict = {}
-        new_state_dict['model_state_dict'] = checkpoint['model_state_dict'].copy()
-        new_state_dict['model_state_dict'] = {'model.'+k: v for k, v in checkpoint['model_state_dict'].items()}
-        checkpoint['model_state_dict'] = new_state_dict['model_state_dict']
-
-    # keep all keys and copy model weights to new state_dict key
-    pl_checkpoint = checkpoint.copy()
-    pl_checkpoint['state_dict'] = pl_checkpoint['model_state_dict']
-    pl_checkpoint['hyper_parameters'] = hparams
-    torch.save(pl_checkpoint, out_pth_path)
-
-    return out_pth_path
-
-
 def auto_batch_size_finder(datamodule, device, model, tta_transforms, single_class_mode=False, max_used_ram: int = 95):
     """
-    TODO
-    @param datamodule:
-    @param device:
-    @param model:
+    Auto batch size finder scales batch size to find the largest batch size that fits into memory.
+    Pytorch Lightning's alternative (not implemented for inference):
+    https://pytorch-lightning.readthedocs.io/en/stable/advanced/training_tricks.html#auto-scaling-of-batch-size
+    @param datamodule: data module that will be used for main prediction task
+    @param device: the device to put data on
+    @param model: model that will be used for main prediction task
     @param tta_transforms: test-time transforms as implemented run_eval_loop()
-    @param single_class_mode:
-    @param max_used_ram:
-    @return:
+    @param single_class_mode: set to True if training a single-class model
+    @param max_used_ram: max % of RAM the batch size should use
+    @return: (int) largest batch size before max_used_ram threshold is reached for GPU memory
     """
     src_size = datamodule.inference_dataset.src.height * datamodule.inference_dataset.src.width
     batch_size_init = batch_size_trial = 1
@@ -182,16 +144,18 @@ def eval_batch_generator(
     verbose: bool = True,
 ) -> Any:
     """Runs an adapted version of test loop without label data over a dataloader and returns prediction.
-    Args:  TODO
+    Args:
         model: the model used for inference
         dataloader: the dataloader to get samples from
         device: the device to put data on
-        single_class_mode:
-        window_spline_2d:
-        pad:
+        single_class_mode: set to True if training a single-class model
+        window_spline_2d: spline window to use for smoothing overlapping predictions
+        pad: padding value used in transforms
         tta_transforms:
-        tta_merge_mode:
-        verbose:
+            test-time augmentation transforms. Currently, choose between "horizontal_flip" or "d4".
+            For more information on tta transforms, see https://github.com/qubvel/ttach#transforms
+        tta_merge_mode: See https://github.com/qubvel/ttach#merge-modes
+        verbose: if True, print progress bar. Should be set to False when auto scaling batch size.
     Returns:
         the prediction for a dataloader batch
     """
@@ -307,10 +271,6 @@ def main(params):
                              )
     dm.setup()
 
-    # TODO test multi-gpu implementation
-    # https://pytorch-lightning.readthedocs.io/en/stable/starter/new-project.html
-    # https://github.com/PyTorchLightning/pytorch-lightning/discussions/9259
-    # https://pytorch-lightning.readthedocs.io/en/latest/notebooks/lightning_examples/cifar10-baseline.html?highlight=ligthning%20module#Lightning-Module
     model = model.to(device)
 
     h, w = [side for side in dm.inference_dataset.src.shape]

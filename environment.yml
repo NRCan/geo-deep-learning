@@ -4,6 +4,7 @@ channels:
   - conda-forge
 dependencies:
   - boto3>=1.19.2
+  - coverage>=6.3.1
   - cudatoolkit>=11.3.0
   - pytorch=1.10.2=py3.9_cuda11.3_cudnn8.2.0_0  # Linux
   # - pytorch=1.10.1=py3.9_cuda11.3_cudnn8_0  # Windows

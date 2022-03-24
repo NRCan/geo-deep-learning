@@ -3,8 +3,9 @@ from typing import Union, List
 import logging
 
 from hydra.utils import instantiate
-import torch
 import torch.nn as nn
+
+from utils.utils import read_checkpoint
 
 logging.getLogger(__name__)
 
@@ -21,50 +22,6 @@ def define_model_architecture(
     @return: torch model as nn.Module object
     """
     return instantiate(net_params, in_channels=in_channels, classes=out_classes)
-
-
-def read_checkpoint(filename):
-    """
-    Loads checkpoint from provided path to GDL's expected format,
-    ie model's state dictionary should be under "model_state_dict" and
-    optimizer's state dict should be under "optimizer_state_dict" as suggested by pytorch:
-    https://pytorch.org/tutorials/beginner/saving_loading_models.html#save
-    :param filename: path to checkpoint as .pth.tar or .pth
-    :return: (dict) checkpoint ready to be loaded into model instance
-    """
-    if not filename:
-        logging.warning(f"No path to checkpoint provided.")
-        return None
-    try:
-        logging.info(f"\n=> loading model '{filename}'")
-        # For loading external models with different structure in state dict.
-        checkpoint = torch.load(filename, map_location='cpu')
-        if 'model_state_dict' not in checkpoint.keys():
-            val_set = set()
-            for val in checkpoint.values():
-                val_set.add(type(val))
-            if len(val_set) == 1 and list(val_set)[0] == torch.Tensor:
-                # places entire state_dict inside expected key
-                new_checkpoint = OrderedDict()
-                new_checkpoint['model_state_dict'] = OrderedDict({k: v for k, v in checkpoint.items()})
-                del checkpoint
-                checkpoint = new_checkpoint
-            # Covers gdl's checkpoints at version <=2.0.1
-            elif 'model' in checkpoint.keys():
-                checkpoint['model_state_dict'] = checkpoint['model']
-                del checkpoint['model']
-            else:
-                raise ValueError(f"GDL cannot find weight in provided checkpoint")
-        if 'optimizer_state_dict' not in checkpoint.keys():
-            try:
-                # Covers gdl's checkpoints at version <=2.0.1
-                checkpoint['optimizer_state_dict'] = checkpoint['optimizer']
-                del checkpoint['optimizer']
-            except KeyError:
-                logging.critical(f"No optimizer state dictionary was found in provided checkpoint")
-        return checkpoint
-    except FileNotFoundError:
-        raise logging.critical(FileNotFoundError(f"\n=> No model found at '{filename}'"))
 
 
 def adapt_checkpoint_to_dp_model(checkpoint: dict, model: Union[nn.Module, nn.DataParallel]):

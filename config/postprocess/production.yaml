@@ -3,6 +3,7 @@
 postprocess:
   input_name: ${inference.output_name}
   root_dir: ${inference.root_dir}
+  state_dict_path: ${inference.state_dict_path}
 
   regularization: True # if True, building features will be regularized using: https://github.com/remtav/projectRegularization/tree/light
   generalization: True  # if True, a generalized version of the inference (.gpkg) will be created with qgis models

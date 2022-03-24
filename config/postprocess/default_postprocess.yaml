@@ -1,29 +1,105 @@
 # @package _global_
+# Post-processing: minimally, a polygonized version of the inference (.gpkg) will be created
 postprocess:
-  input_stac_item: data/STAC_SpaceNet1_AOI_2/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
-  root_dir: ${general.raw_data_dir}  # can be a local directory or url TODO test this
-  output_vect_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred_raw.gpkg  # name of output file to write in root
-  # output_gen_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred.gpkg  # name of output file to write in root
+  input_name: ${inference.output_name}
+  root_dir: ${inference.root_dir}
+  state_dict_path: ${general.state_dict_path}
 
-  # Post-processing
-  postprocess: True  # if True, will proceed to postprocessing directly after inference
-  polygonization: True  # if True, a polygonized version of the inference (.gpkg) will be created from grass or rasterio
-  generalization: False  # if True, a generalized version of the inference (.gpkg) will be created with qgis models
-  # FIXME: needs docker client and image on github CI
-  # qgis_models_dir: "/home/remi/.local/share/QGIS/QGIS3/profiles/default/processing/models"
-  # qgis_models_building: 1classe_cleanup_building_v2.model3
-  # docker_img: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
-  # singularity_img: # ../singularity/qgis_pp.sif
+  regularization: True # if True, building features will be regularized using: https://github.com/remtav/projectRegularization/tree/light
+  generalization: True  # if True, a generalized version of the inference (.gpkg) will be created with qgis models
+  # if True, confidence values are added as an attribute to polygons
+  # based on heatmap from inference (requires inference.save_heatmap=True)
+  confidence_values: True
 
-  # commands to execute in containers separated by comma
-  # FIXME softcode temp file name?
-#  polygonization_commands: qgis_process plugins enable grassprovider,
-#                           qgis_process run grass7:r.to.vect -- input=/home/${inference.output_name} type=2 output=/home/temp.gpkg,
-#                           qgis_process run native:extractbyattribute -- INPUT=/home/temp.gpkg FIELD=value OPERATOR=2
-#                           VALUE=0 OUTPUT=/home/${postprocess.output_vect_name},
-#                           rm /home/temp.gpkg
-#  generalization_commands: qgis_process plugins enable geo_sim_processing,
-#                           qgis_process plugins enable processing,
-#                           qgis_process run /models/${postprocess.qgis_models_building} -- building=/home/${postprocess.output_vect_name}}
-#                           Geopackagename=/home/${postprocess.output_gen_name}}
-#                           NomdelacoucheBatimentdanslegpkg=building Simplify=0.3 Deletehole=40
+  output_suffixes:
+    regularization: _reg
+    polygonization: _raw
+    generalization: _post
+
+  # Container config - Volume binding arguments are hardcoded in scripts. Modify commands at your own risk!
+  reg_cont:
+    # Will fallback to using direct python method if an error occurs with container approach.
+    # To use fallback, install regularization module: pip install git+https://github.com/remtav/projectRegularization.git@light
+    fallback: True
+    cont_type: docker  # "docker" or "singularity"
+    # tag of docker image or path to singularity image file (e.g. remtav/gdl or gdl.sif, respectively)
+    cont_image: remtav/gdl
+    # command to execute in container.
+    # TODO add regularization scripts to docker/singularity image
+    command:
+      /bin/bash -c "
+      python /media/regularize.py --input-inf /home/${inference.output_name}.tif
+      --output /home/${postprocess.input_name}${postprocess.output_suffixes.regularization}.tif
+      --build-val ${dataset.classes_dict.BUIL} --models-dir /media/saved_models_gan --log-conf-path /media/logging.conf
+      "
+
+  poly_cont:
+    fallback: True  # Fallback to rasterio's less efficient method. Favour Grass' r.to.vect. for large predictions
+    cont_type: docker  # "docker" or "singularity"
+    # tag of docker image or path to singularity image file (e.g. remtav/gdl or gdl.sif, respectively)
+    cont_image: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
+    # cont_image: ../singularity/qgis_pp.sif  # for singularity
+    # input prediction for polygonization gets overridden by regularized prediction's name if regularization is done
+    # FIXME: test with single-class pred
+    command:
+      /bin/bash -c "
+      qgis_process plugins enable grassprovider;
+      qgis_process run grass7:r.to.vect -- input=/home/${inference.output_name}.tif type=2 output=/tmp/rtovect.gpkg;
+      qgis_process run native:extractbyattribute -- INPUT=/tmp/rtovect.gpkg FIELD=value OPERATOR=2
+      VALUE=0 OUTPUT=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
+      "
+
+  gen_cont:
+    qgis_models_dir: postprocess
+    cont_type: docker  # "docker" or "singularity"
+    cont_image: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
+    # cont_image: ../singularity/qgis_pp.sif  # for singularity
+    command:
+      # These commands are hardcoded for single-class models outputting pixel value 1 as foreground
+      # .model3 filenames are also hardcoded
+      # Some parameter values aren't mandatory as default values exist, but are exposed here to increase configurability
+      WAER:
+        /bin/bash -c "
+        qgis_process plugins enable geo_sim_processing;
+        qgis_process plugins enable processing;
+        qgis_process run /models/WAER.model3 --
+        inlayer=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
+        --inselectattrname=value --inselectattrint=1 
+        --insimpdiamtol=0.3 --inrmvholesunder=25 --inredbendtol=2 --inminarea=25    
+        --outgpkgpath=/home/${postprocess.input_name}${postprocess.output_suffixes.generalization}.gpkg
+        --outlayername=WAER_2
+        "
+      FORE:
+        /bin/bash -c "
+        qgis_process plugins enable geo_sim_processing;
+        qgis_process plugins enable processing;
+        qgis_process run /models/FORE.model3 
+        --inlayer=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
+        --inselectattrname=value --inselectattrint=1
+        --insimpdiamtol=0.3 --inrmvholesunder=75 --inredbendtol=2 --inminarea=75   
+        --outgpkgpath=/home/${postprocess.input_name}${postprocess.output_suffixes.generalization}.gpkg
+        --outlayername=FORE_2
+        "
+      ROAI:
+        /bin/bash -c "
+        qgis_process plugins enable geo_sim_processing;
+        qgis_process plugins enable processing;
+        qgis_process run /models/ROAI.model3 
+        --inlayer=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
+        --inselectattrname=value --inselectattrint=1
+        --insimpdiamtol=0.3 --inredbendtol=2 --inrmvholesunder=300 --indensinterval=15 
+        --outgpkgpath=/home/${postprocess.input_name}${postprocess.output_suffixes.generalization}.gpkg
+        --outlayernameline=ROAI_1
+        --outlayernamepoly=ROAI_2
+        "
+      BUIL:
+        /bin/bash -c "
+        qgis_process plugins enable geo_sim_processing;
+        qgis_process plugins enable processing;
+        qgis_process run /models/BUIL.model3 
+        --inlayer=/home/${postprocess.input_name}${postprocess.output_suffixes.polygonization}.gpkg
+        --inselectattrname=value --inselectattrint=1 
+        --insimpdiamtol=0.3 --inrmvholesunder=40 
+        --outgpkgpath=/home/${postprocess.input_name}${postprocess.output_suffixes.generalization}.gpkg
+        --outlayername=BUIL_2
+        "

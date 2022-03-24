@@ -2,6 +2,7 @@ import csv
 import logging
 import numbers
 import subprocess
+from collections import OrderedDict
 from functools import reduce
 from pathlib import Path
 from typing import Sequence, List
@@ -11,7 +12,7 @@ from pandas.io.common import is_url
 from pytorch_lightning.utilities import rank_zero_only
 import rich.syntax
 import rich.tree
-from omegaconf import DictConfig, OmegaConf, ListConfig
+from omegaconf import DictConfig, OmegaConf, ListConfig, open_dict
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2575
 import torch
 from torchvision import models
@@ -625,3 +626,180 @@ def print_config(
 
     with open("run_config.config", "w") as fp:
         rich.print(tree, file=fp)
+
+
+def override_model_params_from_checkpoint(
+        params: DictConfig,
+        checkpoint_params):
+    """
+    Overrides model-architecture related parameters from provided checkpoint parameters
+    @param params: Original parameters as inputted through hydra
+    @param checkpoint_params: Checkpoint parameters as saved during checkpoint creation when training
+    @return:
+    """
+    modalities = get_key_def('modalities', params['dataset'], expected_type=(ListConfig, List))
+    classes = get_key_def('classes_dict', params['dataset'], expected_type=(dict, DictConfig))
+
+    modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=(ListConfig, List))
+    classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
+    model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
+
+    if model_ckpt != params.model or classes_ckpt != classes or modalities_ckpt != modalities:
+        logging.warning(f"\nParameters from checkpoint will override inputted parameters."
+                        f"\n\t\t\t Inputted | Overriden"
+                        f"\nModel:\t\t {params.model} | {model_ckpt}"
+                        f"\nInput bands:\t\t{modalities} | {modalities_ckpt}"
+                        f"\nOutput classes:\t\t{classes} | {classes_ckpt}")
+        with open_dict(params):
+            OmegaConf.update(params, 'dataset.modalities', modalities_ckpt)
+            OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt)
+            OmegaConf.update(params, 'model', model_ckpt)
+    return params
+
+
+def update_gdl_checkpoint(checkpoint_params):
+    # covers gdl checkpoints from version <= 2.0.1
+    if 'model' in checkpoint_params.keys():
+        with open_dict(checkpoint_params):
+            checkpoint_params['model_state_dict'] = checkpoint_params['model']
+            del checkpoint_params['model']
+    if 'optimizer' in checkpoint_params.keys():
+        with open_dict(checkpoint_params):
+            checkpoint_params['optimizer_state_dict'] = checkpoint_params['optimizer']
+            del checkpoint_params['optimizer']
+
+    # covers gdl checkpoints pre-hydra (<=2.0.0)
+    bands = ['red', 'green', 'blue', 'nir']  # ['R', 'G', 'B', 'N']
+    old2new = {
+        'manet_pretrained': {
+            '_target_': 'segmentation_models_pytorch.MAnet', 'encoder_name': 'resnext50_32x4d',
+            'encoder_weights': 'imagenet'
+        },
+        'unet_pretrained': {
+            '_target_': 'segmentation_models_pytorch.Unet', 'encoder_name': 'resnext50_32x4d',
+            'encoder_depth': 4, 'encoder_weights': 'imagenet', 'decoder_channels': [256, 128, 64, 32]
+        },
+        'unet': {
+            '_target_': 'models.unet.UNet', 'dropout': False, 'prob': False
+        },
+        'unet_small': {
+            '_target_': 'models.unet.UNetSmall', 'dropout': False, 'prob': False
+        },
+        'deeplabv3_pretrained': {
+            '_target_': 'segmentation_models_pytorch.DeepLabV3', 'encoder_name': 'resnet101',
+            'encoder_weights': 'imagenet'
+        },
+        'deeplabv3_resnet101_dualhead': {
+            '_target_': 'models.deeplabv3_dualhead.DeepLabV3_dualhead', 'conc_point': 'conv1',
+            'encoder_weights': 'imagenet'
+        },
+        'deeplabv3+_pretrained': {
+            '_target_': 'segmentation_models_pytorch.DeepLabV3Plus', 'encoder_name': 'resnext50_32x4d',
+            'encoder_weights': 'imagenet'
+        },
+    }
+    try:
+        # don't update if already a recent checkpoint
+        get_key_def('classes_dict', checkpoint_params['params']['dataset'], expected_type=(dict, DictConfig))
+        get_key_def('modalities', checkpoint_params['params']['dataset'], expected_type=(ListConfig, List))
+        get_key_def('model', checkpoint_params['params'], expected_type=(dict, DictConfig))
+        return checkpoint_params
+    except KeyError:
+        num_classes_ckpt = get_key_def('num_classes', checkpoint_params['params']['global'], expected_type=int)
+        num_bands_ckpt = get_key_def('number_of_bands', checkpoint_params['params']['global'], expected_type=int)
+        model_name = get_key_def('model_name', checkpoint_params['params']['global'], expected_type=str)
+        try:
+            model_ckpt = old2new[model_name]
+        except KeyError as e:
+            logging.critical(f"\nCouldn't locate yaml configuration for model architecture {model_name} as found "
+                             f"in provided checkpoint. Name of yaml may have changed."
+                             f"\nError {type(e)}: {e}")
+            raise e
+        # For GDL pre-v2.0.2
+        #bands_ckpt = ''
+        #bands_ckpt = bands_ckpt.join([bands[i] for i in range(num_bands_ckpt)])
+        checkpoint_params['params'].update({
+            'dataset': {
+                'modalities': [bands[i] for i in range(num_bands_ckpt)], #bands_ckpt,
+                #"classes_dict": {f"BUIL": 1}
+                "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)}
+            }
+        })
+        checkpoint_params['params'].update({'model': model_ckpt})
+        return checkpoint_params
+
+
+def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
+    """
+    Converts a geo-deep-learning/pytorch checkpoint (from v2.0.0+) to a pytorch lightning checkpoint.
+    The outputted model should remain compatible with geo-deep-learning's checkpoint loading.
+    @param in_pth_path: path to input checkpoint
+    @param out_pth_path: path where pytorch-lightning adapted checkpoint should be written. Default to same as input,
+                         but with "pl_" prefix in front of name
+    @return: path to outputted checkpoint and path to outputted yaml to use when loading with pytorch lightning
+    """
+    if not out_pth_path:
+        out_pth_path = Path(in_pth_path).parent / f'pl_{Path(in_pth_path).name}'
+    if Path(out_pth_path).is_file():
+        return out_pth_path
+    # load with geo-deep-learning method
+    checkpoint = read_checkpoint(in_pth_path)
+    checkpoint = update_gdl_checkpoint(checkpoint)
+
+    hparams = get_key_def('model', checkpoint['params'])
+    class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
+    num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
+    # Store hyper parameters to checkpoint as expected by pytorch lightning
+    with open_dict(hparams):
+        hparams["in_channels"] = len(checkpoint['params']['dataset']['modalities'])
+        hparams["classes"] = num_classes
+
+    # adapt to what pytorch lightning expects: add "model" prefix to model keys
+    if not list(checkpoint['model_state_dict'].keys())[0].startswith('model'):
+        new_state_dict = {}
+        new_state_dict['model_state_dict'] = checkpoint['model_state_dict'].copy()
+        new_state_dict['model_state_dict'] = {'model.'+k: v for k, v in checkpoint['model_state_dict'].items()}
+        checkpoint['model_state_dict'] = new_state_dict['model_state_dict']
+
+    # keep all keys and copy model weights to new state_dict key
+    pl_checkpoint = checkpoint.copy()
+    pl_checkpoint['state_dict'] = pl_checkpoint['model_state_dict']
+    pl_checkpoint['hyper_parameters'] = hparams
+    torch.save(pl_checkpoint, out_pth_path)
+
+    return out_pth_path
+
+
+def read_checkpoint(filename, update=True):
+    """
+    Loads checkpoint from provided path to GDL's expected format,
+    ie model's state dictionary should be under "model_state_dict" and
+    optimizer's state dict should be under "optimizer_state_dict" as suggested by pytorch:
+    https://pytorch.org/tutorials/beginner/saving_loading_models.html#save
+    :param filename: path to checkpoint as .pth.tar or .pth
+    :return: (dict) checkpoint ready to be loaded into model instance
+    """
+    if not filename:
+        logging.warning(f"No path to checkpoint provided.")
+        return None
+    try:
+        logging.info(f"\n=> loading model '{filename}'")
+        # For loading external models with different structure in state dict.
+        checkpoint = torch.load(filename, map_location='cpu')
+        if 'model_state_dict' not in checkpoint.keys() and 'model' not in checkpoint.keys():
+            val_set = set()
+            for val in checkpoint.values():
+                val_set.add(type(val))
+            if len(val_set) == 1 and list(val_set)[0] == torch.Tensor:
+                # places entire state_dict inside expected key
+                new_checkpoint = OrderedDict()
+                new_checkpoint['model_state_dict'] = OrderedDict({k: v for k, v in checkpoint.items()})
+                del checkpoint
+                checkpoint = new_checkpoint
+            else:
+                raise ValueError(f"GDL cannot find weight in provided checkpoint")
+        if update:
+            checkpoint = update_gdl_checkpoint(checkpoint)
+        return checkpoint
+    except FileNotFoundError:
+        raise logging.critical(FileNotFoundError(f"\n=> No model found at '{filename}'"))

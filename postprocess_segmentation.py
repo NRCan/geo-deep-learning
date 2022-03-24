@@ -22,9 +22,8 @@ from rasterio.windows import Window
 from spython.main import Client
 from tqdm import tqdm
 
-from models.model_choice import read_checkpoint
 from utils.logger import get_logger
-from utils.utils import get_key_def, override_model_params_from_checkpoint
+from utils.utils import get_key_def, override_model_params_from_checkpoint, gdl2pl_checkpoint, read_checkpoint
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -103,10 +102,8 @@ def polygonize(in_raster,
         try:
             gdf = geopandas.read_file(out_vector)
         except fiona.errors.DriverError as e:
-            logging.critical(f"\nOutputted polygonized prediction may be empty."
-                             f"\n{type(e)}: {e}"
-                             f"\nSkipping all remaining postprocessing and exiting...")
-            return
+            logging.critical(f"\nOutputted polygonized prediction may be empty.")
+            raise e
         if gdf.crs != src.crs:
             shutil.copy(out_vector, out_vect_no_crs)
             gdf = geopandas.read_file(out_vect_no_crs)
@@ -285,8 +282,9 @@ def main(params):
 
     # Create yaml to use pytorch lightning model management
     logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
-    checkpoint = read_checkpoint(checkpoint)
-    params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint['params'])
+    checkpoint = gdl2pl_checkpoint(checkpoint)
+    checkpoint_dict = read_checkpoint(checkpoint)
+    params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
 
     # Post-processing
     confidence_values = get_key_def('confidence_values', params['postprocess'], expected_type=bool, default=True)
@@ -356,14 +354,21 @@ def main(params):
             outpath = outpath.parent / f"{out_reg.stem}.tif"
 
     # Postprocess final raster prediction (polygonization)
-    polygonize(
-        in_raster=outpath,
-        out_vector=out_poly,
-        container_image=poly_cont_image,
-        container_type=poly_cont_type,
-        container_command=poly_command,
-        fallback=poly_fallback,
-    )
+    try:
+        polygonize(
+            in_raster=outpath,
+            out_vector=out_poly,
+            container_image=poly_cont_image,
+            container_type=poly_cont_type,
+            container_command=poly_command,
+            fallback=poly_fallback,
+        )
+    except fiona.errors.DriverError as e:
+        logging.critical(
+            f"\n{type(e)}: {e}"
+            f"\nSkipping all remaining postprocessing and exiting...")
+        # FIXME: should be reverted to raising error once pretrained models are public and can be used in CI
+        return
 
     # set confidence values to features in polygonized prediction
     if confidence_values and in_heatmap.is_file():
@@ -386,7 +391,6 @@ def main(params):
         if out_gen.is_file():
             logging.info(f'\nGeneralization completed. Final prediction: {out_gen}')
         else:
-            logging.error(f'\nGeneralization failed. See logs...')
-            raise FileNotFoundError(f"{out_gen}")
+            logging.error(f'\nGeneralization failed. Output "{out_gen}" not created. See logs...')
 
     logging.info(f'\nEnd of postprocessing')

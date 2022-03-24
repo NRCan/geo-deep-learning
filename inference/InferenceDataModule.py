@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Union, Sequence, Any, Callable, Dict
+from typing import Union, Sequence, Any, Callable, Dict, Optional
 
 from pytorch_lightning import LightningDataModule
 from torch import Tensor
@@ -99,13 +99,16 @@ class InferenceDataModule(LightningDataModule):
         This method is called once per node, while :func:`setup` is called once per GPU.
         """
         InferenceDataset(
+            item_path=self.item_path,
             root=self.root_dir,
             outpath=self.outpath,
+            bands=self.bands,
             transforms=None,
-            download=False,
+            download=self.download,
+            pad=self.pad_size,
         )
 
-    def setup(self):
+    def setup(self, stage: Optional[str] = None):
         """Instantiate the InferenceDataset.
         The splits should be done here vs. in :func:`__init__` per the docs:
         https://pytorch-lightning.readthedocs.io/en/latest/extensions/datamodules.html#setup.
@@ -152,6 +155,7 @@ class InferenceDataModule(LightningDataModule):
             sampler=self.sampler,
             num_workers=self.num_workers,
             collate_fn=stack_samples,
+            shuffle=False,
         )
 
     def write_dataloader(self) -> DataLoader[Any]:
@@ -172,6 +176,7 @@ class InferenceDataModule(LightningDataModule):
             sampler=sampler,
             num_workers=self.num_workers,
             collate_fn=stack_samples,
+            shuffle=False,
         )
 
     def postprocess(self):

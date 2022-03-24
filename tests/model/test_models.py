@@ -10,8 +10,8 @@ from hydra.utils import to_absolute_path, instantiate
 from torch import nn
 
 from models import unet
-from models.model_choice import read_checkpoint, adapt_checkpoint_to_dp_model, define_model, define_model_architecture
-from utils.utils import get_device_ids, set_device
+from models.model_choice import adapt_checkpoint_to_dp_model, define_model, define_model_architecture
+from utils.utils import get_device_ids, set_device, read_checkpoint
 
 
 class TestModelsZoo(object):

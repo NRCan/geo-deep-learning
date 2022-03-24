@@ -17,9 +17,9 @@ from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
 from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, get_logger, set_tracker
 from utils.metrics import report_classification, create_metrics_dict, iou
-from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_to_dp_model
+from models.model_choice import define_model, adapt_checkpoint_to_dp_model
 from utils.loss import verify_weights, define_loss
-from utils.utils import gpu_stats, get_key_def, get_device_ids, set_device
+from utils.utils import gpu_stats, get_key_def, get_device_ids, set_device, read_checkpoint
 from utils.visualization import vis_from_batch
 # Set the logging file
 logging = get_logger(__name__)  # import logging
