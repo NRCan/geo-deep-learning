@@ -4,7 +4,7 @@ import numbers
 import subprocess
 from functools import reduce
 from pathlib import Path
-from typing import Sequence, List
+from typing import Sequence, List, Dict
 
 from hydra.utils import to_absolute_path
 from pytorch_lightning.utilities import rank_zero_only
@@ -629,3 +629,79 @@ def print_config(
 
     with open("run_config.config", "w") as fp:
         rich.print(tree, file=fp)
+
+
+def update_gdl_checkpoint(checkpoint_params: Dict) -> Dict:
+    """
+    Utility to update model checkpoints from older versions of GDL to current version
+    @param checkpoint_params:
+        Dictionary containing weights, optimizer state and saved configuration params from training
+    @return:
+    """
+    # covers gdl checkpoints from version <= 2.0.1
+    if 'model' in checkpoint_params.keys():
+        checkpoint_params['model_state_dict'] = checkpoint_params['model']
+        del checkpoint_params['model']
+    if 'optimizer' in checkpoint_params.keys():
+        checkpoint_params['optimizer_state_dict'] = checkpoint_params['optimizer']
+        del checkpoint_params['optimizer']
+
+    # covers gdl checkpoints pre-hydra (<=2.0.0)
+    bands = ['R', 'G', 'B', 'N']
+    old2new = {
+        'manet_pretrained': {
+            '_target_': 'segmentation_models_pytorch.MAnet', 'encoder_name': 'resnext50_32x4d',
+            'encoder_weights': 'imagenet'
+        },
+        'unet_pretrained': {
+            '_target_': 'segmentation_models_pytorch.Unet', 'encoder_name': 'resnext50_32x4d',
+            'encoder_depth': 4, 'encoder_weights': 'imagenet', 'decoder_channels': [256, 128, 64, 32]
+        },
+        'unet': {
+            '_target_': 'models.unet.UNet', 'dropout': False, 'prob': False
+        },
+        'unet_small': {
+            '_target_': 'models.unet.UNetSmall', 'dropout': False, 'prob': False
+        },
+        'deeplabv3_pretrained': {
+            '_target_': 'segmentation_models_pytorch.DeepLabV3', 'encoder_name': 'resnet101',
+            'encoder_weights': 'imagenet'
+        },
+        'deeplabv3_resnet101_dualhead': {
+            '_target_': 'models.deeplabv3_dualhead.DeepLabV3_dualhead', 'conc_point': 'conv1',
+            'encoder_weights': 'imagenet'
+        },
+        'deeplabv3+_pretrained': {
+            '_target_': 'segmentation_models_pytorch.DeepLabV3Plus', 'encoder_name': 'resnext50_32x4d',
+            'encoder_weights': 'imagenet'
+        },
+    }
+    try:
+        # don't update if already a recent checkpoint
+        get_key_def('classes_dict', checkpoint_params['params']['dataset'], expected_type=(dict, DictConfig))
+        get_key_def('modalities', checkpoint_params['params']['dataset'], expected_type=Sequence)
+        get_key_def('model', checkpoint_params['params'], expected_type=(dict, DictConfig))
+        return checkpoint_params
+    except KeyError:
+        num_classes_ckpt = get_key_def('num_classes', checkpoint_params['params']['global'], expected_type=int)
+        num_bands_ckpt = get_key_def('number_of_bands', checkpoint_params['params']['global'], expected_type=int)
+        model_name = get_key_def('model_name', checkpoint_params['params']['global'], expected_type=str)
+        try:
+            model_ckpt = old2new[model_name]
+        except KeyError as e:
+            logging.critical(f"\nCouldn't locate yaml configuration for model architecture {model_name} as found "
+                             f"in provided checkpoint. Name of yaml may have changed."
+                             f"\nError {type(e)}: {e}")
+            raise e
+        # For GDL pre-v2.0.2
+        #bands_ckpt = ''
+        #bands_ckpt = bands_ckpt.join([bands[i] for i in range(num_bands_ckpt)])
+        checkpoint_params['params'].update({
+            'dataset': {
+                'modalities': [bands[i] for i in range(num_bands_ckpt)], #bands_ckpt,
+                #"classes_dict": {f"BUIL": 1}
+                "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)}
+            }
+        })
+        checkpoint_params['params'].update({'model': model_ckpt})
+        return checkpoint_params

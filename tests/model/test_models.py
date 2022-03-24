@@ -9,6 +9,7 @@ from hydra.core.hydra_config import HydraConfig
 from hydra.utils import to_absolute_path, instantiate
 from torch import nn
 
+import models.unet
 from models import unet
 from models.model_choice import read_checkpoint, adapt_checkpoint_to_dp_model, define_model, define_model_architecture
 from utils.utils import get_device_ids, set_device
@@ -53,14 +54,17 @@ class TestReadCheckpoint(object):
     """
     Tests reading a checkpoint saved outside GDL into memory
     """
-    dummy_model = torchvision.models.resnet18()
-    dummy_optimizer = optimizer = instantiate({'_target_': 'torch.optim.Adam'}, params=dummy_model.parameters())
+    var = 4
+    dummy_model = models.unet.UNetSmall(classes=var, in_channels=var)
+    dummy_optimizer = instantiate({'_target_': 'torch.optim.Adam'}, params=dummy_model.parameters())
     filename = "test.pth.tar"
     torch.save(dummy_model.state_dict(), filename)
     read_checkpoint(filename)
     # test gdl's checkpoints at version <=2.0.1
     torch.save({'epoch': 999,
-                'params': {'model': 'resnet18'},
+                'params': {
+                    'global': {'num_classes': var, 'model_name': 'unet_small', 'number_of_bands': var}
+                },
                 'model': dummy_model.state_dict(),
                 'best_loss': 0.1,
                 'optimizer': dummy_optimizer.state_dict()}, filename)

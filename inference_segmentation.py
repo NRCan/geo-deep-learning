@@ -1,6 +1,6 @@
 import itertools
 from math import sqrt
-from typing import List, Union
+from typing import List, Union, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -292,10 +292,10 @@ def override_model_params_from_checkpoint(
     @param checkpoint_params: Checkpoint parameters as saved during checkpoint creation when training
     @return:
     """
-    modalities = get_key_def('modalities', params['dataset'], expected_type=(ListConfig, List))
+    modalities = get_key_def('modalities', params['dataset'], expected_type=Sequence)
     classes = get_key_def('classes_dict', params['dataset'], expected_type=(dict, DictConfig))
 
-    modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=(ListConfig, List))
+    modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=Sequence)
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
 
@@ -326,11 +326,14 @@ def main(params: Union[DictConfig, dict]) -> None:
 
     # Override params from checkpoint
     checkpoint = read_checkpoint(state_dict)
-    params, modalities, classes_dict = override_model_params_from_checkpoint(
+    params = override_model_params_from_checkpoint(
         params=params,
-        checkpoint_params=checkpoint
+        checkpoint_params=checkpoint['params']
     )
 
+    # Dataset params
+    modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
+    classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
     num_classes = len(classes_dict)
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
     num_bands = len(modalities)
