@@ -7,9 +7,9 @@ from hydra.utils import to_absolute_path
 from utils.loss import define_loss, verify_weights
 
 
-class Test_Losses(object):
+class TestLossesZoo(object):
     """Tests all geo-deep-learning's losses instantiation"""
-    def test_set_hyperparameters(self) -> None:
+    def test_define_loss(self) -> None:
         with initialize(config_path="../../config", job_name="test_ci"):
             for dataset_type in ['binary', 'multiclass']:
                 num_classes = 1 if dataset_type == 'binary' else 5
