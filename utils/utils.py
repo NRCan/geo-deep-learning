@@ -732,7 +732,7 @@ def update_gdl_checkpoint(checkpoint_params):
         return checkpoint_params
 
 
-def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
+def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None, single_class_mode: bool = False):
     """
     Converts a geo-deep-learning/pytorch checkpoint (from v2.0.0+) to a pytorch lightning checkpoint.
     The outputted model should remain compatible with geo-deep-learning's checkpoint loading.
@@ -751,11 +751,12 @@ def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
 
     hparams = get_key_def('model', checkpoint['params'])
     class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
-    num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
+    num_classes = class_keys if class_keys == 1 and single_class_mode else class_keys + 1  # +1 for background(multiclass mode)
     # Store hyper parameters to checkpoint as expected by pytorch lightning
-    with open_dict(hparams):
-        hparams["in_channels"] = len(checkpoint['params']['dataset']['modalities'])
-        hparams["classes"] = num_classes
+    if isinstance(hparams, DictConfig):
+        OmegaConf.set_struct(hparams, False)
+    hparams["in_channels"] = len(checkpoint['params']['dataset']['modalities'])
+    hparams["classes"] = num_classes
 
     # adapt to what pytorch lightning expects: add "model" prefix to model keys
     if not list(checkpoint['model_state_dict'].keys())[0].startswith('model'):

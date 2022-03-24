@@ -192,6 +192,7 @@ def main(params):
     # Main params
     item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
     checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
+    single_class_mode = get_key_def('state_dict_single_mode', params['inference'], default=True, expected_type=bool)
     root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
     outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
     outpath = root / f"{outname}.tif"
@@ -200,7 +201,7 @@ def main(params):
 
     # Create yaml to use pytorch lightning model management
     logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
-    checkpoint = gdl2pl_checkpoint(checkpoint)
+    checkpoint = gdl2pl_checkpoint(checkpoint, single_class_mode=single_class_mode)
     checkpoint_dict = read_checkpoint(checkpoint)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
 
@@ -209,8 +210,7 @@ def main(params):
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
     classes_dict = {k: v for k, v in classes_dict.items() if v}  # Discard keys where value is None
     # +1 for background if multiclass mode
-    num_classes = len(classes_dict) if len(classes_dict) == 1 else len(classes_dict) + 1
-    single_class_mode = False if num_classes > 2 else True
+    num_classes = len(classes_dict) if len(classes_dict) == 1 and single_class_mode else len(classes_dict) + 1
 
     # Hardware
     num_devices = get_key_def('gpu', params['inference'], default=1, expected_type=(int, bool))
@@ -221,7 +221,7 @@ def main(params):
     # list of GPU devices that are available and unused. If no GPUs, returns empty dict
     gpu_devices_dict = get_device_ids(num_devices, max_used_ram_perc=max_used_ram, max_used_perc=max_used_perc)
     device = set_device(gpu_devices_dict=gpu_devices_dict)
-    num_workers_default = len(gpu_devices_dict.keys()) * 4 if len(gpu_devices_dict.keys()) > 1 else 4
+    num_workers_default = 0 if device == 'cpu' else len(gpu_devices_dict.keys()) * 4
     num_workers = get_key_def('num_workers', params['inference'], default=num_workers_default, expected_type=int)
 
     # Sampling, batching and augmentations configuration

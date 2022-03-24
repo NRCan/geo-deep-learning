@@ -1,7 +1,10 @@
 from pathlib import Path
 from typing import Union, Sequence, Any, Callable, Dict, Optional
 
+import numpy as np
+import torch
 from pytorch_lightning import LightningDataModule
+from skimage import exposure
 from torch import Tensor
 from torch.nn import functional as F
 from torch.utils.data import DataLoader
@@ -63,8 +66,9 @@ class InferenceDataModule(LightningDataModule):
         self.save_heatmap = save_heatmap
 
     # adapted from: https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/torchgeo/datamodules/chesapeake.py#L100
+    @staticmethod
     def pad(
-        self, size: int = 512, mode='constant'
+        size: int = 512, mode='constant'
     ) -> Callable[[Dict[str, Tensor]], Dict[str, Tensor]]:
         """Returns a function to perform a padding transform on a single sample.
         Args:
@@ -82,7 +86,26 @@ class InferenceDataModule(LightningDataModule):
 
         return _pad
 
-    def preprocess(self, sample: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    def enhance(sample: Dict[str, Any], clip_limit=0.1) -> Dict[str, Any]:
+        """
+        Clip histogram by clip_limit # FIXME apply to entire image before inference? apply according to class?
+        @param sample: sample dictionary containing image
+        @param clip_limit:
+        @return:
+        """
+        sample['image'] = np.moveaxis(sample["image"].numpy().astype(np.uint8), 0, -1)  # send channels last
+        img_adapteq = []
+        for band in range(sample['image'].shape[-1]):
+            out_band = exposure.equalize_adapthist(sample["image"][..., band], clip_limit=clip_limit)
+            out_band = (out_band*255).astype(int)
+            img_adapteq.append(out_band)
+        out_stacked = np.stack(img_adapteq, axis=-1)
+        sample["image"] = torch.from_numpy(np.moveaxis(out_stacked, -1, 0))
+        return sample
+
+    @staticmethod
+    def preprocess(sample: Dict[str, Any]) -> Dict[str, Any]:
         """Preprocesses a single sample.
         Args:
             sample: sample dictionary containing image
@@ -124,6 +147,7 @@ class InferenceDataModule(LightningDataModule):
         )
         """
         test_transforms = Compose([self.pad(self.pad_size, mode='reflect'),
+                                   self.enhance,
                                    self.preprocess,
                                    ])
 
