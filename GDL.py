@@ -8,11 +8,7 @@ from omegaconf import DictConfig, OmegaConf, open_dict
 from utils.utils import print_config, get_git_hash
 
 
-config_path = "config"
-config_name = "gdl_config_template"
-
-
-@hydra.main(config_path=config_path, config_name=config_name)
+@hydra.main(config_path="config", config_name="gdl_config_template")
 def run_gdl(cfg: DictConfig) -> None:
     """
     Function general for Geo Deep-Learning using Hydra library to rules all the
@@ -35,11 +31,6 @@ def run_gdl(cfg: DictConfig) -> None:
                 file.
     """
     cfg = OmegaConf.create(cfg)
-
-    # Couldn't find a better way to do this. Ideally a return_hydra_config could be set in @hydra.main decorator...
-    with open_dict(cfg):
-        cfg['config_name'] = config_name
-        cfg['config_path'] = config_path
 
     # debug config
     if cfg.debug:
