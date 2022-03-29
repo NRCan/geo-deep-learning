@@ -7,14 +7,26 @@ inference:
   download_data: True  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer
   save_heatmap: True  # saves a heatmap to root_dir/{output_name}_heatmap.tif
-  batch_size: 2 # if empty, will be calculated automatically to fill "auto_batch_size_threshold" % of GPU Ram
-  chunk_size: 64 # Defaults to 512
-
-  tta_merge_mode: max  # Test time augmentation merge mode. See: https://github.com/qubvel/ttach#merge-modes
-  tta_transforms: horizontal_flip  # Test-time augmentation tranforms. See: https://github.com/qubvel/ttach#transforms
-  postprocess: True  # if True, will proceed to postprocessing directly after inference  # TODO is this flag necessary?
 
   # GPU parameters
-  gpu: 1  # Number of gpus to use. TODO implement >1
+  gpu: 1  # Number of gpus to use.
   max_used_perc: ${training.max_used_perc}  # If RAM usage of detected GPU exceeds this percentage, it will be ignored
   max_used_ram: ${training.max_used_ram}  # If GPU's usage exceeds this percentage, it will be ignored
+
+  batch_size: 2 # if empty, will be calculated automatically to fill "auto_batch_size_threshold" % of GPU Ram
+  chunk_size: 64 # Defaults to 512
+  auto_batch_size_threshold:
+  test_transforms:
+    _target_: torchvision.transforms.Compose
+    transforms:
+      [{ '_target_': inference.InferenceDataModule.pad, size: 16, mode: 'reflect'},
+        { '_target_': inference.InferenceDataModule.enhance, clip_limit: 0.1 },
+        { '_target_': inference.InferenceDataModule.preprocess}]
+
+  # Test-time augmentation tranforms. See: https://github.com/qubvel/ttach#transforms
+  tta_transforms:  # transform object by hydra's instantiate() method
+    _target_: ttach.SegmentationTTAWrapper
+    transforms:
+      _target_: ttach.Compose
+      transforms: [{_target_: ttach.HorizontalFlip}]  # Alternative: tta.aliases.d4_transform()
+    merge_mode: max  # Test time augmentation merge mode. See: https://github.com/qubvel/ttach#merge-modes

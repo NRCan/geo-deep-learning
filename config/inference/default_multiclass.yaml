@@ -1,20 +1,33 @@
 # @package _global_
 inference:
-  input_stac_item: data/STAC_SpaceNet1_AOI_2/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
-  root_dir: ${general.raw_data_dir}
-  output_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred.tif  # name of output file to write in root
-  state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar  # TODO: use valid model
-  download_data: False  # if True, will download local copy of imagery and infer from this copy rather than from web
+  input_stac_item: tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
+  root_dir: tests/data/spacenet
+  output_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred # name of output file to write in root.
+  state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar
+  download_data: True  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer
-  save_heatmap: True
-  batch_size: # if empty, will be calculated automatically to fill "auto_batch_size_threshold" % of GPU Ram
-  chunk_size: 256 # Defaults to 512
-  auto_batch_size_threshold: 90
-
-  tta_merge_mode: max
-  tta_transforms: horizontal_flip
+  save_heatmap: True  # saves a heatmap to root_dir/{output_name}_heatmap.tif
 
   # GPU parameters
-  gpu: ${training.num_gpus}
+  gpu: 1  # Number of gpus to use.
   max_used_perc: ${training.max_used_perc}  # If RAM usage of detected GPU exceeds this percentage, it will be ignored
   max_used_ram: ${training.max_used_ram}  # If GPU's usage exceeds this percentage, it will be ignored
+
+  batch_size: 2 # if empty, will be calculated automatically to fill "auto_batch_size_threshold" % of GPU Ram
+  chunk_size: 64 # Defaults to 512
+  auto_batch_size_threshold:
+  test_transforms:
+    _target_: torchvision.transforms.Compose
+    transforms:
+      [ { '_target_': inference.InferenceDataModule.pad, size: 16, mode: 'reflect' },
+        { '_target_': inference.InferenceDataModule.enhance, clip_limit: 0.1 },
+        { '_target_': inference.InferenceDataModule.preprocess } ]
+
+  # Test-time augmentation tranforms. See: https://github.com/qubvel/ttach#transforms
+  tta_transforms:  # transform object by hydra's instantiate() method
+    _target_: ttach.SegmentationTTAWrapper
+    transforms:
+      _target_: ttach.Compose
+      transforms: [{_target_: ttach.HorizontalFlip}]  # Alternative: tta.aliases.d4_transform()
+    merge_mode: max  # Test time augmentation merge mode. See: https://github.com/qubvel/ttach#merge-modes
+
