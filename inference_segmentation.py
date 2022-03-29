@@ -9,26 +9,25 @@
 """CCMEO model inference script."""
 import argparse
 from pathlib import Path
-from typing import Dict, Any, Sequence, List, Union
+from typing import Dict, Any, Sequence
 
 import numpy as np
 import rasterio
+from hydra.utils import instantiate
 from omegaconf import DictConfig
 from pytorch_lightning import LightningModule, seed_everything
-import ttach as tta
 import torch
 from rasterio.plot import reshape_as_raster
 from torch import autocast, Tensor
 import torch.nn.functional as F
+from torchvision.transforms import Compose
 from tqdm import tqdm
-from ttach import SegmentationTTAWrapper
 
-import postprocess_segmentation
-from inference.InferenceDataModule import InferenceDataModule
+from inference.InferenceDataModule import InferenceDataModule, preprocess, pad
 from models.model_choice import define_model_architecture
 from utils.logger import get_logger
 from utils.utils import _window_2D, get_device_ids, get_key_def, set_device, override_model_params_from_checkpoint, \
-    gdl2pl_checkpoint, read_checkpoint
+    gdl2pl_checkpoint, read_checkpoint, extension_remover, class_from_heatmap
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -84,18 +83,23 @@ class InferenceTask(LightningModule):
         return self.model(x)
 
 
-def auto_batch_size_finder(datamodule, device, model, tta_transforms, single_class_mode=False, max_used_ram: int = 95):
+def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, max_used_ram: int = 95):
     """
     Auto batch size finder scales batch size to find the largest batch size that fits into memory.
     Pytorch Lightning's alternative (not implemented for inference):
     https://pytorch-lightning.readthedocs.io/en/stable/advanced/training_tricks.html#auto-scaling-of-batch-size
-    @param datamodule: data module that will be used for main prediction task
-    @param device: the device to put data on
-    @param model: model that will be used for main prediction task
-    @param tta_transforms: test-time transforms as implemented run_eval_loop()
-    @param single_class_mode: set to True if training a single-class model
-    @param max_used_ram: max % of RAM the batch size should use
-    @return: (int) largest batch size before max_used_ram threshold is reached for GPU memory
+    @param datamodule:
+        data module that will be used for main prediction task
+    @param device:
+        the device to put data on
+    @param model:
+        model that will be used for main prediction task
+    @param single_class_mode:
+        set to True if training a single-class model
+    @param max_used_ram:
+        max % of RAM the batch size should use
+    @return: int
+        largest batch size before max_used_ram threshold is reached for GPU memory
     """
     src_size = datamodule.inference_dataset.src.height * datamodule.inference_dataset.src.width
     batch_size_init = batch_size_trial = 1
@@ -116,7 +120,6 @@ def auto_batch_size_finder(datamodule, device, model, tta_transforms, single_cla
             single_class_mode=single_class_mode,
             window_spline_2d=window_spline_2d,
             pad=datamodule.pad_size,
-            tta_transforms=tta_transforms,
             verbose=False,
         )
         _ = next(eval_gen2tune)
@@ -126,8 +129,16 @@ def auto_batch_size_finder(datamodule, device, model, tta_transforms, single_cla
             return batch_size_trial
 
 
-def create_spline_window(chip_size, power=1):
-    window_spline_2d = _window_2D(window_size=chip_size, power=power)
+def create_spline_window(window_size: int, power=1):
+    """
+    Create a float-tensor window for smoothing during inference.
+    Adapted from : https://github.com/Vooban/Smoothly-Blend-Image-Patches
+    @param window_size:
+        Size of one side of window to create. Currently only implemented for square predictions
+    @param power: power to apply to values in window
+    @return: returns a torch.Tensor array
+    """
+    window_spline_2d = _window_2D(window_size=window_size, power=power)
     window_spline_2d = torch.as_tensor(np.moveaxis(window_spline_2d, 2, 0), ).float()
     return window_spline_2d
 
@@ -139,8 +150,6 @@ def eval_batch_generator(
     single_class_mode: bool,
     window_spline_2d,
     pad,
-    tta_transforms: Union[List, str] = "horizontal_flip",
-    tta_merge_mode: str = 'max',
     verbose: bool = True,
 ) -> Any:
     """Runs an adapted version of test loop without label data over a dataloader and returns prediction.
@@ -151,21 +160,10 @@ def eval_batch_generator(
         single_class_mode: set to True if training a single-class model
         window_spline_2d: spline window to use for smoothing overlapping predictions
         pad: padding value used in transforms
-        tta_transforms:
-            test-time augmentation transforms. Currently, choose between "horizontal_flip" or "d4".
-            For more information on tta transforms, see https://github.com/qubvel/ttach#transforms
-        tta_merge_mode: See https://github.com/qubvel/ttach#merge-modes
         verbose: if True, print progress bar. Should be set to False when auto scaling batch size.
     Returns:
         the prediction for a dataloader batch
     """
-    # initialize test time augmentation
-    transforms_dict = {"horizontal_flip": tta.Compose([tta.HorizontalFlip()]), "d4": tta.aliases.d4_transform()}
-    if tta_transforms not in transforms_dict.keys():
-        raise ValueError(f"TTA transform {tta_transforms} is not implemented. Choose between {transforms_dict.keys()}")
-    transforms = transforms_dict[tta_transforms]  # TODO: tune with optuna
-    model = SegmentationTTAWrapper(model, transforms, merge_mode=tta_merge_mode)
-
     batch_output = {}
     for batch in tqdm(dataloader, disable=not verbose):
         batch_output['bbox'] = batch['bbox']
@@ -174,7 +172,7 @@ def eval_batch_generator(
         with autocast(device_type=device.type):
             outputs = model(inputs)
         if single_class_mode:
-            outputs = torch.sigmoid(outputs)  # TODO test this
+            outputs = torch.sigmoid(outputs)
         else:
             outputs = F.softmax(outputs, dim=1)
         outputs = outputs[..., pad:-pad, pad:-pad]
@@ -191,20 +189,24 @@ def main(params):
     """
     # Main params
     item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
-    checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
-    single_class_mode = get_key_def('state_dict_single_mode', params['inference'], default=True, expected_type=bool)
     root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
-    outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
+    outname = get_key_def('output_name', params['inference'], default=f"{item_url.stem}_pred")
+    outname = extension_remover(outname)
     outpath = root / f"{outname}.tif"
+    checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
     save_heatmap = get_key_def('save_heatmap', params['inference'], default=False, expected_type=bool)
+    heatmap_threshold = get_key_def('heatmap_threshold', params['inference'], default=50, expected_type=int)
 
     # Create yaml to use pytorch lightning model management
     logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
-    checkpoint = gdl2pl_checkpoint(checkpoint, single_class_mode=single_class_mode)
+    checkpoint = gdl2pl_checkpoint(checkpoint)
     checkpoint_dict = read_checkpoint(checkpoint)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
 
+    # TODO: remove if no old models are used in production.
+    # Covers old single-class models with 2 input channels rather than 1 (ie with background)
+    single_class_mode = get_key_def('state_dict_single_mode', params['inference'], default=True, expected_type=bool)
     # Dataset params
     modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
@@ -237,11 +239,14 @@ def main(params):
     if chip_size and stride > chip_size * 0.75:
         logging.warning(f"Setting a large stride (more than 75% of chip size) will interfere with "
                         f"spline window smoothing operations and may result in poor quality extraction.")
-    pad = get_key_def('pad', params['inference'], default=16, expected_type=int)
-    # TODO implement with hydra for all possible ttach transforms
-    tta_transforms = get_key_def('tta_transforms', params['inference'], default="horizontal_flip", expected_type=str)
-    tta_merge_mode = get_key_def('tta_merge_mode', params['inference'], default="max", expected_type=str)
-    postprocess = get_key_def('postprocess', params['inference'], default=False, expected_type=bool)
+    pad_size = get_key_def('pad', params['inference'], default=16, expected_type=int)
+    test_transforms = get_key_def('test_transforms', params['inference'],
+                                  default=Compose([pad(pad_size, mode='reflect'), preprocess]),
+                                  expected_type=(dict, DictConfig))
+    test_transforms = instantiate(test_transforms)
+
+    # TODO: tune TTA with optuna
+    tta_transforms = get_key_def('tta_transforms', params['inference'], default=None, expected_type=(dict, DictConfig))
 
     seed = 123
     seed_everything(seed)
@@ -255,6 +260,11 @@ def main(params):
 
     model.freeze()
     model.eval()
+    model = model.to(device)
+
+    # instantiate test-time augmentations
+    if tta_transforms:
+        model = instantiate(tta_transforms, model=model)
 
     dm = InferenceDataModule(root_dir=root,
                              item_path=item_url,
@@ -266,12 +276,10 @@ def main(params):
                              num_workers=num_workers,
                              download=download_data,
                              seed=seed,
-                             pad=pad,
+                             pad=pad_size,
                              save_heatmap=save_heatmap,
                              )
-    dm.setup()
-
-    model = model.to(device)
+    dm.setup(test_transforms=test_transforms)
 
     h, w = [side for side in dm.inference_dataset.src.shape]
 
@@ -279,7 +287,6 @@ def main(params):
         batch_size = auto_batch_size_finder(datamodule=dm,
                                             device=device,
                                             model=model,
-                                            tta_transforms=tta_transforms,
                                             single_class_mode=single_class_mode,
                                             max_used_ram=auto_bs_threshold,
                                             )
@@ -295,8 +302,6 @@ def main(params):
         single_class_mode=single_class_mode,
         window_spline_2d=window_spline_2d,
         pad=dm.pad_size,
-        tta_transforms=tta_transforms,
-        tta_merge_mode=tta_merge_mode,
     )
 
     # Create a numpy memory map to write results from per-chip inference to full-size prediction
@@ -321,7 +326,7 @@ def main(params):
 
     # Read full-size prediction memory-map and write to final raster after argmax operation (discard confidence info)
     fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, num_classes))
-    pred_img = fp.argmax(axis=-1).astype('uint8')
+    pred_img = class_from_heatmap(heatmap_arr=fp, heatmap_threshold=heatmap_threshold)
     pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
     dm.inference_dataset.create_empty_outraster()
     meta = rasterio.open(outpath).meta
@@ -341,10 +346,6 @@ def main(params):
             dest.write(heatmap_arr)
         logging.info(f'\nSaved heatmap to {outpath_heat}')
 
-    # Postprocess final raster prediction (polygonization and simplification)
-    if postprocess:
-        postprocess_segmentation.main(params)
-
 
 if __name__ == "__main__":  # serves as back up
     parser = argparse.ArgumentParser(
@@ -363,9 +364,10 @@ if __name__ == "__main__":  # serves as back up
     parser.add_argument(
         "--root-dir",
         help="root directory where dataset downloaded if desired and outputs will be written",
+        default="data",
         metavar="DIR")
     args = parser.parse_args()
     params = {"inference": {"input_stac_item": args.input_stac_item, "state_dict_path": args.state_dict_path,
               "root_dir": args.root_dir},
-              "dataset": {'classes_dict': {'Building': 1}}}  # TODO softcode?
+              "dataset": {}}
     main(params)

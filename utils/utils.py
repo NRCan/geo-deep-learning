@@ -639,21 +639,26 @@ def override_model_params_from_checkpoint(
     """
     modalities = get_key_def('modalities', params['dataset'], expected_type=Sequence)
     classes = get_key_def('classes_dict', params['dataset'], expected_type=(dict, DictConfig))
+    # TODO: remove if no old models are used in production.
+    single_class_mode = get_key_def('state_dict_single_mode', params['inference'], expected_type=bool)
 
     modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=Sequence)
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
+    single_class_mode_ckpt = get_key_def('state_dict_single_mode', checkpoint_params['inference'], expected_type=bool)
 
     if model_ckpt != params.model or classes_ckpt != classes or modalities_ckpt != modalities:
         logging.warning(f"\nParameters from checkpoint will override inputted parameters."
                         f"\n\t\t\t Inputted | Overriden"
                         f"\nModel:\t\t {params.model} | {model_ckpt}"
                         f"\nInput bands:\t\t{modalities} | {modalities_ckpt}"
-                        f"\nOutput classes:\t\t{classes} | {classes_ckpt}")
+                        f"\nOutput classes:\t\t{classes} | {classes_ckpt}"
+                        f"\nSingle class mode:\t\t{single_class_mode} | {single_class_mode_ckpt}")
         with open_dict(params):
-            OmegaConf.update(params, 'dataset.modalities', modalities_ckpt)
-            OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt)
-            OmegaConf.update(params, 'model', model_ckpt)
+            OmegaConf.update(params, 'dataset.modalities', modalities_ckpt, merge=False)
+            OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt, merge=False)
+            OmegaConf.update(params, 'model', model_ckpt, merge=False)
+            OmegaConf.update(params, 'inference.state_dict_single_mode', single_class_mode_ckpt, merge=False)
     return params
 
 
@@ -719,27 +724,30 @@ def update_gdl_checkpoint(checkpoint_params):
                              f"\nError {type(e)}: {e}")
             raise e
         # For GDL pre-v2.0.2
-        #bands_ckpt = ''
-        #bands_ckpt = bands_ckpt.join([bands[i] for i in range(num_bands_ckpt)])
         checkpoint_params['params'].update({
             'dataset': {
-                'modalities': [list(bands.keys())[i] for i in range(num_bands_ckpt)], #bands_ckpt,
-                #"classes_dict": {f"BUIL": 1}
-                "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)}
+                'modalities': [list(bands.keys())[i] for i in range(num_bands_ckpt)],
+                #"classes_dict": {f"FORE": 1},  # Necessary when using old in postprocess pipeline
+                "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)},
             }
         })
         checkpoint_params['params'].update({'model': model_ckpt})
+        # Necessary when using old in postprocess pipeline
+        # checkpoint_params['params'].update({'inference': {'state_dict_single_mode': False}})
         return checkpoint_params
 
 
-def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None, single_class_mode: bool = False):
+def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
     """
     Converts a geo-deep-learning/pytorch checkpoint (from v2.0.0+) to a pytorch lightning checkpoint.
     The outputted model should remain compatible with geo-deep-learning's checkpoint loading.
-    @param in_pth_path: path to input checkpoint
-    @param out_pth_path: path where pytorch-lightning adapted checkpoint should be written. Default to same as input,
-                         but with "pl_" prefix in front of name
-    @return: path to outputted checkpoint and path to outputted yaml to use when loading with pytorch lightning
+    @param in_pth_path:
+        path to input checkpoint
+    @param out_pth_path:
+        path where pytorch-lightning adapted checkpoint should be written. Default to same as input,
+        but with "pl_" prefix in front of name
+    @return:
+        path to outputted checkpoint and path to outputted yaml to use when loading with pytorch lightning
     """
     if not out_pth_path:
         out_pth_path = Path(in_pth_path).parent / f'pl_{Path(in_pth_path).name}'
@@ -751,7 +759,12 @@ def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None, single_class_m
 
     hparams = get_key_def('model', checkpoint['params'])
     class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
-    num_classes = class_keys if class_keys == 1 and single_class_mode else class_keys + 1  # +1 for background(multiclass mode)
+    # TODO: remove if no old models are used in production.
+    single_class_mode = True
+    if 'inference' in checkpoint.keys():
+        single_class_mode = get_key_def('state_dict_single_mode', checkpoint['inference'], default=True)
+    # +1 for background(multiclass mode)
+    num_classes = class_keys if class_keys == 1 and single_class_mode else class_keys + 1
     # Store hyper parameters to checkpoint as expected by pytorch lightning
     if isinstance(hparams, DictConfig):
         OmegaConf.set_struct(hparams, False)
@@ -805,5 +818,38 @@ def read_checkpoint(filename, update=True):
         elif update:
             checkpoint = update_gdl_checkpoint(checkpoint)
         return checkpoint
-    except FileNotFoundError:
-        raise logging.critical(FileNotFoundError(f"\n=> No model found at '{filename}'"))
+    except FileNotFoundError as e:
+        logging.critical(f"\n=> No model found at '{filename}'")
+        raise e
+
+
+def extension_remover(name: str) -> str:
+    """
+    Removes extension from a string
+    @param name: String to remove extension from if necessary
+    @return: string without extension
+    """
+    if Path(name).suffix:
+        logging.error(f"\nOutput name \"{name}\" should not contain an extension. "
+                      f"\nThe extension \"{Path(name).suffix}\" will be stripped.")
+        return Path(name).stem
+    else:
+        return name
+
+
+def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: int = 50):
+    """
+    Sets class value from raw heatmap as predicted by model
+    @param heatmap_arr:
+        heatmap array (channels last)
+    @param heatmap_threshold:
+        threshold (%) to apply to heatmap if single class prediction
+    @return: flattened array where pixel values correspond to final class values
+    """
+    if heatmap_arr.shape[-1] == 1:
+        abs_threshold = heatmap_threshold/100 * (heatmap_arr.max() - heatmap_arr.min())
+        flattened_arr = (heatmap_arr > abs_threshold)
+        flattened_arr = np.squeeze(flattened_arr, axis=-1)
+    else:
+        flattened_arr = heatmap_arr.argmax(axis=-1)
+    return flattened_arr.astype(int)

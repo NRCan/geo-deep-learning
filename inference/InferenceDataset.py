@@ -16,6 +16,11 @@ from torchvision.datasets.utils import download_url
 
 from inference.SingleBandItemEO import SingleBandItemEO
 
+# Set the logging file
+from utils.logger import get_logger
+
+logging = get_logger(__name__)
+
 
 class InferenceDataset(RasterDataset):
     def __init__(
@@ -27,34 +32,47 @@ class InferenceDataset(RasterDataset):
             res: Optional[float] = None,
             bands: Sequence[str] = [],
             transforms: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-            cache: bool = False,
             download: bool = False,
             singleband_files: bool = True,
-            pad: int = 256,  # TODO softcode pad mode (currently: reflect)
+            pad: int = 256,
     ) -> None:
         """Initialize a new CCCOT Dataset instance.
 
-        Arguments
-        ---------
-            item_path: TODO
-            root: root directory where dataset can be found
-            bands: band selection which must be a list of STAC Item common names from eo extension.
-                        See: https://github.com/stac-extensions/eo/#common-band-names
-            download: if True, download dataset and store it in the root directory.
+        @param item_path:
+            path to stac item containing imagery assets to infer on
+        @param root:
+            root directory where dataset can be found
+        @param outpath:
+            path to desired output
+        @param crs:
+            Coordinate reference system of Dataset
+        @param res:
+            Resolution (GSD) of Dataset
+        @param bands:
+            band selection which must be a list of STAC Item common names from eo extension.
+            See: https://github.com/stac-extensions/eo/#common-band-names
+        @param transforms:
+            Tranforms to apply to raw chip before feeding it to model
+        @param download:
+            if True, download dataset and store it in the root directory.
+        @param singleband_files:
+            if True, this class will expect assets from Stac Item to contain only one band  # TODO: implement multiband
+        @param pad:
+            padding to apply to each chip
         """
         self.item_url = item_path
         self.bands = bands
         if len(self.bands) == 0:
-            raise ValueError(f"At least one band should be chosen")
+            logging.error(f"At least one band should be chosen if assets need to be reached")
         self.root = Path(root)
         self.transforms = transforms
         self.separate_files = singleband_files
-        self.cache = cache
         self.download = download
         self.pad = pad
         self.outpath = outpath
         self.outpath_vec = self.root / f"{outpath.stem}.gpkg"
         self.outpath_heat = self.root / f"{outpath.stem}_heatmap.tif"
+        self.cache = download
 
         # Create an R-tree to index the dataset
         self.index = Index(interleaved=False, properties=Property(dimension=3))
@@ -64,7 +82,7 @@ class InferenceDataset(RasterDataset):
         if self.separate_files:
             self.item = SingleBandItemEO(pystac.Item.from_file(str(self.item_url)))
         else:
-            pass  # TODO: implement
+            raise NotImplementedError(f"Currently only support single-band Stac Items")  # TODO
 
         # Create band inventory (all available bands)
         self.all_bands = [band for band in self.item.asset_by_common_name.keys()]
@@ -84,40 +102,41 @@ class InferenceDataset(RasterDataset):
                 self.bands_dict[cname]['href'] = out_name
 
         # Open first asset with rasterio (for metadata: colormap, crs, resolution, etc.)
-        self.first_asset = self.bands_dict[self.bands[0]]['href']
-        self.first_asset = self.first_asset if is_url(self.first_asset) else to_absolute_path(self.first_asset)
+        if self.bands:
+            self.first_asset = self.bands_dict[self.bands[0]]['href']
+            self.first_asset = self.first_asset if is_url(self.first_asset) else to_absolute_path(self.first_asset)
 
-        self.src = rasterio.open(self.first_asset)
+            self.src = rasterio.open(self.first_asset)
 
-        # See if file has a color map
-        try:
-            self.cmap = self.src.colormap(1)
-        except ValueError:
-            pass
+            # See if file has a color map
+            try:
+                self.cmap = self.src.colormap(1)
+            except ValueError:
+                pass
 
-        if crs is None:
-            crs = self.src.crs
-        if res is None:
-            res = self.src.res[0]
+            if crs is None:
+                crs = self.src.crs
+            if res is None:
+                res = self.src.res[0]
 
-        # to implement reprojection, see:
-        # https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/torchgeo/datasets/geo.py#L361
-        minx, miny, maxx, maxy = self.src.bounds
+            # to implement reprojection, see:
+            # https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/torchgeo/datasets/geo.py#L361
+            minx, miny, maxx, maxy = self.src.bounds
 
-        # Get temporal information from STAC item
-        self.date = self.item.item.datetime
-        mint = maxt = self.date.timestamp()
+            # Get temporal information from STAC item
+            self.date = self.item.item.datetime
+            mint = maxt = self.date.timestamp()
 
-        # Add paths to Rtree index
-        coords = (minx, maxx, miny, maxy, mint, maxt)
+            # Add paths to Rtree index
+            coords = (minx, maxx, miny, maxy, mint, maxt)
 
-        self.index.insert(0, coords, self.first_asset)
-        self._crs = cast(CRS, crs)
-        self.res = cast(float, res)
+            self.index.insert(0, coords, self.first_asset)
+            self._crs = cast(CRS, crs)
+            self.res = cast(float, res)
 
     def create_empty_outraster(self):
         """
-        TODO
+        Writes an empty output raster to disk
         @return:
         """
         pred = np.zeros(self.src.shape, dtype=np.uint8)
@@ -137,7 +156,7 @@ class InferenceDataset(RasterDataset):
 
     def create_empty_outraster_heatmap(self, num_classes: int):
         """
-        TODO
+        Writes an empty output raster for heatmap to disk
         @param num_classes:
         @return:
         """
@@ -176,7 +195,7 @@ class InferenceDataset(RasterDataset):
             )
 
         # TODO: turn off external logs (ex.: rasterio._env)
-        # TODO: https://stackoverflow.com/questions/35325042/python-logging-disable-logging-from-imported-modules
+        # https://stackoverflow.com/questions/35325042/python-logging-disable-logging-from-imported-modules
         with rasterio.Env(CPL_CURL_VERBOSE=False):
             if self.separate_files:
                 data_list: List[Tensor] = []

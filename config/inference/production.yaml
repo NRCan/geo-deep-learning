@@ -2,21 +2,35 @@
 inference:
   input_stac_item: https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03
   root_dir: ${general.raw_data_dir}
-  output_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred  # name of output file to write in root FIXME: Defaults to stem of stac item
+  # name of final output file without extension to write in root
+  # Warning: this name if only used at generalization. Other outputs are based on inference.output_name
+  output_name: # defaults to SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred
   state_dict_path: saved_model/manet_pretrained_bds3_cls1.pth.tar
-  state_dict_single_mode: False  # FIXME: how to better softcode this?
-  download_data: False  # if True, will download local copy of imagery and infer from this copy rather than from web
+  download_data: True  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer
   save_heatmap: True  # saves a heatmap to root_dir/{output_name}_heatmap.tif
-  batch_size: # if empty, will be calculated automatically to fill "auto_batch_size_threshold" % of GPU Ram
-  chunk_size: # Defaults to 512
-  auto_batch_size_threshold: 90
 
-  tta_merge_mode: max  # Test time augmentation merge mode. See: https://github.com/qubvel/ttach#merge-modes
-  tta_transforms: horizontal_flip  # Test-time augmentation tranforms. See: https://github.com/qubvel/ttach#transforms
-  postprocess: True  # if True, will proceed to postprocessing directly after inference  # TODO is this flag necessary?
-
-  # GPU parameters
+# GPU parameters
   gpu: 1  # Number of gpus to use.
   max_used_perc: ${training.max_used_perc}  # If RAM usage of detected GPU exceeds this percentage, it will be ignored
   max_used_ram: ${training.max_used_ram}  # If GPU's usage exceeds this percentage, it will be ignored
+
+  batch_size: # if empty, will be calculated automatically to fill "auto_batch_size_threshold" % of GPU Ram
+  chunk_size: # Defaults to 512
+  auto_batch_size_threshold: 90
+  test_transforms:
+    _target_: torchvision.transforms.Compose
+    transforms:
+      [{'_target_': inference.InferenceDataModule.pad, size: 16, mode: 'reflect'},
+      {'_target_': inference.InferenceDataModule.enhance, clip_limit: 0.1},
+      {'_target_': inference.InferenceDataModule.preprocess}]
+
+  # Test-time augmentation tranforms. See: https://github.com/qubvel/ttach#transforms
+  tta_transforms:  # transform object by hydra's instantiate() method
+    _target_: ttach.SegmentationTTAWrapper
+    transforms:
+      _target_: ttach.Compose
+      transforms: [{_target_: ttach.HorizontalFlip}]  # Alternative: tta.aliases.d4_transform()
+    merge_mode: max  # Test time augmentation merge mode. See: https://github.com/qubvel/ttach#merge-modes
+
+
