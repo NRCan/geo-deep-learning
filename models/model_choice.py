@@ -6,6 +6,8 @@ from hydra.utils import instantiate
 import torch
 import torch.nn as nn
 
+from utils.utils import update_gdl_checkpoint
+
 logging.getLogger(__name__)
 
 
@@ -23,7 +25,7 @@ def define_model_architecture(
     return instantiate(net_params, in_channels=in_channels, classes=out_classes)
 
 
-def read_checkpoint(filename):
+def read_checkpoint(filename, update=True):
     """
     Loads checkpoint from provided path to GDL's expected format,
     ie model's state dictionary should be under "model_state_dict" and
@@ -39,7 +41,7 @@ def read_checkpoint(filename):
         logging.info(f"\n=> loading model '{filename}'")
         # For loading external models with different structure in state dict.
         checkpoint = torch.load(filename, map_location='cpu')
-        if 'model_state_dict' not in checkpoint.keys():
+        if 'model_state_dict' not in checkpoint.keys() and 'model' not in checkpoint.keys():
             val_set = set()
             for val in checkpoint.values():
                 val_set.add(type(val))
@@ -49,19 +51,10 @@ def read_checkpoint(filename):
                 new_checkpoint['model_state_dict'] = OrderedDict({k: v for k, v in checkpoint.items()})
                 del checkpoint
                 checkpoint = new_checkpoint
-            # Covers gdl's checkpoints at version <=2.0.1
-            elif 'model' in checkpoint.keys():
-                checkpoint['model_state_dict'] = checkpoint['model']
-                del checkpoint['model']
             else:
                 raise ValueError(f"GDL cannot find weight in provided checkpoint")
-        if 'optimizer_state_dict' not in checkpoint.keys():
-            try:
-                # Covers gdl's checkpoints at version <=2.0.1
-                checkpoint['optimizer_state_dict'] = checkpoint['optimizer']
-                del checkpoint['optimizer']
-            except KeyError:
-                logging.critical(f"No optimizer state dictionary was found in provided checkpoint")
+        elif update:
+            checkpoint = update_gdl_checkpoint(checkpoint)
         return checkpoint
     except FileNotFoundError:
         raise logging.critical(FileNotFoundError(f"\n=> No model found at '{filename}'"))

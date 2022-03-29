@@ -1,3 +1,5 @@
+# See: https://www.azavea.com/blog/2019/08/30/transfer-learning-from-rgb-to-multi-band-imagery/
+
 import logging
 from typing import Optional
 

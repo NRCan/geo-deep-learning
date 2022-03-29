@@ -780,15 +780,6 @@ def main(cfg: DictConfig) -> None:
     -------
     :param cfg: (dict) Parameters found in the yaml config file.
     """
-    # Limit of the NIR implementation
-    # FIXME: keep this warning?
-    # if 'deeplabv3' not in cfg.model.model_name and 'IR' in read_modalities(cfg.dataset.modalities):
-    #     logging.info(
-    #         '\nThe NIR modality will be fed at first layer of model alongside other bands,'
-    #         '\nthe implementation of concatenation point at an intermediary layer is only available'
-    #         '\nfor the deeplabv3 model for now. \nMore will follow on demand.'
-    #     )
-
     # Preprocessing
     # HERE the code to do for the preprocessing for the segmentation
 
