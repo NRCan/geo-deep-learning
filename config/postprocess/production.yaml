@@ -66,8 +66,8 @@ postprocess:
         /bin/bash -c "
         qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
-        qgis_process run /models/WAER.model3 --
-        inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
+        qgis_process run /models/WAER.model3 
+        --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
         --inselectattrname=value --inselectattrint=1 
         --insimpdiamtol=0.3 --inrmvholesunder=25 --inredbendtol=2 --inminarea=25    
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg

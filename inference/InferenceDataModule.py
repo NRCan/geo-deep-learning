@@ -54,7 +54,7 @@ def enhance(
         img_adapteq = []
         for band in range(sample['image'].shape[-1]):
             out_band = exposure.equalize_adapthist(sample["image"][..., band], clip_limit=clip_limit)
-            out_band = (out_band*255).astype(int)
+            out_band = (out_band*255).astype(np.uint8)
             img_adapteq.append(out_band)
         out_stacked = np.stack(img_adapteq, axis=-1)
         sample["image"] = torch.from_numpy(np.moveaxis(out_stacked, -1, 0))

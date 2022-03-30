@@ -9,7 +9,7 @@
 """CCMEO model inference script."""
 import argparse
 from pathlib import Path
-from typing import Dict, Any, Sequence
+from typing import Dict, Any, Sequence, Union
 
 import numpy as np
 import rasterio
@@ -18,6 +18,7 @@ from omegaconf import DictConfig
 from pytorch_lightning import LightningModule, seed_everything
 import torch
 from rasterio.plot import reshape_as_raster
+from skimage.exposure.exposure import intensity_range
 from torch import autocast, Tensor
 import torch.nn.functional as F
 from torchvision.transforms import Compose
@@ -27,7 +28,7 @@ from inference.InferenceDataModule import InferenceDataModule, preprocess, pad
 from models.model_choice import define_model_architecture
 from utils.logger import get_logger
 from utils.utils import _window_2D, get_device_ids, get_key_def, set_device, override_model_params_from_checkpoint, \
-    gdl2pl_checkpoint, read_checkpoint, extension_remover, class_from_heatmap
+    gdl2pl_checkpoint, read_checkpoint, extension_remover, class_from_heatmap, stretch_heatmap
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -181,6 +182,24 @@ def eval_batch_generator(
         yield batch_output
 
 
+def save_heatmap(heatmap: np.ndarray, outpath: Union[str, Path], meta: dict):
+    """
+    Write a heatmap as array to disk
+    @param heatmap:
+        array of dtype float containing probability map for each class,
+        after sigmoid or softmax operation (expects values between 0 and 1)
+    @param outpath: path to desired output file
+    @param meta:
+        metadata as expected by rasterio.open() to write output file
+    @return:
+    """
+    heatmap_arr = stretch_heatmap(heatmap_arr=heatmap, out_max=100)
+    heatmap_arr = reshape_as_raster(heatmap_arr).astype(np.uint8)
+    with rasterio.open(outpath, 'w+', **meta) as dest:
+        dest.write(heatmap_arr)
+    logging.info(f'\nSaved heatmap to {outpath}')
+
+
 def main(params):
     """High-level pipeline.
     Runs a model checkpoint on non-labeled imagery and saves results to file.
@@ -190,12 +209,12 @@ def main(params):
     # Main params
     item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
     root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
-    outname = get_key_def('output_name', params['inference'], default=f"{item_url.stem}_pred")
+    outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
     outname = extension_remover(outname)
     outpath = root / f"{outname}.tif"
     checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
-    save_heatmap = get_key_def('save_heatmap', params['inference'], default=False, expected_type=bool)
+    save_heatmap_bool = get_key_def('save_heatmap', params['inference'], default=False, expected_type=bool)
     heatmap_threshold = get_key_def('heatmap_threshold', params['inference'], default=50, expected_type=int)
 
     # Create yaml to use pytorch lightning model management
@@ -277,7 +296,7 @@ def main(params):
                              download=download_data,
                              seed=seed,
                              pad=pad_size,
-                             save_heatmap=save_heatmap,
+                             save_heatmap=save_heatmap_bool,
                              )
     dm.setup(test_transforms=test_transforms)
 
@@ -340,11 +359,7 @@ def main(params):
         dm.inference_dataset.create_empty_outraster_heatmap(num_classes)
         outpath_heat = Path(dm.inference_dataset.outpath_heat)
         meta = rasterio.open(outpath_heat).meta
-        heatmap_arr = np.array(fp) / fp.max() * 100
-        heatmap_arr = reshape_as_raster(heatmap_arr).astype(np.uint8)
-        with rasterio.open(outpath_heat, 'w+', **meta) as dest:
-            dest.write(heatmap_arr)
-        logging.info(f'\nSaved heatmap to {outpath_heat}')
+        save_heatmap(heatmap=fp, outpath=outpath_heat, meta=meta)
 
 
 if __name__ == "__main__":  # serves as back up

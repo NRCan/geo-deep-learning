@@ -15,6 +15,7 @@ import rich.tree
 from omegaconf import DictConfig, OmegaConf, ListConfig, open_dict
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2575
 import torch
+from skimage.exposure.exposure import intensity_range
 from torchvision import models
 import numpy as np
 import scipy.signal
@@ -451,7 +452,7 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
 """ Adapted from : https://github.com/Vooban/Smoothly-Blend-Image-Patches  """
 
 
-def _spline_window(window_size, power=2):
+def _spline_window(window_size: int, power=2) -> np.ndarray:
     """
     Squared spline (power=2) window function:
     https://www.wolframalpha.com/input/?i=y%3Dx**2,+y%3D-(x-2)**2+%2B2,+y%3D(x-4)**2,+from+y+%3D+0+to+2
@@ -470,7 +471,7 @@ def _spline_window(window_size, power=2):
 
 
 cached_2d_windows = dict()
-def _window_2D(window_size, power=2):
+def _window_2D(window_size: int, power=2) -> np.ndarray:
     """
     Make a 1D window function, then infer and return a 2D window function.
     Done with an augmentation, and self multiplication with its transpose.
@@ -489,12 +490,13 @@ def _window_2D(window_size, power=2):
     return wind
 
 
-def get_git_hash():
+def get_git_hash() -> str:
     """
     Get git hash during execution of python script
-    :return: (str) hash code for current version of geo-deep-learning. If necessary, the code associated to this hash can be
-    found with the following url: https://github.com/<owner>/<project>/commit/<hash>, aka
-    https://github.com/NRCan/geo-deep-learning/commit/<hash>
+    @return (str)
+        hash code for current version of geo-deep-learning. If necessary, the code associated to this hash can
+        be found with the following url: https://github.com/<owner>/<project>/commit/<hash>, aka
+        https://github.com/NRCan/geo-deep-learning/commit/<hash>
     """
     command = f'git rev-parse --short HEAD'
     subproc = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -630,7 +632,7 @@ def print_config(
 
 def override_model_params_from_checkpoint(
         params: DictConfig,
-        checkpoint_params):
+        checkpoint_params) -> DictConfig:
     """
     Overrides model-architecture related parameters from provided checkpoint parameters
     @param params: Original parameters as inputted through hydra
@@ -662,7 +664,13 @@ def override_model_params_from_checkpoint(
     return params
 
 
-def update_gdl_checkpoint(checkpoint_params):
+def update_gdl_checkpoint(checkpoint_params: Union[dict, DictConfig]) -> Union[dict, DictConfig]:
+    """
+    Updates old geo-deep-learning checkpoint to the most recent version
+    @param checkpoint_params:
+        Checkpoint as dictionary containing training parameters, model weights, etc.
+    @return: updated checkpoint
+    """
     # covers gdl checkpoints from version <= 2.0.1
     if 'model' in checkpoint_params.keys():
         checkpoint_params['model_state_dict'] = checkpoint_params['model']
@@ -727,17 +735,17 @@ def update_gdl_checkpoint(checkpoint_params):
         checkpoint_params['params'].update({
             'dataset': {
                 'modalities': [list(bands.keys())[i] for i in range(num_bands_ckpt)],
-                #"classes_dict": {f"FORE": 1},  # Necessary when using old in postprocess pipeline
+                #"classes_dict": {f"BUIL": 1},  # Necessary when using old in postprocess pipeline
                 "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)},
             }
         })
         checkpoint_params['params'].update({'model': model_ckpt})
         # Necessary when using old in postprocess pipeline
-        # checkpoint_params['params'].update({'inference': {'state_dict_single_mode': False}})
+        #checkpoint_params['params'].update({'inference': {'state_dict_single_mode': False}})
         return checkpoint_params
 
 
-def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
+def gdl2pl_checkpoint(in_pth_path: Union[str, Path], out_pth_path: str = None) -> Union[str, Path]:
     """
     Converts a geo-deep-learning/pytorch checkpoint (from v2.0.0+) to a pytorch lightning checkpoint.
     The outputted model should remain compatible with geo-deep-learning's checkpoint loading.
@@ -761,8 +769,8 @@ def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
     class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
     # TODO: remove if no old models are used in production.
     single_class_mode = True
-    if 'inference' in checkpoint.keys():
-        single_class_mode = get_key_def('state_dict_single_mode', checkpoint['inference'], default=True)
+    if 'inference' in checkpoint['params'].keys():
+        single_class_mode = get_key_def('state_dict_single_mode', checkpoint['params']['inference'], default=True)
     # +1 for background(multiclass mode)
     num_classes = class_keys if class_keys == 1 and single_class_mode else class_keys + 1
     # Store hyper parameters to checkpoint as expected by pytorch lightning
@@ -787,7 +795,7 @@ def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None):
     return out_pth_path
 
 
-def read_checkpoint(filename, update=True):
+def read_checkpoint(filename, update=True) -> DictConfig:
     """
     Loads checkpoint from provided path to GDL's expected format,
     ie model's state dictionary should be under "model_state_dict" and
@@ -837,19 +845,40 @@ def extension_remover(name: str) -> str:
         return name
 
 
-def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: int = 50):
+def stretch_heatmap(heatmap_arr: np.ndarray, out_max: int = 100) -> np.ndarray:
+    """
+    Stretches heatmap values between 0 and an inputted maximum value
+    @param heatmap_arr:
+        3D array of dtype float containing probability map for each class,
+        after sigmoid or softmax operation (expects values between 0 and 1)
+    @param out_max:
+        Output maximum value
+    @return: numpy array with stretched values
+    """
+    imin, imax = map(float, intensity_range(heatmap_arr, 'image'))
+    if imin < 0 or imax > 1:
+        logging.error(f"\nProvided heatmap should be the result of sigmoid or softmax operation."
+                      f"\nExpected values are between 0 and 1. Got min {imin} and max {imax}.")
+        omax = imax
+    else:
+        _, omax = map(float, intensity_range(heatmap_arr, 'dtype'))
+    return np.array(heatmap_arr) / omax * out_max
+
+
+def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: int = 50) -> np.ndarray:
     """
     Sets class value from raw heatmap as predicted by model
     @param heatmap_arr:
-        heatmap array (channels last)
+        3D array (channels last) of dtype float containing probability map for each class,
+        after sigmoid or softmax operation (expects values between 0 and 1)
     @param heatmap_threshold:
         threshold (%) to apply to heatmap if single class prediction
     @return: flattened array where pixel values correspond to final class values
     """
     if heatmap_arr.shape[-1] == 1:
-        abs_threshold = heatmap_threshold/100 * (heatmap_arr.max() - heatmap_arr.min())
-        flattened_arr = (heatmap_arr > abs_threshold)
+        heatmap_arr = stretch_heatmap(heatmap_arr=heatmap_arr, out_max=100)
+        flattened_arr = (heatmap_arr > heatmap_threshold)
         flattened_arr = np.squeeze(flattened_arr, axis=-1)
     else:
         flattened_arr = heatmap_arr.argmax(axis=-1)
-    return flattened_arr.astype(int)
+    return flattened_arr.astype(np.uint8)
