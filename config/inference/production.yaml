@@ -4,7 +4,7 @@ inference:
   root_dir: ${general.raw_data_dir}
   # name of final output file without extension to write in root
   # Warning: this name if only used at generalization. Other outputs are based on inference.output_name
-  output_name: # defaults to SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred
+  output_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred # defaults to {input_stac_item.stem}_pred
   state_dict_path: saved_model/manet_pretrained_bds3_cls1.pth.tar
   download_data: True  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer

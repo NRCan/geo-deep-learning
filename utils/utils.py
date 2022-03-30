@@ -664,7 +664,7 @@ def override_model_params_from_checkpoint(
     return params
 
 
-def update_gdl_checkpoint(checkpoint_params: Union[dict, DictConfig]) -> Union[dict, DictConfig]:
+def update_gdl_checkpoint(checkpoint_params: DictConfig) -> DictConfig:
     """
     Updates old geo-deep-learning checkpoint to the most recent version
     @param checkpoint_params:
@@ -745,7 +745,7 @@ def update_gdl_checkpoint(checkpoint_params: Union[dict, DictConfig]) -> Union[d
         return checkpoint_params
 
 
-def gdl2pl_checkpoint(in_pth_path: Union[str, Path], out_pth_path: str = None) -> Union[str, Path]:
+def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None) -> str:
     """
     Converts a geo-deep-learning/pytorch checkpoint (from v2.0.0+) to a pytorch lightning checkpoint.
     The outputted model should remain compatible with geo-deep-learning's checkpoint loading.

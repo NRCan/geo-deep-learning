@@ -11,7 +11,7 @@ postprocess:
   generalization: True  # if True, a generalized version of the inference (.gpkg) will be created with qgis models
   # if True, confidence values are added as an attribute to polygons
   # based on heatmap from inference (requires inference.save_heatmap=True)
-  confidence_values: True
+  confidence_values: True # Defaults to True
 
   output_suffixes:
     regularization: _reg
@@ -59,30 +59,31 @@ postprocess:
     cont_image: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
     # cont_image: ../singularity/qgis_pp.sif  # for singularity
     command:
-      # These commands are hardcoded for single-class models outputting pixel value 1 as foreground
-      # .model3 filenames are also hardcoded
+      # WARNING: these values and interpolation variables are highly coupled with code to cover different use cases
+      # like single-class model extraction vs multi-class models. Modify commands at your own risk!
+      # .model3 filenames are hardcoded
       # Some parameter values aren't mandatory as default values exist, but are exposed here to increase configurability
+      FORE:
+        /bin/bash -c "
+        qgis_process plugins enable geo_sim_processing;
+        qgis_process plugins enable processing;
+        qgis_process run /models/FORE.model3
+        --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
+        --inselectattrname=value --inselectattrint=${dataset.classes_dict.FORE}
+        --insimpdiamtol=0.3 --inrmvholesunder=75 --inredbendtol=2 --inminarea=75
+        --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
+        --outlayername=FORE_2
+        "
       WAER:
         /bin/bash -c "
         qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/WAER.model3 
         --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
-        --inselectattrname=value --inselectattrint=1 
+        --inselectattrname=value --inselectattrint=${dataset.classes_dict.WAER}
         --insimpdiamtol=0.3 --inrmvholesunder=25 --inredbendtol=2 --inminarea=25    
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
         --outlayername=WAER_2
-        "
-      FORE:
-        /bin/bash -c "
-        qgis_process plugins enable geo_sim_processing;
-        qgis_process plugins enable processing;
-        qgis_process run /models/FORE.model3 
-        --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
-        --inselectattrname=value --inselectattrint=1
-        --insimpdiamtol=0.3 --inrmvholesunder=75 --inredbendtol=2 --inminarea=75   
-        --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
-        --outlayername=FORE_2
         "
       ROAI:
         /bin/bash -c "
@@ -90,7 +91,7 @@ postprocess:
         qgis_process plugins enable processing;
         qgis_process run /models/ROAI.model3 
         --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
-        --inselectattrname=value --inselectattrint=1
+        --inselectattrname=value --inselectattrint=${dataset.classes_dict.ROAI}
         --insimpdiamtol=0.3 --inredbendtol=2 --inrmvholesunder=300 --indensinterval=15 
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
         --outlayernameline=ROAI_1
@@ -102,7 +103,7 @@ postprocess:
         qgis_process plugins enable processing;
         qgis_process run /models/BUIL.model3 
         --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
-        --inselectattrname=value --inselectattrint=1 
+        --inselectattrname=value --inselectattrint=${dataset.classes_dict.BUIL}
         --insimpdiamtol=0.3 --inrmvholesunder=40 
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
         --outlayername=BUIL_2

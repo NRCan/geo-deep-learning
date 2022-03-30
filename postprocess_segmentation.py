@@ -315,18 +315,20 @@ def main(params):
     item_url = get_key_def('input_stac_item', params['postprocess'], expected_type=str, to_path=True,
                            validate_path_exists=True)
     root = get_key_def('root_dir', params['postprocess'], default="data", to_path=True, validate_path_exists=True)
-    outname = get_key_def('output_name', params['postprocess'], expected_type=str)
-    if not outname:
-        logging.critical(f"")
-    outname = extension_remover(outname)
-    inf_outname = get_key_def('output_name', params['inference'], default=f"{item_url.stem}_pred", expected_type=str)
+    inf_outname = get_key_def('output_name', params['inference'], expected_type=str)
+    if not inf_outname:
+        raise ValueError(f"\nNo inference output name is set. This parameter is required during postprocessing for "
+                         f"\nhydra's successful interpolation of input and output names in commands set in config.")
     inf_outname = extension_remover(inf_outname)
     inf_outpath = root / f"{inf_outname}.tif"
+    outname = get_key_def('output_name', params['postprocess'], default=inf_outname, expected_type=str)
+    outname = extension_remover(outname)
     if not inf_outpath.is_file():
         raise FileNotFoundError(f"\nCannot find raster prediction file to use for postprocessing."
                                 f"\nGot:{inf_outpath}")
     checkpoint = get_key_def('state_dict_path', params['postprocess'], expected_type=str, to_path=True,
                              validate_path_exists=True)
+    dataset_classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
 
     # Post-processing
     confidence_values = get_key_def('confidence_values', params['postprocess'], expected_type=bool, default=True)
@@ -364,7 +366,7 @@ def main(params):
                                   to_path=True, validate_path_exists=True)
     gen_cont_type = get_key_def('cont_type', params['postprocess']['gen_cont'], expected_type=str)
     gen_cont_image = get_key_def('cont_image', params['postprocess']['gen_cont'], expected_type=str)
-    gen_commands = get_key_def('command', params['postprocess']['gen_cont'], expected_type=DictConfig)
+    gen_commands = dict(get_key_def('command', params['postprocess']['gen_cont'], expected_type=DictConfig))
 
     # Create yaml to use pytorch lightning model management
     logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
@@ -376,6 +378,12 @@ def main(params):
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
     classes_dict = {k: v for k, v in classes_dict.items() if v}  # Discard keys where value is None
     gen_cmds_pruned = {data_class: cmd for data_class, cmd in gen_commands.items() if data_class in classes_dict.keys()}
+    # WARNING: this is highly coupled to values in generalization commands in config.
+    reg_command = reg_command.replace(f"--build-val {dataset_classes_dict['BUIL']}",
+                                      f"--build-val {classes_dict['BUIL']}")
+    gen_cmds_pruned = {cls: cmd.replace(f"--inselectattrint={dataset_classes_dict[cls]}",
+                                        f"--inselectattrint={classes_dict[cls]}")
+                       for cls, cmd in gen_cmds_pruned.items()}
 
     inf_dataset = InferenceDataset(item_path=item_url, root=root, outpath=inf_outpath)
     in_heatmap = Path(inf_dataset.outpath_heat)  # root / f"{out_name}_heatmap.tif"

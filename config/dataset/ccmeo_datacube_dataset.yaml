@@ -18,10 +18,10 @@ dataset:
   min_annot_perc:
   class_name: # will follow in the next version
   classes_dict:
-    WAER:
-    FORE:
-    ROAI:
-    BUIL: 1
+    FORE: 1
+    WAER: 2
+    ROAI: 3
+    BUIL: 4
   class_weights:
   ignore_index: -1
 
