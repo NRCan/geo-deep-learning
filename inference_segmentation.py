@@ -15,12 +15,13 @@ import numpy as np
 import rasterio
 from hydra.utils import instantiate
 from omegaconf import DictConfig
+from pandas.io.common import is_url
 from pytorch_lightning import LightningModule, seed_everything
 import torch
 from rasterio.plot import reshape_as_raster
-from skimage.exposure.exposure import intensity_range
 from torch import autocast, Tensor
 import torch.nn.functional as F
+from torch.hub import load_state_dict_from_url
 from torchvision.transforms import Compose
 from tqdm import tqdm
 
@@ -209,6 +210,8 @@ def main(params):
     # Main params
     item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
     root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
+    models_dir = get_key_def('checkpoint_dir', params['inference'], default=root / 'checkpoints', to_path=True,
+                             validate_path_exists=True)
     outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
     outname = extension_remover(outname)
     outpath = root / f"{outname}.tif"
@@ -218,9 +221,11 @@ def main(params):
     heatmap_threshold = get_key_def('heatmap_threshold', params['inference'], default=50, expected_type=int)
 
     # Create yaml to use pytorch lightning model management
-    logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
-    checkpoint = gdl2pl_checkpoint(checkpoint)
-    checkpoint_dict = read_checkpoint(checkpoint)
+    if is_url(checkpoint):
+        load_state_dict_from_url(url=checkpoint, map_location='cpu', model_dir=models_dir)
+        checkpoint = models_dir / Path(checkpoint).name
+    checkpoint = gdl2pl_checkpoint(in_pth_path=checkpoint, out_dir=models_dir)
+    checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
 
     # TODO: remove if no old models are used in production.

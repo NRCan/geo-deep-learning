@@ -16,10 +16,10 @@ from omegaconf import DictConfig, OmegaConf, ListConfig, open_dict
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2575
 import torch
 from skimage.exposure.exposure import intensity_range
+from torch.hub import load_state_dict_from_url, get_dir
 from torchvision import models
 import numpy as np
 import scipy.signal
-import requests
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
@@ -302,26 +302,6 @@ def BGR_to_RGB(array):
     RGB_channels = np.ascontiguousarray(BGR_channels[..., ::-1])
     array[:, :, :3] = RGB_channels
     return array
-
-
-def checkpoint_url_download(url: str):
-    mime_type = ('application/tar', 'application/x-tar', 'applicaton/x-gtar',
-                 'multipart/x-tar', 'application/x-compress', 'application/x-compressed')
-    try:
-        response = requests.head(url)
-        if response.headers['content-type'] in mime_type:
-            working_folder = Path.cwd().joinpath('inference_out')
-            Path.mkdir(working_folder, parents=True, exist_ok=True)
-            checkpoint_path = working_folder.joinpath(Path(url).name)
-            r = requests.get(url)
-            checkpoint_path.write_bytes(r.content)
-            print(checkpoint_path)
-            return checkpoint_path
-        else:
-            raise SystemExit('Invalid Url, checkpoint content not detected')
-
-    except requests.exceptions.RequestException as e:
-        raise SystemExit(e)
 
 
 def list_input_images(img_dir_or_csv: Path,
@@ -745,22 +725,30 @@ def update_gdl_checkpoint(checkpoint_params: DictConfig) -> DictConfig:
         return checkpoint_params
 
 
-def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None) -> str:
+def gdl2pl_checkpoint(in_pth_path: str, out_dir: str = None) -> str:
     """
     Converts a geo-deep-learning/pytorch checkpoint (from v2.0.0+) to a pytorch lightning checkpoint.
     The outputted model should remain compatible with geo-deep-learning's checkpoint loading.
     @param in_pth_path:
-        path to input checkpoint
-    @param out_pth_path:
-        path where pytorch-lightning adapted checkpoint should be written. Default to same as input,
-        but with "pl_" prefix in front of name
+        path or url to input checkpoint
+    @param out_dir:
+        path where pytorch-lightning adapted checkpoint should be written. Default directory defined by
+        torch.hub's get_dir() function, under 'checkpoint'.
+        Default output name adds "pl_" prefix in front of input name
     @return:
         path to outputted checkpoint and path to outputted yaml to use when loading with pytorch lightning
     """
-    if not out_pth_path:
-        out_pth_path = Path(in_pth_path).parent / f'pl_{Path(in_pth_path).name}'
-    if Path(out_pth_path).is_file():
-        return out_pth_path
+    if Path(in_pth_path).name.startswith('pl_'):
+        logging.info(f"Already a pytorch lightning checkpoint!")
+        return in_pth_path
+    if not out_dir:
+        out_dir = get_dir() / 'checkpoint'
+    if not out_dir.is_dir():
+        out_dir.mkdir(exist_ok=True, parents=True)
+    out_path = out_dir / f'pl_{Path(in_pth_path).name}'
+    if Path(out_path).is_file():
+        return out_path
+    logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
     # load with geo-deep-learning method
     checkpoint = read_checkpoint(in_pth_path)
     checkpoint = update_gdl_checkpoint(checkpoint)
@@ -790,12 +778,12 @@ def gdl2pl_checkpoint(in_pth_path: str, out_pth_path: str = None) -> str:
     pl_checkpoint = checkpoint.copy()
     pl_checkpoint['state_dict'] = pl_checkpoint['model_state_dict']
     pl_checkpoint['hyper_parameters'] = hparams
-    torch.save(pl_checkpoint, out_pth_path)
+    torch.save(pl_checkpoint, out_path)
 
-    return out_pth_path
+    return out_path
 
 
-def read_checkpoint(filename, update=True) -> DictConfig:
+def read_checkpoint(filename, out_dir: str = 'checkpoints', update=True) -> DictConfig:
     """
     Loads checkpoint from provided path to GDL's expected format,
     ie model's state dictionary should be under "model_state_dict" and
@@ -809,8 +797,11 @@ def read_checkpoint(filename, update=True) -> DictConfig:
         return None
     try:
         logging.info(f"\n=> loading model '{filename}'")
+        if is_url(filename):
+            checkpoint = load_state_dict_from_url(url=filename, map_location='cpu', model_dir=to_absolute_path(out_dir))
+        else:
+            checkpoint = torch.load(f=filename, map_location='cpu')
         # For loading external models with different structure in state dict.
-        checkpoint = torch.load(filename, map_location='cpu')
         if 'model_state_dict' not in checkpoint.keys() and 'model' not in checkpoint.keys():
             val_set = set()
             for val in checkpoint.values():

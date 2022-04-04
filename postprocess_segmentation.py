@@ -22,6 +22,7 @@ from rasterio import features
 from rasterio.plot import reshape_as_image
 from rasterio.windows import Window
 from spython.main import Client
+from torch.hub import load_state_dict_from_url, get_dir
 from tqdm import tqdm
 
 from inference.InferenceDataset import InferenceDataset
@@ -78,6 +79,12 @@ def regularize_buildings(in_pred: Union[str, Path],
         if fallback:
             try:
                 from regularization import regularize
+                if not fallback_models_dir:
+                    fallback_models_dir = Path(get_dir()) / 'checkpoints'
+                    ckpts = ["https://github.com/remtav/projectRegularization/blob/light/regularization/saved_models_gan/E140000_net?raw=true",
+                              "https://github.com/remtav/projectRegularization/blob/light/regularization/saved_models_gan/E140000_e1?raw=true"]
+                    for ckpt in ckpts:
+                        load_state_dict_from_url(url=ckpt, model_dir=fallback_models_dir)
                 regularize.main(
                     in_raster=in_pred,
                     out_raster=out_pred,
@@ -315,6 +322,8 @@ def main(params):
     item_url = get_key_def('input_stac_item', params['postprocess'], expected_type=str, to_path=True,
                            validate_path_exists=True)
     root = get_key_def('root_dir', params['postprocess'], default="data", to_path=True, validate_path_exists=True)
+    models_dir = get_key_def('checkpoint_dir', params['inference'], default=root / 'checkpoints', to_path=True,
+                             validate_path_exists=True)
     inf_outname = get_key_def('output_name', params['inference'], expected_type=str)
     if not inf_outname:
         raise ValueError(f"\nNo inference output name is set. This parameter is required during postprocessing for "
@@ -370,8 +379,8 @@ def main(params):
 
     # Create yaml to use pytorch lightning model management
     logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
-    checkpoint = gdl2pl_checkpoint(checkpoint)
-    checkpoint_dict = read_checkpoint(checkpoint)
+    checkpoint = gdl2pl_checkpoint(in_pth_path=checkpoint, out_dir=models_dir)
+    checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
 
     # filter generalization commands based on extracted classes
