@@ -104,17 +104,17 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
         largest batch size before max_used_ram threshold is reached for GPU memory
     """
     src_size = datamodule.inference_dataset.src.height * datamodule.inference_dataset.src.width
-    batch_size_init = batch_size_trial = 1
+    bs_min, bs_max, bs_step = 4, 256, 4
     window_spline_2d = create_spline_window(datamodule.patch_size).to(device)
-    _tqdm = tqdm(range(64), desc=f"Finding batch size filling GPU to {max_used_ram} % or less")
+    _tqdm = tqdm(range(bs_min, bs_max, bs_step), desc=f"Finding batch size filling GPU to {max_used_ram} % or less")
     for trial in _tqdm:
-        batch_size_trial += batch_size_init*(trial+1)
+        batch_size_trial = trial
         _tqdm.set_postfix_str(f"Trying: {batch_size_trial}")
         datamodule.batch_size = batch_size_trial
         if batch_size_trial*datamodule.patch_size**2 > src_size:
             logging.info(f"Reached maximum batch size for image size. "
-                         f"Batch size tuned to {batch_size_trial-batch_size_init}.")
-            return batch_size_trial-batch_size_init
+                         f"Batch size tuned to {batch_size_trial-bs_step}.")
+            return batch_size_trial-bs_step
         eval_gen2tune = eval_batch_generator(
             model=model,
             dataloader=datamodule.predict_dataloader(),

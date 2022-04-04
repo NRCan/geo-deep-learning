@@ -39,6 +39,7 @@ def regularize_buildings(in_pred: Union[str, Path],
                          container_image: str,
                          container_type: str,
                          container_command: str,
+                         code_dir: str,
                          building_value: int = 1,
                          fallback: bool = True,
                          fallback_models_dir: Union[str, Path] = "saved_models_gan"):
@@ -56,6 +57,8 @@ def regularize_buildings(in_pred: Union[str, Path],
         docker or singularity
     @param container_command:
         command to pass to container for regularization
+    @param code_dir: str
+        Source directory where regularization code can be found. Will be bound to /media directory in container.
     @param building_value:
         pixel value of building predictions in segmentation mask
     @param fallback:
@@ -68,7 +71,7 @@ def regularize_buildings(in_pred: Union[str, Path],
     try:  # will raise Exception if image is None --> default to ras2vec
         run_from_container(image=container_image, command=container_command,
                            binds={f"{str(in_pred.parent.absolute())}": "/home",
-                                  f"/home/remi/PycharmProjects/projectRegularization/regularization": "/media"},
+                                  f"{code_dir}": "/media"},
                            container_type=container_type)
         logging.info(f'\nRegularization completed')
     except Exception as e:
@@ -357,6 +360,7 @@ def main(params):
     reg_fallback = get_key_def('fallback', params['postprocess']['reg_cont'], expected_type=bool, default=True)
     reg_cont_type = get_key_def('cont_type', params['postprocess']['reg_cont'], expected_type=str)
     reg_cont_image = get_key_def('cont_image', params['postprocess']['reg_cont'], expected_type=str)
+    reg_code_dir = get_key_def('code_dir', params['postprocess']['reg_cont'], default=None, expected_type=str)
     try:
         reg_command = get_key_def('command', params['postprocess']['reg_cont'], expected_type=str)
     except omegaconf.errors.InterpolationKeyError:
@@ -413,6 +417,7 @@ def main(params):
             container_image=reg_cont_image,
             container_type=reg_cont_type,
             container_command=reg_command,
+            code_dir=reg_code_dir,
             building_value=building_value,
             fallback=reg_fallback,
             fallback_models_dir=reg_models_dir,

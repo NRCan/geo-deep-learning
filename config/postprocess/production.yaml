@@ -28,9 +28,9 @@ postprocess:
     cont_type: docker  # "docker" or "singularity"
     # tag of docker image or path to singularity image file (e.g. remtav/gdl or gdl.sif, respectively)
     cont_image: remtav/gdl
+    code_dir: /home/remi/PycharmProjects/projectRegularization/regularization
     # command to execute in container.
-    # TODO add regularization scripts to docker/singularity image
-    command:
+    command:  # FIXME: use github's weights in regularization repo
       /bin/bash -c "
       python /media/regularize.py --input-inf /home/${inference.output_name}.tif
       --output /home/${postprocess.output_name}${postprocess.output_suffixes.regularization}.tif
@@ -44,7 +44,6 @@ postprocess:
     cont_image: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
     # cont_image: ../singularity/qgis_pp.sif  # for singularity
     # input prediction for polygonization gets overridden by regularized prediction's name if regularization is done
-    # FIXME: test with single-class pred
     command:
       /bin/bash -c "
       qgis_process plugins enable grassprovider;

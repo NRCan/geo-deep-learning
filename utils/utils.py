@@ -190,7 +190,7 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
     if not val:  # Skips below if statements if val is None
         return val
     if is_url(val):
-        logging.warning(f"\nProvided path is url. Cannot validate it's existence nor convert to Path object. Got:"
+        logging.info(f"\nProvided path is url. Cannot validate it's existence nor convert to Path object. Got:"
                         f"\n{val}")
     elif to_path:
         try:
