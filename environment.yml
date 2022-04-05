@@ -39,6 +39,5 @@ dependencies:
     - git+https://github.com/microsoft/torchgeo.git
     - git+https://github.com/remtav/projectRegularization.git@light
     - git+https://github.com/CosmiQ/solaris.git@0.5.0
-    - spython>=0.1.18
     - timm>=0.4.12
     - ttach>=0.0.3

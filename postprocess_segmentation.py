@@ -7,6 +7,7 @@
 import codecs
 import os
 import shutil
+import subprocess
 from typing import Dict, Union
 from collections import OrderedDict
 from pathlib import Path
@@ -21,7 +22,6 @@ from omegaconf import DictConfig
 from rasterio import features
 from rasterio.plot import reshape_as_image
 from rasterio.windows import Window
-from spython.main import Client
 from torch.hub import load_state_dict_from_url, get_dir
 from tqdm import tqdm
 
@@ -195,8 +195,7 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
         exit_code = container.wait(timeout=1200)
         logging.info(exit_code)
     # Singularity: validate installation and assert version >= 3.0.0
-    elif container_type == 'singularity' and \
-            Client.version() and int(Client.version().split(' ')[-1].split('.')[0]) >= 3:
+    elif container_type == 'singularity':
         # Work around to prevent string parsing error: unexpected EOF while looking for matching `"'
         cmd_file = Path(to_absolute_path("command.sh"))
         with open(cmd_file, 'w') as dest:
@@ -208,13 +207,13 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
             dest.write(inner_cmd)
         binds[f"{cmd_file.parent}"] = f"{cmd_file.parent}"
         command = "/bin/bash " + to_absolute_path("command.sh")
-        binds = [f"{k}:{v}" for k, v in binds.items()]
-        logging.debug(command.split(" "))
-        logs = Client.execute(to_absolute_path(str(image)), command.split(" "),
-                              bind=binds, stream=stream, options=["--cleanenv"])
-        if stream:
-            for line in logs:
-                logging.info(codecs.decode(line))
+        binds = [f"--bind {k}:{v} " for k, v in binds.items()]
+        binds_str = " "
+        binds_str = binds_str.join(binds)
+        # TODO: check if --nv raises error if no gpu
+        command = f"singularity exec --nv --cleanenv {binds_str}{to_absolute_path(str(image))} {command}"
+        logging.debug(command.split())
+        subprocess.run(command.split())
     else:
         logging.error(f"\nContainer type is not valid. Choose 'docker' or 'singularity'")
 
