@@ -210,10 +210,12 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
         binds = [f"--bind {k}:{v} " for k, v in binds.items()]
         binds_str = " "
         binds_str = binds_str.join(binds)
-        # TODO: check if --nv raises error if no gpu
         command = f"singularity exec --nv --cleanenv {binds_str}{to_absolute_path(str(image))} {command}"
         logging.debug(command.split())
-        subprocess.run(command.split())
+        subproc = subprocess.run(command.split())
+        subproc = subproc.returncode
+        if subproc != 0:
+            raise IOError(f"Error while executing singularity with subprocess. Return code: {subproc}")
     else:
         logging.error(f"\nContainer type is not valid. Choose 'docker' or 'singularity'")
 
