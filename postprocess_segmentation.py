@@ -197,10 +197,21 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
     # Singularity: validate installation and assert version >= 3.0.0
     elif container_type == 'singularity' and \
             Client.version() and int(Client.version().split(' ')[-1].split('.')[0]) >= 3:
+        # Work around to prevent string parsing error: unexpected EOF while looking for matching `"'
+        cmd_file = Path(to_absolute_path("command.sh"))
+        with open(cmd_file, 'w') as dest:
+            if "/bin/bash -c" not in command:
+                logging.warning(
+                    f"Singularity commands should start with \"/bin/bash -c\". Execution of container may fail")
+            inner_cmd = command.split("/bin/bash -c")[-1].strip("\" ").strip("\"").replace("; ", "\n").replace(";",
+                                                                                                               "\n")
+            dest.write(inner_cmd)
+        binds[f"{cmd_file.parent}"] = f"{cmd_file.parent}"
+        command = "/bin/bash " + to_absolute_path("command.sh")
         binds = [f"{k}:{v}" for k, v in binds.items()]
         logging.debug(command.split(" "))
         logs = Client.execute(to_absolute_path(str(image)), command.split(" "),
-                              bind=binds, stream=stream)
+                              bind=binds, stream=stream, options=["--cleanenv"])
         if stream:
             for line in logs:
                 logging.info(codecs.decode(line))

@@ -31,11 +31,10 @@ postprocess:
     code_dir: /home/remi/PycharmProjects/projectRegularization/regularization
     # command to execute in container.
     command:  # FIXME: use github's weights in regularization repo
-      /bin/bash -c "
-      python /media/regularize.py --input-inf /home/${inference.output_name}.tif
+      /bin/bash -c 
+      "python /media/regularize.py --input-inf /home/${inference.output_name}.tif
       --output /home/${postprocess.output_name}${postprocess.output_suffixes.regularization}.tif
-      --build-val ${dataset.classes_dict.BUIL} --models-dir /media/saved_models_gan --log-conf-path /media/logging.conf
-      "
+      --build-val ${dataset.classes_dict.BUIL} --models-dir /media/saved_models_gan --log-conf-path /media/logging.conf"
 
   poly_cont:
     fallback: True  # Fallback to rasterio's less efficient method. Favour Grass' r.to.vect. for large predictions
@@ -45,12 +44,11 @@ postprocess:
     # cont_image: ../singularity/qgis_pp.sif  # for singularity
     # input prediction for polygonization gets overridden by regularized prediction's name if regularization is done
     command:
-      /bin/bash -c "
-      qgis_process plugins enable grassprovider;
+      /bin/bash -c 
+      "qgis_process plugins enable grassprovider;
       qgis_process run grass7:r.to.vect -- input=/home/${inference.output_name}.tif type=2 output=/tmp/rtovect.gpkg;
       qgis_process run native:extractbyattribute -- INPUT=/tmp/rtovect.gpkg FIELD=value OPERATOR=2
-      VALUE=0 OUTPUT=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
-      "
+      VALUE=0 OUTPUT=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg"
 
   gen_cont:
     qgis_models_dir: postprocess
@@ -63,30 +61,27 @@ postprocess:
       # .model3 filenames are hardcoded
       # Some parameter values aren't mandatory as default values exist, but are exposed here to increase configurability
       FORE:
-        /bin/bash -c "
-        qgis_process plugins enable geo_sim_processing;
+        /bin/bash -c 
+        "qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/FORE.model3
         --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
         --inselectattrname=value --inselectattrint=${dataset.classes_dict.FORE}
         --insimpdiamtol=0.3 --inrmvholesunder=75 --inredbendtol=2 --inminarea=75
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
-        --outlayername=FORE_2
-        "
+        --outlayername=FORE_2"
       WAER:
-        /bin/bash -c "
-        qgis_process plugins enable geo_sim_processing;
+        /bin/bash -c 
+        "qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/WAER.model3 
         --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
         --inselectattrname=value --inselectattrint=${dataset.classes_dict.WAER}
         --insimpdiamtol=0.3 --inrmvholesunder=25 --inredbendtol=2 --inminarea=25    
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
-        --outlayername=WAER_2
-        "
+        --outlayername=WAER_2"
       ROAI:
-        /bin/bash -c "
-        qgis_process plugins enable geo_sim_processing;
+        /bin/bash -c "qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/ROAI.model3 
         --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
@@ -94,16 +89,13 @@ postprocess:
         --insimpdiamtol=0.3 --inredbendtol=2 --inrmvholesunder=300 --indensinterval=15 
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
         --outlayernameline=ROAI_1
-        --outlayernamepoly=ROAI_2
-        "
+        --outlayernamepoly=ROAI_2"
       BUIL:
-        /bin/bash -c "
-        qgis_process plugins enable geo_sim_processing;
+        /bin/bash -c "qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/BUIL.model3 
         --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
         --inselectattrname=value --inselectattrint=${dataset.classes_dict.BUIL}
         --insimpdiamtol=0.3 --inrmvholesunder=40 
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
-        --outlayername=BUIL_2
-        "
+        --outlayername=BUIL_2"

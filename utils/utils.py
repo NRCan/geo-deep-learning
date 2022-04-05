@@ -829,8 +829,8 @@ def extension_remover(name: str) -> str:
     @return: string without extension
     """
     if Path(name).suffix:
-        logging.error(f"\nOutput name \"{name}\" should not contain an extension. "
-                      f"\nThe extension \"{Path(name).suffix}\" will be stripped.")
+        logging.warning(f"\nOutput name \"{name}\" should not contain an extension. "
+                        f"\nThe extension \"{Path(name).suffix}\" will be stripped, but execution may fail.")
         return Path(name).stem
     else:
         return name
