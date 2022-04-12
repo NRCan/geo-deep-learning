@@ -41,7 +41,7 @@ def enhance(
         clip_limit=0.1
 ) -> Callable[[Dict[str, Tensor]], Dict[str, Tensor]]:
     """
-    Returns a function to perform a histogram streching (aka enhancement) on a single sample.
+    Returns a function to perform a histogram stretching (aka enhancement) on a single sample.
     """
     def _enhance(sample: Dict[str, Tensor]) -> Dict[str, Tensor]:
         """
@@ -50,6 +50,8 @@ def enhance(
         @param clip_limit:
         @return:
         """
+        if clip_limit is None:
+            return sample
         sample['image'] = np.moveaxis(sample["image"].numpy().astype(np.uint8), 0, -1)  # send channels last
         img_adapteq = []
         for band in range(sample['image'].shape[-1]):
