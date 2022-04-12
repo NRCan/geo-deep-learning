@@ -8,6 +8,7 @@
 
 """CCMEO model inference script."""
 import argparse
+import os
 from pathlib import Path
 from typing import Dict, Any, Sequence, Union
 
@@ -207,9 +208,11 @@ def main(params):
     Args:
         params: configuration parameters
     """
+    logging.debug(f"\nSetting inference parameters")
     # Main params
     item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
-    root = get_key_def('root_dir', params['inference'], default="data", to_path=True, validate_path_exists=True)
+    root = get_key_def('root_dir', params['inference'], default="inference", to_path=True, validate_path_exists=True)
+    data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
     models_dir = get_key_def('checkpoint_dir', params['inference'], default=root / 'checkpoints', to_path=True,
                              validate_path_exists=True)
     outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
@@ -275,6 +278,7 @@ def main(params):
     seed = 123
     seed_everything(seed)
 
+    logging.debug(f"\nInstantiating model with pretrained weights from {checkpoint}")
     try:
         model = InferenceTask.load_from_checkpoint(checkpoint)
     except (KeyError, AssertionError) as e:
@@ -286,11 +290,11 @@ def main(params):
     model.eval()
     model = model.to(device)
 
-    # instantiate test-time augmentations
+    logging.debug(f"\nInstantiating test-time augmentations")
     if tta_transforms:
         model = instantiate(tta_transforms, model=model)
 
-    dm = InferenceDataModule(root_dir=root,
+    dm = InferenceDataModule(root_dir=data_dir,
                              item_path=item_url,
                              outpath=outpath,
                              bands=modalities,
@@ -318,7 +322,7 @@ def main(params):
         dm.batch_size = batch_size
 
     window_spline_2d = create_spline_window(chip_size).to(device)
-    # Instantiate inference generator for looping over imagery chips
+    logging.debug(f"\nInstantiating inference generator for looping over imagery chips")
     eval_gen = eval_batch_generator(
         model=model,
         dataloader=dm.predict_dataloader(),
@@ -348,7 +352,8 @@ def main(params):
     fp.flush()
     del fp
 
-    # Read full-size prediction memory-map and write to final raster after argmax operation (discard confidence info)
+    logging.debug(f"\nReading full-size prediction memory-map and writing to final raster after argmax operation "
+                  f"(discard confidence info)")
     fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, num_classes))
     pred_img = class_from_heatmap(heatmap_arr=fp, heatmap_threshold=heatmap_threshold)
     pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
@@ -362,9 +367,14 @@ def main(params):
 
     if dm.save_heatmap:
         dm.inference_dataset.create_empty_outraster_heatmap(num_classes)
-        outpath_heat = Path(dm.inference_dataset.outpath_heat)
+        outpath_heat = root / Path(dm.inference_dataset.outpath_heat).name
+        logging.info(f"\nSaving heatmap...")
         meta = rasterio.open(outpath_heat).meta
         save_heatmap(heatmap=fp, outpath=outpath_heat, meta=meta)
+
+    if outpath.is_file():
+        logging.debug(f"\nDeleting temporary .dat file {tempfile}...")
+        os.remove(tempfile)
 
 
 if __name__ == "__main__":  # serves as back up

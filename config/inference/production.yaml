@@ -1,8 +1,8 @@
 # @package _global_
 inference:
   input_stac_item: https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03
-  root_dir: ${general.raw_data_dir}
-  checkpoint_dir: checkpoints  # (string, optional): directory in which to save the object
+  root_dir: /space/partner/nrcan/geobase/work/transfer/work/deep_learning/inference/
+  checkpoint_dir: /space/partner/nrcan/geobase/work/transfer/work/deep_learning/inference/checkpoints  # (string, optional): directory in which to save the object
   # name of final output file without extension to write in root
   # Warning: this name if only used at generalization. Other outputs are based on inference.output_name
   output_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred # defaults to {input_stac_item.stem}_pred
@@ -19,7 +19,7 @@ inference:
   batch_size: # if empty, will be calculated automatically to fill "auto_batch_size_threshold" % of GPU Ram
   chunk_size: # Defaults to 512
   auto_batch_size_threshold: 90
-  enhance_clip_limit: 0.1
+  enhance_clip_limit: # if empty, will skip enhancement transform
   test_transforms:
     _target_: torchvision.transforms.Compose
     transforms:

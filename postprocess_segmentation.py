@@ -404,14 +404,15 @@ def main(params):
     classes_dict = {k: v for k, v in classes_dict.items() if v}  # Discard keys where value is None
     gen_cmds_pruned = {data_class: cmd for data_class, cmd in gen_commands.items() if data_class in classes_dict.keys()}
     # WARNING: this is highly coupled to values in generalization commands in config.
-    reg_command = reg_command.replace(f"--build-val {dataset_classes_dict['BUIL']}",
-                                      f"--build-val {classes_dict['BUIL']}")
+    if 'BUIL' in classes_dict.keys():
+        reg_command = reg_command.replace(f"--build-val {dataset_classes_dict['BUIL']}",
+                                          f"--build-val {classes_dict['BUIL']}")
     gen_cmds_pruned = {cls: cmd.replace(f"--inselectattrint={dataset_classes_dict[cls]}",
                                         f"--inselectattrint={classes_dict[cls]}")
                        for cls, cmd in gen_cmds_pruned.items()}
 
     inf_dataset = InferenceDataset(item_path=item_url, root=root, outpath=inf_outpath)
-    in_heatmap = Path(inf_dataset.outpath_heat)  # root / f"{out_name}_heatmap.tif"
+    in_heatmap = root / Path(inf_dataset.outpath_heat).name  # root / f"{out_name}_heatmap.tif"
 
     # build output paths
     out_reg = root / f"{inf_outname}{out_reg_suffix}.tif"

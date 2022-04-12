@@ -63,7 +63,7 @@ class InferenceDataset(RasterDataset):
         self.item_url = item_path
         self.bands = bands
         if len(self.bands) == 0:
-            logging.error(f"At least one band should be chosen if assets need to be reached")
+            logging.warning(f"At least one band should be chosen if assets need to be reached")
         self.root = Path(root)
         self.transforms = transforms
         self.separate_files = singleband_files

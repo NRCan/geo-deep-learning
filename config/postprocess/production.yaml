@@ -25,10 +25,10 @@ postprocess:
     fallback: True
     # Where pretrained models can be found if fallback is necessary
     fallback_models_dir: # "/home/remi/PycharmProjects/projectRegularization/regularization/saved_models_gan"
-    cont_type: docker  # "docker" or "singularity"
+    cont_type: singularity
     # tag of docker image or path to singularity image file (e.g. remtav/gdl or gdl.sif, respectively)
-    cont_image: remtav/gdl
-    code_dir: /home/remi/PycharmProjects/projectRegularization/regularization
+    cont_image: /space/partner/nrcan/geobase/work/transfer/work/deep_learning/singularity_images/gdl-cuda11_v2.2.5-prod.sif
+    code_dir: /space/partner/nrcan/geobase/work/transfer/work/deep_learning/operationalization/projectRegularization/regularization
     # command to execute in container.
     command:  # FIXME: use github's weights in regularization repo
       /bin/bash -c 
@@ -38,9 +38,10 @@ postprocess:
 
   poly_cont:
     fallback: True  # Fallback to rasterio's less efficient method. Favour Grass' r.to.vect. for large predictions
-    cont_type: docker  # "docker" or "singularity"
+    cont_type: docker #singularity
     # tag of docker image or path to singularity image file (e.g. remtav/gdl or gdl.sif, respectively)
-    cont_image: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
+    cont_image: remtav/qgis_pp #/space/partner/nrcan/geobase/work/transfer/work/deep_learning/singularity_images/qgis_pp.sif
+    # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
     # cont_image: ../singularity/qgis_pp.sif  # for singularity
     # input prediction for polygonization gets overridden by regularized prediction's name if regularization is done
     command:
@@ -52,8 +53,8 @@ postprocess:
 
   gen_cont:
     qgis_models_dir: postprocess
-    cont_type: docker  # "docker" or "singularity"
-    cont_image: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
+    cont_type: docker #singularity  # "docker" or "singularity"
+    cont_image: remtav/qgis_pp #/space/partner/nrcan/geobase/work/transfer/work/deep_learning/singularity_images/qgis_pp.sif #remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
     # cont_image: ../singularity/qgis_pp.sif  # for singularity
     command:
       # WARNING: these values and interpolation variables are highly coupled with code to cover different use cases
@@ -81,7 +82,8 @@ postprocess:
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
         --outlayername=WAER_2"
       ROAI:
-        /bin/bash -c "qgis_process plugins enable geo_sim_processing;
+        /bin/bash -c 
+        "qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/ROAI.model3 
         --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
@@ -91,7 +93,8 @@ postprocess:
         --outlayernameline=ROAI_1
         --outlayernamepoly=ROAI_2"
       BUIL:
-        /bin/bash -c "qgis_process plugins enable geo_sim_processing;
+        /bin/bash -c 
+        "qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/BUIL.model3 
         --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg

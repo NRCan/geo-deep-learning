@@ -848,7 +848,7 @@ def stretch_heatmap(heatmap_arr: np.ndarray, out_max: int = 100) -> np.ndarray:
     """
     imin, imax = map(float, intensity_range(heatmap_arr, 'image'))
     if imin < 0 or imax > 1:
-        logging.error(f"\nProvided heatmap should be the result of sigmoid or softmax operation."
+        logging.warning(f"\nProvided heatmap should be the result of sigmoid or softmax operation."
                       f"\nExpected values are between 0 and 1. Got min {imin} and max {imax}.")
         omax = imax
     else:
