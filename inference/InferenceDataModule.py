@@ -88,8 +88,6 @@ def preprocess(
 # adapted from https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/torchgeo/datamodules/chesapeake.py
 class InferenceDataModule(LightningDataModule):
     """LightningDataModule implementation for the InferenceDataset.
-    Uses the random splits defined per state to partition tiles into train, val,
-    and test sets.
     """
     def __init__(
         self,
@@ -201,7 +199,7 @@ class InferenceDataModule(LightningDataModule):
             shuffle=False,
         )
 
-    def write_dataloader(self) -> DataLoader[Any]:
+    def write_dataloader(self) -> DataLoader[Any]:  # FIXME: is this method necessary? or previous?
         """Return a DataLoader for inference.
         Returns:
             inference data loader

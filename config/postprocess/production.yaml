@@ -38,9 +38,9 @@ postprocess:
 
   poly_cont:
     fallback: True  # Fallback to rasterio's less efficient method. Favour Grass' r.to.vect. for large predictions
-    cont_type: docker #singularity
+    cont_type: singularity
     # tag of docker image or path to singularity image file (e.g. remtav/gdl or gdl.sif, respectively)
-    cont_image: remtav/qgis_pp #/space/partner/nrcan/geobase/work/transfer/work/deep_learning/singularity_images/qgis_pp.sif
+    cont_image: /space/partner/nrcan/geobase/work/transfer/work/deep_learning/singularity_images/qgis_pp.sif
     # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
     # cont_image: ../singularity/qgis_pp.sif  # for singularity
     # input prediction for polygonization gets overridden by regularized prediction's name if regularization is done
@@ -53,8 +53,8 @@ postprocess:
 
   gen_cont:
     qgis_models_dir: postprocess
-    cont_type: docker #singularity  # "docker" or "singularity"
-    cont_image: remtav/qgis_pp #/space/partner/nrcan/geobase/work/transfer/work/deep_learning/singularity_images/qgis_pp.sif #remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
+    cont_type: singularity  # "docker" or "singularity"
+    cont_image: /space/partner/nrcan/geobase/work/transfer/work/deep_learning/singularity_images/qgis_pp.sif #remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
     # cont_image: ../singularity/qgis_pp.sif  # for singularity
     command:
       # WARNING: these values and interpolation variables are highly coupled with code to cover different use cases
