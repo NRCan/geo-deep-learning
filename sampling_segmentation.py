@@ -395,7 +395,7 @@ def main(cfg: DictConfig) -> None:
             logging.critical(
                 f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.'
             )
-            raise FileExistsError()
+            raise FileExistsError(samples_dir)
     Path.mkdir(samples_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
 
     # LOGGING PARAMETERS  TODO see logging yaml

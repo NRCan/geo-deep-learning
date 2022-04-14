@@ -40,4 +40,5 @@ AWS:
 
 print_config: True # save the config in the log folder
 mode: {sampling, train, inference, postprocess} #, evaluate} FIXME evaluate with stac item and label!
-debug: True #False # will print the complete yaml config plus run a validation test
+# TODO deactivate rasterio/fiona logs
+debug: True # will print the complete yaml config plus run a validation test

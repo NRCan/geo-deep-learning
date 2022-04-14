@@ -25,7 +25,6 @@ from rasterio.windows import Window
 from torch.hub import load_state_dict_from_url, get_dir
 from tqdm import tqdm
 
-from inference.InferenceDataset import InferenceDataset
 from utils.logger import get_logger
 from utils.utils import get_key_def, override_model_params_from_checkpoint, gdl2pl_checkpoint, read_checkpoint, \
     extension_remover, class_from_heatmap
@@ -194,6 +193,8 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
                 logging.info(codecs.decode(line))
         exit_code = container.wait(timeout=1200)
         logging.info(exit_code)
+        if exit_code != 0:
+            raise IOError(f"Error while executing singularity with subprocess. Return code: {exit_code}")
     # Singularity: validate installation and assert version >= 3.0.0
     elif container_type == 'singularity':
         # Work around to prevent string parsing error: unexpected EOF while looking for matching `"'
@@ -334,10 +335,8 @@ def main(params):
     @param params:
         Pipeline configuration parameters
     """
-    item_url = get_key_def('input_stac_item', params['postprocess'], expected_type=str, to_path=True,
-                           validate_path_exists=True)
     root = get_key_def('root_dir', params['postprocess'], default="data", to_path=True, validate_path_exists=True)
-    models_dir = get_key_def('checkpoint_dir', params['inference'], default=root / 'checkpoints', to_path=True,
+    models_dir = get_key_def('checkpoint_dir', params['inference'], default='checkpoints', to_path=True,
                              validate_path_exists=True)
     inf_outname = get_key_def('output_name', params['inference'], expected_type=str)
     if not inf_outname:
@@ -345,6 +344,7 @@ def main(params):
                          f"\nhydra's successful interpolation of input and output names in commands set in config.")
     inf_outname = extension_remover(inf_outname)
     inf_outpath = root / f"{inf_outname}.tif"
+    in_heatmap = root / f"{inf_outpath.stem}_heatmap.tif"
     outname = get_key_def('output_name', params['postprocess'], default=inf_outname, expected_type=str)
     outname = extension_remover(outname)
     if not inf_outpath.is_file():
@@ -368,9 +368,9 @@ def main(params):
     out_gen_suffix = get_key_def('generalization', params['postprocess']['output_suffixes'], default='_post',
                                   expected_type=str)
 
+    cont_type = get_key_def('cont_type', params['postprocess'], expected_type=str)
     # regularization container parameters
     reg_fallback = get_key_def('fallback', params['postprocess']['reg_cont'], expected_type=bool, default=True)
-    reg_cont_type = get_key_def('cont_type', params['postprocess']['reg_cont'], expected_type=str)
     reg_cont_image = get_key_def('cont_image', params['postprocess']['reg_cont'], expected_type=str)
     reg_code_dir = get_key_def('code_dir', params['postprocess']['reg_cont'], default=None, expected_type=str)
     try:
@@ -382,14 +382,12 @@ def main(params):
     
     # polygonization container parameters
     poly_fallback = get_key_def('fallback', params['postprocess']['poly_cont'], expected_type=bool, default=True)
-    poly_cont_type = get_key_def('cont_type', params['postprocess']['poly_cont'], expected_type=str)
     poly_cont_image = get_key_def('cont_image', params['postprocess']['poly_cont'], expected_type=str)
     poly_command = get_key_def('command', params['postprocess']['poly_cont'], expected_type=str)
 
     # generalization container parameters
     qgis_models_dir = get_key_def('qgis_models_dir', params['postprocess']['gen_cont'], expected_type=str,
                                   to_path=True, validate_path_exists=True)
-    gen_cont_type = get_key_def('cont_type', params['postprocess']['gen_cont'], expected_type=str)
     gen_cont_image = get_key_def('cont_image', params['postprocess']['gen_cont'], expected_type=str)
     gen_commands = dict(get_key_def('command', params['postprocess']['gen_cont'], expected_type=DictConfig))
 
@@ -411,9 +409,6 @@ def main(params):
                                         f"--inselectattrint={classes_dict[cls]}")
                        for cls, cmd in gen_cmds_pruned.items()}
 
-    inf_dataset = InferenceDataset(item_path=item_url, root=root, outpath=inf_outpath)
-    in_heatmap = root / Path(inf_dataset.outpath_heat).name  # root / f"{out_name}_heatmap.tif"
-
     # build output paths
     out_reg = root / f"{inf_outname}{out_reg_suffix}.tif"
     out_poly = root / f"{inf_outname}{out_poly_suffix}.gpkg"
@@ -428,7 +423,7 @@ def main(params):
             in_pred=inf_outpath,
             out_pred=out_reg,
             container_image=reg_cont_image,
-            container_type=reg_cont_type,
+            container_type=cont_type,
             container_command=reg_command,
             code_dir=reg_code_dir,
             building_value=building_value,
@@ -449,7 +444,7 @@ def main(params):
             in_raster=inf_outpath,
             out_vector=out_poly,
             container_image=poly_cont_image,
-            container_type=poly_cont_type,
+            container_type=cont_type,
             container_command=poly_command,
             fallback=poly_fallback,
         )
@@ -473,9 +468,9 @@ def main(params):
                 run_from_container(image=gen_cont_image, command=command,
                                    binds={f"{str(inf_outpath.parent.absolute())}": "/home",
                                           f"{str(qgis_models_dir)}": "/models"},
-                                   container_type=gen_cont_type)
+                                   container_type=cont_type)
             except Exception as e:
-                logging.error(f"\nError generalizing using {gen_cont_type} container with image {gen_cont_image}."
+                logging.error(f"\nError generalizing using {cont_type} container with image {gen_cont_image}."
                               f"\ncommand: {command}"
                               f"\nError {type(e)}: {e}")
         if out_gen.is_file():

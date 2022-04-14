@@ -192,12 +192,13 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
     if is_url(val):
         logging.info(f"\nProvided path is url. Cannot validate it's existence nor convert to Path object. Got:"
                         f"\n{val}")
+        validate_path_exists = False
     elif to_path:
         try:
             val = Path(to_absolute_path(val))
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
-    elif validate_path_exists and not Path(to_absolute_path(val)).exists():
+    if validate_path_exists and not Path(to_absolute_path(val)).exists():
         raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
     return val
 

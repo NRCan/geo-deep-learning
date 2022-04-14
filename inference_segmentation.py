@@ -184,22 +184,34 @@ def eval_batch_generator(
         yield batch_output
 
 
-def save_heatmap(heatmap: np.ndarray, outpath: Union[str, Path], meta: dict):
+def save_heatmap(heatmap: np.ndarray, outpath: Union[str, Path], src: rasterio.DatasetReader):
     """
     Write a heatmap as array to disk
     @param heatmap:
         array of dtype float containing probability map for each class,
         after sigmoid or softmax operation (expects values between 0 and 1)
-    @param outpath: path to desired output file
+    @param outpath:
+        path to desired output file
+    @param src:
+        a rasterio file handler (aka DatasetReader) from source imagery. Contains metadata to write heatmap
     @param meta:
         metadata as expected by rasterio.open() to write output file
     @return:
     """
     heatmap_arr = stretch_heatmap(heatmap_arr=heatmap, out_max=100)
     heatmap_arr = reshape_as_raster(heatmap_arr).astype(np.uint8)
-    with rasterio.open(outpath, 'w+', **meta) as dest:
+    out_meta = src.profile
+    out_meta.update({"driver": "GTiff",
+                     "height": heatmap_arr.shape[1],
+                     "width": heatmap_arr.shape[2],
+                     "count": heatmap_arr.shape[0],
+                     "dtype": 'uint8',
+                     'tiled': True,
+                     'blockxsize': 256,
+                     'blockysize': 256,
+                     "compress": 'lzw'})
+    with rasterio.open(outpath, 'w+', **out_meta) as dest:
         dest.write(heatmap_arr)
-    logging.info(f'\nSaved heatmap to {outpath}')
 
 
 def main(params):
@@ -211,7 +223,8 @@ def main(params):
     logging.debug(f"\nSetting inference parameters")
     # Main params
     item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
-    root = get_key_def('root_dir', params['inference'], default="inference", to_path=True, validate_path_exists=True)
+    root = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
+    root.mkdir(exist_ok=True)
     data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
     models_dir = get_key_def('checkpoint_dir', params['inference'], default=root / 'checkpoints', to_path=True,
                              validate_path_exists=True)
@@ -366,11 +379,10 @@ def main(params):
                  f'\nFinal prediction written to {outpath}')
 
     if dm.save_heatmap:
-        dm.inference_dataset.create_empty_outraster_heatmap(num_classes)
-        outpath_heat = root / Path(dm.inference_dataset.outpath_heat).name
+        outpath_heat = root / f"{outpath.stem}_heatmap.tif"
         logging.info(f"\nSaving heatmap...")
-        meta = rasterio.open(outpath_heat).meta
-        save_heatmap(heatmap=fp, outpath=outpath_heat, meta=meta)
+        save_heatmap(heatmap=fp, outpath=outpath_heat, src=dm.inference_dataset.src)
+        logging.info(f'\nSaved heatmap to {outpath_heat}')
 
     if outpath.is_file():
         logging.debug(f"\nDeleting temporary .dat file {tempfile}...")

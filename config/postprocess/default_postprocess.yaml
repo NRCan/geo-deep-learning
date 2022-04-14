@@ -1,7 +1,6 @@
 # @package _global_
 # Post-processing: minimally, a polygonized version of the inference (.gpkg) will be created
 postprocess:
-  input_stac_item: ${inference.input_stac_item}
   root_dir: ${inference.root_dir}
   # name of output file without extension to write in root
   output_name: ${inference.output_name}
@@ -19,11 +18,11 @@ postprocess:
     generalization: _post
 
   # Container config - Volume binding arguments are hardcoded in scripts. Modify commands at your own risk!
+  cont_type: singularity  # docker or singularity
   reg_cont:
     # Will fallback to using direct python method if an error occurs with container approach.
     # To use fallback, install regularization module: pip install git+https://github.com/remtav/projectRegularization.git@light
     fallback: True
-    cont_type: docker  # "docker" or "singularity"
     # tag of docker image or path to singularity image file (e.g. remtav/gdl or gdl.sif, respectively)
     cont_image: remtav/gdl
     # command to execute in container.
@@ -37,7 +36,6 @@ postprocess:
 
   poly_cont:
     fallback: True  # Fallback to rasterio's less efficient method. Favour Grass' r.to.vect. for large predictions
-    cont_type: docker  # "docker" or "singularity"
     # tag of docker image or path to singularity image file (e.g. remtav/gdl or gdl.sif, respectively)
     cont_image: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
     # cont_image: ../singularity/qgis_pp.sif  # for singularity
@@ -53,7 +51,6 @@ postprocess:
 
   gen_cont:
     qgis_models_dir: postprocess
-    cont_type: docker  # "docker" or "singularity"
     cont_image: remtav/qgis_pp  # if using docker, pull latest image from https://hub.docker.com/r/remtav/qgis_pp
     # cont_image: ../singularity/qgis_pp.sif  # for singularity
     command:
