@@ -199,7 +199,8 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
     if validate_path_exists and not Path(to_absolute_path(val)).exists():
-        raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
+        logging.critical(f"Couldn't locate path: {val}.\nProvided key: {key}")
+        raise FileNotFoundError()
     return val
 
 

@@ -226,8 +226,8 @@ def main(params):
     root = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
     root.mkdir(exist_ok=True)
     data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
-    models_dir = get_key_def('checkpoint_dir', params['inference'], default=root / 'checkpoints', to_path=True,
-                             validate_path_exists=True)
+    models_dir = get_key_def('checkpoint_dir', params['inference'], default=root / 'checkpoints', to_path=True)
+    models_dir.mkdir(exist_ok=True)
     outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
     outname = extension_remover(outname)
     outpath = root / f"{outname}.tif"
