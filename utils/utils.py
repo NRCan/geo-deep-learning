@@ -4,16 +4,15 @@ import numbers
 import subprocess
 from functools import reduce
 from pathlib import Path
-from typing import Sequence, List
+from typing import Sequence, List, Dict
 
 from hydra.utils import to_absolute_path
 from pytorch_lightning.utilities import rank_zero_only
 import rich.syntax
 import rich.tree
 from omegaconf import DictConfig, OmegaConf, ListConfig
+# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2575
 import torch
-# import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
-from torch import nn
 from torchvision import models
 import numpy as np
 import scipy.signal
@@ -40,6 +39,7 @@ try:
 except ModuleNotFoundError:
     logging.warning('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
 
+
 class Interpolate(torch.nn.Module):
     def __init__(self, mode, scale_factor):
         super(Interpolate, self).__init__()
@@ -50,35 +50,6 @@ class Interpolate(torch.nn.Module):
     def forward(self, x):
         x = self.interp(x, scale_factor=self.scale_factor, mode=self.mode, align_corners=False)
         return x
-
-
-def load_from_checkpoint(checkpoint, model, optimizer=None, strict_loading: bool = False, bucket: str = None):
-    """Load weights from a previous checkpoint
-    Args:
-        checkpoint: (dict) checkpoint
-        model: model to replace
-        optimizer: optimiser to be used
-        strict_loading: (bool) If True, loading will be strict (see pytorch doc)
-    """
-    if bucket:
-        checkpoint = bucket.download_file(checkpoint, "saved_model.pth.tar")  # TODO: is this still valid?
-    # Corrects exception with test loop. Problem with loading generic checkpoint into DataParallel model
-    # model.load_state_dict(checkpoint['model'])
-    # https://github.com/bearpaw/pytorch-classification/issues/27
-    # https://discuss.pytorch.org/t/solved-keyerror-unexpected-key-module-encoder-embedding-weight-in-state-dict/1686/3
-    if isinstance(model, nn.DataParallel) and not list(checkpoint['model'].keys())[0].startswith('module'):
-        new_state_dict = model.state_dict().copy()
-        new_state_dict['model'] = {'module.'+k: v for k, v in checkpoint['model'].items()}    # Very flimsy
-        del checkpoint
-        checkpoint = {}
-        checkpoint['model'] = new_state_dict['model']
-
-    model.load_state_dict(checkpoint['model'], strict=strict_loading)
-    log.info(f"\n=> loaded model")
-    if optimizer and 'optimizer' in checkpoint.keys():    # 2nd condition if loading a model without optimizer
-        optimizer.load_state_dict(checkpoint['optimizer'], strict=False)
-
-    return model, optimizer
 
 
 def list_s3_subfolders(bucket, data_path):
@@ -105,9 +76,10 @@ def get_device_ids(
     """
     lst_free_devices = {}
     if not number_requested:
+        logging.warning(f"No GPUs requested. This process will run on CPU")
         return lst_free_devices
     if not torch.cuda.is_available():
-        log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found')
+        log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This process will run on CPU')
         return lst_free_devices
     try:
         nvmlInit()
@@ -426,10 +398,12 @@ def read_csv(csv_file_name):
             row.extend([None] * (6 - len(row)))  # fill row with None values to obtain row of length == 6
             row[0] = to_absolute_path(row[0])  # Convert relative paths to absolute with hydra's util to_absolute_path()
             if not Path(row[0]).is_file():
-                raise FileNotFoundError(f"Raster not found: {row[0]}")
+                logging.critical(f"Raster not found: {row[0]}. This data will be removed from input data list"
+                                 f"since all geo-deep-learning modules require imagery.")
+                continue
             row[2] = to_absolute_path(row[2])
             if not Path(row[2]).is_file():
-                raise FileNotFoundError(f"Ground truth not found: {row[2]}")
+                logging.critical(f"Ground truth not found: {row[2]}")
             if not isinstance(row[3], str):
                 logging.error(f"Attribute name should be a string")
             if row[3] != "":
@@ -652,14 +626,13 @@ def print_config(
             'scheduler',
             'augmentation',
             "general.tiles_data_dir",
-            "general.state_dict_path",
             "general.save_weights_dir",
         )
     elif config.get('mode') == 'inference':
         fields += (
+            "inference",
             "model",
             "general.tiles_data_dir",
-            "general.state_dict_path",
         )
 
     if config.get('tracker'):
@@ -679,3 +652,79 @@ def print_config(
 
     with open("run_config.config", "w") as fp:
         rich.print(tree, file=fp)
+
+
+def update_gdl_checkpoint(checkpoint_params: Dict) -> Dict:
+    """
+    Utility to update model checkpoints from older versions of GDL to current version
+    @param checkpoint_params:
+        Dictionary containing weights, optimizer state and saved configuration params from training
+    @return:
+    """
+    # covers gdl checkpoints from version <= 2.0.1
+    if 'model' in checkpoint_params.keys():
+        checkpoint_params['model_state_dict'] = checkpoint_params['model']
+        del checkpoint_params['model']
+    if 'optimizer' in checkpoint_params.keys():
+        checkpoint_params['optimizer_state_dict'] = checkpoint_params['optimizer']
+        del checkpoint_params['optimizer']
+
+    # covers gdl checkpoints pre-hydra (<=2.0.0)
+    bands = ['R', 'G', 'B', 'N']
+    old2new = {
+        'manet_pretrained': {
+            '_target_': 'segmentation_models_pytorch.MAnet', 'encoder_name': 'resnext50_32x4d',
+            'encoder_weights': 'imagenet'
+        },
+        'unet_pretrained': {
+            '_target_': 'segmentation_models_pytorch.Unet', 'encoder_name': 'resnext50_32x4d',
+            'encoder_depth': 4, 'encoder_weights': 'imagenet', 'decoder_channels': [256, 128, 64, 32]
+        },
+        'unet': {
+            '_target_': 'models.unet.UNet', 'dropout': False, 'prob': False
+        },
+        'unet_small': {
+            '_target_': 'models.unet.UNetSmall', 'dropout': False, 'prob': False
+        },
+        'deeplabv3_pretrained': {
+            '_target_': 'segmentation_models_pytorch.DeepLabV3', 'encoder_name': 'resnet101',
+            'encoder_weights': 'imagenet'
+        },
+        'deeplabv3_resnet101_dualhead': {
+            '_target_': 'models.deeplabv3_dualhead.DeepLabV3_dualhead', 'conc_point': 'conv1',
+            'encoder_weights': 'imagenet'
+        },
+        'deeplabv3+_pretrained': {
+            '_target_': 'segmentation_models_pytorch.DeepLabV3Plus', 'encoder_name': 'resnext50_32x4d',
+            'encoder_weights': 'imagenet'
+        },
+    }
+    try:
+        # don't update if already a recent checkpoint
+        get_key_def('classes_dict', checkpoint_params['params']['dataset'], expected_type=(dict, DictConfig))
+        get_key_def('modalities', checkpoint_params['params']['dataset'], expected_type=Sequence)
+        get_key_def('model', checkpoint_params['params'], expected_type=(dict, DictConfig))
+        return checkpoint_params
+    except KeyError:
+        num_classes_ckpt = get_key_def('num_classes', checkpoint_params['params']['global'], expected_type=int)
+        num_bands_ckpt = get_key_def('number_of_bands', checkpoint_params['params']['global'], expected_type=int)
+        model_name = get_key_def('model_name', checkpoint_params['params']['global'], expected_type=str)
+        try:
+            model_ckpt = old2new[model_name]
+        except KeyError as e:
+            logging.critical(f"\nCouldn't locate yaml configuration for model architecture {model_name} as found "
+                             f"in provided checkpoint. Name of yaml may have changed."
+                             f"\nError {type(e)}: {e}")
+            raise e
+        # For GDL pre-v2.0.2
+        #bands_ckpt = ''
+        #bands_ckpt = bands_ckpt.join([bands[i] for i in range(num_bands_ckpt)])
+        checkpoint_params['params'].update({
+            'dataset': {
+                'modalities': [bands[i] for i in range(num_bands_ckpt)], #bands_ckpt,
+                #"classes_dict": {f"BUIL": 1}
+                "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)}
+            }
+        })
+        checkpoint_params['params'].update({'model': model_ckpt})
+        return checkpoint_params

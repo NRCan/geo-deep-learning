@@ -1,17 +1,22 @@
 # @package _global_
 augmentation:
-  # Normalization: parameters for finetuning. For example:
-  # -> mean: [0.485, 0.456, 0.406]
-  # -> std: std: [0.229, 0.224, 0.225])
-  normalization:
-    mean:
-    std:
-  scale_data: [0, 1]
-  # Rotate limit: the upper and lower limits for data rotation.
-  rotate_limit: 45
-  # Rotate probability: the probability for data rotation.
-  rotate_prob: 0.5
-  # Horizontal flip: the probability for data horizontal flip.
-  hflip_prob: 0.5
+  # Geometric augmentations
+  rotate_limit: 45  # Rotate limit: the upper and lower limits for data rotation.
+  rotate_prob: 0.5  # Rotate probability: the probability for data rotation.
+  hflip_prob: 0.5  # Horizontal flip: the probability for data horizontal flip.
+  crop_size:  # size to crop data (image and labels samples) during training
+
+  # Radiometric augmentations
+  noise:  # Standard deviation of Gaussian Noise
+  # Range of the random percentile:
+  #   the range in which a random percentile value will be chosen to trim values.
+  #   This value applies to both left and right sides of the raster's histogram.
+  random_radiom_trim_range: [ 0.1, 2.0 ]
   brightness_contrast_range: # Not yet implemented
-  noise:  # Standard deviation of Gaussian Noise (optional)
+
+  # Augmentations done immediately before conversion to torch tensor
+  normalization: # Normalization: parameters for finetuning. See examples below:
+    mean:  # -> mean: [0.485, 0.456, 0.406]
+    std:  # -> std: std: [0.229, 0.224, 0.225])
+  scale_data: [ 0, 1 ]  # Min and max value to scale values of input imagery
+

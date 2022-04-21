@@ -65,10 +65,10 @@ class DecodingBlock(nn.Module):
 class UNet(nn.Module):
     """Main UNet architecture"""
 
-    def __init__(self, num_classes, number_of_bands, dropout=False, prob=0.5):
+    def __init__(self, classes, in_channels, dropout=False, prob=0.5):
         super().__init__()
 
-        self.conv1 = EncodingBlock(number_of_bands, 64, dropout=dropout, prob=prob)
+        self.conv1 = EncodingBlock(in_channels, 64, dropout=dropout, prob=prob)
         self.maxpool1 = nn.MaxPool2d(kernel_size=2)
         self.conv2 = EncodingBlock(64, 128, dropout=dropout, prob=prob)
         self.maxpool2 = nn.MaxPool2d(kernel_size=2)
@@ -84,7 +84,7 @@ class UNet(nn.Module):
         self.decode2 = DecodingBlock(256, 128)
         self.decode1 = DecodingBlock(128, 64)
 
-        self.final = nn.Conv2d(64, num_classes, kernel_size=1)
+        self.final = nn.Conv2d(64, classes, kernel_size=1)
 
     def forward(self, input_data):
         conv1 = self.conv1(input_data)
@@ -111,10 +111,10 @@ class UNet(nn.Module):
 class UNetSmall(nn.Module):
     """Main UNet architecture"""
 
-    def __init__(self, num_classes, number_of_bands, dropout=False, prob=0.5):
+    def __init__(self, classes, in_channels, dropout=False, prob=0.5):
         super().__init__()
 
-        self.conv1 = EncodingBlock(number_of_bands, 32, dropout=dropout, prob=prob)
+        self.conv1 = EncodingBlock(in_channels, 32, dropout=dropout, prob=prob)
         self.maxpool1 = nn.MaxPool2d(kernel_size=2)
         self.conv2 = EncodingBlock(32, 64, dropout=dropout, prob=prob)
         self.maxpool2 = nn.MaxPool2d(kernel_size=2)
@@ -127,7 +127,7 @@ class UNetSmall(nn.Module):
         self.decode2 = DecodingBlock(128, 64)
         self.decode1 = DecodingBlock(64, 32)
 
-        self.final = nn.Conv2d(32, num_classes, kernel_size=1)
+        self.final = nn.Conv2d(32, classes, kernel_size=1)
 
     def forward(self, input_data):
         conv1 = self.conv1(input_data)

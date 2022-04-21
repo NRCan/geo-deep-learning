@@ -1,0 +1,5 @@
+# @package _global_
+model:
+  _target_: segmentation_models_pytorch.Unet
+  encoder_name: vgg11
+  encoder_weights: imagenet
