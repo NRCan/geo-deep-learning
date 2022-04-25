@@ -22,6 +22,7 @@ class Test_GH_Actions(object):
                                              f"dataset=test_ci_segmentation_{dataset_type}",
                                              f"inference=default_{dataset_type}",
                                              f"loss={dataset_type}/lovasz",
+                                             "tiling.overwrite=True",
                                              "hydra.job.num=0"],
                                   return_hydra_config=True)
                     hconf = HydraConfig()

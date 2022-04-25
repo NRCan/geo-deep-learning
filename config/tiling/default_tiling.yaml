@@ -8,3 +8,4 @@ tiling:
   use_stratification: False
   multiprocessing: False
   min_raster_tile_size: 0
+  overwrite: False

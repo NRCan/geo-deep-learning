@@ -77,7 +77,7 @@ def create_dataloader(samples_folder: Path,
     if not samples_folder.is_dir():
         raise FileNotFoundError(f'Could not locate: {samples_folder}')
     experiment_name = samples_folder.parent.stem
-    if not len([f for f in samples_folder.glob('**/*.txt')]) >= 1:
+    if not len([f for f in samples_folder.glob('**/*.csv')]) >= 1:
         raise FileNotFoundError(f"Couldn't locate text file containing list of training data in {samples_folder}")
     num_samples, samples_weight = get_num_samples(samples_path=samples_folder,
                                                   params=cfg,

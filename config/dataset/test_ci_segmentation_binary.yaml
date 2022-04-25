@@ -15,7 +15,6 @@ dataset:
   # ground truth
   attribute_field: properties/class
   attribute_vals: 1
-  min_annot_perc:
   class_name: # will follow in the next version
   classes_dict: {'BUIL':1}
   class_weights:
