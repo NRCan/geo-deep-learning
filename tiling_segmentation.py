@@ -998,17 +998,19 @@ def main(cfg: DictConfig) -> None:
                 datasets_kept[dataset] += 1
 
     # final report
+    logging.info(f"\nExpected val/trn ratio: {tiler.val_percent} %"
+                 f"\nActual val/trn ratio: {datasets_kept['val'] / datasets_kept['trn'] * 100:.2f} %")
     for dataset in tiler.datasets:
         if dataset == 'trn':
-            logging.info(f"\nDataset: {dataset}\n"
-                         f"Tiles kept (with non-zero values above {min_annot_perc}%): \n"
-                         f"\t Train set: {datasets_kept[dataset]}\n"
-                         f"\t Validation set: {datasets_kept['val']}\n"
-                         f"Total tiles: {datasets_total[dataset]}\n"
-                         f"Discarded tiles: {datasets_total[dataset] - datasets_kept['val'] - datasets_kept['trn']}")
-        elif dataset == 'tst':
-            logging.info(f"\nDataset: {dataset}\n"
-                         f"Total tiles: {datasets_total[dataset]}\n")
-    logging.info(f"End of process. See dataset files: \n")
+            logging.info(f"\nDataset: {dataset}"
+                         f"\n\tFilters:"
+                         f"\n\t - Minimumum non-zero values (aka minimum annotated percentage): {min_annot_perc}%"
+                         f"\n\t - Minimum size on disk: {tiler.min_img_tile_size} bytes"
+                         f"\n\tKept: {datasets_kept['trn']}"
+                         f"\n\tDiscarded: {datasets_total[dataset] - datasets_kept['val'] - datasets_kept['trn']}")
+        else:
+            logging.info(f"\nDataset: {dataset}"
+                         f"\n\tTotal tiles: {datasets_kept[dataset]}")
+    logging.info(f"\nEnd of process. See tiled dataset lists:")
     for dataset, file in dataset_files.items():
         logging.info(f"{dataset}: {str(file)}")
