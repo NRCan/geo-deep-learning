@@ -1,5 +1,6 @@
 defaults:
   - model: gdl_unet
+  - tiling: default_tiling
   - training: default_training
   - loss: binary/softbce
   - optimizer: adamw
@@ -31,12 +32,13 @@ general:
   min_epochs: 1 # for train only
   raw_data_dir: data
   raw_data_csv: tests/sampling/sampling_segmentation_binary_ci.csv
-  sample_data_dir: data # where the hdf5 will be saved
+  tiles_data_dir: data # where the hdf5 will be saved
   save_weights_dir: saved_model/${general.project_name}
 
 AWS:
   bucket_name:
 
 print_config: True # save the config in the log folder
-mode: {sampling, train, inference, evaluate}
+mode: {tiling, train, inference, evaluate}
 debug: True #False # will print the complete yaml config plus run a validation test
+dry_run: False

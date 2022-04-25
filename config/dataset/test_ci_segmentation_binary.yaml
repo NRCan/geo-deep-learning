@@ -13,7 +13,7 @@ dataset:
   out_modalities: ['R','G','B']
 
   # ground truth
-  attribute_field: "class"
+  attribute_field: properties/class
   attribute_vals: 1
   min_annot_perc:
   class_name: # will follow in the next version

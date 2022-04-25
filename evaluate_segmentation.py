@@ -79,7 +79,7 @@ def main(params):
     """
     start_seg = time.time()
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
-    modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
+    modalities = get_key_def('out_modalities', params['dataset'], default=['R', 'G', 'B'], expected_type=Sequence)
     num_bands = len(modalities)
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str, to_path=True,
@@ -129,11 +129,11 @@ def main(params):
 
     for info in tqdm(list_img, desc='Evaluating from input list', position=0, leave=True):
         local_img = Path(info['tif'])
-        Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
+        Path.mkdir(working_folder / local_img.parent.name, parents=True, exist_ok=True)
         inference_image = working_folder / local_img.parent.name / f"{local_img.stem}_inference.tif"
         if not inference_image.is_file():
-            raise FileNotFoundError(f"Couldn't locate inference to evaluate metrics with. Make inferece has been run "
-                                    f"before you run evaluate mode.")
+            raise FileNotFoundError(f"\nCouldn't locate inference to evaluate metrics with: {inference_image}."
+                                    f"\nMake sure inference has been run before you run evaluate mode.")
 
         pred = rasterio.open(inference_image).read()[0, ...]
 

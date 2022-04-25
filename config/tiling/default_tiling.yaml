@@ -1,6 +1,6 @@
 # @package _global_
 tiling:
-  tile_size: 256
+  tile_size: 128
   min_annot_perc: 0
   continuous_values: True
   save_preview_labels: True

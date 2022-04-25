@@ -83,7 +83,6 @@ def create_dataloader(samples_folder: Path,
                                                   params=cfg,
                                                   min_annot_perc=min_annot_perc,
                                                   attr_vals=attr_vals,
-                                                  dontcare=dontcare_val,
                                                   experiment_name=experiment_name)
     if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
         raise ValueError(f"Number of samples in tiles files is less than batch size")
@@ -491,11 +490,10 @@ def train(cfg: DictConfig) -> None:
     class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
     num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
     out_modalities = get_key_def('out_modalities', cfg['dataset'], expected_type=Sequence)
-    num_bands = len(read_modalities(cfg.dataset.modalities))
+    num_bands = len(cfg.dataset.out_modalities)
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
     num_epochs = get_key_def('max_epochs', cfg['training'], expected_type=int)
-    model_name = get_key_def('model_name', cfg['model'], expected_type=str).lower()
 
     # OPTIONAL PARAMETERS
     debug = get_key_def('debug', cfg)
@@ -576,7 +574,7 @@ def train(cfg: DictConfig) -> None:
     for list_path in cfg.general.config_path:
         if list_path['provider'] == 'main':
             config_path = list_path['path']
-    default_output_path = Path(to_absolute_path(f'{samples_folder}/model/{experiment_name}/{run_name}'))
+    default_output_path = Path(to_absolute_path(f'{tiles_dir}/model/{experiment_name}/{run_name}'))
     output_path = get_key_def('save_weights_dir', cfg['general'], default=default_output_path, to_path=True)
     if output_path.is_dir():
         last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')

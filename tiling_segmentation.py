@@ -23,7 +23,7 @@ from utils.utils import (
     get_key_def, read_csv, get_git_hash, select_modalities
 )
 from utils.verifications import (
-    validate_raster, assert_crs_match, validate_num_bands
+    validate_raster, assert_crs_match, validate_input_imagery
 )
 # Set the logging file
 from utils import utils
@@ -753,13 +753,15 @@ def main(cfg: DictConfig) -> None:
     out_modalities = get_key_def('out_modalities', cfg['dataset'], expected_type=Sequence)
     num_bands = len(cfg.dataset.out_modalities)
     bands_idxs = select_modalities(in_bands=in_bands, out_modalities=out_modalities)
+    experiment_name = get_key_def('project_name', cfg['general'], default='gdl-training')
     debug = cfg.debug
     dry_run = cfg.dry_run
 
     # RAW DATA PARAMETERS
     data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
     csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
-    tiles_dir = get_key_def('tiles_data_dir', cfg['dataset'], default=data_path, to_path=True, validate_path_exists=True)
+    tiles_root_dir = get_key_def('tiles_data_dir', cfg['dataset'], default=data_path, to_path=True,
+                                 validate_path_exists=True)
 
     # SAMPLE PARAMETERS
     samples_size = get_key_def('tile_size', cfg['tiling'], default=512, expected_type=int)
@@ -779,8 +781,8 @@ def main(cfg: DictConfig) -> None:
     with open_dict(cfg):
         cfg.general.git_hash = get_git_hash()
 
-    experiment_name = cfg.general.project_name
-    exp_dir = data_path / experiment_name if not tiles_dir else tiles_dir
+    exp_dir = tiles_root_dir / experiment_name
+
     if exp_dir.is_dir():
         print(f'WARNING: Data path exists: {exp_dir}. Make sure samples belong to the same experiment.')
     Path.mkdir(exp_dir, exist_ok=True, parents=True)
@@ -807,7 +809,7 @@ def main(cfg: DictConfig) -> None:
     if validate_data:
         for aoi in tqdm(tiler.src_data_dict.values(),
                         desc=f'Asserting number of bands in imagery is {tiler.num_bands}'):
-            validate_num_bands(raster=aoi.img, num_bands=tiler.num_bands, bands_idxs=tiler.bands_idxs)
+            validate_input_imagery(raster_path=aoi.img, num_bands=tiler.num_bands)
     else:
         logging.warning(f"Skipping validation of imagery and correspondance between actual and expected number of "
                         f"bands. Use only is data has already been validated once.")
@@ -903,7 +905,7 @@ def main(cfg: DictConfig) -> None:
         if debug:
             for img_tile, gt_tile, _ in tqdm(aoi.tiles_pairs_list,
                                              desc='DEBUG: Checking if data tiles are valid'):
-                is_valid, _ = validate_raster(img_tile)
+                is_valid = validate_raster(img_tile)
                 if not is_valid:
                     logging.error(f'Invalid imagery tile: {img_tile}')
                 try:
