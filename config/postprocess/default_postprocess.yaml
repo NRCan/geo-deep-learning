@@ -18,13 +18,13 @@ postprocess:
     generalization: _post
 
   # Container config - Volume binding arguments are hardcoded in scripts. Modify commands at your own risk!
-  cont_type: singularity  # docker or singularity
+  cont_type: docker  # docker or singularity
   reg_cont:
     # Will fallback to using direct python method if an error occurs with container approach.
     # To use fallback, install regularization module: pip install git+https://github.com/remtav/projectRegularization.git@light
     fallback: True
     # tag of docker image or path to singularity image file (e.g. remtav/gdl or gdl.sif, respectively)
-    cont_image: remtav/gdl
+    cont_image: gdl
     # command to execute in container.
     # TODO add regularization scripts to docker/singularity image
     command:
