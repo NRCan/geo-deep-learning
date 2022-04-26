@@ -1,61 +1,43 @@
 name: geo_deep_env
 channels:
-  - anaconda
-  - conda-forge
   - pytorch
-  - defaults
+  - conda-forge
 dependencies:
-  - fiona>=1.8.0
   - boto3>=1.19.2
   - coverage>=6.3.1
-  - cudatoolkit=10.2.89
+  - cudatoolkit>=11.3.0
+  - pytorch=1.10.2=py3.9_cuda11.3_cudnn8.2.0_0  # Linux
+  # - pytorch=1.10.1=py3.9_cuda11.3_cudnn8_0  # Windows
+  - torchvision>=0.11.1
   - docker-py>=4.4.4
+  - geopandas>=0.10.2
+  - geopy
   - h5py>=3.1.0
   - hdf5>=1.10.6
+  - hydra-core>=1.1.0
   - mlflow>=1.2.0
-  - pandas>=1.2.3
-  - pillow>=8.1.2
-  - pip>=21.0.1
+  - pip>=22.0.3
   - pynvml>=11.0.0
+  - pystac>=0.3.0
   - pytest>=7.0.0
   - python>=3.9.2
-  - pytorch=1.10.0=py3.9_cuda10.2_cudnn7.6.5_0
-  - pyyaml>=5.4.1
+  - rich>=11.1.0
+  - rtree>=0.9.7
   - ruamel_yaml>=0.15.80
-  - scikit-learn>=0.24.1
-  - scipy>=1.6.1
-  - torchvision=0.11.1=py39_cu102
+  - scikit-image>=0.18.1
+  - setuptools=49.6.0
+  - torchgeo>=0.2.0
   - tqdm>=4.59.0
-  - yaml>=0.2.5
   - pip:
-    - affine==2.3.0
-    - attrs==20.3.0
-    - click-plugins==1.1.1
-    - cligj==0.7.1
-    - cycler==0.10.0
-    - decorator==4.4.2
-    - efficientnet-pytorch==0.6.3
-    - geopandas==0.10.2
-    - geopy
-    - imageio==2.9.0
-    - kiwisolver==1.3.1
-    - matplotlib==3.4.0
-    - munch==2.5.0
-    - networkx==2.5
-    - pretrainedmodels==0.7.4
-    - pyproj==3.1.0
-    - pywavelets==1.1.1
-    - rasterio==1.2.1
-    - scikit-image==0.18.1
-    - segmentation-models-pytorch==0.2.0
-    - shapely==1.7.1
-    - snuggs==1.4.7
-    - tifffile==2021.3.17
-    - timm==0.4.12
-    - ttach==0.0.3
-    - rich
-    - rtree
-    - pytorch-lightning
-    - hydra-core==1.1.0
-    - hydra-colorlog==1.1.0
-    - hydra-optuna-sweeper==1.1.0
+    - affine>=2.3.0
+    - efficientnet-pytorch>=0.6.3
+    - hydra-colorlog>=1.1.0
+    - hydra-optuna-sweeper>=1.1.0
+    - kiwisolver>=1.3.1
+    - pretrainedmodels>=0.7.4
+    - segmentation-models-pytorch>=0.2.0
+    - git+https://github.com/microsoft/torchgeo.git
+    - git+https://github.com/remtav/projectRegularization.git@light
+    - git+https://github.com/CosmiQ/solaris.git@0.5.0
+    - timm>=0.4.12
+    - ttach>=0.0.3
