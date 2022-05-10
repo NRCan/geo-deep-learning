@@ -30,7 +30,7 @@ postprocess:
     command:
       /bin/bash -c "
       python /media/regularize.py --input-inf /home/${inference.output_name}.tif
-      --output /home/${postprocess.output_name}${postprocess.output_suffixes.regularization}.tif
+      --output /home/${inference.output_name}${postprocess.output_suffixes.regularization}.tif
       --build-val ${dataset.classes_dict.BUIL} --models-dir /media/saved_models_gan --log-conf-path /media/logging.conf
       "
 
@@ -46,7 +46,7 @@ postprocess:
       qgis_process plugins enable grassprovider;
       qgis_process run grass7:r.to.vect -- input=/home/${inference.output_name}.tif type=2 output=/tmp/rtovect.gpkg;
       qgis_process run native:extractbyattribute -- INPUT=/tmp/rtovect.gpkg FIELD=value OPERATOR=2
-      VALUE=0 OUTPUT=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
+      VALUE=0 OUTPUT=/home/${inference.output_name}${postprocess.output_suffixes.polygonization}.gpkg
       "
 
   gen_cont:
@@ -62,7 +62,7 @@ postprocess:
         qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/WAER.model3 --
-        inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
+        inlayer=/home/${inference.output_name}${postprocess.output_suffixes.polygonization}.gpkg
         --inselectattrname=value --inselectattrint=1 
         --insimpdiamtol=0.3 --inrmvholesunder=25 --inredbendtol=2 --inminarea=25    
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
@@ -73,7 +73,7 @@ postprocess:
         qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/FORE.model3 
-        --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
+        --inlayer=/home/${inference.output_name}${postprocess.output_suffixes.polygonization}.gpkg
         --inselectattrname=value --inselectattrint=1
         --insimpdiamtol=0.3 --inrmvholesunder=75 --inredbendtol=2 --inminarea=75   
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
@@ -84,7 +84,7 @@ postprocess:
         qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/ROAI.model3 
-        --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
+        --inlayer=/home/${inference.output_name}${postprocess.output_suffixes.polygonization}.gpkg
         --inselectattrname=value --inselectattrint=1
         --insimpdiamtol=0.3 --inredbendtol=2 --inrmvholesunder=300 --indensinterval=15 
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
@@ -96,7 +96,7 @@ postprocess:
         qgis_process plugins enable geo_sim_processing;
         qgis_process plugins enable processing;
         qgis_process run /models/BUIL.model3 
-        --inlayer=/home/${postprocess.output_name}${postprocess.output_suffixes.polygonization}.gpkg
+        --inlayer=/home/${inference.output_name}${postprocess.output_suffixes.polygonization}.gpkg
         --inselectattrname=value --inselectattrint=1 
         --insimpdiamtol=0.3 --inrmvholesunder=40 
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg

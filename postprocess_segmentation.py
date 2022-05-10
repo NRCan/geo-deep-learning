@@ -350,6 +350,9 @@ def main(params):
     if not inf_outpath.is_file():
         raise FileNotFoundError(f"\nCannot find raster prediction file to use for postprocessing."
                                 f"\nGot:{inf_outpath}")
+    logging.debug(f"\nPostprocessing root directory:\n{root}"
+                  f"\ninput:\n{inf_outname}"
+                  f"\noutput:\n{outname}")
     checkpoint = get_key_def('state_dict_path', params['postprocess'], expected_type=str, to_path=True,
                              validate_path_exists=True)
     dataset_classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
@@ -391,23 +394,28 @@ def main(params):
     gen_cont_image = get_key_def('cont_image', params['postprocess']['gen_cont'], expected_type=str)
     gen_commands = dict(get_key_def('command', params['postprocess']['gen_cont'], expected_type=DictConfig))
 
-    # Create yaml to use pytorch lightning model management
-    logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
+    logging.debug('\nCreate "hparams" yaml to use pytorch lightning model management')
+    logging.info(f"\nConverting geo-deep-learning checkpoint to pytorch lightning...")
     checkpoint = gdl2pl_checkpoint(in_pth_path=checkpoint, out_dir=models_dir)
     checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
 
-    # filter generalization commands based on extracted classes
+    logging.debug(f"\nFilter generalization commands based on extracted classes")
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
     classes_dict = {k: v for k, v in classes_dict.items() if v}  # Discard keys where value is None
+    logging.debug(f"\nGeneralization commands, before filtering for extracted classes:\n{gen_commands}")
     gen_cmds_pruned = {data_class: cmd for data_class, cmd in gen_commands.items() if data_class in classes_dict.keys()}
+    logging.debug(f"\nGeneralization commands, after filtering for extracted classes:\n{gen_cmds_pruned}")
     # WARNING: this is highly coupled to values in generalization commands in config.
     if 'BUIL' in classes_dict.keys():
         reg_command = reg_command.replace(f"--build-val {dataset_classes_dict['BUIL']}",
                                           f"--build-val {classes_dict['BUIL']}")
+        logging.debug(f"\nRegularization command:\n{reg_command}")
+    logging.debug(f"\nAttribute values are overridden according to output class values contained in model checkpoint\n")
     gen_cmds_pruned = {cls: cmd.replace(f"--inselectattrint={dataset_classes_dict[cls]}",
                                         f"--inselectattrint={classes_dict[cls]}")
                        for cls, cmd in gen_cmds_pruned.items()}
+    logging.debug(f"\nGeneralization commands, after override of class values:\n{gen_cmds_pruned}")
 
     # build output paths
     out_reg = root / f"{inf_outname}{out_reg_suffix}.tif"
@@ -416,8 +424,8 @@ def main(params):
 
     # TODO: run regularization after polygonization? if so, polygonized output needs to rasterized and polygonized again
     if 'BUIL' in classes_dict and regularization:
-        logging.info(f"Regularizing prediction. Polygonized output will be overwritten."
-                     f"\nOutput: {out_poly}")
+        logging.info(f'Regularizing prediction. Polygonization\'s input ("{inf_outpath}") will become "{out_reg}".'
+                     f'\nRegularization output: {out_reg}')
         building_value = classes_dict['BUIL']
         regularize_buildings(
             in_pred=inf_outpath,
@@ -431,12 +439,16 @@ def main(params):
             fallback_models_dir=reg_models_dir,
         )
         if out_reg.is_file():
-            if f"{outname}.tif" not in poly_command:
-                logging.critical(f"\nOutput path for polygonization command should be replaced by regularization output"
-                                 f"\n\"{outname}.tif\" not found in original command"
-                                 f"\nFailed to replace \"{outname}.tif\" with \"{out_reg.stem}.tif\" in command.")
-            poly_command = poly_command.replace(f"{outname}.tif", f"{out_reg.stem}.tif")
+            if f"{inf_outname}.tif" not in poly_command:
+                logging.critical(f"\nInput to polygonization command should be replaced by regularization output"
+                                 f"\n\"{inf_outname}.tif\" not found in original command"
+                                 f"\nFailed to replace \"{inf_outname}.tif\" with \"{out_reg.stem}.tif\" in command.")
+            else:
+                poly_command = poly_command.replace(f"{inf_outname}.tif", f"{out_reg.stem}.tif")
             inf_outpath = inf_outpath.parent / f"{out_reg.stem}.tif"
+        else:
+            logging.error(f'\nFailed to create regularized output "{out_reg}".'
+                          f'\nPolygonization and generalization will continue on non-regularized inference.')
 
     # Postprocess final raster prediction (polygonization)
     try:

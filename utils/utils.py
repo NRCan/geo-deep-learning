@@ -632,12 +632,12 @@ def override_model_params_from_checkpoint(
     single_class_mode_ckpt = get_key_def('state_dict_single_mode', checkpoint_params['inference'], expected_type=bool)
 
     if model_ckpt != params.model or classes_ckpt != classes or modalities_ckpt != modalities:
-        logging.warning(f"\nParameters from checkpoint will override inputted parameters."
-                        f"\n\t\t\t Inputted | Overriden"
-                        f"\nModel:\t\t {params.model} | {model_ckpt}"
-                        f"\nInput bands:\t\t{modalities} | {modalities_ckpt}"
-                        f"\nOutput classes:\t\t{classes} | {classes_ckpt}"
-                        f"\nSingle class mode:\t\t{single_class_mode} | {single_class_mode_ckpt}")
+        logging.info(f"\nParameters from checkpoint will override inputted parameters."
+                     f"\n\t\t\t Inputted | Overriden"
+                     f"\nModel:\t\t {params.model} | {model_ckpt}"
+                     f"\nInput bands:\t\t{modalities} | {modalities_ckpt}"
+                     f"\nOutput classes:\t\t{classes} | {classes_ckpt}"
+                     f"\nSingle class mode:\t\t{single_class_mode} | {single_class_mode_ckpt}")
         with open_dict(params):
             OmegaConf.update(params, 'dataset.modalities', modalities_ckpt, merge=False)
             OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt, merge=False)
