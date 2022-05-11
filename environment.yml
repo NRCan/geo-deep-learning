@@ -25,6 +25,7 @@ dependencies:
   - ruamel_yaml>=0.15.80
   - scikit-learn>=0.24.1
   - scipy>=1.6.1
+  - setuptools=59.6.0  # https://github.com/pytorch/pytorch/issues/69894
   - torchvision=0.11.1=py39_cu102
   - tqdm>=4.59.0
   - yaml>=0.2.5
