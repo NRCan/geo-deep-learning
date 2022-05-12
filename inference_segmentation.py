@@ -416,7 +416,7 @@ def main(params: Union[DictConfig, dict]) -> None:
                                                       f"{img_name.split('.')[0]}_inference.tif")
         temp_file = working_folder.joinpath(local_img.parent.name, f"{img_name.split('.')[0]}.dat")
         raster = rasterio.open(local_img, 'r')
-        logging.info(f'\nReading image: {raster.name}')
+        logging.info(f'\nReading image: {raster.aoi_id}')
         inf_meta = raster.meta
 
         pred = segmentation(param=params,

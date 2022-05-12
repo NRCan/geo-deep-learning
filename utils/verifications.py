@@ -1,10 +1,15 @@
+import os
 from pathlib import Path
 from typing import Union, List
 
 import fiona
+import geopandas as gpd
 import numpy as np
 import rasterio
+from fiona._err import CPLE_OpenFailedError
+from fiona.errors import DriverError
 from rasterio.features import is_valid_geom
+from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load, _check_crs
 from tqdm import tqdm
 
 from utils.geoutils import lst_ids, get_key_recursive
@@ -89,7 +94,7 @@ def validate_raster(raster_path: Union[str, Path], extended: bool = False) -> bo
         with rasterio.open(raster_path, 'r') as raster:
             if not raster.meta['dtype'] in ['uint8', 'uint16']:  # will trigger exception if invalid raster
                 logging.warning(f"Only uint8 and uint16 are supported in current version.\n"
-                                f"Datatype {raster.meta['dtype']} for {raster.name} may cause problems.")
+                                f"Datatype {raster.meta['dtype']} for {raster.aoi_id} may cause problems.")
         if extended:
             logging.debug(f'Will perform extended check.\nWill read first band: {raster_path}')
             with rasterio.open(raster_path, 'r') as raster:
@@ -147,19 +152,34 @@ def assert_crs_match(raster_path: Union[str, Path], gpkg_path: Union[str, Path])
     :param raster_path: (str or Path) path to raster file
     :param gpkg_path: (str or Path) path to gpkg file
     """
-    with fiona.open(gpkg_path, 'r') as src:
-        gpkg_crs = src.crs
+    raster = _check_rasterio_im_load(raster_path)
+    raster_crs = raster.crs
+    gt = _check_gdf_load(str(gpkg_path))
+    gt_crs = gt.crs
 
-    with rasterio.open(raster_path, 'r') as raster:
-        raster_crs = raster.crs
+    epsg_gt = _check_crs(gt_crs.to_epsg())
+    try:
+        if raster_crs.is_epsg_code:
+            epsg_raster = _check_crs(raster_crs.to_epsg())
+        else:
+            logging.warning(f"Cannot parse epsg code from raster's crs '{raster.name}'")
+            return False, raster_crs, gt_crs
 
-    if not gpkg_crs == raster_crs:
-        logging.warning(f"CRS mismatch: \n"
-                        f"TIF file \"{raster_path}\" has {raster_crs} CRS; \n"
-                        f"GPKG file \"{gpkg_path}\" has {src.crs} CRS.")
+        if epsg_raster != epsg_gt:
+            logging.error(f"CRS mismatch: \n"
+                          f"TIF file \"{raster_path}\" has {epsg_raster} CRS; \n"
+                          f"GPKG file \"{gpkg_path}\" has {epsg_gt} CRS.")
+            return False, raster_crs, gt_crs
+        else:
+            return True, raster_crs, gt_crs
+    except AttributeError as e:
+        logging.critical(f'Problem reading crs from image or label.')
+        logging.critical(e)
+        return False, raster_crs, gt_crs
 
 
 def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
+    # TODO: unit test for valid/invalid raster
     """
     Validate features in gpkg file
     :param gpkg: (str or Path) path to gpkg file
@@ -179,3 +199,31 @@ def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
             if lst_vector[index]["id"] not in invalid_features_list:  # ignore if feature is already appended
                 invalid_features_list.append(lst_vector[index]["id"])
     return invalid_features_list
+
+
+def validate_by_rasterio(raster: Union[Path, str]):
+    """Check if `raster` is readable by rasterio, if not, log and raise error."""
+    if not Path(raster).is_file():
+        raise FileNotFoundError(f'{raster}')
+    try:
+        rasterio.open(raster)
+    except (rasterio.RasterioIOError, TypeError) as e:
+        logging.error(f"\nRasterio can't open the provided raster: {raster}")
+        raise e
+
+
+def validate_by_geopandas(label: Union[Path, str]):
+    # TODO: unit test for valid/invalid label file
+    """Check if `label` is readable by geopandas, if not, log and raise error."""
+    # adapted from https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L52
+    if not Path(label).is_file() or os.stat(label).st_size == 0:
+        raise FileNotFoundError(f'{label} is not a valid file')
+    try:
+        return gpd.read_file(label)
+    except (DriverError, CPLE_OpenFailedError) as e:
+        logging.error(
+            f"GeoDataFrame couldn't be loaded: either {label} isn't a valid"
+            " path or it isn't a valid vector file. Returning an empty"
+            " GeoDataFrame."
+        )
+        raise e

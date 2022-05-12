@@ -144,7 +144,7 @@ def main(params):
             local_img = clip_raster_with_gpkg(raster, local_gpkg)
 
         raster_clipped = rasterio.open(local_img, 'r')
-        logging.info(f'\nReading clipped image: {raster_clipped.name}')
+        logging.info(f'\nReading clipped image: {raster_clipped.aoi_id}')
         inf_meta = raster_clipped.meta
 
         label = vector_to_raster(vector_file=local_gpkg,

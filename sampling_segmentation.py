@@ -1,12 +1,14 @@
 import shutil
-from typing import Sequence
+from typing import Sequence, Union
 
+import pyproj
 import rasterio
 import numpy as np
+from solaris.utils.core import _check_rasterio_im_load
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
-from omegaconf import DictConfig, open_dict
+from omegaconf import DictConfig, open_dict, listconfig
 
 # Our modules
 from utils.logger import get_logger
@@ -18,7 +20,8 @@ from utils.utils import (
     read_modalities,
 )
 from utils.verifications import (
-    validate_num_classes, assert_crs_match, validate_features_from_gpkg, validate_input_imagery
+    validate_num_classes, assert_crs_match, validate_features_from_gpkg, validate_input_imagery, validate_by_rasterio,
+    validate_by_geopandas
 )
 # Set the logging file
 logging = get_logger(__name__)  # import logging
@@ -30,6 +33,151 @@ except ModuleNotFoundError:
 
 # Set random seed for reproducibility
 np.random.seed(1234)
+
+
+class AOI(object):
+    """
+    Object containing all data aoirmation about a single area of interest
+    based on https://github.com/stac-extensions/ml-aoi
+    """
+
+    def __init__(self, raster: Union[Path, str],
+                 label: Union[Path, str] = None,
+                 split: str = None,
+                 aoi_id: str = None,
+                 collection: str = None,
+                 attr_field_filter: str = None,
+                 attr_values_filter: Sequence = None):
+        """
+        @param raster: pathlib.Path or str
+            Path to source imagery
+        @param label: pathlib.Path or str
+            Path to ground truth file. If not provided, AOI is considered only for inference purposes
+        @param split: str
+            Name of destination dataset for aoi. Should be 'trn', 'tst' or 'inference'
+        @param aoi_id: str
+            Name or id (loosely defined) of area of interest. Used to name output folders.
+            Multiple AOI instances can bear the same name.
+        @param collection: str
+            Name of collection containing AOI. All AOIs in the same collection should never be spatially overlapping
+        @param attr_field_filter: str, optional
+            Name of attribute field used to filter features. If not provided all geometries in ground truth file
+            will be considered.
+        @param attr_values_filter: list of ints, optional
+            The list of attribute values in given attribute field used to filter features from ground truth file.
+            If not provided, all values in field will be considered
+        """
+        validate_by_rasterio(raster)
+        self.raster = _check_rasterio_im_load(raster)
+
+        if label:
+            validate_by_geopandas(label)
+            self.label = Path(label)
+            # may create overhead
+            # TODO: unit test for failed CRS match
+            try:
+                self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(self.raster, self.label)
+            except pyproj.exceptions.CRSError as e:
+                logging.warning(f"\nError while checking CRS match between raster and label."
+                                f"\n{e}")
+        else:
+            self.label = label
+            self.crs_match = self.epsg_raster = self.epsg_label = None
+
+        if not isinstance(split, str) and split not in ['trn', 'tst', 'inference']:
+            raise ValueError(f"\nDataset should be a string: 'trn', 'tst' or 'inference'. Got {split}.")
+        elif not label and (split != 'inference' or not split):
+            raise ValueError(f"\nNo ground truth provided. Dataset should be left empty or set to 'inference' only. "
+                             f"\nGot {split}")
+        self.split = split
+
+        if aoi_id and not isinstance(aoi_id, str):
+            raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
+        elif not aoi_id:
+            aoi_id = self.raster.stem  # Defaults to name of image without suffix
+        self.aoi_id = aoi_id
+
+        if collection and not isinstance(collection, str):
+            raise TypeError(f'Collection name should be a string. Got {collection} of type {type(collection)}')
+        self.aoi_id = aoi_id
+
+        if label and attr_field_filter and not isinstance(attr_field_filter, str):
+            raise TypeError(f'Attribute field name should be a string.\n'
+                            f'Got {attr_field_filter} of type {type(attr_field_filter)}')
+        self.attr_field_filter = attr_field_filter
+
+        if label and attr_values_filter and not isinstance(attr_values_filter, (list, listconfig.ListConfig)):
+            raise TypeError(f'Attribute values should be a list.\n'
+                            f'Got {attr_values_filter} of type {type(attr_values_filter)}')
+        self.attr_values_filter = attr_values_filter
+
+    @classmethod
+    def from_dict(cls, aoi_dict, attr_field_filter: str = None, attr_values_filter: list = None):
+        """Instanciates an AOI object from an input-data dictionary as expected by geo-deep-learning"""
+        if not isinstance(aoi_dict, dict):
+            raise TypeError('Input data should be a dictionary.')
+        # TODO: change dataset for split
+        if not {'tif', 'gpkg', 'dataset'}.issubset(set(aoi_dict.keys())):
+            raise ValueError(f"Input data should minimally contain the following keys: \n"
+                             f"'tif', 'gpkg', 'dataset'.")
+        if not aoi_dict['gpkg']:
+            logging.warning(f"No ground truth data found for {aoi_dict['tif']}.\n"
+                            f"Only imagery will be processed from now on")
+        if "aoi_id" not in aoi_dict.keys() or not aoi_dict['aoi_id']:
+            aoi_dict['aoi_id'] = Path(aoi_dict['tif']).stem
+        aoi_dict['attribute_name'] = attr_field_filter
+        new_aoi = cls(
+            raster=aoi_dict['tif'],
+            label=aoi_dict['gpkg'],
+            split=aoi_dict['dataset'],
+            attr_field_filter=attr_field_filter,
+            attr_values_filter=attr_values_filter,
+            aoi_id=aoi_dict['aoi_id']
+        )
+        return new_aoi
+
+    def __str__(self):
+        return (
+            f"\nAOI ID: {self.aoi_id}"
+            f"\n\tRaster: {self.raster.name}"
+            f"\n\tLabel: {self.label}"
+            f"\n\tCRS match: {self.crs_match}"
+            f"\n\tSplit: {self.split}"
+            f"\n\tAttribute field filter: {self.attr_field_filter}"
+            f"\n\tAttribute values filter: {self.attr_values_filter}"
+            )
+
+
+def aois_from_csv(csv_path: Union[str, Path], attr_field_filter: str = None, attr_values_filter: str = None):
+    """
+    Creates list of AOIs by parsing a csv file referencing input data
+    @param csv_path:
+        path to csv file containing list of input data. See README for details on expected structure of csv.
+    @param attr_values_filter:
+        Attribute filed to filter features from
+    @param attr_field_filter:
+        Attribute values (for given attribute field) for features to keep
+    Returns: a list of AOIs objects
+    """
+    aois = []
+    data_list = read_csv(csv_path)
+    logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
+                 f'\tNumber of rows: {len(data_list)}\n'
+                 f'\tCopying first row:\n{data_list[0]}\n')
+    for i, aoi_dict in tqdm(enumerate(data_list), desc="Creating AOI's"):
+        try:
+            new_aoi = AOI.from_dict(
+                aoi_dict=aoi_dict,
+                attr_field_filter=attr_field_filter,
+                attr_values_filter=attr_values_filter
+            )
+            logging.debug(new_aoi)
+            aois.append(new_aoi)
+        except FileNotFoundError as e:
+            logging.critical(f"{e}\nGround truth file may not exist or is empty.\n"
+                             f"Failed to create AOI:\n{aoi_dict}\n"
+                             f"Index: {i}")
+    return aois
 
 
 def mask_image(arrayA, arrayB):
@@ -351,7 +499,7 @@ def main(cfg: DictConfig) -> None:
               raster is clipped to gpkg's extent.
             - If gpkg's extent is bigger than raster's extent,
               gpkg is clipped to raster's extent.
-        2. Convert GeoPackage vector information into the "label" raster with
+        2. Convert GeoPackage vector aoirmation into the "label" raster with
            utils.utils.vector_to_raster(). The pixel value is determined by the
            attribute in the csv file.
         3. Create a new raster called "label" with the same properties as the
@@ -435,16 +583,22 @@ def main(cfg: DictConfig) -> None:
 
     # AWS TODO
     bucket_name = cfg.AWS.bucket_name
-    if bucket_name:
-        final_samples_folder = None
-        bucket_name = cfg.AWS.bucket_name
-        bucket_file_cache = []
-        s3 = boto3.resource('s3')
-        bucket = s3.Bucket(bucket_name)
-        bucket.download_file(csv_file, 'samples_prep.csv')
-        list_data_prep = read_csv('samples_prep.csv')
-    else:
-        list_data_prep = read_csv(csv_file)
+    # if bucket_name:
+    #     final_samples_folder = None
+    #     bucket_name = cfg.AWS.bucket_name
+    #     bucket_file_cache = []
+    #     s3 = boto3.resource('s3')
+    #     bucket = s3.Bucket(bucket_name)
+    #     bucket.download_file(csv_file, 'samples_prep.csv')
+    #     list_data_prep = read_csv('samples_prep.csv')
+    # else:
+    #     list_data_prep = read_csv(csv_file)
+
+    list_data_prep = aois_from_csv(
+        csv_path=csv_file,
+        attr_field_filter=attribute_field,
+        attr_values_filter=attr_vals
+    )
 
     # IF DEBUG IS ACTIVATE
     if debug:
@@ -454,22 +608,22 @@ def main(cfg: DictConfig) -> None:
 
     # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
     valid_gpkg_set = set()
-    for info in tqdm(list_data_prep, position=0):
-        validate_input_imagery(info['tif'], num_bands)
-        if info['gpkg'] not in valid_gpkg_set:
+    for aoi in tqdm(list_data_prep, position=0):
+        validate_input_imagery(aoi.raster.name, num_bands)
+        if aoi.label not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(
-                info['gpkg'], num_classes, attribute_field, dontcare, attribute_values=attr_vals,
+                aoi.label, num_classes, attribute_field, dontcare, attribute_values=attr_vals,
             )
-            assert_crs_match(info['tif'], info['gpkg'])
-            valid_gpkg_set.add(info['gpkg'])
+            assert_crs_match(aoi.raster.name, aoi.label)
+            valid_gpkg_set.add(aoi.label)
 
     if debug:
         # VALIDATION (debug only): Checking validity of features in vector files
-        for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
+        for aoi in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
             # TODO: make unit to test this with invalid features.
-            invalid_features = validate_features_from_gpkg(info['gpkg'], attribute_field)
+            invalid_features = validate_features_from_gpkg(aoi.label, attribute_field)
             if invalid_features:
-                logging.critical(f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'")
+                logging.critical(f"{aoi.label}: Invalid geometry object(s) '{invalid_features}'")
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
@@ -491,35 +645,36 @@ def main(cfg: DictConfig) -> None:
         f"\nPreparing samples \n  Samples_size: {samples_size} \n  Overlap: {overlap} "
         f"\n  Validation set: {val_percent} % of created training samples"
     )
-    for info in tqdm(list_data_prep, position=0, leave=False):
+    for aoi in tqdm(list_data_prep, position=0, leave=False):
         try:
-            if bucket_name:
-                bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
-                info['tif'] = "Images/" + info['tif'].split('/')[-1]
-                if info['gpkg'] not in bucket_file_cache:
-                    bucket_file_cache.append(info['gpkg'])
-                    bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
-                info['gpkg'] = info['gpkg'].split('/')[-1]
+            # TODO
+            # if bucket_name:
+            #     bucket.download_file(aoi.raster.name, "Images/" + aoi.raster.name.split('/')[-1])
+            #     aoi.raster.name = "Images/" + aoi.raster.name.split('/')[-1]
+            #     if aoi.label not in bucket_file_cache:
+            #         bucket_file_cache.append(aoi.label)
+            #         bucket.download_file(aoi.label, aoi.label.split('/')[-1])
+            #     aoi.label = aoi.label.split('/')[-1]
 
-            logging.info(f"\nReading as array: {info['tif']}")
-            with rasterio.open(info['tif'], 'r') as raster:
+            logging.info(f"\nReading as array: {aoi.raster.name}")
+            with rasterio.open(aoi.raster.name, 'r') as raster:
                 # 1. Read the input raster image
                 np_input_image, raster, dataset_nodata = image_reader_as_array(
                     input_image=raster,
-                    clip_gpkg=info['gpkg']
+                    clip_gpkg=aoi.label
                 )
 
                 # 2. Burn vector file in a raster file
-                logging.info(f"\nRasterizing vector file (attribute: {attribute_field}): {info['gpkg']}")
+                logging.info(f"\nRasterizing vector file (attribute: {attribute_field}): {aoi.label}")
                 try:
-                    np_label_raster = vector_to_raster(vector_file=info['gpkg'],
+                    np_label_raster = vector_to_raster(vector_file=aoi.label,
                                                        input_image=raster,
                                                        out_shape=np_input_image.shape[:2],
                                                        attribute_name=attribute_field,
                                                        fill=background_val,
                                                        attribute_values=attr_vals)  # background value in rasterized vector.
                 except ValueError:
-                    logging.error(f"No vector features found for {info['gpkg']} with provided configuration."
+                    logging.error(f"No vector features found for {aoi.label} with provided configuration."
                                   f"Will skip to next AOI.")
                     continue
 
@@ -533,7 +688,7 @@ def main(cfg: DictConfig) -> None:
                 out_meta.update({"driver": "GTiff",
                                  "height": np_image_debug.shape[1],
                                  "width": np_image_debug.shape[2]})
-                out_tif = samples_dir / f"{Path(info['tif']).stem}_clipped.tif"
+                out_tif = samples_dir / f"{Path(aoi.raster.name).stem}_clipped.tif"
                 logging.debug(f"Writing clipped raster to {out_tif}")
                 with rasterio.open(out_tif, "w", **out_meta) as dest:
                     dest.write(np_image_debug)
@@ -544,7 +699,7 @@ def main(cfg: DictConfig) -> None:
                                  "height": np_label_debug.shape[1],
                                  "width": np_label_debug.shape[2],
                                  'count': 1})
-                out_tif = samples_dir / f"{Path(info['gpkg']).stem}_clipped.tif"
+                out_tif = samples_dir / f"{Path(aoi.label).stem}_clipped.tif"
                 logging.debug(f"\nWriting final rasterized gpkg to {out_tif}")
                 with rasterio.open(out_tif, "w", **out_meta) as dest:
                     dest.write(np_label_debug)
@@ -553,17 +708,17 @@ def main(cfg: DictConfig) -> None:
             if mask_reference:
                 np_label_raster = mask_image(np_input_image, np_label_raster)
 
-            if info['dataset'] == 'trn':
+            if aoi['dataset'] == 'trn':
                 out_file = trn_hdf5
-            elif info['dataset'] == 'tst':
+            elif aoi['dataset'] == 'tst':
                 out_file = tst_hdf5
             else:
-                raise ValueError(f"\nDataset value must be trn or tst. Provided value is {info['dataset']}")
+                raise ValueError(f"\nDataset value must be trn or tst. Provided value is {aoi['dataset']}")
             val_file = val_hdf5
 
             metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
                                                           raster_handle=raster,
-                                                          raster_info=info)
+                                                          raster_aoi=aoi)
             # Save label's per class pixel count to image metadata
             metadata['source_label_bincount'] = {class_num: count for class_num, count in
                                                  enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
@@ -580,7 +735,7 @@ def main(cfg: DictConfig) -> None:
                                                                  samples_file=out_file,
                                                                  val_percent=val_percent,
                                                                  val_sample_file=val_file,
-                                                                 dataset=info['dataset'],
+                                                                 dataset=aoi['dataset'],
                                                                  pixel_classes=pixel_classes,
                                                                  dontcare=dontcare,
                                                                  image_metadata=metadata,
@@ -591,8 +746,8 @@ def main(cfg: DictConfig) -> None:
             # logging.info(f'\nNumber of samples={number_samples}')
             out_file.flush()
         except OSError:
-            logging.exception(f'\nAn error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
-                              f'{Path(info["gpkg"]).stem} (gpkg).')
+            logging.exception(f'\nAn error occurred while preparing samples with "{Path(aoi["tif"]).stem}" (tiff) and '
+                              f'{Path(aoi["gpkg"]).stem} (gpkg).')
             continue
 
     trn_hdf5.close()

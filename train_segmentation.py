@@ -404,12 +404,12 @@ def evaluation(eval_loader,
                     a, segmentation = torch.max(outputs_flatten, dim=1)
                     eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                         ignore_index=eval_loader.dataset.dontcare)
+                                                         ignore_index=eval_loader.split.dontcare)
             elif (dataset == 'tst') and (batch_metrics is not None):
                 a, segmentation = torch.max(outputs_flatten, dim=1)
                 eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
                 eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                     ignore_index=eval_loader.dataset.dontcare)
+                                                     ignore_index=eval_loader.split.dontcare)
 
             logging.debug(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 

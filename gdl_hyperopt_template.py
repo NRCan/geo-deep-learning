@@ -112,7 +112,7 @@ def trials_to_csv(trials, csv_pth):
 
     for i in range(len(trials.trials)):
         for param in params:
-            if my_space[param].name == 'switch':
+            if my_space[param].aoi_id == 'switch':
                 csv_str += f'{my_space[param].pos_args[trials.vals[param][i] + 1].obj}, '
             else:
                 csv_str += f'{trials.vals[param][i]}, '
@@ -150,7 +150,7 @@ def main(params, config_path):
     pprint.pprint(trials.vals)
     pprint.pprint(trials.results)
     for key, val in best.items():
-        if my_space[key].name == 'switch':
+        if my_space[key].aoi_id == 'switch':
             best[key] = my_space[key].pos_args[val + 1].obj
     pprint.pprint(best)
     print(trials.best_trial['result'])
