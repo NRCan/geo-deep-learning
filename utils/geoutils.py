@@ -81,7 +81,7 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
     coords = getFeatures(geo)
 
     # clip the raster with the polygon
-    out_tif = Path(raster.name).parent / f"{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
+    out_tif = Path(raster.aoi_id).parent / f"{Path(raster.aoi_id).stem}_clipped{Path(raster.aoi_id).suffix}"
     if os.path.isfile(out_tif):
         return out_tif
     else:
@@ -97,7 +97,7 @@ def clip_raster_with_gpkg(raster, gpkg, debug=False):
                 dest.write(out_img)
             return out_tif
         except ValueError as e:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
-            logging.error(f"{e}\n {raster.name}\n{gpkg}")
+            logging.error(f"e\n {raster.aoi_id}\n{gpkg}")
 
 
 def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0, attribute_values=None, merge_all=True):
