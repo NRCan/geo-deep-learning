@@ -423,7 +423,7 @@ def read_csv(csv_file_name):
 
 def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
                                        raster_handle: dict,
-                                       raster_info: dict
+                                       raster_info: dict = None
                                        ) -> dict:
     """
     :param sat_img_arr: source image as array (opened with rasterio.read)
@@ -608,9 +608,6 @@ def print_config(
             "model",
             "general.sample_data_dir",
         )
-
-    if getpath(config, 'AWS.bucket_name'):
-        fields += ("AWS",)
 
     if config.get('tracker'):
         fields += ("tracker",)

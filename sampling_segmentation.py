@@ -1,9 +1,11 @@
 import shutil
 from typing import Sequence, Union
 
+import geopandas as gpd
 import pyproj
 import rasterio
 import numpy as np
+from shapely.geometry import box
 from solaris.utils.core import _check_rasterio_im_load
 from tqdm import tqdm
 from pathlib import Path
@@ -67,6 +69,12 @@ class AOI(object):
 
         if label:
             validate_by_geopandas(label)
+            label_bounds = gpd.read_file(label).total_bounds
+            label_bounds_box = box(*label_bounds.tolist())
+            raster_bounds_box = box(*list(self.raster.bounds))
+            if not label_bounds_box.intersects(raster_bounds_box):
+                raise ValueError(f"Features in label file {label} do not intersect with bounds of raster file "
+                                 f"{raster.name}")
             self.label = Path(label)
             # may create overhead
             # TODO: unit test for failed CRS match
@@ -630,7 +638,7 @@ def main(cfg: DictConfig) -> None:
     for aoi in tqdm(list_data_prep, position=0, leave=False):
         try:
             logging.info(f"\nReading as array: {aoi.raster.name}")
-            with rasterio.open(aoi.raster.name, 'r') as raster:
+            with _check_rasterio_im_load(aoi.raster) as raster:
                 # 1. Read the input raster image
                 np_input_image, raster, dataset_nodata = image_reader_as_array(
                     input_image=raster,
@@ -681,17 +689,16 @@ def main(cfg: DictConfig) -> None:
             if mask_reference:
                 np_label_raster = mask_image(np_input_image, np_label_raster)
 
-            if aoi['dataset'] == 'trn':
+            if aoi.split == 'trn':
                 out_file = trn_hdf5
-            elif aoi['dataset'] == 'tst':
+            elif aoi.split == 'tst':
                 out_file = tst_hdf5
             else:
-                raise ValueError(f"\nDataset value must be trn or tst. Provided value is {aoi['dataset']}")
+                raise ValueError(f"\nDataset value must be trn or tst. Provided value is {aoi.split}")
             val_file = val_hdf5
 
             metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
-                                                          raster_handle=raster,
-                                                          raster_aoi=aoi)
+                                                          raster_handle=raster)
             # Save label's per class pixel count to image metadata
             metadata['source_label_bincount'] = {class_num: count for class_num, count in
                                                  enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
@@ -708,7 +715,7 @@ def main(cfg: DictConfig) -> None:
                                                                  samples_file=out_file,
                                                                  val_percent=val_percent,
                                                                  val_sample_file=val_file,
-                                                                 dataset=aoi['dataset'],
+                                                                 dataset=aoi.split,
                                                                  pixel_classes=pixel_classes,
                                                                  dontcare=dontcare,
                                                                  image_metadata=metadata,
