@@ -26,11 +26,6 @@ from utils.verifications import (
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
-try:
-    import boto3
-except ModuleNotFoundError:
-    logging.warning("\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
-
 # Set random seed for reproducibility
 np.random.seed(1234)
 
@@ -499,7 +494,7 @@ def main(cfg: DictConfig) -> None:
               raster is clipped to gpkg's extent.
             - If gpkg's extent is bigger than raster's extent,
               gpkg is clipped to raster's extent.
-        2. Convert GeoPackage vector aoirmation into the "label" raster with
+        2. Convert GeoPackage vector information into the "label" raster with
            utils.utils.vector_to_raster(). The pixel value is determined by the
            attribute in the csv file.
         3. Create a new raster called "label" with the same properties as the
@@ -581,19 +576,6 @@ def main(cfg: DictConfig) -> None:
     with open_dict(cfg):
         cfg.general.git_hash = get_git_hash()
 
-    # AWS TODO
-    bucket_name = cfg.AWS.bucket_name
-    # if bucket_name:
-    #     final_samples_folder = None
-    #     bucket_name = cfg.AWS.bucket_name
-    #     bucket_file_cache = []
-    #     s3 = boto3.resource('s3')
-    #     bucket = s3.Bucket(bucket_name)
-    #     bucket.download_file(csv_file, 'samples_prep.csv')
-    #     list_data_prep = read_csv('samples_prep.csv')
-    # else:
-    #     list_data_prep = read_csv(csv_file)
-
     list_data_prep = aois_from_csv(
         csv_path=csv_file,
         attr_field_filter=attribute_field,
@@ -647,15 +629,6 @@ def main(cfg: DictConfig) -> None:
     )
     for aoi in tqdm(list_data_prep, position=0, leave=False):
         try:
-            # TODO
-            # if bucket_name:
-            #     bucket.download_file(aoi.raster.name, "Images/" + aoi.raster.name.split('/')[-1])
-            #     aoi.raster.name = "Images/" + aoi.raster.name.split('/')[-1]
-            #     if aoi.label not in bucket_file_cache:
-            #         bucket_file_cache.append(aoi.label)
-            #         bucket.download_file(aoi.label, aoi.label.split('/')[-1])
-            #     aoi.label = aoi.label.split('/')[-1]
-
             logging.info(f"\nReading as array: {aoi.raster.name}")
             with rasterio.open(aoi.raster.name, 'r') as raster:
                 # 1. Read the input raster image
@@ -769,8 +742,3 @@ def main(cfg: DictConfig) -> None:
 
     logging.info(f"\nNumber of samples created: {number_samples}")
 
-    if bucket_name and final_samples_folder:  # FIXME: final_samples_folder always None in current implementation
-        logging.info('\nTransfering Samples to the bucket')
-        bucket.upload_file(samples_dir + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
-        bucket.upload_file(samples_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
-        bucket.upload_file(samples_dir + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')

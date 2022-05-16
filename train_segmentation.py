@@ -15,7 +15,7 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
-from utils.logger import InformationLogger, save_logs_to_bucket, tsv_line, get_logger, set_tracker
+from utils.logger import InformationLogger, tsv_line, get_logger, set_tracker
 from utils.metrics import report_classification, create_metrics_dict, iou
 from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_to_dp_model
 from utils.loss import verify_weights, define_loss
@@ -478,7 +478,6 @@ def train(cfg: DictConfig) -> None:
     debug = get_key_def('debug', cfg)
     task = get_key_def('task',  cfg['general'], default='segmentation')
     dontcare_val = get_key_def("ignore_index", cfg['dataset'], default=-1)
-    bucket_name = get_key_def('bucket_name', cfg['AWS'])
     scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
     batch_metrics = get_key_def('batch_metrics', cfg['training'], default=None)
     crop_size = get_key_def('crop_size', cfg['augmentation'], default=None)
@@ -621,12 +620,6 @@ def train(cfg: DictConfig) -> None:
                 keys2log=['general', 'training', 'dataset', 'model', 'optimizer', 'scheduler', 'augmentation'])
     trn_log, val_log, tst_log = [InformationLogger(dataset) for dataset in ['trn', 'val', 'tst']]
 
-    if bucket_name:
-        from utils.aws import download_s3_files
-        bucket, bucket_output_path, output_path, data_path = download_s3_files(bucket_name=bucket_name,
-                                                                               data_path=data_path,  # FIXME
-                                                                               output_path=output_path)
-
     since = time.time()
     best_loss = 999
     last_vis_epoch = 0
@@ -712,9 +705,6 @@ def train(cfg: DictConfig) -> None:
                         'model_state_dict': state_dict,
                         'best_loss': best_loss,
                         'optimizer_state_dict': optimizer.state_dict()}, filename)
-            if bucket_name:
-                bucket_filename = bucket_output_path.joinpath('checkpoint.pth.tar')
-                bucket.upload_file(filename, bucket_filename)
 
             # VISUALIZATION: generate pngs of img samples, labels and outputs as alternative to follow training
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
@@ -731,9 +721,6 @@ def train(cfg: DictConfig) -> None:
                                     device=device,
                                     vis_batch_range=vis_batch_range)
                 last_vis_epoch = epoch
-
-        if bucket_name:
-            save_logs_to_bucket(bucket, bucket_output_path, output_path, now, cfg['training']['batch_metrics'])
 
         cur_elapsed = time.time() - since
         # logging.info(f'\nCurrent elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
@@ -759,14 +746,6 @@ def train(cfg: DictConfig) -> None:
                                 device=device)
         if 'tst_log' in locals():  # only save the value if a tracker is setup
             tst_log.add_values(tst_report, num_epochs)
-
-        if bucket_name:
-            bucket_filename = bucket_output_path.joinpath('last_epoch.pth.tar')
-            bucket.upload_file("output.txt", bucket_output_path.joinpath(f"Logs/{now}_output.txt"))
-            bucket.upload_file(filename, bucket_filename)
-
-    # log_artifact(logfile)
-    # log_artifact(logfile_debug)
 
 
 def main(cfg: DictConfig) -> None:

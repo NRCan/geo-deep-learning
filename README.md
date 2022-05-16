@@ -124,8 +124,6 @@ _**Don't forget to change the path of the dataset in the config yaml.**_
 
 [comment]: <> (  model_name: deeplabv3_resnet101  # <-- must be deeplabv3_resnet101)
 
-[comment]: <> (  bucket_name:)
-
 [comment]: <> (  task: segmentation               # <-- must be a segmentation task)
 
 [comment]: <> (  num_gpus: 2)
