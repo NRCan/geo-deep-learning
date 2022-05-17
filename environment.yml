@@ -24,7 +24,7 @@ dependencies:
   - rtree>=0.9.7
   - ruamel_yaml>=0.15.80
   - scikit-image>=0.18.1
-  - setuptools=59.5.0
+  - setuptools=59.5.0  # https://github.com/pytorch/pytorch/issues/69894
   - torchgeo>=0.2.0
   - tqdm>=4.59.0
   - pip:
