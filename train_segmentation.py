@@ -268,7 +268,6 @@ def training(train_loader,
     """
     model.train()
     train_metrics = create_metrics_dict(num_classes)
-    logging.info(f"Train metrics: {train_metrics}")
 
     for batch_index, data in enumerate(tqdm(train_loader, desc=f'Iterating train batches with {device.type}')):
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
@@ -360,7 +359,7 @@ def evaluation(eval_loader,
     model.eval()
 
     for batch_index, data in enumerate(tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} '
-    f'batches with {device.type}')):
+                                                                                  f'batches with {device.type}')):
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
         with torch.no_grad():
@@ -667,7 +666,6 @@ def train(cfg: DictConfig) -> None:
     for epoch in range(0, num_epochs):
         logging.info(f'\nEpoch {epoch}/{num_epochs - 1}\n' + "-" * len(f'Epoch {epoch}/{num_epochs - 1}'))
         # creating trn_report
-        logging.info(f"Patate")
         trn_report = training(train_loader=trn_dataloader,
                               model=model,
                               criterion=criterion,
@@ -704,8 +702,8 @@ def train(cfg: DictConfig) -> None:
                 val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
         if not val_loss:
-            logging.warning(f'\nVal loss with None value cannot be compared with best loss "{best_loss}". '
-                            f'No checkpoint will be saved. Continuing to next epoch.')
+            logging.error(f'\nVal loss with None value cannot be compared with best loss "{best_loss}". '
+                          f'No checkpoint will be saved. Continuing to next epoch.')
         elif val_loss < best_loss:
             logging.info("\nSave checkpoint with a validation loss of {:.4f}".format(val_loss))  # only allow 4 decimals
             best_loss = val_loss
