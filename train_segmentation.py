@@ -125,6 +125,11 @@ def create_dataloader(samples_folder: Path,
     tst_dataloader = DataLoader(tst_dataset, batch_size=eval_batch_size, num_workers=num_workers, shuffle=False,
                                 drop_last=True) if num_samples['tst'] > 0 else None
 
+    if len(trn_dataloader) == 0 or len(val_dataloader) == 0:
+        raise ValueError(f"\nTrain and validation dataloader should contain at least one data item."
+                         f"\nTrain dataloader's length: {len(trn_dataloader)}"
+                         f"\nVal dataloader's length: {len(val_dataloader)}")
+
     return trn_dataloader, val_dataloader, tst_dataloader
 
 
@@ -701,10 +706,7 @@ def train(cfg: DictConfig) -> None:
             else:
                 val_log.add_values(val_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
 
-        if not val_loss:
-            logging.error(f'\nVal loss with None value cannot be compared with best loss "{best_loss}". '
-                          f'No checkpoint will be saved. Continuing to next epoch.')
-        elif val_loss < best_loss:
+        if val_loss < best_loss:
             logging.info("\nSave checkpoint with a validation loss of {:.4f}".format(val_loss))  # only allow 4 decimals
             best_loss = val_loss
             # More info:
