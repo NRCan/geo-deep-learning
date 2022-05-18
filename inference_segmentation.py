@@ -30,11 +30,6 @@ from utils.verifications import validate_input_imagery
 # Set the logging file
 logging = get_logger(__name__)
 
-try:
-    import boto3
-except ModuleNotFoundError:
-    logging.warning("\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
-
 
 def _pad_diff(arr, w, h, arr_shape):
     """ Pads img_arr width or height < samples_size with zeros """
@@ -380,10 +375,6 @@ def main(params: Union[DictConfig, dict]) -> None:
     # Read the concatenation point if requested model is deeplabv3 dualhead
     conc_point = get_key_def('conc_point', params['model'], None)
 
-    # AWS
-    bucket = None
-    bucket_name = get_key_def('bucket_name', params['AWS'], default=None)
-
     model = define_model(
         net_params=params.model,
         in_channels=num_bands,
@@ -394,7 +385,7 @@ def main(params: Union[DictConfig, dict]) -> None:
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
-    list_img = list_input_images(img_dir_or_csv, bucket_name, glob_patterns=["*.tif", "*.TIF"])
+    list_img = list_input_images(img_dir_or_csv, None, glob_patterns=["*.tif", "*.TIF"])
 
     # VALIDATION: anticipate problems with imagery before entering main for loop
     for info in tqdm(list_img, desc='Validating imagery'):
@@ -405,15 +396,10 @@ def main(params: Union[DictConfig, dict]) -> None:
     # LOOP THROUGH LIST OF INPUT IMAGES
     for info in tqdm(list_img, desc='Inferring from images', position=0, leave=True):
         img_name = Path(info['tif']).name
-        if bucket:
-            local_img = f"Images/{img_name}"
-            bucket.download_file(info['tif'], local_img)
-            inference_image = f"Classified_Images/{img_name.split('.')[0]}_inference.tif"
-        else:
-            local_img = Path(info['tif'])
-            Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
-            inference_image = working_folder.joinpath(local_img.parent.name,
-                                                      f"{img_name.split('.')[0]}_inference.tif")
+        local_img = Path(info['tif'])
+        Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
+        inference_image = working_folder.joinpath(local_img.parent.name,
+                                                  f"{img_name.split('.')[0]}_inference.tif")
         temp_file = working_folder.joinpath(local_img.parent.name, f"{img_name.split('.')[0]}.dat")
         raster = rasterio.open(local_img, 'r')
         logging.info(f'\nReading image: {raster.name}')
@@ -452,4 +438,3 @@ def main(params: Union[DictConfig, dict]) -> None:
             ras2vec(inference_image, inference_vec)
             end_vec = time.time() - start_vec
             logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))
-

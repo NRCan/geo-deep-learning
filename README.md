@@ -35,7 +35,7 @@ This project comprises a set of commands to be run at a shell command prompt.  E
 - [miniconda](https://docs.conda.io/en/latest/miniconda.html) (highly recommended)
 - nvidia GPU (highly recommended)
 
-> The system can be used on your workstation or cluster and on [AWS](https://aws.amazon.com/).
+> The system can be used on your workstation or cluster.
 
 ## **Installation**
 Those steps are for your workstation on Ubuntu 18.04 using miniconda.
@@ -123,8 +123,6 @@ _**Don't forget to change the path of the dataset in the config yaml.**_
 [comment]: <> (  number_of_bands: 4               # <-- must be 4 for the R-G-B-NIR)
 
 [comment]: <> (  model_name: deeplabv3_resnet101  # <-- must be deeplabv3_resnet101)
-
-[comment]: <> (  bucket_name:)
 
 [comment]: <> (  task: segmentation               # <-- must be a segmentation task)
 

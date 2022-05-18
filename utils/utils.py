@@ -607,9 +607,6 @@ def print_config(
             "general.sample_data_dir",
         )
 
-    if getpath(config, 'AWS.bucket_name'):
-        fields += ("AWS",)
-
     if config.get('tracker'):
         fields += ("tracker",)
 
