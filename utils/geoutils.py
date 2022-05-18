@@ -6,9 +6,14 @@ import numpy as np
 
 import fiona
 import os
+
+import pystac
 import rasterio
+from rasterio import MemoryFile
 from rasterio.features import is_valid_geom
 from rasterio.mask import mask
+from rasterio.shutil import copy as riocopy
+import xml.etree.ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
@@ -194,3 +199,43 @@ def get_key_recursive(key, config):
         assert len(key) > 1, "missing keys to index metadata subdictionaries"
         return get_key_recursive(key[1:], val)
     return int(val)
+
+
+def is_stac_item(path: str) -> bool:
+    """Checks if an input string or object is a valid stac item"""  # TODO
+    if isinstance(path, pystac.Item):
+        return True
+    else:
+        try:
+            pystac.Item.from_file(str(path))
+            return True
+        except (FileNotFoundError, pystac.STACTypeError, UnicodeDecodeError):
+            return False
+
+
+def stack_vrts(srcs, band=1):
+    """
+    Stacks multiple single-band raster into a single multiband virtual raster
+    Source: https://gis.stackexchange.com/questions/392695/is-it-possible-to-build-a-vrt-file-from-multiple-files-with-rasterio
+    @param srcs:
+        List of paths/urls to single-band raster
+    @param band:
+        TODO
+    @return:
+        RasterDataset object containing VRT
+    """
+    vrt_bands = []
+    for srcnum, src in enumerate(srcs, start=1):
+        with rasterio.open(src) as ras, MemoryFile() as mem:
+            riocopy(ras, mem.name, driver='VRT')
+            vrt_xml = mem.read().decode('utf-8')
+            vrt_dataset = ET.fromstring(vrt_xml)
+            for bandnum, vrt_band in enumerate(vrt_dataset.iter('VRTRasterBand'), start=1):
+                if bandnum == band:
+                    vrt_band.set('band', str(srcnum))
+                    vrt_bands.append(vrt_band)
+                    vrt_dataset.remove(vrt_band)
+    for vrt_band in vrt_bands:
+        vrt_dataset.append(vrt_band)
+
+    return ET.tostring(vrt_dataset).decode('UTF-8')

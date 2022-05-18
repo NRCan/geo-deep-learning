@@ -41,9 +41,10 @@ def run_gdl(cfg: DictConfig) -> None:
     # check if the mode is chosen
     if type(cfg.mode) is DictConfig:
         msg = "You need to choose between those modes: {}"
-        raise logging.critical(msg.format(list(cfg.mode.keys())))
+        logging.critical(msg.format(list(cfg.mode.keys())))
+        raise ValueError()
 
-    # save all overwritten parameters
+        # save all overwritten parameters
     logging.info('\nOverwritten parameters in the config: \n' + cfg.general.config_override_dirname)
 
     # Start -----------------------------------

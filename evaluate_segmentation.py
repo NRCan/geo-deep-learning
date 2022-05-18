@@ -79,8 +79,8 @@ def main(params):
     """
     start_seg = time.time()
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
-    modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
-    num_bands = len(modalities)
+    bands_requested = get_key_def('bands', params['dataset'], default=None, expected_type=Sequence)
+    num_bands = len(bands_requested)
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str, to_path=True,
                                  validate_path_exists=True)

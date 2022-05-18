@@ -1,29 +1,24 @@
 import shutil
-from typing import Sequence, Union
+from typing import Sequence, Union, List
 
-import geopandas as gpd
-import pyproj
 import rasterio
 import numpy as np
-from shapely.geometry import box
 from solaris.utils.core import _check_rasterio_im_load
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
-from omegaconf import DictConfig, open_dict, listconfig
+from omegaconf import DictConfig, open_dict
 
-# Our modules
+from aoi import AOI
 from utils.logger import get_logger
 from utils.geoutils import vector_to_raster
 from utils.readers import image_reader_as_array
 from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.utils import (
     get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash,
-    read_modalities,
 )
 from utils.verifications import (
-    validate_num_classes, assert_crs_match, validate_features_from_gpkg, validate_input_imagery, validate_by_rasterio,
-    validate_by_geopandas
+    validate_num_classes, assert_crs_match, validate_features_from_gpkg, validate_input_imagery
 )
 # Set the logging file
 logging = get_logger(__name__)  # import logging
@@ -32,130 +27,14 @@ logging = get_logger(__name__)  # import logging
 np.random.seed(1234)
 
 
-class AOI(object):
-    """
-    Object containing all data aoirmation about a single area of interest
-    based on https://github.com/stac-extensions/ml-aoi
-    """
-
-    def __init__(self, raster: Union[Path, str],
-                 label: Union[Path, str] = None,
-                 split: str = None,
-                 aoi_id: str = None,
-                 collection: str = None,
-                 attr_field_filter: str = None,
-                 attr_values_filter: Sequence = None):
-        """
-        @param raster: pathlib.Path or str
-            Path to source imagery
-        @param label: pathlib.Path or str
-            Path to ground truth file. If not provided, AOI is considered only for inference purposes
-        @param split: str
-            Name of destination dataset for aoi. Should be 'trn', 'tst' or 'inference'
-        @param aoi_id: str
-            Name or id (loosely defined) of area of interest. Used to name output folders.
-            Multiple AOI instances can bear the same name.
-        @param collection: str
-            Name of collection containing AOI. All AOIs in the same collection should never be spatially overlapping
-        @param attr_field_filter: str, optional
-            Name of attribute field used to filter features. If not provided all geometries in ground truth file
-            will be considered.
-        @param attr_values_filter: list of ints, optional
-            The list of attribute values in given attribute field used to filter features from ground truth file.
-            If not provided, all values in field will be considered
-        """
-        validate_by_rasterio(raster)
-        self.raster = _check_rasterio_im_load(raster)
-
-        if label:
-            validate_by_geopandas(label)
-            label_bounds = gpd.read_file(label).total_bounds
-            label_bounds_box = box(*label_bounds.tolist())
-            raster_bounds_box = box(*list(self.raster.bounds))
-            if not label_bounds_box.intersects(raster_bounds_box):
-                raise ValueError(f"Features in label file {label} do not intersect with bounds of raster file "
-                                 f"{raster.name}")
-            self.label = Path(label)
-            # may create overhead
-            # TODO: unit test for failed CRS match
-            try:
-                self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(self.raster, self.label)
-            except pyproj.exceptions.CRSError as e:
-                logging.warning(f"\nError while checking CRS match between raster and label."
-                                f"\n{e}")
-        else:
-            self.label = label
-            self.crs_match = self.epsg_raster = self.epsg_label = None
-
-        if not isinstance(split, str) and split not in ['trn', 'tst', 'inference']:
-            raise ValueError(f"\nDataset should be a string: 'trn', 'tst' or 'inference'. Got {split}.")
-        elif not label and (split != 'inference' or not split):
-            raise ValueError(f"\nNo ground truth provided. Dataset should be left empty or set to 'inference' only. "
-                             f"\nGot {split}")
-        self.split = split
-
-        if aoi_id and not isinstance(aoi_id, str):
-            raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
-        elif not aoi_id:
-            aoi_id = self.raster.stem  # Defaults to name of image without suffix
-        self.aoi_id = aoi_id
-
-        if collection and not isinstance(collection, str):
-            raise TypeError(f'Collection name should be a string. Got {collection} of type {type(collection)}')
-        self.aoi_id = aoi_id
-
-        if label and attr_field_filter and not isinstance(attr_field_filter, str):
-            raise TypeError(f'Attribute field name should be a string.\n'
-                            f'Got {attr_field_filter} of type {type(attr_field_filter)}')
-        self.attr_field_filter = attr_field_filter
-
-        if label and attr_values_filter and not isinstance(attr_values_filter, (list, listconfig.ListConfig)):
-            raise TypeError(f'Attribute values should be a list.\n'
-                            f'Got {attr_values_filter} of type {type(attr_values_filter)}')
-        self.attr_values_filter = attr_values_filter
-
-    @classmethod
-    def from_dict(cls, aoi_dict, attr_field_filter: str = None, attr_values_filter: list = None):
-        """Instanciates an AOI object from an input-data dictionary as expected by geo-deep-learning"""
-        if not isinstance(aoi_dict, dict):
-            raise TypeError('Input data should be a dictionary.')
-        # TODO: change dataset for split
-        if not {'tif', 'gpkg', 'dataset'}.issubset(set(aoi_dict.keys())):
-            raise ValueError(f"Input data should minimally contain the following keys: \n"
-                             f"'tif', 'gpkg', 'dataset'.")
-        if not aoi_dict['gpkg']:
-            logging.warning(f"No ground truth data found for {aoi_dict['tif']}.\n"
-                            f"Only imagery will be processed from now on")
-        if "aoi_id" not in aoi_dict.keys() or not aoi_dict['aoi_id']:
-            aoi_dict['aoi_id'] = Path(aoi_dict['tif']).stem
-        aoi_dict['attribute_name'] = attr_field_filter
-        new_aoi = cls(
-            raster=aoi_dict['tif'],
-            label=aoi_dict['gpkg'],
-            split=aoi_dict['dataset'],
-            attr_field_filter=attr_field_filter,
-            attr_values_filter=attr_values_filter,
-            aoi_id=aoi_dict['aoi_id']
-        )
-        return new_aoi
-
-    def __str__(self):
-        return (
-            f"\nAOI ID: {self.aoi_id}"
-            f"\n\tRaster: {self.raster.name}"
-            f"\n\tLabel: {self.label}"
-            f"\n\tCRS match: {self.crs_match}"
-            f"\n\tSplit: {self.split}"
-            f"\n\tAttribute field filter: {self.attr_field_filter}"
-            f"\n\tAttribute values filter: {self.attr_values_filter}"
-            )
-
-
-def aois_from_csv(csv_path: Union[str, Path], attr_field_filter: str = None, attr_values_filter: str = None):
+def aois_from_csv(csv_path: Union[str, Path], bands_requested: List = None, attr_field_filter: str = None, attr_values_filter: str = None):
+    # TODO: move to aoi.py ?
     """
     Creates list of AOIs by parsing a csv file referencing input data
     @param csv_path:
         path to csv file containing list of input data. See README for details on expected structure of csv.
+    @param bands_requested:
+        List of bands to select from inputted imagery. Applies only to single-band input imagery.
     @param attr_values_filter:
         Attribute filed to filter features from
     @param attr_field_filter:
@@ -171,6 +50,7 @@ def aois_from_csv(csv_path: Union[str, Path], attr_field_filter: str = None, att
         try:
             new_aoi = AOI.from_dict(
                 aoi_dict=aoi_dict,
+                bands_requested=bands_requested,
                 attr_field_filter=attr_field_filter,
                 attr_values_filter=attr_values_filter
             )
@@ -520,8 +400,8 @@ def main(cfg: DictConfig) -> None:
     """
     # PARAMETERS
     num_classes = len(cfg.dataset.classes_dict.keys())
-    num_bands = len(cfg.dataset.modalities)
-    modalities = read_modalities(cfg.dataset.modalities)  # TODO add the Victor module to manage the modalities
+    bands_requested = get_key_def('bands', cfg['dataset'], default=None, expected_type=Sequence)
+    num_bands = len(bands_requested)
     debug = cfg.debug
 
     # RAW DATA PARAMETERS
@@ -546,7 +426,7 @@ def main(cfg: DictConfig) -> None:
             logging.critical(
                 f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.'
             )
-            raise FileExistsError()
+            raise FileExistsError(f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.')
     Path.mkdir(samples_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
 
     # LOGGING PARAMETERS  TODO see logging yaml
@@ -586,6 +466,7 @@ def main(cfg: DictConfig) -> None:
 
     list_data_prep = aois_from_csv(
         csv_path=csv_file,
+        bands_requested=bands_requested,
         attr_field_filter=attribute_field,
         attr_values_filter=attr_vals
     )
@@ -642,7 +523,7 @@ def main(cfg: DictConfig) -> None:
                 # 1. Read the input raster image
                 np_input_image, raster, dataset_nodata = image_reader_as_array(
                     input_image=raster,
-                    clip_gpkg=aoi.label
+                    #FIXME: remove clip_gpkg=aoi.label
                 )
 
                 # 2. Burn vector file in a raster file

@@ -327,11 +327,11 @@ def main(params: Union[DictConfig, dict]) -> None:
     )
 
     # Dataset params
-    modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
+    bands_requested = get_key_def('bands', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
     num_classes = len(classes_dict)
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
-    num_bands = len(modalities)
+    num_bands = len(bands_requested)
 
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     logging.info("\nThe state dict path directory used '{}'".format(working_folder))
@@ -402,7 +402,7 @@ def main(params: Union[DictConfig, dict]) -> None:
                                                   f"{img_name.split('.')[0]}_inference.tif")
         temp_file = working_folder.joinpath(local_img.parent.name, f"{img_name.split('.')[0]}.dat")
         raster = rasterio.open(local_img, 'r')
-        logging.info(f'\nReading image: {raster.aoi_id}')
+        logging.info(f'\nReading image: {raster.name}')
         inf_meta = raster.meta
 
         pred = segmentation(param=params,

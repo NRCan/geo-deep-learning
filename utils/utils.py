@@ -399,21 +399,14 @@ def read_csv(csv_file_name: str) -> Dict:
                 raise ValueError(f"Rows in csv should be of same length. Got rows with length: {row_lengths_set}")
             row.extend([None] * (4 - len(row)))  # fill row with None values to obtain row of length == 5
             row[0] = to_absolute_path(row[0])  # Convert relative paths to absolute with hydra's util to_absolute_path()
-            if not Path(row[0]).is_file():
-                logging.critical(f"Raster not found: {row[0]}. This data will be removed from input data list"
-                                 f"since all geo-deep-learning modules require imagery.")
-                continue
             row[1] = to_absolute_path(row[1])
-            if not Path(row[1]).is_file():
-                logging.critical(f"Ground truth not found: {row[1]}")
-            if row[2] and not row[2] in ['trn', 'tst']:
-                logging.critical(f'Invalid dataset split: {row[2]}. Expected "trn" or "tst".')
+
             # save all values
             list_values.append(
-                {'tif': str(row[0]), 'gpkg': str(row[1]), 'dataset': row[2], 'aoi_id': row[3]})
+                {'tif': str(row[0]), 'gpkg': str(row[1]), 'split': row[2], 'aoi_id': row[3]})
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
-        list_values = sorted(list_values, key=lambda k: k['dataset'])
+        list_values = sorted(list_values, key=lambda k: k['split'])
     except TypeError:
         log.warning('Unable to sort csv rows')
     return list_values
@@ -522,26 +515,6 @@ def ordereddict_eval(str_to_eval: str):
     except Exception:
         log.exception(f'Object of type \"{type(str_to_eval)}\" cannot not be evaluated. Problems may occur.')
         return str_to_eval
-
-
-def read_modalities(modalities: str) -> list:
-    """
-    Function that read the modalities from the yaml and convert it to a list
-    of all the bands specified.
-
-    -------
-    :param modalities: (str) A string composed of all the bands of the images.
-
-    -------
-    :returns: A list of all the bands of the images.
-    """
-    if str(modalities).find('IR') != -1:
-        ir_position = str(modalities).find('IR')
-        modalities = list(str(modalities).replace('IR', ''))
-        modalities.insert(ir_position, 'IR')
-    else:
-        modalities = list(str(modalities))
-    return modalities
 
 
 def getpath(d, path):

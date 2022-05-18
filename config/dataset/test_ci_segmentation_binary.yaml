@@ -10,7 +10,7 @@ dataset:
   raw_data_dir: ${general.raw_data_dir}
 
   # imagery
-  modalities: RGB
+  bands: [R, G, B]
 
   # ground truth
   attribute_field: properties/class
