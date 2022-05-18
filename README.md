@@ -35,7 +35,7 @@ This project comprises a set of commands to be run at a shell command prompt.  E
 - [miniconda](https://docs.conda.io/en/latest/miniconda.html) (highly recommended)
 - nvidia GPU (highly recommended)
 
-> The system can be used on your workstation or cluster and on [AWS](https://aws.amazon.com/).
+> The system can be used on your workstation or cluster.
 
 ## **Installation**
 Those steps are for your workstation on Ubuntu 18.04 using miniconda.
