@@ -125,6 +125,11 @@ def create_dataloader(samples_folder: Path,
     tst_dataloader = DataLoader(tst_dataset, batch_size=eval_batch_size, num_workers=num_workers, shuffle=False,
                                 drop_last=True) if num_samples['tst'] > 0 else None
 
+    if len(trn_dataloader) == 0 or len(val_dataloader) == 0:
+        raise ValueError(f"\nTrain and validation dataloader should contain at least one data item."
+                         f"\nTrain dataloader's length: {len(trn_dataloader)}"
+                         f"\nVal dataloader's length: {len(val_dataloader)}")
+
     return trn_dataloader, val_dataloader, tst_dataloader
 
 
@@ -359,7 +364,7 @@ def evaluation(eval_loader,
     model.eval()
 
     for batch_index, data in enumerate(tqdm(eval_loader, dynamic_ncols=True, desc=f'Iterating {dataset} '
-    f'batches with {device.type}')):
+                                                                                  f'batches with {device.type}')):
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
         with torch.no_grad():
