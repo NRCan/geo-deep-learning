@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 from omegaconf import DictConfig, open_dict
 
-from aoi import AOI
+from dataset.aoi import AOI
 from utils.logger import get_logger
 from utils.geoutils import vector_to_raster
 from utils.readers import image_reader_as_array

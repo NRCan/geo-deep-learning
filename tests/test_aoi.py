@@ -1,4 +1,4 @@
-from aoi import AOI
+from dataset.aoi import AOI
 
 
 class Test_AOI(object):

@@ -7,7 +7,6 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 import rasterio
-from hydra.utils import get_original_cwd
 from mlflow import log_metrics
 from shapely.geometry import Polygon
 from tqdm import tqdm
@@ -15,7 +14,7 @@ import geopandas as gpd
 
 from utils.geoutils import clip_raster_with_gpkg, vector_to_raster
 from utils.metrics import ComputePixelMetrics
-from utils.utils import get_key_def, list_input_images, read_modalities
+from utils.utils import get_key_def, list_input_images
 from utils.logger import get_logger
 from utils.verifications import validate_num_classes, assert_crs_match
 
@@ -144,7 +143,7 @@ def main(params):
             local_img = clip_raster_with_gpkg(raster, local_gpkg)
 
         raster_clipped = rasterio.open(local_img, 'r')
-        logging.info(f'\nReading clipped image: {raster_clipped.aoi_id}')
+        logging.info(f'\nReading clipped image: {raster_clipped.name}')
         inf_meta = raster_clipped.meta
 
         label = vector_to_raster(vector_file=local_gpkg,
