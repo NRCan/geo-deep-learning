@@ -23,11 +23,6 @@ from utils.verifications import (
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
-try:
-    import boto3
-except ModuleNotFoundError:
-    logging.warning("\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets", ImportWarning)
-
 # Set random seed for reproducibility
 np.random.seed(1234)
 
@@ -433,18 +428,7 @@ def main(cfg: DictConfig) -> None:
     with open_dict(cfg):
         cfg.general.git_hash = get_git_hash()
 
-    # AWS TODO
-    bucket_name = cfg.AWS.bucket_name
-    if bucket_name:
-        final_samples_folder = None
-        bucket_name = cfg.AWS.bucket_name
-        bucket_file_cache = []
-        s3 = boto3.resource('s3')
-        bucket = s3.Bucket(bucket_name)
-        bucket.download_file(csv_file, 'samples_prep.csv')
-        list_data_prep = read_csv('samples_prep.csv')
-    else:
-        list_data_prep = read_csv(csv_file)
+    list_data_prep = read_csv(csv_file)
 
     # IF DEBUG IS ACTIVATE
     if debug:
@@ -493,14 +477,6 @@ def main(cfg: DictConfig) -> None:
     )
     for info in tqdm(list_data_prep, position=0, leave=False):
         try:
-            if bucket_name:
-                bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
-                info['tif'] = "Images/" + info['tif'].split('/')[-1]
-                if info['gpkg'] not in bucket_file_cache:
-                    bucket_file_cache.append(info['gpkg'])
-                    bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
-                info['gpkg'] = info['gpkg'].split('/')[-1]
-
             logging.info(f"\nReading as array: {info['tif']}")
             with rasterio.open(info['tif'], 'r') as raster:
                 # 1. Read the input raster image
@@ -614,8 +590,3 @@ def main(cfg: DictConfig) -> None:
 
     logging.info(f"\nNumber of samples created: {number_samples}")
 
-    if bucket_name and final_samples_folder:  # FIXME: final_samples_folder always None in current implementation
-        logging.info('\nTransfering Samples to the bucket')
-        bucket.upload_file(samples_dir + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
-        bucket.upload_file(samples_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
-        bucket.upload_file(samples_dir + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')
