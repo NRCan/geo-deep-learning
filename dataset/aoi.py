@@ -12,7 +12,6 @@ from shapely.geometry import box
 from solaris.utils.core import _check_rasterio_im_load
 from tqdm import tqdm
 
-from sampling_segmentation import logging
 from utils.geoutils import stack_vrts, is_stac_item
 from utils.logger import get_logger
 from utils.utils import read_csv
@@ -131,7 +130,7 @@ class AOI(object):
             validate_by_rasterio(self.raster_raw_input)
             self.raster_tuple = None
 
-        self.raster = _check_rasterio_im_load(raster_parsed)
+        self.raster = _check_rasterio_im_load(str(raster_parsed))
 
         if self.raster_tuple and write_multiband:
             self.write_multiband_from_singleband_rasters_as_vrt()
