@@ -10,9 +10,12 @@ from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
 from shapely.geometry import box
 from solaris.utils.core import _check_rasterio_im_load
+from tqdm import tqdm
 
+from sampling_segmentation import logging
 from utils.geoutils import stack_vrts, is_stac_item
 from utils.logger import get_logger
+from utils.utils import read_csv
 from utils.verifications import validate_by_rasterio, validate_by_geopandas, assert_crs_match
 
 logging = get_logger(__name__)  # import logging
@@ -85,7 +88,9 @@ class AOI(object):
                  aoi_id: str = None,
                  collection: str = None,
                  attr_field_filter: str = None,
-                 attr_values_filter: Sequence = None):
+                 attr_values_filter: Sequence = None,
+                 write_multiband: bool = False):
+        # TODO: dict printer to output report on list of aois
         """
         @param raster: pathlib.Path or str
             Path to source imagery
@@ -104,16 +109,34 @@ class AOI(object):
         @param attr_values_filter: list of ints, optional
             The list of attribute values in given attribute field used to filter features from ground truth file.
             If not provided, all values in field will be considered
+        @param write_multiband: bool, optional
+            If True, a multi-band raster side by side with single-bands rasters as provided in input csv. For debugging purposes.
         """
-        raster_parsed = self.parse_input_raster(csv_raster_str=raster, raster_bands_requested=raster_bands_request)
+        # Check and parse raster data
+        if not isinstance(raster, str):
+            raise TypeError(f"Raster path should be a string.\nGot {raster} of type {type(raster)}")
+        self.raster_raw_input = raster
+        if raster_bands_request and not isinstance(raster_bands_request, (List, ListConfig)):
+            raise ValueError(f"Requested bands should be a list."
+                             f"\nGot {raster_bands_request} of type {type(raster_bands_request)}")
+        self.raster_bands_request = raster_bands_request
+        raster_parsed = self.parse_input_raster(csv_raster_str=self.raster_raw_input,
+                                                raster_bands_requested=self.raster_bands_request)
+        # If parsed result is a tuple, then we're dealing with single-band files
         if isinstance(raster_parsed, Tuple):
             [validate_by_rasterio(file) for file in raster_parsed]
+            self.raster_tuple = raster_parsed
             raster_parsed = stack_vrts(raster_parsed)
         else:
-            validate_by_rasterio(raster)
+            validate_by_rasterio(self.raster_raw_input)
+            self.raster_tuple = None
 
         self.raster = _check_rasterio_im_load(raster_parsed)
 
+        if self.raster_tuple and write_multiband:
+            self.write_multiband_from_singleband_rasters_as_vrt()
+
+        # Check label data
         if label:
             validate_by_geopandas(label)
             label_bounds = gpd.read_file(label).total_bounds
@@ -131,31 +154,40 @@ class AOI(object):
                 logging.warning(f"\nError while checking CRS match between raster and label."
                                 f"\n{e}")
         else:
-            self.label = label
-            self.crs_match = self.epsg_raster = self.epsg_label = None
+            self.label = self.crs_match = self.epsg_raster = self.epsg_label = None
 
-        if not isinstance(split, str) and split not in ['trn', 'tst', 'inference']:
-            raise ValueError(f"\nDataset split should be a string: 'trn', 'tst' or 'inference'. Got {split}.")
+        # Check split string
+        if split and not isinstance(split, str):
+            raise ValueError(f"\nDataset split should be a string.\nGot {split}.")
+
+        if label and split not in ['trn', 'tst', 'inference']:
+            raise ValueError(f"\nWith ground truth, split should be 'trn', 'tst' or 'inference'. \nGot {split}")
+        # force inference split if no label provided
         elif not label and (split != 'inference' or not split):
-            raise ValueError(f"\nNo ground truth provided. Dataset should be left empty or set to 'inference' only. "
-                             f"\nGot {split}")
+            logging.warning(f"\nNo ground truth provided. Dataset split will be set to 'inference'"
+                            f"\nOriginal split: {split}")
+            split = 'inference'
         self.split = split
 
+        # Check aoi_id string
         if aoi_id and not isinstance(aoi_id, str):
             raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
         elif not aoi_id:
             aoi_id = self.raster.stem  # Defaults to name of image without suffix
         self.aoi_id = aoi_id
 
+        # Check collection string
         if collection and not isinstance(collection, str):
             raise TypeError(f'Collection name should be a string. Got {collection} of type {type(collection)}')
         self.aoi_id = aoi_id
 
+        # If ground truth is provided, check attribute field
         if label and attr_field_filter and not isinstance(attr_field_filter, str):
             raise TypeError(f'Attribute field name should be a string.\n'
                             f'Got {attr_field_filter} of type {type(attr_field_filter)}')
         self.attr_field_filter = attr_field_filter
 
+        # If ground truth is provided, check attribute values to filter from
         if label and attr_values_filter and not isinstance(attr_values_filter, (list, listconfig.ListConfig)):
             raise TypeError(f'Attribute values should be a list.\n'
                             f'Got {attr_values_filter} of type {type(attr_values_filter)}')
@@ -203,9 +235,23 @@ class AOI(object):
             f"\n\tAttribute values filter: {self.attr_values_filter}"
             )
 
+    def write_multiband_from_singleband_rasters_as_vrt(self):
+        if not self.raster.driver == 'VRT' or not self.raster_tuple or not "${dataset.bands}" in self.raster_raw_input:
+            logging.warning(f"To write a multi-band raster from single-band files, a VRT must be provided."
+                            f"\nGot {self.raster.meta}")
+            return
+
+        out_tif_path = self.raster_raw_input.replace("${dataset.bands}", ''.join(self.raster_bands_request))
+        out_meta = self.raster.meta.copy()
+        out_meta.update({"driver": "GTiff",
+                         "count": self.raster.count})
+        with rasterio.open(out_tif_path, "w", **out_meta) as dest:
+            logging.debug(f"Writing multi-band raster to {out_tif_path}")
+            out_img = self.raster.read()
+            dest.write(out_img)
+
     @staticmethod
     def parse_input_raster(csv_raster_str: str, raster_bands_requested: List) -> Union[str, Tuple]:
-        # TODO: add documentation to a README somewhere
         """
         From input csv, determine if imagery is
         1. A Stac Item with single-band assets (multi-band assets not implemented)
@@ -217,21 +263,55 @@ class AOI(object):
             dataset configuration parameters
         @return:
         """
-
         if is_stac_item(csv_raster_str):
             item = SingleBandItemEO(item=pystac.Item.from_file(csv_raster_str), bands=raster_bands_requested)
-            raster = [value['href'] for value in item.bands_requested.values()]
+            raster = [Path(value['href']) for value in item.bands_requested.values()]
             return tuple(raster)
         elif "${dataset.bands}" in csv_raster_str:
             if not isinstance(raster_bands_requested, (List, ListConfig)) or len(raster_bands_requested) == 0:
                 raise ValueError(f"\nRequested bands should a list of bands. "
                                  f"\nGot {raster_bands_requested} of type {type(raster_bands_requested)}")
-            raster = [csv_raster_str.replace("${dataset.bands}", band) for band in raster_bands_requested]
+            raster = [Path(csv_raster_str.replace("${dataset.bands}", band)) for band in raster_bands_requested]
             return tuple(raster)
         else:
             try:
                 validate_by_rasterio(csv_raster_str)
-                return csv_raster_str
+                return Path(csv_raster_str)
             except (FileNotFoundError, rasterio.RasterioIOError, TypeError) as e:
                 logging.critical(f"Couldn't parse input raster. Got {csv_raster_str}")
                 raise e
+
+
+def aois_from_csv(csv_path: Union[str, Path], bands_requested: List = None, attr_field_filter: str = None, attr_values_filter: str = None):
+    """
+    Creates list of AOIs by parsing a csv file referencing input data
+    @param csv_path:
+        path to csv file containing list of input data. See README for details on expected structure of csv.
+    @param bands_requested:
+        List of bands to select from inputted imagery. Applies only to single-band input imagery.
+    @param attr_values_filter:
+        Attribute filed to filter features from
+    @param attr_field_filter:
+        Attribute values (for given attribute field) for features to keep
+    Returns: a list of AOIs objects
+    """
+    aois = []
+    data_list = read_csv(csv_path)
+    logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
+                 f'\tNumber of rows: {len(data_list)}\n'
+                 f'\tCopying first row:\n{data_list[0]}\n')
+    for i, aoi_dict in tqdm(enumerate(data_list), desc="Creating AOI's"):
+        try:
+            new_aoi = AOI.from_dict(
+                aoi_dict=aoi_dict,
+                bands_requested=bands_requested,
+                attr_field_filter=attr_field_filter,
+                attr_values_filter=attr_values_filter
+            )
+            logging.debug(new_aoi)
+            aois.append(new_aoi)
+        except FileNotFoundError as e:
+            logging.critical(f"{e}\nGround truth file may not exist or is empty.\n"
+                             f"Failed to create AOI:\n{aoi_dict}\n"
+                             f"Index: {i}")
+    return aois

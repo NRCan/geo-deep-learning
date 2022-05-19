@@ -1,5 +1,5 @@
 import shutil
-from typing import Sequence, Union, List
+from typing import Sequence
 
 import rasterio
 import numpy as np
@@ -9,13 +9,13 @@ from pathlib import Path
 from datetime import datetime
 from omegaconf import DictConfig, open_dict
 
-from dataset.aoi import AOI
+from dataset.aoi import aois_from_csv
 from utils.logger import get_logger
 from utils.geoutils import vector_to_raster
 from utils.readers import image_reader_as_array
 from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.utils import (
-    get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash,
+    get_key_def, pad, pad_diff, add_metadata_from_raster_to_sample, get_git_hash,
 )
 from utils.verifications import (
     validate_num_classes, assert_crs_match, validate_features_from_gpkg, validate_input_imagery
@@ -25,42 +25,6 @@ logging = get_logger(__name__)  # import logging
 
 # Set random seed for reproducibility
 np.random.seed(1234)
-
-
-def aois_from_csv(csv_path: Union[str, Path], bands_requested: List = None, attr_field_filter: str = None, attr_values_filter: str = None):
-    # TODO: move to aoi.py ?
-    """
-    Creates list of AOIs by parsing a csv file referencing input data
-    @param csv_path:
-        path to csv file containing list of input data. See README for details on expected structure of csv.
-    @param bands_requested:
-        List of bands to select from inputted imagery. Applies only to single-band input imagery.
-    @param attr_values_filter:
-        Attribute filed to filter features from
-    @param attr_field_filter:
-        Attribute values (for given attribute field) for features to keep
-    Returns: a list of AOIs objects
-    """
-    aois = []
-    data_list = read_csv(csv_path)
-    logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
-                 f'\tNumber of rows: {len(data_list)}\n'
-                 f'\tCopying first row:\n{data_list[0]}\n')
-    for i, aoi_dict in tqdm(enumerate(data_list), desc="Creating AOI's"):
-        try:
-            new_aoi = AOI.from_dict(
-                aoi_dict=aoi_dict,
-                bands_requested=bands_requested,
-                attr_field_filter=attr_field_filter,
-                attr_values_filter=attr_values_filter
-            )
-            logging.debug(new_aoi)
-            aois.append(new_aoi)
-        except FileNotFoundError as e:
-            logging.critical(f"{e}\nGround truth file may not exist or is empty.\n"
-                             f"Failed to create AOI:\n{aoi_dict}\n"
-                             f"Index: {i}")
-    return aois
 
 
 def mask_image(arrayA, arrayB):
