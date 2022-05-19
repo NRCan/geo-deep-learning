@@ -24,7 +24,7 @@ from utils.logger import get_logger, set_tracker
 from models.model_choice import define_model, read_checkpoint
 from utils import augmentation
 from utils.utils import get_device_ids, get_key_def, \
-    list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, set_device
+    list_input_images, add_metadata_from_raster_to_sample, _window_2D, set_device
 from utils.verifications import validate_input_imagery
 
 # Set the logging file

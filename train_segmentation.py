@@ -168,6 +168,7 @@ def get_num_samples(samples_path, params):
     weights = []
     samples_weight = None
     for i in ['trn', 'val', 'tst']:
+        logging.debug(f"Reading {samples_path}/{i}_samples.hdf5...")
         if get_key_def(f"num_{i}_samples", params['training'], None) is not None:
             num_samples[i] = get_key_def(f"num_{i}_samples", params['training'])
             with h5py.File(samples_path.joinpath(f"{i}_samples.hdf5"), 'r') as hdf5_file:

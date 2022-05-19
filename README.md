@@ -7,12 +7,10 @@ The **geo-deep-learning** project stems from an initiative at NRCan's [CCMEO](ht
 The overall learning process comprises three broad stages.
 
 ### Data preparation
-The data preparation phase (sampling) allows creating sub-images that will be used for either training, validation or testing.
+The data preparation phase (sampling) allows creating sub-images (aka chips or patches) that will be used for either training, validation or testing.
 The first phase of the process is to determine sub-images (samples) to be used for training, validation and, optionally, test.
-Images to be used must be of the geotiff type.
-Sample locations in each image must be stored in a GeoPackage.
-
-[comment]: <> (> Note: A data analysis module can be found [here]&#40;./utils/data_analysis.py&#41; and the documentation in [`docs/README.md`]&#40;./docs/README.md&#41;. Useful for balancing training data.)
+Images to be used must be in a format compatible with rasterio/GDAL (ex.: GeoTiff).
+Labels (aka annotations) for each image must be stored as polygons in a Geopandas compatible vector file (ex.: GeoPackage).
 
 ### Training, along with validation and testing
 The training phase is where the neural network learn to use the data prepared in the previous phase to make all the predictions.
@@ -68,14 +66,14 @@ python GDL.py mode=inference
 ```
 
 > This example is running with the default configuration `./config/gdl_config_template.yaml`, for further examples on running options see the [documentation](config/#Examples).
-> You will also fund information on how to change the model or add a new one to GDL.
+> You will also find information on how to change the model or add a new one to GDL.
 
 > If you want to introduce a new task like object detection, you only need to add the code in the main folder and name it `object_detection_sampling.py` for example.
 > The principle is to name the code like `task_mode.py` and the `GDL.py` will deal with the rest. 
 > To run it, you will need to add a new parameter in the command line `python GDL.py mode=sampling task=object_detection` or change the parameter inside the `./config/gdl_config_template.yaml`.
 
 ## **Folder Structure**
-We suggest a high level structure to organize the images and the code.
+We suggest the following high level structure to organize the images and the code.
 ```
 ├── {dataset_name}
     └── data
@@ -127,24 +125,6 @@ _**Don't forget to change the path of the dataset in the config yaml.**_
 [comment]: <> (  task: segmentation               # <-- must be a segmentation task)
 
 [comment]: <> (  num_gpus: 2)
-
-[comment]: <> (  BGR_to_RGB: False                # <-- must be already in RGB)
-
-[comment]: <> (  scale_data: [0,1])
-
-[comment]: <> (  aux_vector_file:)
-
-[comment]: <> (  aux_vector_attrib:)
-
-[comment]: <> (  aux_vector_ids:)
-
-[comment]: <> (  aux_vector_dist_maps:)
-
-[comment]: <> (  aux_vector_dist_log:)
-
-[comment]: <> (  aux_vector_scale:)
-
-[comment]: <> (  debug_mode: True)
 
 [comment]: <> (  # Module to include the NIR)
 
