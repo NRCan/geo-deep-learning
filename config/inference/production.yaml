@@ -10,6 +10,7 @@ inference:
   download_data: True  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer
   save_heatmap: True  # saves a heatmap to root_dir/{output_name}_heatmap.tif
+  heatmap_threshold: 15
 
 # GPU parameters
   gpu: 1  # Number of gpus to use.
