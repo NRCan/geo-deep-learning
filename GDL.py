@@ -44,7 +44,7 @@ def run_gdl(cfg: DictConfig) -> None:
         logging.critical(msg.format(list(cfg.mode.keys())))
         raise ValueError()
 
-        # save all overwritten parameters
+    # save all overwritten parameters
     logging.info('\nOverwritten parameters in the config: \n' + cfg.general.config_override_dirname)
 
     # Start -----------------------------------

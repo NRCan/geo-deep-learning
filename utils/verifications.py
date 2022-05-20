@@ -202,6 +202,7 @@ def validate_features_from_gpkg(gpkg: Union[str, Path], attribute_name: str):
 
 
 def validate_by_rasterio(raster: Union[Path, str]):
+    # TODO: unit test for valid/invalid raster file
     """Check if `raster` is readable by rasterio, if not, log and raise error."""
     if not Path(raster).is_file():
         raise FileNotFoundError(f"\nRaster file not found: {raster}")

@@ -202,7 +202,7 @@ def get_key_recursive(key, config):
 
 
 def is_stac_item(path: str) -> bool:
-    """Checks if an input string or object is a valid stac item"""  # TODO
+    """Checks if an input string or object is a valid stac item"""
     if isinstance(path, pystac.Item):
         return True
     else:
