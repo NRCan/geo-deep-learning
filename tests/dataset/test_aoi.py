@@ -4,7 +4,7 @@ from dataset.aoi import AOI
 class Test_AOI(object):
     def test_parse_input_raster(self) -> None:
         raster_raw = {
-            "https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03": [
+            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json": [
                 "red", "green", "blue"],
             "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped_${dataset.bands}.tif": ["R", "G", "B"],
             "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif": None,
