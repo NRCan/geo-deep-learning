@@ -625,24 +625,29 @@ def override_model_params_from_checkpoint(
     classes = get_key_def('classes_dict', params['dataset'], expected_type=(dict, DictConfig))
     # TODO: remove if no old models are used in production.
     single_class_mode = get_key_def('state_dict_single_mode', params['inference'], expected_type=bool)
+    clip_limit = get_key_def('enhance_clip_limit', params['inference'], expected_type=float)
 
     modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=Sequence)
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
     single_class_mode_ckpt = get_key_def('state_dict_single_mode', checkpoint_params['inference'], expected_type=bool)
+    clip_limit_ckpt = get_key_def('enhance_clip_limit', checkpoint_params['inference'], expected_type=float)
 
-    if model_ckpt != params.model or classes_ckpt != classes or modalities_ckpt != modalities:
+    if model_ckpt != params.model or classes_ckpt != classes or modalities_ckpt != modalities \
+            or clip_limit != clip_limit_ckpt:
         logging.info(f"\nParameters from checkpoint will override inputted parameters."
                      f"\n\t\t\t Inputted | Overriden"
                      f"\nModel:\t\t {params.model} | {model_ckpt}"
                      f"\nInput bands:\t\t{modalities} | {modalities_ckpt}"
                      f"\nOutput classes:\t\t{classes} | {classes_ckpt}"
+                     f"\nRaster enhance clip limit:\t\t{clip_limit} | {clip_limit_ckpt}"
                      f"\nSingle class mode:\t\t{single_class_mode} | {single_class_mode_ckpt}")
         with open_dict(params):
             OmegaConf.update(params, 'dataset.modalities', modalities_ckpt, merge=False)
             OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt, merge=False)
             OmegaConf.update(params, 'model', model_ckpt, merge=False)
             OmegaConf.update(params, 'inference.state_dict_single_mode', single_class_mode_ckpt, merge=False)
+            OmegaConf.update(params, 'inference.enhance_clip_limit', clip_limit_ckpt, merge=False)
     return params
 
 
@@ -716,13 +721,16 @@ def update_gdl_checkpoint(checkpoint_params: DictConfig) -> DictConfig:
         # For GDL pre-v2.0.2
         checkpoint_params['params'].update({
             'dataset': {
+                # Necessary to manually update when using old in postprocess pipeline
+                # 'modalities': ['nir', 'red', 'green'],
+                # "classes_dict": {f"WAER": 1},
                 'modalities': [list(bands.keys())[i] for i in range(num_bands_ckpt)],
-                #"classes_dict": {f"BUIL": 1},  # Necessary when using old in postprocess pipeline
                 "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)},
             }
         })
         checkpoint_params['params'].update({'model': model_ckpt})
-        # Necessary when using old in postprocess pipeline
+        # Necessary to manually update when using old in postprocess pipeline
+        # checkpoint_params['params']['inference'].update({'enhance_clip_limit': 0.1})
         #checkpoint_params['params'].update({'inference': {'state_dict_single_mode': False}})
         return checkpoint_params
 
