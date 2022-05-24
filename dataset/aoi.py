@@ -9,13 +9,14 @@ import rasterio
 from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
 from shapely.geometry import box
-from solaris.utils.core import _check_rasterio_im_load
+from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load
 from tqdm import tqdm
 
 from utils.geoutils import stack_vrts, is_stac_item
 from utils.logger import get_logger
 from utils.utils import read_csv
-from utils.verifications import validate_by_rasterio, validate_by_geopandas, assert_crs_match
+from utils.verifications import validate_by_geopandas, assert_crs_match, validate_raster, \
+    validate_num_bands, validate_features_from_gpkg
 
 logging = get_logger(__name__)  # import logging
 
@@ -86,6 +87,7 @@ class AOI(object):
                  split: str = None,
                  aoi_id: str = None,
                  collection: str = None,
+                 raster_num_bands_expected: int = None,
                  attr_field_filter: str = None,
                  attr_values_filter: Sequence = None,
                  write_multiband: bool = False):
@@ -102,6 +104,8 @@ class AOI(object):
             Multiple AOI instances can bear the same name.
         @param collection: str
             Name of collection containing AOI. All AOIs in the same collection should never be spatially overlapping
+        @param raster_num_bands_expected:
+            Number of bands expected in processed raster (e.g. after combining single-bands files into a VRT)
         @param attr_field_filter: str, optional
             Name of attribute field used to filter features. If not provided all geometries in ground truth file
             will be considered.
@@ -123,12 +127,15 @@ class AOI(object):
                                                 raster_bands_requested=self.raster_bands_request)
         # If parsed result is a tuple, then we're dealing with single-band files
         if isinstance(raster_parsed, Tuple):
-            [validate_by_rasterio(file) for file in raster_parsed]
+            [validate_raster(file) for file in raster_parsed]
             self.raster_tuple = raster_parsed
             raster_parsed = stack_vrts(raster_parsed)
         else:
-            validate_by_rasterio(self.raster_raw_input)
+            validate_raster(self.raster_raw_input)
             self.raster_tuple = None
+
+        if raster_num_bands_expected:
+            validate_num_bands(raster_path=raster_parsed, num_bands=raster_num_bands_expected)
 
         self.raster = _check_rasterio_im_load(str(raster_parsed))
 
@@ -138,17 +145,20 @@ class AOI(object):
         # Check label data
         if label:
             validate_by_geopandas(label)
-            label_bounds = gpd.read_file(label).total_bounds
+            self.label_gdf = _check_gdf_load(str(label))
+            label_bounds = self.label_gdf.total_bounds
             label_bounds_box = box(*label_bounds.tolist())
             raster_bounds_box = box(*list(self.raster.bounds))
             if not label_bounds_box.intersects(raster_bounds_box):
                 raise ValueError(f"Features in label file {label} do not intersect with bounds of raster file "
                                  f"{self.raster.name}")
+            validate_features_from_gpkg(label, attr_field_filter)
+
             self.label = Path(label)
             # TODO: unit test for failed CRS match
             try:
                 # TODO: check if this creates overhead. Make data validation optional?
-                self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(self.raster, self.label)
+                self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(self.raster, self.label_gdf)
             except pyproj.exceptions.CRSError as e:
                 logging.warning(f"\nError while checking CRS match between raster and label."
                                 f"\n{e}")
@@ -234,7 +244,14 @@ class AOI(object):
             f"\n\tAttribute values filter: {self.attr_values_filter}"
             )
 
+    # TODO def to_dict()
+    # return a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)
+
+    # TODO def raster_stats()
+    # return a dictionary with mean and std of raster, per band
+
     def write_multiband_from_singleband_rasters_as_vrt(self):
+        """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
         if not self.raster.driver == 'VRT' or not self.raster_tuple or not "${dataset.bands}" in self.raster_raw_input:
             logging.warning(f"To write a multi-band raster from single-band files, a VRT must be provided."
                             f"\nGot {self.raster.meta}")
@@ -274,7 +291,7 @@ class AOI(object):
             return tuple(raster)
         else:
             try:
-                validate_by_rasterio(csv_raster_str)
+                validate_raster(csv_raster_str)
                 return Path(csv_raster_str)
             except (FileNotFoundError, rasterio.RasterioIOError, TypeError) as e:
                 logging.critical(f"Couldn't parse input raster. Got {csv_raster_str}")

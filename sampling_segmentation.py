@@ -18,7 +18,7 @@ from utils.utils import (
     get_key_def, pad, pad_diff, add_metadata_from_raster_to_sample, get_git_hash,
 )
 from utils.verifications import (
-    validate_num_classes, assert_crs_match, validate_features_from_gpkg, validate_input_imagery
+    validate_num_classes
 )
 # Set the logging file
 logging = get_logger(__name__)  # import logging
@@ -441,24 +441,14 @@ def main(cfg: DictConfig) -> None:
             f'\nDebug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.'
         )
 
-    # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
+    # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg
     valid_gpkg_set = set()
     for aoi in tqdm(list_data_prep, position=0):
-        validate_input_imagery(aoi.raster.name, num_bands)
         if aoi.label not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(
                 aoi.label, num_classes, attribute_field, dontcare, attribute_values=attr_vals,
             )
-            assert_crs_match(aoi.raster.name, aoi.label)
             valid_gpkg_set.add(aoi.label)
-
-    if debug:
-        # VALIDATION (debug only): Checking validity of features in vector files
-        for aoi in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
-            # TODO: make unit to test this with invalid features.
-            invalid_features = validate_features_from_gpkg(aoi.label, attribute_field)
-            if invalid_features:
-                logging.critical(f"{aoi.label}: Invalid geometry object(s) '{invalid_features}'")
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
