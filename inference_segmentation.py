@@ -385,12 +385,12 @@ def main(params: Union[DictConfig, dict]) -> None:
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
-    list_img = list_input_images(img_dir_or_csv, None, glob_patterns=["*.tif", "*.TIF"])
+    list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"])
 
     # VALIDATION: anticipate problems with imagery before entering main for loop
     for info in tqdm(list_img, desc='Validating imagery'):
         is_valid = validate_input_imagery(info['tif'], num_bands=num_bands, extended=debug)
-        # TODO: exclude invalid imagery at inference (prevent execution break)
+        # TODO: address with issue #310
     logging.info('\nSuccessfully validated imagery')
 
     # LOOP THROUGH LIST OF INPUT IMAGES
