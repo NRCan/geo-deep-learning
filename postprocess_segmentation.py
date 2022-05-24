@@ -422,6 +422,8 @@ def main(params):
     out_poly = root / f"{inf_outname}{out_poly_suffix}.gpkg"
     out_gen = root / f"{outname}{out_gen_suffix}.gpkg"
 
+    returned_vector_pred = None
+
     # TODO: run regularization after polygonization? if so, polygonized output needs to rasterized and polygonized again
     if 'BUIL' in classes_dict and regularization:
         logging.info(f'Regularizing prediction. Polygonization\'s input ("{inf_outpath}") will become "{out_reg}".'
@@ -460,6 +462,7 @@ def main(params):
             container_command=poly_command,
             fallback=poly_fallback,
         )
+        returned_vector_pred = out_poly
     except fiona.errors.DriverError as e:
         logging.critical(
             f"\n{type(e)}: {e}"
@@ -487,7 +490,10 @@ def main(params):
                               f"\nError {type(e)}: {e}")
         if out_gen.is_file():
             logging.info(f'\nGeneralization completed. Final prediction: {out_gen}')
+            returned_vector_pred = out_gen
         else:
             logging.error(f'\nGeneralization failed. Output "{out_gen}" not created. See logs...')
 
     logging.info(f'\nEnd of postprocessing')
+
+    return returned_vector_pred

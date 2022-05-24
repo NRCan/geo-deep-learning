@@ -388,6 +388,8 @@ def main(params):
         logging.debug(f"\nDeleting temporary .dat file {tempfile}...")
         os.remove(tempfile)
 
+    return outpath, pred_img
+
 
 if __name__ == "__main__":  # serves as back up
     parser = argparse.ArgumentParser(
