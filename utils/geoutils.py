@@ -1,6 +1,7 @@
 import collections
 import logging
 from pathlib import Path
+from typing import Union
 
 import numpy as np
 
@@ -201,7 +202,7 @@ def get_key_recursive(key, config):
     return int(val)
 
 
-def is_stac_item(path: str) -> bool:
+def is_stac_item(path: Union[str, pystac.Item]) -> bool:
     """Checks if an input string or object is a valid stac item"""
     if isinstance(path, pystac.Item):
         return True

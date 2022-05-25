@@ -29,7 +29,7 @@ For more information on the concept of stratified sampling, see [this Medium art
 
 ## Imagery
 
-### Modalities
+### Band selection and ordering
 
 Bands to be selected during the sampling process. Order matters (ie "BGR" is not equal to "RGB").
 The use of this feature for band selection is a work in progress. It currently serves to indicate how many bands are in

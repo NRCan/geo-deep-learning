@@ -367,8 +367,8 @@ def read_csv(csv_file_name: str) -> Dict:
             if not len(row_lengths_set) == 1:
                 raise ValueError(f"Rows in csv should be of same length. Got rows with length: {row_lengths_set}")
             row.extend([None] * (4 - len(row)))  # fill row with None values to obtain row of length == 5
-            row[0] = to_absolute_path(row[0])  # Convert relative paths to absolute with hydra's util to_absolute_path()
-            row[1] = to_absolute_path(row[1])
+            row[0] = to_absolute_path(row[0]) if not is_url(row[0]) else row[0] # Convert relative paths to absolute with hydra's util to_absolute_path()
+            row[1] = to_absolute_path(row[1]) if not is_url(row[1]) else row[1]
 
             # save all values
             list_values.append(
@@ -578,29 +578,29 @@ def override_model_params_from_checkpoint(
     @param checkpoint_params: Checkpoint parameters as saved during checkpoint creation when training
     @return:
     """
-    modalities = get_key_def('modalities', params['dataset'], expected_type=Sequence)
+    bands = get_key_def('bands', params['dataset'], expected_type=Sequence)
     classes = get_key_def('classes_dict', params['dataset'], expected_type=(dict, DictConfig))
     # TODO: remove if no old models are used in production.
     single_class_mode = get_key_def('state_dict_single_mode', params['inference'], expected_type=bool)
     clip_limit = get_key_def('enhance_clip_limit', params['inference'], expected_type=float)
 
-    modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=Sequence)
+    bands_ckpt = get_key_def('bands', checkpoint_params['dataset'], expected_type=Sequence)
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
     single_class_mode_ckpt = get_key_def('state_dict_single_mode', checkpoint_params['inference'], expected_type=bool)
     clip_limit_ckpt = get_key_def('enhance_clip_limit', checkpoint_params['inference'], expected_type=float)
 
-    if model_ckpt != params.model or classes_ckpt != classes or modalities_ckpt != modalities \
+    if model_ckpt != params.model or classes_ckpt != classes or bands_ckpt != bands \
             or clip_limit != clip_limit_ckpt:
         logging.info(f"\nParameters from checkpoint will override inputted parameters."
                      f"\n\t\t\t Inputted | Overriden"
                      f"\nModel:\t\t {params.model} | {model_ckpt}"
-                     f"\nInput bands:\t\t{modalities} | {modalities_ckpt}"
+                     f"\nInput bands:\t\t{bands} | {bands_ckpt}"
                      f"\nOutput classes:\t\t{classes} | {classes_ckpt}"
                      f"\nRaster enhance clip limit:\t\t{clip_limit} | {clip_limit_ckpt}"
                      f"\nSingle class mode:\t\t{single_class_mode} | {single_class_mode_ckpt}")
         with open_dict(params):
-            OmegaConf.update(params, 'dataset.modalities', modalities_ckpt, merge=False)
+            OmegaConf.update(params, 'dataset.bands', bands_ckpt, merge=False)
             OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt, merge=False)
             OmegaConf.update(params, 'model', model_ckpt, merge=False)
             OmegaConf.update(params, 'inference.state_dict_single_mode', single_class_mode_ckpt, merge=False)
@@ -657,11 +657,11 @@ def update_gdl_checkpoint(checkpoint_params: DictConfig) -> DictConfig:
         # don't update if already a recent checkpoint
         get_key_def('classes_dict', checkpoint_params['params']['dataset'], expected_type=(dict, DictConfig))
         get_key_def('model', checkpoint_params['params'], expected_type=(dict, DictConfig))
-        modalities = get_key_def('modalities', checkpoint_params['params']['dataset'], expected_type=Sequence)
-        if isinstance(modalities, str):
+        bands = get_key_def('bands', checkpoint_params['params']['dataset'], expected_type=Sequence)
+        if isinstance(bands, str):
             mod_old2new = {v: k for k, v in bands.items()}
             checkpoint_params['params']['dataset'].update(
-                {'modalities': [mod_old2new[band] for band in modalities]}
+                {'bands': [mod_old2new[band] for band in bands]}
             )
         return checkpoint_params
     except KeyError:
@@ -679,9 +679,9 @@ def update_gdl_checkpoint(checkpoint_params: DictConfig) -> DictConfig:
         checkpoint_params['params'].update({
             'dataset': {
                 # Necessary to manually update when using old in postprocess pipeline
-                # 'modalities': ['nir', 'red', 'green'],
+                # 'bands': ['nir', 'red', 'green'],
                 # "classes_dict": {f"WAER": 1},
-                'modalities': [list(bands.keys())[i] for i in range(num_bands_ckpt)],
+                'bands': [list(bands.keys())[i] for i in range(num_bands_ckpt)],
                 "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)},
             }
         })
@@ -731,7 +731,7 @@ def gdl2pl_checkpoint(in_pth_path: str, out_dir: str = None) -> str:
     # Store hyper parameters to checkpoint as expected by pytorch lightning
     if isinstance(hparams, DictConfig):
         OmegaConf.set_struct(hparams, False)
-    hparams["in_channels"] = len(checkpoint['params']['dataset']['modalities'])
+    hparams["in_channels"] = len(checkpoint['params']['dataset']['bands'])
     hparams["classes"] = num_classes
 
     # adapt to what pytorch lightning expects: add "model" prefix to model keys

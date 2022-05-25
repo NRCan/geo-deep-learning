@@ -310,7 +310,7 @@ def main(params):
     dm = InferenceDataModule(root_dir=data_dir,
                              item_path=item_url,
                              outpath=outpath,
-                             bands=modalities,
+                             bands=bands_requested,
                              patch_size=chip_size,
                              stride=stride,
                              batch_size=batch_size,

@@ -1,9 +1,18 @@
+import logging
+from collections import OrderedDict
+from pathlib import Path
+from typing import Union, List
+
 import numpy as np
 from sklearn.metrics import classification_report
 
+import geopandas as gpd
+from solaris.eval.base import Evaluator
+
+from dataset.aoi import AOI
+
 min_val = 1e-6
 def create_metrics_dict(num_classes):
-    num_classes = num_classes if num_classes == 1 else num_classes + 1
     metrics_dict = {'precision': AverageMeter(), 'recall': AverageMeter(), 'fscore': AverageMeter(),
                     'loss': AverageMeter(), 'iou': AverageMeter()}
 
@@ -59,7 +68,7 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
     """Computes precision, recall and f-score for each class and average of all classes.
     http://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
     """
-    class_report = classification_report(label.cpu(), pred.cpu(), output_dict=True, zero_division=1)
+    class_report = classification_report(label.cpu(), pred.cpu(), output_dict=True)
 
     class_score = {}
     for key, value in class_report.items():
@@ -80,7 +89,6 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
 def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
     """Calculate the intersection over union class-wise and mean-iou"""
     ious = []
-    num_classes = num_classes if num_classes == 1 else num_classes + 1
     pred = pred.cpu()
     label = label.cpu()
     for i in range(num_classes):
@@ -122,7 +130,7 @@ class ComputePixelMetrics():
     def __init__(self, label, pred, num_classes):
         self.label = label
         self.pred = pred
-        self.num_classes = num_classes if num_classes == 1 else num_classes + 1
+        self.num_classes = num_classes
 
     def update(self, metric_func):
         metric = {}
@@ -158,3 +166,46 @@ class ComputePixelMetrics():
         dice = (2 * intersection) / ((label.sum()) + (pred.sum()))
 
         return dice
+
+def iou_per_obj(
+        pred: Union[str, Path],
+        gt:Union[str, Path],
+        attr_field: str = None,
+        attr_vals: List = None,
+        aoi_id: str = None,
+        aoi_categ: str = None,
+        gt_clip_bounds = None):
+    """
+    Calculate iou per object by comparing vector ground truth and vectorized prediction
+    @param pred:
+    @param gt:
+    @param attr_field:
+    @param attr_vals:
+    @param aoi_id:
+    @return:
+    """
+    if not aoi_id:
+        aoi_id = Path(pred).stem
+    # filter out non-buildings
+    gt_gdf = gpd.read_file(gt, bbox=gt_clip_bounds)
+    # TODO remove filtering ?
+    gt_gdf_filtered, _ = AOI.filter_gdf_by_attribute(gt_gdf.copy(deep=True), attr_field, attr_vals)
+    evaluator = Evaluator(ground_truth_vector_file=gt_gdf_filtered)
+
+    evaluator.load_proposal(pred, conf_field_list=None)
+    scoring_dict_list, TP_gdf, FN_gdf, FP_gdf = evaluator.eval_iou_return_GDFs(calculate_class_scores=False)
+
+    if TP_gdf is not None:
+        TP_gdf.to_file(pred, layer='True_Pos', driver="GPKG")
+    if FN_gdf is not None:
+        FN_gdf.to_file(pred, layer='False_Neg', driver="GPKG")
+    if FP_gdf is not None:
+        FP_gdf.to_file(pred, layer='False_Pos', driver="GPKG")
+
+    scoring_dict_list[0] = OrderedDict(scoring_dict_list[0])
+    scoring_dict_list[0]['aoi'] = aoi_id
+    scoring_dict_list[0].move_to_end('aoi', last=False)
+    scoring_dict_list[0]['category'] = aoi_categ
+    scoring_dict_list[0].move_to_end('category', last=False)
+    logging.info(scoring_dict_list[0])
+    return scoring_dict_list[0]

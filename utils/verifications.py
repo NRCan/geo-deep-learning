@@ -91,13 +91,14 @@ def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: 
         logging.critical(f"Invalid raster.\nRaster path: {raster}\n{e}")
         raise e
     try:
-        logging.debug(f'Raster to validate: {raster}\n'
-                      f'Size: {raster.stat().st_size}\n'
-                      f'Extended check: {extended}')
-        with rasterio.open(raster, 'r') as raster:
-            if not raster.meta['dtype'] in ['uint8', 'uint16']:  # will trigger exception if invalid raster
-                logging.warning(f"Only uint8 and uint16 are supported in current version.\n"
-                                f"Datatype {raster.meta['dtype']} for {raster.aoi_id} may cause problems.")
+        logging.debug(f'Raster to validate: {raster}\n')
+        if raster.is_file():
+            logging.debug(f'Size: {raster.stat().st_size}\n'
+                          f'Extended check: {extended}')
+        raster = _check_rasterio_im_load(str(raster)) if isinstance(raster, Path) else _check_rasterio_im_load(raster)
+        if not raster.meta['dtype'] in ['uint8', 'uint16']:  # will trigger exception if invalid raster
+            logging.warning(f"Only uint8 and uint16 are supported in current version.\n"
+                            f"Datatype {raster.meta['dtype']} for {raster.aoi_id} may cause problems.")
         if extended:
             logging.debug(f'Will perform extended check.\nWill read first band: {raster}')
             with rasterio.open(raster, 'r') as raster:
@@ -197,7 +198,14 @@ def validate_features_from_gpkg(label: Union[str, Path], attribute_name: str):
     with fiona.open(label, 'r') as src:
         lst_vector = [vector for vector in src]
     shapes = lst_ids(list_vector=lst_vector, attr_name=attribute_name)
-    for index, item in enumerate(tqdm([v for vecs in shapes.values() for v in vecs], leave=False, position=1)):
+    for index, item in enumerate(
+            tqdm(
+                [v for vecs in shapes.values() for v in vecs],
+                leave=False,
+                position=1,
+                desc=f"Validating features from {Path(label).name}"
+            )
+    ):
         feature_id = lst_vector[index]["id"]
         # geom must be a valid GeoJSON geometry type and non-empty
         geom, value = item

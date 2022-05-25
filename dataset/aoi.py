@@ -1,15 +1,19 @@
+import functools
 from collections import OrderedDict
 from pathlib import Path
-from typing import Union, Sequence, Dict, Tuple, List
+from typing import Union, Sequence, Dict, Tuple, List, Optional
 
 import geopandas as gpd
 import pyproj
 import pystac
 import rasterio
+from hydra.utils import to_absolute_path
+from pandas.io.common import is_url
 from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
 from shapely.geometry import box
 from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load
+from torchvision.datasets.utils import download_url
 from tqdm import tqdm
 
 from utils.geoutils import stack_vrts, is_stac_item
@@ -26,18 +30,41 @@ class SingleBandItemEO(ItemEOExtension):
     Single-Band Stac Item with assets by common name.
     For info on common names, see https://github.com/stac-extensions/eo#common-band-names
     """
-    def __init__(self, item: pystac.Item, bands: Sequence = None):
-        super().__init__(item)
+    def __init__(
+            self,
+            item: pystac.Item,
+            bands: Optional[Sequence] = None,
+            download: bool = False,
+            root: str = "data",
+    ):
+        """
+
+        @param item:
+            Stac tem containing metadata linking imagery assets
+        @param bands:
+            band selection which must be a list of STAC Item common names from eo extension.
+            See: https://github.com/stac-extensions/eo/#common-band-names
+        @param download:
+            if True, download dataset and store it in the root directory.
+        @param root:
+            root directory where dataset can be found or downloaded
+        """
         if not is_stac_item(item):
             raise TypeError(f"Expected a valid pystac.Item object. Got {type(item)}")
         self.item = item
         self._assets_by_common_name = None
 
+        if len(bands) == 0:
+            logging.warning(f"At least one band should be chosen if assets need to be reached")
         if bands is not None and len(bands) == 0:
             logging.warning(f"At least one band should be chosen if assets need to be reached")
 
         # Create band inventory (all available bands)
         self.bands_all = [band for band in self.asset_by_common_name.keys()]
+
+        # Filter only desired bands
+        # TODO replace bands_dict with bands (list of Band objects)
+        self.bands_dict = {k: v for k, v in self.asset_by_common_name.items() if k in bands}
 
         # Make sure desired bands are subset of inventory
         if not set(bands).issubset(set(self.bands_all)):
@@ -47,6 +74,38 @@ class SingleBandItemEO(ItemEOExtension):
         self.bands_requested = {band: self.asset_by_common_name[band] for band in bands}
         logging.debug(self.bands_all)
         logging.debug(self.bands_requested)
+
+        bands = []
+        for band in self.bands_requested.keys():
+            band = Band.create(
+                name=self.bands_requested[band]['name'],
+                common_name=band,
+                description=self.bands_requested[band]['meta'].description,
+                center_wavelength=self.bands_requested[band]['meta'].extra_fields['eo:bands'][0]['center_wavelength'],
+                full_width_half_max=self.bands_requested[band]['meta'].extra_fields['eo:bands'][0]['full_width_half_max'])
+            bands.append(band)
+
+        super().__init__(item)
+        # TODO: some refactoring is needed
+        self.bands = [band for band in self.bands if band.common_name in self.bands_requested.keys()]
+
+        self.download = download
+        self.root = Path(root)
+
+        # Download assets if desired
+        if self.download:
+            for band in self.bands:
+                cname = band.common_name
+                out_name = self.root / Path(self.bands_dict[cname]['meta'].href).name
+                download_url(self.bands_dict[cname]['meta'].href, root=str(self.root), filename=str(out_name))
+                self.bands_dict[cname]['meta'].href = out_name
+
+        # Open first asset with rasterio (for metadata: colormap, crs, resolution, etc.)
+        if self.bands:
+            self.first_asset = list(self.bands_dict.values())[0]['meta'].href
+            self.first_asset = self.first_asset if is_url(self.first_asset) else to_absolute_path(self.first_asset)
+
+            self.src = rasterio.open(self.first_asset)
 
     @property
     def asset_by_common_name(self) -> Dict:
@@ -69,7 +128,7 @@ class SingleBandItemEO(ItemEOExtension):
                         if not Band.band_range(common_name):  # Hacky but easiest way to validate common names
                             raise ValueError(f'Must be one of the accepted common names. Got "{common_name}".')
                         else:
-                            self._assets_by_common_name[common_name] = {'href': a_meta.href, 'name': name}
+                            self._assets_by_common_name[common_name] = {'meta': a_meta, 'name': name}
         if not self._assets_by_common_name:
             raise ValueError(f"Common names for assets cannot be retrieved")
         return self._assets_by_common_name
@@ -90,6 +149,8 @@ class AOI(object):
                  raster_num_bands_expected: int = None,
                  attr_field_filter: str = None,
                  attr_values_filter: Sequence = None,
+                 download_data: bool = False,
+                 root_dir: str = "data",
                  write_multiband: bool = False):
         # TODO: dict printer to output report on list of aois
         """
@@ -112,6 +173,10 @@ class AOI(object):
         @param attr_values_filter: list of ints, optional
             The list of attribute values in given attribute field used to filter features from ground truth file.
             If not provided, all values in field will be considered
+        @param download_data:
+            if True, download dataset and store it in the root directory.
+        @param root:
+            root directory where dataset can be found or downloaded
         @param write_multiband: bool, optional
             If True, a multi-band raster side by side with single-bands rasters as provided in input csv. For debugging purposes.
         """
@@ -119,12 +184,16 @@ class AOI(object):
         if not isinstance(raster, str):
             raise TypeError(f"Raster path should be a string.\nGot {raster} of type {type(raster)}")
         self.raster_raw_input = raster
-        if raster_bands_request and not isinstance(raster_bands_request, (List, ListConfig)):
+        if raster_bands_request and not isinstance(raster_bands_request, (Sequence, ListConfig)):
             raise ValueError(f"Requested bands should be a list."
                              f"\nGot {raster_bands_request} of type {type(raster_bands_request)}")
         self.raster_bands_request = raster_bands_request
-        raster_parsed = self.parse_input_raster(csv_raster_str=self.raster_raw_input,
-                                                raster_bands_requested=self.raster_bands_request)
+        raster_parsed = self.parse_input_raster(
+            csv_raster_str=self.raster_raw_input,
+            raster_bands_requested=self.raster_bands_request,
+            download_data=download_data,
+            root_dir=root_dir
+        )
         # If parsed result is a tuple, then we're dealing with single-band files
         if isinstance(raster_parsed, Tuple):
             [validate_raster(file) for file in raster_parsed]
@@ -145,20 +214,22 @@ class AOI(object):
         # Check label data
         if label:
             validate_by_geopandas(label)
-            self.label_gdf = _check_gdf_load(str(label))
-            label_bounds = self.label_gdf.total_bounds
-            label_bounds_box = box(*label_bounds.tolist())
-            raster_bounds_box = box(*list(self.raster.bounds))
-            if not label_bounds_box.intersects(raster_bounds_box):
-                raise ValueError(f"Features in label file {label} do not intersect with bounds of raster file "
-                                 f"{self.raster.name}")
-            validate_features_from_gpkg(label, attr_field_filter)
+            # TODO generate report first time, then, skip if exists
+            # self.label_gdf = _check_gdf_load(str(label))
+            # label_bounds = self.label_gdf.total_bounds
+            # label_bounds_box = box(*label_bounds.tolist())
+            # raster_bounds_box = box(*list(self.raster.bounds))
+            # if not label_bounds_box.intersects(raster_bounds_box):
+            #     raise ValueError(f"Features in label file {label} do not intersect with bounds of raster file "
+            #                      f"{self.raster.name}")
+            # validate_features_from_gpkg(label, attr_field_filter)
 
             self.label = Path(label)
             # TODO: unit test for failed CRS match
             try:
                 # TODO: check if this creates overhead. Make data validation optional?
-                self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(self.raster, self.label_gdf)
+                #self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(self.raster, self.label_gdf)
+                pass
             except pyproj.exceptions.CRSError as e:
                 logging.warning(f"\nError while checking CRS match between raster and label."
                                 f"\n{e}")
@@ -208,11 +279,12 @@ class AOI(object):
                   aoi_dict,
                   bands_requested: List = None,
                   attr_field_filter: str = None,
-                  attr_values_filter: list = None):
+                  attr_values_filter: list = None,
+                  download_data: bool = False,
+                  root_dir: str = "data"):
         """Instanciates an AOI object from an input-data dictionary as expected by geo-deep-learning"""
         if not isinstance(aoi_dict, dict):
             raise TypeError('Input data should be a dictionary.')
-        # TODO: change dataset for split
         if not {'tif', 'gpkg', 'split'}.issubset(set(aoi_dict.keys())):
             raise ValueError(f"Input data should minimally contain the following keys: \n"
                              f"'tif', 'gpkg', 'split'.")
@@ -229,7 +301,9 @@ class AOI(object):
             split=aoi_dict['split'],
             attr_field_filter=attr_field_filter,
             attr_values_filter=attr_values_filter,
-            aoi_id=aoi_dict['aoi_id']
+            aoi_id=aoi_dict['aoi_id'],
+            download_data=download_data,
+            root_dir=root_dir,
         )
         return new_aoi
 
@@ -267,7 +341,12 @@ class AOI(object):
             dest.write(out_img)
 
     @staticmethod
-    def parse_input_raster(csv_raster_str: str, raster_bands_requested: List) -> Union[str, Tuple]:
+    def parse_input_raster(
+            csv_raster_str: str,
+            raster_bands_requested: Sequence,
+            download_data: bool = False,
+            root_dir: str = "data"
+    ) -> Union[str, Tuple]:
         """
         From input csv, determine if imagery is
         1. A Stac Item with single-band assets (multi-band assets not implemented)
@@ -277,11 +356,18 @@ class AOI(object):
             input imagery to parse
         @param raster_bands_requested:
             dataset configuration parameters
+        @param download_data:
+            if True, download dataset and store it in the root directory.
+        @param root_dir:
+            root directory where dataset can be found or downloaded
         @return:
         """
         if is_stac_item(csv_raster_str):
-            item = SingleBandItemEO(item=pystac.Item.from_file(csv_raster_str), bands=raster_bands_requested)
-            raster = [Path(value['href']) for value in item.bands_requested.values()]
+            item = SingleBandItemEO(item=pystac.Item.from_file(csv_raster_str),
+                                    bands=raster_bands_requested,
+                                    download=download_data,
+                                    root=root_dir)
+            raster = [Path(value['meta'].href) for value in item.bands_requested.values()]
             return tuple(raster)
         elif "${dataset.bands}" in csv_raster_str:
             if not isinstance(raster_bands_requested, (List, ListConfig)) or len(raster_bands_requested) == 0:
@@ -297,8 +383,50 @@ class AOI(object):
                 logging.critical(f"Couldn't parse input raster. Got {csv_raster_str}")
                 raise e
 
+    @staticmethod
+    def filter_gdf_by_attribute(
+            gdf_tile: Union[str, Path, gpd.GeoDataFrame],
+            attr_field: str = None,
+            attr_vals: Sequence = None):
+        """
+        Filter features from a geopandas.GeoDataFrame according to an attribute field and filtering values
+        @param gdf_tile: str, Path or gpd.GeoDataFrame
+            GeoDataFrame or path to GeoDataFrame to filter feature from
+        @return: Subset of source GeoDataFrame with only filtered features (deep copy)
+        """
+        gdf_tile = _check_gdf_load(gdf_tile)
+        if not attr_field or not attr_vals:
+            return gdf_tile, None
+        if not attr_field in gdf_tile.columns:
+            attr_field = attr_field.split('/')[-1]
+        # TODO: warn if no features with values in given attribute field. Values may be wrong.
+        try:
+            condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
+            condList.extend([gdf_tile[f'{attr_field}'] == str(val) for val in attr_vals])
+            allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
+            gdf_filtered = gdf_tile[allcond].copy(deep=True)
+            logging.debug(f'Successfully filtered features from GeoDataFrame"\n'
+                          f'Filtered features: {len(gdf_filtered)}\n'
+                          f'Total features: {len(gdf_tile)}\n'
+                          f'Attribute field: "{attr_field}"\n'
+                          f'Filtered values: {attr_vals}')
+            return gdf_filtered, attr_field
+        except KeyError as e:
+            logging.critical(f'No attribute named {attr_field} in GeoDataFrame. \n'
+                             f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'
+                             f'Attributes: {gdf_tile.columns}\n'
+                             f'GeoDataFrame: {gdf_tile.info()}')
+            raise e
 
-def aois_from_csv(csv_path: Union[str, Path], bands_requested: List = None, attr_field_filter: str = None, attr_values_filter: str = None):
+
+def aois_from_csv(
+        csv_path: Union[str, Path],
+        bands_requested: List = None,
+        attr_field_filter: str = None,
+        attr_values_filter: str = None,
+        download_data: bool = False,
+        data_dir: str = "data"
+):
     """
     Creates list of AOIs by parsing a csv file referencing input data
     @param csv_path:
@@ -309,6 +437,10 @@ def aois_from_csv(csv_path: Union[str, Path], bands_requested: List = None, attr
         Attribute filed to filter features from
     @param attr_field_filter:
         Attribute values (for given attribute field) for features to keep
+    @param download_data:
+        if True, download dataset and store it in the root directory.
+    @param data_dir:
+        root directory where data can be found or downloaded
     Returns: a list of AOIs objects
     """
     aois = []
@@ -322,7 +454,9 @@ def aois_from_csv(csv_path: Union[str, Path], bands_requested: List = None, attr
                 aoi_dict=aoi_dict,
                 bands_requested=bands_requested,
                 attr_field_filter=attr_field_filter,
-                attr_values_filter=attr_values_filter
+                attr_values_filter=attr_values_filter,
+                download_data=download_data,
+                root_dir=data_dir,
             )
             logging.debug(new_aoi)
             aois.append(new_aoi)
