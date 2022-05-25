@@ -342,8 +342,6 @@ def main(cfg: DictConfig) -> None:
         3. Assert Coordinate reference system between raster and gpkg match.
     3. Read csv file and for each line in the file, do the following:
         1. Read input image as array with utils.readers.image_reader_as_array().
-            - If gpkg's extent is smaller than raster's extent,
-              raster is clipped to gpkg's extent.
             - If gpkg's extent is bigger than raster's extent,
               gpkg is clipped to raster's extent.
         2. Convert GeoPackage vector information into the "label" raster with
@@ -502,28 +500,6 @@ def main(cfg: DictConfig) -> None:
                 if dataset_nodata is not None:
                     # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
                     np_label_raster[dataset_nodata] = dontcare
-
-            if debug:
-                out_meta = raster.meta.copy()
-                np_image_debug = np_input_image.transpose(2, 0, 1).astype(out_meta['dtype'])
-                out_meta.update({"driver": "GTiff",
-                                 "height": np_image_debug.shape[1],
-                                 "width": np_image_debug.shape[2]})
-                out_tif = samples_dir / f"{Path(info['tif']).stem}_clipped.tif"
-                logging.debug(f"Writing clipped raster to {out_tif}")
-                with rasterio.open(out_tif, "w", **out_meta) as dest:
-                    dest.write(np_image_debug)
-
-                out_meta = raster.meta.copy()
-                np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(out_meta['dtype'])
-                out_meta.update({"driver": "GTiff",
-                                 "height": np_label_debug.shape[1],
-                                 "width": np_label_debug.shape[2],
-                                 'count': 1})
-                out_tif = samples_dir / f"{Path(info['gpkg']).stem}_clipped.tif"
-                logging.debug(f"\nWriting final rasterized gpkg to {out_tif}")
-                with rasterio.open(out_tif, "w", **out_meta) as dest:
-                    dest.write(np_label_debug)
 
             # Mask the zeros from input image into label raster.
             if mask_reference:
