@@ -1,16 +1,11 @@
 import logging
 
 import numpy as np
-import rasterio
-
-from utils.geoutils import clip_raster_with_gpkg
 
 logger = logging.getLogger(__name__)
 
 
-def image_reader_as_array(input_image,
-                          clip_gpkg=None,
-                          debug=False):
+def image_reader_as_array(input_image):
     """Read an image from a file and return a 3d array (h,w,c)
     Args:
         input_image: Rasterio file handle holding the (already opened) input raster

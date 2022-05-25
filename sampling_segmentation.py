@@ -478,10 +478,7 @@ def main(cfg: DictConfig) -> None:
             logging.info(f"\nReading as array: {info['tif']}")
             with rasterio.open(info['tif'], 'r') as raster:
                 # 1. Read the input raster image
-                np_input_image, raster, dataset_nodata = image_reader_as_array(
-                    input_image=raster,
-                    clip_gpkg=info['gpkg']
-                )
+                np_input_image, raster, dataset_nodata = image_reader_as_array(input_image=raster)
 
                 # 2. Burn vector file in a raster file
                 logging.info(f"\nRasterizing vector file (attribute: {attribute_field}): {info['gpkg']}")
