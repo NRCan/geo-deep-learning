@@ -248,7 +248,7 @@ def main(params):
     # Covers old single-class models with 2 input channels rather than 1 (ie with background)
     single_class_mode = get_key_def('state_dict_single_mode', params['inference'], default=True, expected_type=bool)
     # Dataset params
-    modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
+    bands_requested = get_key_def('bands', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
     classes_dict = {k: v for k, v in classes_dict.items() if v}  # Discard keys where value is None
     # +1 for background if multiclass mode

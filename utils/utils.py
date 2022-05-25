@@ -5,7 +5,7 @@ import subprocess
 from collections import OrderedDict
 from functools import reduce
 from pathlib import Path
-from typing import Sequence, List
+from typing import Sequence, List, Dict, Union
 
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
@@ -307,7 +307,6 @@ def BGR_to_RGB(array):
 
 
 def list_input_images(img_dir_or_csv: Path,
-                      bucket_name: str = None,
                       glob_patterns: List = None):
     """
     Create list of images from given directory or csv file.
@@ -320,52 +319,44 @@ def list_input_images(img_dir_or_csv: Path,
     returns list of dictionaries where keys are "tif" and values are paths to found images. "meta" key is also added
         if input is csv and second column contains a metadata file. Then, value is path to metadata file.
     """
-    if bucket_name:
-        s3 = boto3.resource('s3')
-        bucket = s3.Bucket(bucket_name)
-        if img_dir_or_csv.suffix == '.csv':
-            bucket.download_file(str(img_dir_or_csv), 'img_csv_file.csv')
-            list_img = read_csv('img_csv_file.csv')
-        else:
-            raise NotImplementedError(
-                'Specify a csv file containing images for inference. Directory input not implemented yet')
+    if img_dir_or_csv.suffix == '.csv':
+        list_img = read_csv(img_dir_or_csv)
+    elif is_url(str(img_dir_or_csv)):
+        list_img = []
+        img = {'tif': img_dir_or_csv}
+        list_img.append(img)
     else:
-        if img_dir_or_csv.suffix == '.csv':
-            list_img = read_csv(img_dir_or_csv)
-        elif is_url(str(img_dir_or_csv)):
-            list_img = []
-            img = {'tif': img_dir_or_csv}
-            list_img.append(img)
-        else:
-            img_dir = img_dir_or_csv
-            if not img_dir.is_dir():
-                raise NotADirectoryError(f'Could not find directory/file "{img_dir_or_csv}"')
+        img_dir = img_dir_or_csv
+        if not img_dir.is_dir():
+            raise NotADirectoryError(f'Could not find directory/file "{img_dir_or_csv}"')
 
-            list_img_paths = set()
-            if img_dir.is_dir():
-                for glob_pattern in glob_patterns:
-                    if not isinstance(glob_pattern, str):
-                        raise TypeError(f'Invalid glob pattern: "{glob_pattern}"')
-                    list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
-            else:
-                list_img_paths.update([img_dir])
-            list_img = []
-            for img_path in list_img_paths:
-                img = {'tif': img_path}
-                list_img.append(img)
-            if not len(list_img) >= 0:
-                raise ValueError(f'No .tif files found in {img_dir_or_csv}')
+        list_img_paths = set()
+        if img_dir.is_dir():
+            for glob_pattern in glob_patterns:
+                if not isinstance(glob_pattern, str):
+                    raise TypeError(f'Invalid glob pattern: "{glob_pattern}"')
+                list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
+        else:
+            list_img_paths.update([img_dir])
+        list_img = []
+        for img_path in list_img_paths:
+            img = {'tif': img_path}
+            list_img.append(img)
+        if not len(list_img) >= 0:
+            raise ValueError(f'No .tif files found in {img_dir_or_csv}')
     return list_img
 
 
-def read_csv(csv_file_name):
+def read_csv(csv_file_name: str) -> Dict:
     """
-    Open csv file and parse it, returning a list of dict.
-    - tif full path
-    - metadata yml full path (may be empty string if unavailable)
-    - gpkg full path
-    - attribute_name
-    - dataset (trn or tst)
+    Open csv file and parse it, returning a list of dictionaries with keys:
+    - "tif": path to a single image
+    - "gpkg": path to a single ground truth file
+    - dataset: (str) "trn" or "tst"
+    - aoi_id: (str) a string id for area of interest
+    @param csv_file_name:
+        path to csv file containing list of input data with expected columns
+        expected columns (without header): imagery, ground truth, dataset[, aoi id]
     """
     list_values = []
     with open(csv_file_name, 'r') as f:
@@ -374,28 +365,17 @@ def read_csv(csv_file_name):
         for row in reader:
             row_lengths_set.update([len(row)])
             if not len(row_lengths_set) == 1:
-                raise ValueError(f"Rows in csv should be of same length. Got rows with lenght: {row_lengths_set}")
-            row.extend([None] * (5 - len(row)))  # fill row with None values to obtain row of length == 5
+                raise ValueError(f"Rows in csv should be of same length. Got rows with length: {row_lengths_set}")
+            row.extend([None] * (4 - len(row)))  # fill row with None values to obtain row of length == 5
             row[0] = to_absolute_path(row[0])  # Convert relative paths to absolute with hydra's util to_absolute_path()
-            if not Path(row[0]).is_file():
-                logging.critical(f"Raster not found: {row[0]}. This data will be removed from input data list"
-                                 f"since all geo-deep-learning modules require imagery.")
-                continue
-            row[2] = to_absolute_path(row[2])
-            if not Path(row[2]).is_file():
-                logging.critical(f"Ground truth not found: {row[2]}")
-            if not isinstance(row[3], str):
-                logging.error(f"Attribute name should be a string")
-            if row[3] != "":
-                logging.error(f"Deprecation notice:\nFiltering ground truth features by attribute name and values should"
-                              f" be done through the dataset parameters in config/dataset. The attribute name value in "
-                              f"csv will be ignored. Got: {row[3]}")
+            row[1] = to_absolute_path(row[1])
+
             # save all values
             list_values.append(
-                {'tif': str(row[0]), 'meta': row[1], 'gpkg': str(row[2]), 'attribute_name': row[3], 'dataset': row[4]})
+                {'tif': str(row[0]), 'gpkg': str(row[1]), 'split': row[2], 'aoi_id': row[3]})
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
-        list_values = sorted(list_values, key=lambda k: k['dataset'])
+        list_values = sorted(list_values, key=lambda k: k['split'])
     except TypeError:
         log.warning('Unable to sort csv rows')
     return list_values
@@ -403,7 +383,7 @@ def read_csv(csv_file_name):
 
 def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
                                        raster_handle: dict,
-                                       raster_info: dict
+                                       raster_info: dict = None
                                        ) -> dict:
     """
     :param sat_img_arr: source image as array (opened with rasterio.read)
@@ -507,26 +487,6 @@ def ordereddict_eval(str_to_eval: str):
         return str_to_eval
 
 
-def read_modalities(modalities: str) -> list:
-    """
-    Function that read the modalities from the yaml and convert it to a list
-    of all the bands specified.
-
-    -------
-    :param modalities: (str) A string composed of all the bands of the images.
-
-    -------
-    :returns: A list of all the bands of the images.
-    """
-    if str(modalities).find('IR') != -1:
-        ir_position = str(modalities).find('IR')
-        modalities = list(str(modalities).replace('IR', ''))
-        modalities.insert(ir_position, 'IR')
-    else:
-        modalities = list(str(modalities))
-    return modalities
-
-
 def getpath(d, path):
     """
     TODO
@@ -589,9 +549,6 @@ def print_config(
             "model",
             "general.sample_data_dir",
         )
-
-    if getpath(config, 'AWS.bucket_name'):
-        fields += ("AWS",)
 
     if config.get('tracker'):
         fields += ("tracker",)
