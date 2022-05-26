@@ -1,3 +1,4 @@
+import csv
 import logging
 from pathlib import Path
 from typing import Sequence
@@ -9,6 +10,8 @@ from dataset.aoi import aois_from_csv
 from utils.metrics import iou_per_obj
 from utils.utils import get_key_def, gdl2pl_checkpoint, read_checkpoint, \
     override_model_params_from_checkpoint
+
+from inference_segmentation import main as gdl_inference
 from postprocess_segmentation import main as gdl_postprocess
 
 
@@ -60,13 +63,14 @@ def main(cfg):
         # inference on each raster
         cfg['inference']['input_stac_item'] = aoi.raster_raw_input
         cfg['inference']['output_name'] = aoi.aoi_id + '_BUIL'
-        # pred_raster, pred_raster_path = gdl_inference(cfg)
+        pred_raster, pred_raster_path = gdl_inference(cfg.copy())
+        #print(pred_raster_path)
         # compute raster metrics from prediction and ground truth
         # TODO: where to reference numpy arrays?
         #jaccard = JaccardIndex(num_classes=num_classes, ignore_index=None, threshold=0.5, multilabel=True)
 
         # compute vector metrics from prediction and ground truth
-        pred_vector_path = gdl_postprocess(cfg)
+        pred_vector_path = gdl_postprocess(cfg.copy())
 
         metric = iou_per_obj(
             pred=pred_vector_path,
@@ -76,9 +80,15 @@ def main(cfg):
             aoi_id=aoi.aoi_id,
             aoi_categ=None,  # TODO: add category for human-readable report
             gt_clip_bounds=None)
+        metric['state_dict'] = Path(checkpoint).name
         metrics.append(metric)
-        print(metrics)
         break
+    keys = metrics[0].keys()
+    outpath = root / "benchmark.csv"
+    with open(outpath, 'w', newline='') as output_file:
+        dict_writer = csv.DictWriter(output_file, keys)
+        dict_writer.writeheader()
+        dict_writer.writerows(metrics)
 
 
 

@@ -256,7 +256,7 @@ def main(params):
 
     # Hardware
     num_devices = get_key_def('gpu', params['inference'], default=1, expected_type=(int, bool))
-    max_used_ram = get_key_def('max_used_ram', params['inference'], default=50, expected_type=int)
+    max_used_ram = get_key_def('max_used_ram', params['inference'], default=100, expected_type=int)
     if not (0 <= max_used_ram <= 100):
         raise ValueError(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}.')
     max_used_perc = get_key_def('max_used_perc', params['inference'], default=25, expected_type=int)
