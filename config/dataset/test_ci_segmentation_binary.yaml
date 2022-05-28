@@ -8,9 +8,10 @@ dataset:
   raw_data_dir: ${general.raw_data_dir}
   validate_data: True
 
-  # imagery
+  # imagery #FIXME: which config to keep?
   in_bands: ['B','G','R']
   out_modalities: ['R','G','B']
+  bands: [R, G, B]
 
   # ground truth
   attribute_field: properties/class

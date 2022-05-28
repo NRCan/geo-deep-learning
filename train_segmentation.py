@@ -771,9 +771,6 @@ def train(cfg: DictConfig) -> None:
         if 'tst_log' in locals():  # only save the value if a tracker is setup
             tst_log.add_values(tst_report, num_epochs)
 
-    # log_artifact(logfile)
-    # log_artifact(logfile_debug)
-
 
 def main(cfg: DictConfig) -> None:
     """

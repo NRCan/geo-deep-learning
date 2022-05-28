@@ -30,9 +30,9 @@ general:
   workspace: your_name
   max_epochs: 2 # for train only
   min_epochs: 1 # for train only
-  raw_data_dir: data
+  raw_data_dir: dataset
   raw_data_csv: tests/sampling/sampling_segmentation_binary_ci.csv
-  tiles_data_dir: data # where the hdf5 will be saved
+  tiles_data_dir: dataset # where the chips will be saved
   save_weights_dir: saved_model/${general.project_name}
 
 print_config: True # save the config in the log folder
