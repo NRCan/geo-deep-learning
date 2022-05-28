@@ -41,23 +41,6 @@ class InformationLogger(object):
                     logging.error(f'Unable to log {composite_name} with the value {value.avg}')
 
 
-def save_logs_to_bucket(bucket, bucket_output_path, output_path, now, batch_metrics=None):
-    if batch_metrics is not None:
-        list_log_file = ['metric_val_fscore_averaged', 'metric_val_fscore', 'metric_val_iou',
-                         'metric_val_precision_averaged', 'metric_val_precision', 'metric_val_recall_averaged',
-                         'metric_val_recall']
-    else:
-        list_log_file = ['metric_trn_loss', 'metric_val_loss']
-    for i in list_log_file:
-        if bucket_output_path:
-            log_file = os.path.join(output_path, f"{i}.log")
-            bucket.upload_file(log_file, os.path.join(bucket_output_path, f"Logs/{now}_{i}.log"))
-        else:
-            log_file = os.path.join(output_path, f"{i}.log")
-            bucket.upload_file(log_file, f"Logs/{now}_{i}.log")
-    bucket.upload_file("output.txt", os.path.join(bucket_output_path, f"Logs/{now}_output.txt"))
-
-
 def dict2path(my_dict, path=None):
     """
     TODO

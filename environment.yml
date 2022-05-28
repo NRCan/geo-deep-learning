@@ -6,8 +6,7 @@ dependencies:
   - boto3>=1.19.2
   - coverage>=6.3.1
   - cudatoolkit>=11.3.0
-  - pytorch=1.10.2=py3.9_cuda11.3_cudnn8.2.0_0  # Linux
-  # - pytorch=1.10.1=py3.9_cuda11.3_cudnn8_0  # Windows
+  - pytorch-gpu>=1.10.2
   - torchvision>=0.11.1
   - docker-py>=4.4.4
   - geopandas>=0.10.2
@@ -25,7 +24,7 @@ dependencies:
   - rtree>=0.9.7
   - ruamel_yaml>=0.15.80
   - scikit-image>=0.18.1
-  - setuptools=49.6.0
+  - setuptools=59.5.0  # make flexible when issue solved: https://github.com/pytorch/pytorch/issues/69894
   - torchgeo>=0.2.0
   - tqdm>=4.59.0
   - pip:

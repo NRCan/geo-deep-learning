@@ -2,7 +2,7 @@
 dataset:
   # dataset-wide
   name:
-  input_dim: 256
+  input_dim: 32
   overlap:
   use_stratification: False
   train_val_percent: {'trn':0.7, 'val':0.3, 'tst':0}
