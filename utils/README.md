@@ -24,7 +24,7 @@ _Note:_ IoU and Dice metrics weigh factors differently, however both metrics are
 
 #### Precision and Recall
 
-By ploting a confusion matrix which indicates ground-truth and predicted classes with number of pixels classified in each class, [precision](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.precision_score.html#sklearn.metrics.precision_score) and [recall](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.recall_score.html#sklearn.metrics.recall_score) is easily computed.
+By plotting a confusion matrix which indicates ground-truth and predicted classes with number of pixels classified in each class, [precision](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.precision_score.html#sklearn.metrics.precision_score) and [recall](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.recall_score.html#sklearn.metrics.recall_score) is easily computed.
 
 ```
 precision= true positives /
