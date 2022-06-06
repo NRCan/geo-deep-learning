@@ -7,7 +7,6 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 import rasterio
-from hydra.utils import get_original_cwd
 from mlflow import log_metrics
 from shapely.geometry import Polygon
 from tqdm import tqdm
@@ -15,7 +14,7 @@ import geopandas as gpd
 
 from utils.geoutils import clip_raster_with_gpkg, vector_to_raster
 from utils.metrics import ComputePixelMetrics
-from utils.utils import get_key_def, list_input_images, read_modalities
+from utils.utils import get_key_def, list_input_images
 from utils.logger import get_logger
 from utils.verifications import validate_num_classes, assert_crs_match
 
@@ -79,8 +78,8 @@ def main(params):
     """
     start_seg = time.time()
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
-    modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
-    num_bands = len(modalities)
+    bands_requested = get_key_def('bands', params['dataset'], default=None, expected_type=Sequence)
+    num_bands = len(bands_requested)
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str, to_path=True,
                                  validate_path_exists=True)
