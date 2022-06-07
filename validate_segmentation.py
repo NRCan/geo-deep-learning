@@ -29,6 +29,8 @@ def main(params):
         Pipeline configuration parameters
     """
     root = get_key_def('root_dir', params['postprocess'], default="data", to_path=True, validate_path_exists=True)
+    models_dir = get_key_def('checkpoint_dir', params['inference'], default='checkpoints', to_path=True,
+                             validate_path_exists=True)
     inf_outname = get_key_def('output_name', params['inference'], expected_type=str)
     if not inf_outname:
         raise ValueError(f"\nNo inference output name is set. This parameter is required during postprocessing for "
@@ -51,8 +53,8 @@ def main(params):
 
     # Create yaml to use pytorch lightning model management
     logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
-    checkpoint = gdl2pl_checkpoint(checkpoint)
-    checkpoint_dict = read_checkpoint(checkpoint)
+    checkpoint = gdl2pl_checkpoint(in_pth_path=checkpoint, out_dir=models_dir)
+    checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
 
     # filter generalization commands based on extracted classes
