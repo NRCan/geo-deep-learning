@@ -3,7 +3,7 @@ dataset:
   # dataset-wide
   name:
   use_stratification: False
-  train_val_percent: {'trn':0.7, 'val':0.2, 'tst':0.1}
+  train_val_percent: {'trn':0.7, 'val':0.3, 'tst':0}
   raw_data_csv: ${general.raw_data_csv}
   raw_data_dir: ${general.raw_data_dir}
 

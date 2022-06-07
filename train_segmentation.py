@@ -494,8 +494,8 @@ def train(cfg: DictConfig) -> None:
     # MANDATORY PARAMETERS
     class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
     num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
-    out_modalities = get_key_def('out_modalities', cfg['dataset'], expected_type=Sequence)
-    num_bands = len(cfg.dataset.out_modalities)
+    out_modalities = get_key_def('bands', cfg['dataset'], expected_type=Sequence)
+    num_bands = len(out_modalities)
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
     num_epochs = get_key_def('max_epochs', cfg['training'], expected_type=int)
