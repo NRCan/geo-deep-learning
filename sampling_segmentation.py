@@ -3,57 +3,28 @@ from typing import Sequence
 
 import rasterio
 import numpy as np
+from solaris.utils.core import _check_rasterio_im_load
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 from omegaconf import DictConfig, open_dict
 
-# Our modules
+from dataset.aoi import aois_from_csv
 from utils.logger import get_logger
 from utils.geoutils import vector_to_raster
 from utils.readers import image_reader_as_array
 from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.utils import (
-    get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash,
-    read_modalities,
+    get_key_def, pad, pad_diff, add_metadata_from_raster_to_sample, get_git_hash,
 )
 from utils.verifications import (
-    validate_num_classes, assert_crs_match, validate_features_from_gpkg, validate_input_imagery
+    validate_num_classes
 )
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
 # Set random seed for reproducibility
 np.random.seed(1234)
-
-
-def mask_image(arrayA, arrayB):
-    """Function to mask values of arrayB, based on 0 values from arrayA.
-
-    >>> x1 = np.array([0, 2, 4, 6, 0, 3, 9, 8], dtype=np.uint8).reshape(2,2,2)
-    >>> x2 = np.array([1.5, 1.2, 1.6, 1.2, 11., 1.1, 25.9, 0.1], dtype=np.float32).reshape(2,2,2)
-    >>> mask_image(x1, x2)
-    array([[[ 0. ,  0. ],
-            [ 1.6,  1.2]],
-    <BLANKLINE>
-           [[ 0. ,  0. ],
-            [25.9,  0.1]]], dtype=float32)
-    """
-
-    # Handle arrayA of shapes (h,w,c) and (h,w)
-    if len(arrayA.shape) == 3:
-        mask = arrayA[:, :, 0] != 0
-    else:
-        mask = arrayA != 0
-
-    ma_array = np.zeros(arrayB.shape, dtype=arrayB.dtype)
-    # Handle arrayB of shapes (h,w,c) and (h,w)
-    if len(arrayB.shape) == 3:
-        for i in range(0, arrayB.shape[2]):
-            ma_array[:, :, i] = mask * arrayB[:, :, i]
-    else:
-        ma_array = arrayB * mask
-    return ma_array
 
 
 def validate_class_prop_dict(actual_classes_dict, config_dict):
@@ -362,8 +333,8 @@ def main(cfg: DictConfig) -> None:
     """
     # PARAMETERS
     num_classes = len(cfg.dataset.classes_dict.keys())
-    num_bands = len(cfg.dataset.modalities)
-    modalities = read_modalities(cfg.dataset.modalities)  # TODO add the Victor module to manage the modalities
+    bands_requested = get_key_def('bands', cfg['dataset'], default=None, expected_type=Sequence)
+    num_bands = len(bands_requested)
     debug = cfg.debug
 
     # RAW DATA PARAMETERS
@@ -388,7 +359,7 @@ def main(cfg: DictConfig) -> None:
             logging.critical(
                 f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.'
             )
-            raise FileExistsError()
+            raise FileExistsError(f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.')
     Path.mkdir(samples_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
 
     # LOGGING PARAMETERS  TODO see logging yaml
@@ -398,7 +369,6 @@ def main(cfg: DictConfig) -> None:
     # OTHER PARAMETERS
     # TODO class_prop get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
     class_prop = None
-    mask_reference = False  # TODO get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
     # set dontcare (aka ignore_index) value
     dontcare = cfg.dataset.ignore_index if cfg.dataset.ignore_index is not None else -1
     if dontcare == 0:
@@ -426,7 +396,12 @@ def main(cfg: DictConfig) -> None:
     with open_dict(cfg):
         cfg.general.git_hash = get_git_hash()
 
-    list_data_prep = read_csv(csv_file)
+    list_data_prep = aois_from_csv(
+        csv_path=csv_file,
+        bands_requested=bands_requested,
+        attr_field_filter=attribute_field,
+        attr_values_filter=attr_vals
+    )
 
     # IF DEBUG IS ACTIVATE
     if debug:
@@ -434,24 +409,14 @@ def main(cfg: DictConfig) -> None:
             f'\nDebug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.'
         )
 
-    # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
+    # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg
     valid_gpkg_set = set()
-    for info in tqdm(list_data_prep, position=0):
-        validate_input_imagery(info['tif'], num_bands)
-        if info['gpkg'] not in valid_gpkg_set:
+    for aoi in tqdm(list_data_prep, position=0):
+        if aoi.label not in valid_gpkg_set:
             gpkg_classes = validate_num_classes(
-                info['gpkg'], num_classes, attribute_field, dontcare, attribute_values=attr_vals,
+                aoi.label, num_classes, attribute_field, dontcare, attribute_values=attr_vals,
             )
-            assert_crs_match(info['tif'], info['gpkg'])
-            valid_gpkg_set.add(info['gpkg'])
-
-    if debug:
-        # VALIDATION (debug only): Checking validity of features in vector files
-        for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
-            # TODO: make unit to test this with invalid features.
-            invalid_features = validate_features_from_gpkg(info['gpkg'], attribute_field)
-            if invalid_features:
-                logging.critical(f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'")
+            valid_gpkg_set.add(aoi.label)
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
@@ -473,24 +438,24 @@ def main(cfg: DictConfig) -> None:
         f"\nPreparing samples \n  Samples_size: {samples_size} \n  Overlap: {overlap} "
         f"\n  Validation set: {val_percent} % of created training samples"
     )
-    for info in tqdm(list_data_prep, position=0, leave=False):
+    for aoi in tqdm(list_data_prep, position=0, leave=False):
         try:
-            logging.info(f"\nReading as array: {info['tif']}")
-            with rasterio.open(info['tif'], 'r') as raster:
+            logging.info(f"\nReading as array: {aoi.raster.name}")
+            with _check_rasterio_im_load(aoi.raster) as raster:
                 # 1. Read the input raster image
                 np_input_image, raster, dataset_nodata = image_reader_as_array(input_image=raster)
 
                 # 2. Burn vector file in a raster file
-                logging.info(f"\nRasterizing vector file (attribute: {attribute_field}): {info['gpkg']}")
+                logging.info(f"\nRasterizing vector file (attribute: {attribute_field}): {aoi.label}")
                 try:
-                    np_label_raster = vector_to_raster(vector_file=info['gpkg'],
+                    np_label_raster = vector_to_raster(vector_file=aoi.label,
                                                        input_image=raster,
                                                        out_shape=np_input_image.shape[:2],
                                                        attribute_name=attribute_field,
                                                        fill=background_val,
                                                        attribute_values=attr_vals)  # background value in rasterized vector.
                 except ValueError:
-                    logging.error(f"No vector features found for {info['gpkg']} with provided configuration."
+                    logging.error(f"No vector features found for {aoi.label} with provided configuration."
                                   f"Will skip to next AOI.")
                     continue
 
@@ -502,17 +467,16 @@ def main(cfg: DictConfig) -> None:
             if mask_reference:
                 np_label_raster = mask_image(np_input_image, np_label_raster)
 
-            if info['dataset'] == 'trn':
+            if aoi.split == 'trn':
                 out_file = trn_hdf5
-            elif info['dataset'] == 'tst':
+            elif aoi.split == 'tst':
                 out_file = tst_hdf5
             else:
-                raise ValueError(f"\nDataset value must be trn or tst. Provided value is {info['dataset']}")
+                raise ValueError(f"\nDataset value must be trn or tst. Provided value is {aoi.split}")
             val_file = val_hdf5
 
             metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
-                                                          raster_handle=raster,
-                                                          raster_info=info)
+                                                          raster_handle=raster)
             # Save label's per class pixel count to image metadata
             metadata['source_label_bincount'] = {class_num: count for class_num, count in
                                                  enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
@@ -529,7 +493,7 @@ def main(cfg: DictConfig) -> None:
                                                                  samples_file=out_file,
                                                                  val_percent=val_percent,
                                                                  val_sample_file=val_file,
-                                                                 dataset=info['dataset'],
+                                                                 dataset=aoi.split,
                                                                  pixel_classes=pixel_classes,
                                                                  dontcare=dontcare,
                                                                  image_metadata=metadata,
@@ -540,8 +504,8 @@ def main(cfg: DictConfig) -> None:
             # logging.info(f'\nNumber of samples={number_samples}')
             out_file.flush()
         except OSError:
-            logging.exception(f'\nAn error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
-                              f'{Path(info["gpkg"]).stem} (gpkg).')
+            logging.exception(f'\nAn error occurred while preparing samples with "{Path(aoi.raster.name).stem}" (tiff) and '
+                              f'{Path(aoi.label).stem} (gpkg).')
             continue
 
     trn_hdf5.close()

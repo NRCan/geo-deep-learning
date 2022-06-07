@@ -24,7 +24,7 @@ from utils.logger import get_logger, set_tracker
 from models.model_choice import define_model, read_checkpoint
 from utils import augmentation
 from utils.utils import get_device_ids, get_key_def, \
-    list_input_images, add_metadata_from_raster_to_sample, _window_2D, read_modalities, set_device
+    list_input_images, add_metadata_from_raster_to_sample, _window_2D, set_device
 from utils.verifications import validate_input_imagery
 
 # Set the logging file
@@ -327,11 +327,11 @@ def main(params: Union[DictConfig, dict]) -> None:
     )
 
     # Dataset params
-    modalities = get_key_def('modalities', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
+    bands_requested = get_key_def('bands', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
     num_classes = len(classes_dict)
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
-    num_bands = len(modalities)
+    num_bands = len(bands_requested)
 
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     logging.info("\nThe state dict path directory used '{}'".format(working_folder))
@@ -385,12 +385,12 @@ def main(params: Union[DictConfig, dict]) -> None:
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
-    list_img = list_input_images(img_dir_or_csv, None, glob_patterns=["*.tif", "*.TIF"])
+    list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"])
 
     # VALIDATION: anticipate problems with imagery before entering main for loop
     for info in tqdm(list_img, desc='Validating imagery'):
         is_valid = validate_input_imagery(info['tif'], num_bands=num_bands, extended=debug)
-        # TODO: exclude invalid imagery at inference (prevent execution break)
+        # TODO: address with issue #310
     logging.info('\nSuccessfully validated imagery')
 
     # LOOP THROUGH LIST OF INPUT IMAGES
