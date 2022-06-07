@@ -463,10 +463,6 @@ def main(cfg: DictConfig) -> None:
                     # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
                     np_label_raster[dataset_nodata] = dontcare
 
-            # Mask the zeros from input image into label raster.
-            if mask_reference:
-                np_label_raster = mask_image(np_input_image, np_label_raster)
-
             if aoi.split == 'trn':
                 out_file = trn_hdf5
             elif aoi.split == 'tst':
