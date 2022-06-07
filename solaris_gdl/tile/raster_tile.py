@@ -379,7 +379,7 @@ class RasterTiler(object):
                     dst_height=self.dest_tile_size[0],
                     dst_width=self.dest_tile_size[1])
 
-                if self.dest_crs != self.src_crs and self.resampling_method is not None:
+                if self.dest_crs != self.src_crs and self.resampling is not None:
                     tile_data = np.zeros(shape=(src_data.shape[0], height, width), dtype=src_data.dtype)
                     rasterio.warp.reproject(
                         source=src_data,

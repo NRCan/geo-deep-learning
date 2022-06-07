@@ -30,7 +30,11 @@ def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
     '''
     lst_vector_tuple = {}
     for vector in list_vector:
-        att_val = int(get_key_recursive(attr_name, vector)) if attr_name is not None else None
+        try:
+            att_val = int(get_key_recursive(attr_name, vector)) if attr_name is not None else None
+        except KeyError:
+            attr_name = "properties/" + attr_name
+            att_val = int(get_key_recursive(attr_name, vector)) if attr_name is not None else None
         if target_ids is None or att_val in target_ids:
             if att_val not in lst_vector_tuple:
                 lst_vector_tuple[att_val] = []
@@ -120,12 +124,17 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
         numpy array of the burned image
     """
     # Extract vector features to burn in the raster image
+    # FIXME use geopandas
     with fiona.open(vector_file, 'r') as src:
         lst_vector = [vector for vector in src]
 
     # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
     if attribute_name is not None:
-        lst_vector.sort(key=lambda vector: get_key_recursive(attribute_name, vector))
+        try:
+            lst_vector.sort(key=lambda vector: get_key_recursive(attribute_name, vector))
+        except KeyError:
+            attribute_name = "properties/" + attribute_name
+            lst_vector.sort(key=lambda vector: get_key_recursive(attribute_name, vector))
 
     lst_vector_tuple = lst_ids(list_vector=lst_vector, attr_name=attribute_name, target_ids=attribute_values,
                                merge_all=merge_all)
@@ -193,7 +202,8 @@ def get_key_recursive(key, config):
     """Returns a value recursively given a dictionary key that may contain multiple subkeys."""
     if not isinstance(key, list):
         key = key.split("/")  # subdict indexing split using slash
-    assert key[0] in config, f"missing key '{key[0]}' in metadata dictionary: {config}"
+    if not key[0] in config:
+        raise KeyError(f"missing key '{key[0]}' in metadata dictionary: {config}")
     val = config[key[0]]
     if isinstance(val, (dict, collections.OrderedDict)):
         assert len(key) > 1, "missing keys to index metadata subdictionaries"

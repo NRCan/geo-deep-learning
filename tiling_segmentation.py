@@ -7,24 +7,25 @@ import multiprocessing
 import shutil
 
 import matplotlib.pyplot
-import omegaconf.listconfig
 import os
-from typing import Union, Sequence
+from typing import Union, Sequence, List
 from pathlib import Path
 
 import rasterio
 import geopandas as gpd
 import numpy as np
+from rasterio import DatasetReader
 from shapely.geometry import Polygon, box
 from tqdm import tqdm
 from omegaconf import DictConfig, open_dict
 
 # Our modules
+from dataset.aoi import aois_from_csv, AOI
 from utils.utils import (
-    get_key_def, read_csv, get_git_hash, select_modalities
+    get_key_def, get_git_hash
 )
 from utils.verifications import (
-    validate_raster, assert_crs_match, validate_input_imagery
+    validate_raster, assert_crs_match, validate_by_geopandas
 )
 # Set the logging file
 from utils import utils
@@ -38,198 +39,78 @@ from solaris_gdl.utils.core import _check_rasterio_im_load, _check_gdf_load
 from solaris_gdl.utils.geo import reproject_geometry
 
 
-class AOI(object):
+def filter_gdf_by_attribute(gdf_tile: Union[str, Path, gpd.GeoDataFrame], attr_field: str = None,
+                            attr_vals: Sequence = None):
     """
-    Object containing all data information about a single area of interest
+    Filter features from a geopandas.GeoDataFrame according to an attribute field and filtering values
+    @param gdf_tile: str, Path or gpd.GeoDataFrame
+        GeoDataFrame or path to GeoDataFrame to filter feature from
+    @return: Subset of source GeoDataFrame with only filtered features (deep copy)
     """
+    gdf_tile = _check_gdf_load(gdf_tile)
+    if not attr_field:
+        return gdf_tile, None
+    elif attr_field and not attr_vals:
+        raise ValueError(f'No attribute values given to filter features for attribute field "{attr_field}". '
+                         f'If all values are to be kept, these values should be listed in attribute values '
+                         f'in the dataset configuration')
+    if not attr_field in gdf_tile.columns:
+        attr_field = attr_field.split('/')[-1]
+    if gdf_tile.empty:
+        return gdf_tile, attr_field
+    try:
+        condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
+        condList.extend([gdf_tile[f'{attr_field}'] == str(val) for val in attr_vals])
+        allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
+        gdf_filtered = gdf_tile[allcond].copy(deep=True)
+        logging.debug(f'\nSuccessfully filtered features from GeoDataFrame"\n'
+                      f'Filtered features: {len(gdf_filtered)}\n'
+                      f'Total features: {len(gdf_tile)}\n'
+                      f'Attribute field: "{attr_field}"\n'
+                      f'Filtered values: {attr_vals}')
+        if gdf_filtered.empty:
+            logging.warning(f'\nFeatures are present for given attribute field "{attr_field}", but none with values'
+                            f'{attr_vals}. Values present: {gdf_tile[attr_field].unique()}')
+        return gdf_filtered, attr_field
+    except KeyError as e:
+        logging.critical(f'\nNo attribute named {attr_field} in GeoDataFrame. \n'
+                         f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'
+                         f'Attributes: {gdf_tile.columns}\n'
+                         f'GeoDataFrame: {gdf_tile.info()}')
+        raise e
 
-    def __init__(self, img: Union[Path, str],
-                 dataset: str,
-                 gt: Union[Path, str] = None,
-                 attr_field: str = None,
-                 attr_vals: Sequence = None,
-                 name: str = None,
-                 index: str = None,
-                 tiles_dir: Union[Path, str] = None):
-        """
 
-        @param img: pathlib.Path or str
-            Path to source imagery
-        @param dataset: str
-            Name of destination dataset for aoi. Should be 'trn', 'tst' or 'inference'
-        @param gt: pathlib.Path or str
-            Path to ground truth file. If not provided, AOI is considered only for inference purposes
-        @param attr_field: str, optional
-            Name of attribute field used to filter features. If not provided all geometries in ground truth file
-            will be considered.
-        @param attr_vals: list of ints, optional
-            The list of attribute values in given attribute field used to filter features from ground truth file.
-            If not provided, all values in field will be considered
-        @param name: str
-            Name of area of interest. Used to name output folders. Multiple AOI instances can bear the same name.
-        @param index: int
-            Index to assign to aoi. Useful when creating multiple aois at once (from for loop, for example)
-        @param tiles_dir: Path or str
-            Path where output tiles will be written
-        """
-        if not isinstance(img, (Path, str)):
-            raise TypeError(f'Image path should be a of class pathlib.Path or a string.\n'
-                            f'Got {img} of type {type(img)}')
-        if not Path(img).is_file():
-            raise FileNotFoundError(f'{img} is not a valid file')
-        self.img = Path(img)
-
-        if gt and not isinstance(gt, (Path, str)):
-            raise TypeError(f'Ground truth path should be a of class pathlib.Path or a string.\n'
-                            f'Got {gt} of type {type(gt)}')
-        elif gt and (not Path(gt).is_file() or os.stat(gt).st_size == 0):
-            raise FileNotFoundError(f'{gt} is not a valid file')
-        elif gt:
-            self.gt = Path(gt)
-            # creating overhead and has caused pyproj.exceptions.CRSError. Try/except needed minimally.
-            # self.crs_match, self.epsg_raster, self.epsg_gt = assert_crs_match(self.img, self.gt)
+def annot_percent(img_tile: Union[str, Path, rasterio.DatasetReader],
+                  gdf_tile: Union[str, Path, gpd.GeoDataFrame],
+                  tile_bounds: Polygon = None):
+    """
+    Calculate percentage of values in GeoDataFrame that contain classes other than background
+    @param img_tile: str, Path or rasterio.DatasetReader
+    @param gdf_tile: str, Path or gpd.GeoDataFrame
+    @return: (int) Annotated percent
+    """
+    gdf_tile = _check_gdf_load(gdf_tile)
+    if gdf_tile.empty:
+        return 0
+    img_tile_dataset = _check_rasterio_im_load(img_tile)
+    if not tile_bounds:
+        crs_match, img_crs, gt_crs = assert_crs_match(img_tile, gdf_tile)
+        if not crs_match:
+            tile_bounds = reproject_geometry(box(*img_tile_dataset.bounds),
+                                             input_crs=img_crs,
+                                             target_crs=gt_crs)
         else:
-            self.gt = gt
-            # self.crs_match = self.epsg_raster = self.epsg_gt = None
+            tile_bounds = box(*img_tile_dataset.bounds)
 
-        # Defaults to image metadata as given by rasterio
-        img_meta = _check_rasterio_im_load(self.img).meta
-        self.img_meta = img_meta
-
-        if gt and attr_field and not isinstance(attr_field, str):
-            raise TypeError(f'Attribute field name should be a string.\n'
-                            f'Got {attr_field} of type {type(attr_field)}')
-        self.attr_field = attr_field
-
-        if gt and attr_vals and not isinstance(attr_vals, (list, omegaconf.listconfig.ListConfig)):
-            raise TypeError(f'Attribute values should be a list.\n'
-                            f'Got {attr_vals} of type {type(attr_vals)}')
-        self.attr_vals = attr_vals
-
-        # FIXME: if no ground truth is inputted, dataset should be optional.
-        if not isinstance(dataset, str) and dataset not in ['trn', 'tst', 'inference']:
-            raise ValueError(f"Dataset should be a string: 'trn', 'tst' or 'inference'. Got {dataset}.")
-        elif not gt and dataset != 'inference':
-            raise ValueError(f"No ground truth provided. Dataset should be 'inference' only. Got {dataset}")
-        self.dataset = dataset
-
-        if name and not isinstance(name, str):
-            raise TypeError(f'AOI name should be a string. Got {name} of type {type(name)}')
-        elif not name:
-            # Defaults to name of image without suffix
-            name = self.img.stem
-        self.name = name
-
-        if index and not isinstance(index, int):
-            raise TypeError(f'AOI index should be a integer. Got {index} of type {type(index)}')
-        self.index = index
-
-        if tiles_dir and not isinstance(tiles_dir, (Path, str)):
-            raise TypeError(f'Experiment directory should be of class pathlib.Path or string.\n'
-                            f'Got {tiles_dir} of type {type(tiles_dir)}')
-        self.tiles_dir = tiles_dir / self.dataset.strip() / self.name.strip()
-        self.tiles_dir_img = self.tiles_dir / 'images'
-        self.tiles_dir_gt = self.tiles_dir / 'labels'
-        self.tiles_pairs_list = []
-
-    @classmethod
-    def from_dict(cls, aoi_dict, tiles_dir: Union[Path, str] = None, attr_field: str = None,
-                  attr_vals: list = None, index: int = None):
-        if not isinstance(aoi_dict, dict):
-            raise TypeError('Input data should be a list of dictionaries.')
-        if not {'tif', 'meta', 'gpkg', 'attribute_name', 'dataset'}.issubset(set(aoi_dict.keys())):
-            raise ValueError(f"Input data should minimally contain the following keys: \n"
-                             f"'tif', 'meta', 'gpkg', 'attribute_name', 'dataset'.")
-        if not aoi_dict['gpkg']:
-            logging.warning(f"No ground truth data found for {aoi_dict['tif']}.\n"
-                            f"Only imagery will be processed from now on")
-        if not "aoi" not in aoi_dict.keys() or aoi_dict['aoi']:
-            aoi_dict['aoi'] = Path(aoi_dict['tif']).stem
-        # attribute field will be set from tiler if attribute field in csv is empty
-        aoi_dict['attribute_name'] = attr_field if not aoi_dict['attribute_name'] else aoi_dict['attribute_name']
-        new_aoi = cls(img=aoi_dict['tif'],
-                      gt=aoi_dict['gpkg'],
-                      dataset=aoi_dict['dataset'],
-                      attr_field=aoi_dict['attribute_name'],
-                      attr_vals=attr_vals,
-                      name=aoi_dict['aoi'],
-                      index=index,
-                      tiles_dir=tiles_dir)
-        return new_aoi
-
-    @staticmethod
-    def filter_gdf_by_attribute(gdf_tile: Union[str, Path, gpd.GeoDataFrame], attr_field: str = None,
-                                attr_vals: Sequence = None):
-        """
-        Filter features from a geopandas.GeoDataFrame according to an attribute field and filtering values
-        @param gdf_tile: str, Path or gpd.GeoDataFrame
-            GeoDataFrame or path to GeoDataFrame to filter feature from
-        @return: Subset of source GeoDataFrame with only filtered features (deep copy)
-        """
-        gdf_tile = _check_gdf_load(gdf_tile)
-        if not attr_field:
-            return gdf_tile, None
-        elif attr_field and not attr_vals:
-            raise ValueError(f'No attribute values given to filter features for attribute field "{attr_field}". '
-                             f'If all values are to be kept, these values should be listed in attribute values '
-                             f'in the dataset configuration')
-        if not attr_field in gdf_tile.columns:
-            attr_field = attr_field.split('/')[-1]
-        if gdf_tile.empty:
-            return gdf_tile, attr_field
-        try:
-            condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
-            condList.extend([gdf_tile[f'{attr_field}'] == str(val) for val in attr_vals])
-            allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
-            gdf_filtered = gdf_tile[allcond].copy(deep=True)
-            logging.debug(f'\nSuccessfully filtered features from GeoDataFrame"\n'
-                          f'Filtered features: {len(gdf_filtered)}\n'
-                          f'Total features: {len(gdf_tile)}\n'
-                          f'Attribute field: "{attr_field}"\n'
-                          f'Filtered values: {attr_vals}')
-            if gdf_filtered.empty:
-                logging.warning(f'\nFeatures are present for given attribute field "{attr_field}", but none with values'
-                                f'{attr_vals}. Values present: {gdf_tile[attr_field].unique()}')
-            return gdf_filtered, attr_field
-        except KeyError as e:
-            logging.critical(f'\nNo attribute named {attr_field} in GeoDataFrame. \n'
-                             f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'
-                             f'Attributes: {gdf_tile.columns}\n'
-                             f'GeoDataFrame: {gdf_tile.info()}')
-            raise e
-
-    @staticmethod
-    def annot_percent(img_tile: Union[str, Path, rasterio.DatasetReader],
-                      gdf_tile: Union[str, Path, gpd.GeoDataFrame],
-                      tile_bounds: Polygon = None):
-        """
-        Calculate percentage of values in GeoDataFrame that contain classes other than background
-        @param img_tile: str, Path or rasterio.DatasetReader
-        @param gdf_tile: str, Path or gpd.GeoDataFrame
-        @return: (int) Annotated percent
-        """
-        gdf_tile = _check_gdf_load(gdf_tile)
-        if gdf_tile.empty:
-            return 0
-        img_tile_dataset = _check_rasterio_im_load(img_tile)
-        if not tile_bounds:
-            crs_match, img_crs, gt_crs = assert_crs_match(img_tile, gdf_tile)
-            if not crs_match:
-                tile_bounds = reproject_geometry(box(*img_tile_dataset.bounds),
-                                                 input_crs=img_crs,
-                                                 target_crs=gt_crs)
-            else:
-                tile_bounds = box(*img_tile_dataset.bounds)
-
-        annot_ct_vec = gdf_tile.area.sum()
-        annot_perc = annot_ct_vec / tile_bounds.area
-        return annot_perc * 100
+    annot_ct_vec = gdf_tile.area.sum()
+    annot_perc = annot_ct_vec / tile_bounds.area
+    return annot_perc * 100
 
 
 class Tiler(object):
     def __init__(self,
                  experiment_root_dir: Union[Path, str],
-                 src_data_by_index: dict = None,
+                 src_data_list: List = None,
                  tile_size: int = 1024,
                  tile_stride: int = None,
                  resizing_factor: Union[int, float] = 1,
@@ -245,8 +126,8 @@ class Tiler(object):
         """
         @param experiment_root_dir: pathlib.Path or str
             Root directory under which all tiles will written (in subfolders)
-        @param src_data_by_index: dictionary
-            Dictionary where keys are indices and values are objects of class AOI.
+        @param src_data_list: list
+            List of objects of class AOI
             AOI objects contain properties including paths of source data and other data-related info.
         @param tile_size: int, optional
             Size of tiles to output. Defaults to 1024
@@ -277,9 +158,9 @@ class Tiler(object):
         @param overwrite: bool, optional
             If True, output directories will be erased prior to tiling if they exist
         """
-        if src_data_by_index and not isinstance(src_data_by_index, dict):
+        if src_data_list and not isinstance(src_data_list, List):
             raise TypeError('Input data should be a List')
-        self.src_data_dict = src_data_by_index
+        self.src_data_list = src_data_list
         if not isinstance(experiment_root_dir, (Path, str)):
             raise TypeError(f'Tiles root directory should be a of class pathlib.Path or a string.\n'
                             f'Got {experiment_root_dir} of type {type(experiment_root_dir)}')
@@ -317,7 +198,7 @@ class Tiler(object):
                             f'Got {num_bands} of type {type(num_bands)}')
         elif not num_bands:
             logging.warning(f'Number of bands not defined. Defaulting to number of bands in imagery.')
-            num_bands_set = set([aoi.meta['count'] for aoi in src_data_by_index.values()])
+            num_bands_set = set([aoi.raster.meta['count'] for aoi in src_data_list.values()])
             if len(num_bands_set) > 1:
                 raise ValueError(f'Not all imagery has equal number of bands. '
                                  f'Check imagery or define bands indexes to keep. \n'
@@ -377,40 +258,11 @@ class Tiler(object):
         [Path.mkdir(self.tiles_root_dir/dataset) for dataset in self.datasets]
         logging.info(f'Tiles will be written to {self.tiles_root_dir}\n\n')
 
-
     def with_gt_checker(self):
-        for aoi in self.src_data_dict.values():
-            if not aoi.gt:
+        for aoi in self.src_data_list:
+            if not aoi.label:
                 self.with_gt = False
-                logging.warning(f"No ground truth data found for {aoi.img}. Only imagery will be processed from now on")
-
-    # TODO: add from glob pattern
-    # TODO: add from band separated imagery
-    def aois_from_csv(self, csv_path):
-        """
-        Instantiate a Tiler object from a csv containing list of input data.
-        See README for details on expected structure of csv.
-        @param csv_path: path to csv file
-        @return: Tiler instance
-        """
-        aois = {}
-        data_list = read_csv(csv_path)
-        logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
-                     f'\tNumber of rows: {len(data_list)}\n'
-                     f'\tCopying first row:\n{data_list[0]}\n')
-        for i, aoi_dict in tqdm(enumerate(data_list), desc="Creating AOI's"):
-            try:
-                new_aoi = AOI.from_dict(aoi_dict=aoi_dict,
-                                        tiles_dir=self.tiles_root_dir,
-                                        attr_field=self.attr_field_exp,
-                                        attr_vals=self.attr_vals_exp,
-                                        index=i)
-                aois[new_aoi.index] = new_aoi
-            except FileNotFoundError as e:
-                logging.critical(f"{e}\nGround truth file may not exist or is empty.\n"
-                                 f"Failed to create AOI:\n{aoi_dict}\n"
-                                 f"Index: {i}")
-        return aois
+                logging.warning(f"No ground truth data found for {aoi.raster.name}. Only imagery will be processed from now on")
 
     @staticmethod
     def make_tiles_dir_name(tile_size, num_bands):
@@ -459,7 +311,7 @@ class Tiler(object):
             raise FileNotFoundError(f'Missing ground truth tile {gt_tile}')
 
     def tiling_checker(self,
-                       src_img: Union[str, Path],
+                       src_img: Union[str, Path, DatasetReader],
                        dest_img_tiles_dir: Union[str, Path],
                        dest_gt_tiles_dir: Union[str, Path] = None,
                        verbose: bool = True):
@@ -480,7 +332,7 @@ class Tiler(object):
         tiles_y = 1 + math.ceil((dest_height - self.dest_tile_size) / self.tile_stride)
         nb_exp_tiles = tiles_x * tiles_y
         # glob for tiles of the vector ground truth if 'geojson' is in the suffix
-        act_img_tiles = list(dest_img_tiles_dir.glob(f'{Path(src_img).stem}*.tif'))
+        act_img_tiles = list(dest_img_tiles_dir.glob(f'{Path(src_img.name).stem}*.tif'))
         nb_act_img_tiles = len(act_img_tiles)
         nb_act_gt_tiles = 0
         if dest_gt_tiles_dir:
@@ -512,36 +364,39 @@ class Tiler(object):
         else:
             return self.dest_tile_size
 
-    def tiling_per_aoi(self, aoi: AOI):
+    def tiling_per_aoi(
+            self,
+            aoi: AOI,
+            out_img_dir: Union[str, Path],
+            out_label_dir: Union[str, Path] = None):
         """
         Calls solaris_gdl tiling function and outputs tiles in output directories
-        @param src_img: path to source image
+
         @param out_img_dir: path to output tiled images directory
         @param out_label_dir: optional, path to output tiled images directory
-        @param src_label: optional, path to source label (must be a geopandas compatible format like gpkg or geojson)
         @return: written tiles to output directories as .tif for imagery and .geojson for label.
         """
         self.src_tile_size = self.get_src_tile_size()
-        raster_tiler = tile.raster_tile.RasterTiler(dest_dir=aoi.tiles_dir_img,
+        raster_tiler = tile.raster_tile.RasterTiler(dest_dir=out_img_dir,
                                                     src_tile_size=(self.src_tile_size, self.src_tile_size),
                                                     dest_tile_size=(self.dest_tile_size, self.dest_tile_size),
                                                     resize=self.resizing_factor,
                                                     alpha=False,
                                                     verbose=True)
-        raster_bounds_crs = raster_tiler.tile(aoi.img, channel_idxs=self.bands_idxs)
+        raster_bounds_crs = raster_tiler.tile(aoi.raster) #, channel_idxs=self.bands_idxs)
         logging.debug(f'Raster bounds crs: {raster_bounds_crs}\n'
                       f'')
 
         if self.with_gt:
             dest_crs = raster_tiler.dest_crs if raster_tiler.dest_crs.is_epsg_code else None
-            vec_tler = tile.vector_tile.VectorTiler(dest_dir=aoi.tiles_dir_gt,
+            vec_tler = tile.vector_tile.VectorTiler(dest_dir=out_label_dir,
                                                     dest_crs=dest_crs,
                                                     verbose=True,
                                                     super_verbose=self.debug)
-            vec_tler.tile(src=aoi.gt,
+            vec_tler.tile(src=aoi.label,
                           tile_bounds=raster_tiler.tile_bounds,
                           tile_bounds_crs=raster_bounds_crs,
-                          dest_fname_base=aoi.img.stem)
+                          dest_fname_base=Path(aoi.raster.name).stem)
 
         else:
             return aoi, raster_tiler.tile_paths, None, None
@@ -556,10 +411,14 @@ class Tiler(object):
         map_img_gdf = _check_gdf_load(gt_tile)
         # Check if size of image tile reaches size threshold, else continue
         sat_size = img_tile.stat().st_size
-        annot_perc = aoi.annot_percent(img_tile, map_img_gdf, tile_bounds)
+        annot_perc = annot_percent(
+            img_tile=img_tile,
+            gdf_tile=map_img_gdf,
+            tile_bounds=tile_bounds
+        )
         # First filter by size
         if sat_size < self.min_img_tile_size:
-            logging.debug(f'File {aoi.img} below minimum size ({self.min_img_tile_size}): {sat_size}')
+            logging.debug(f'File {aoi.raster.name} below minimum size ({self.min_img_tile_size}): {sat_size}')
             return False, sat_size, annot_perc
         # Then filter by annotated percentage
         # TODO: keeping all val chips will bust val_percent if min annot > 0, but more logical to bypass conditions for val chips
@@ -605,26 +464,26 @@ class Tiler(object):
         if out_px_mask.is_file():
             logging.info(f'Burned ground truth tile exists: {out_px_mask}')
             return
-        if not aoi.attr_field and aoi.attr_vals is not None:
+        if not aoi.attr_field_filter and aoi.attr_values_filter is not None:
             raise ValueError(f'Values for an attribute field have been provided, but no attribute field is set.\n'
-                             f'Attribute values: {aoi.attr_vals}')
-        elif aoi.attr_field is not None and not aoi.attr_vals:
+                             f'Attribute values: {aoi.attr_values_filter}')
+        elif aoi.attr_field_filter is not None and not aoi.attr_values_filter:
             raise ValueError(f'An attribute field has been provided, but no attribute values were set.\n'
-                             f'Attribute field: {aoi.attr_field}. If all values from attribute fields are '
+                             f'Attribute field: {aoi.attr_field_filter}. If all values from attribute fields are '
                              f'to be kept, please input full list of values in dataset configuration.')
         # Burn value in attribute field from which features are being filtered
         if not dry_run:
-            burn_field = aoi.attr_field if aoi.attr_field else None
+            burn_field = aoi.attr_field_filter if aoi.attr_field_filter else None
             # no attribute field or val given means all values should be burned to 1
-            burn_val = 1 if not aoi.attr_field and not aoi.attr_vals else None
+            burn_val = 1 if not aoi.attr_field_filter and not aoi.attr_values_filter else None
             if gt_tile.empty:
                 burn_field = None
-            elif aoi.attr_field:
+            elif aoi.attr_field_filter:
                 # Define new column 'burn_val' with continuous values for use during burning
-                cont_vals_dict = {src: (dst+1 if continuous else src) for dst, src in enumerate(aoi.attr_vals)}
-                if all(isinstance(val, str) for val in gt_tile[aoi.attr_field].unique().tolist()):
+                cont_vals_dict = {src: (dst+1 if continuous else src) for dst, src in enumerate(aoi.attr_values_filter)}
+                if all(isinstance(val, str) for val in gt_tile[aoi.attr_field_filter].unique().tolist()):
                     cont_vals_dict = {str(src): dst for src, dst in cont_vals_dict.items()}
-                gt_tile['burn_val'] = gt_tile[aoi.attr_field].map(cont_vals_dict)
+                gt_tile['burn_val'] = gt_tile[aoi.attr_field_filter].map(cont_vals_dict)
                 burn_field = 'burn_val'  # overwrite burn_field
             # burn to raster
             vector.mask.footprint_mask(df=gt_tile, out_file=str(out_px_mask),
@@ -639,12 +498,15 @@ class Tiler(object):
                     burned_tile_array = burned_tile.read()[0, ...]
                     matplotlib.pyplot.imsave(prev_out_px_mask, burned_tile_array)
 
-    def filter_and_burn_dataset(self, aoi: AOI, img_tile: Union[str, Path],
-                                gt_tile: Union[str, Path],
-                                tile_bounds: Polygon = None,
-                                continuous_vals: bool = True,
-                                save_preview_labels: bool = False,
-                                dry_run: bool = False):
+    def filter_and_burn_dataset(
+            self,
+            aoi: AOI,
+            img_tile: Union[str, Path],
+            gt_tile: Union[str, Path],
+            tile_bounds: Polygon = None,
+            continuous_vals: bool = True,
+            save_preview_labels: bool = False,
+            dry_run: bool = False):
         """
         TODO
         @param aoi:
@@ -658,26 +520,30 @@ class Tiler(object):
         """
         random_val = np.random.randint(1, 100)
         # for trn tiles, sort between trn and val based on random number
-        dataset = self.datasets[1] if aoi.dataset == 'trn' and random_val < self.val_percent else aoi.dataset
+        dataset = self.datasets[1] if aoi.split == 'trn' and random_val < self.val_percent else aoi.split
         if dataset == self.datasets[1]:  # val dataset  # TODO refactor to function
-            img_tile_dest_parts = [part if part != aoi.dataset else self.datasets[1] for part in img_tile.parts]
-            gt_tile_dest_parts = [part if part != aoi.dataset else self.datasets[1] for part in gt_tile.parts]
+            img_tile_dest_parts = [part if part != aoi.split else self.datasets[1] for part in img_tile.parts]
+            gt_tile_dest_parts = [part if part != aoi.split else self.datasets[1] for part in gt_tile.parts]
             img_tile_dest, gt_tile_dest = Path(*img_tile_dest_parts), Path(*gt_tile_dest_parts)
             Path.mkdir(img_tile_dest.parent, exist_ok=True, parents=True)
             Path.mkdir(gt_tile_dest.parent, exist_ok=True, parents=True)
             shutil.move(img_tile, img_tile_dest)
             shutil.move(gt_tile, gt_tile_dest)
             img_tile, gt_tile = img_tile_dest, gt_tile_dest
-        out_gt_burned_path = self.get_burn_gt_tile_path(attr_vals=aoi.attr_vals, gt_tile=gt_tile)
+        out_gt_burned_path = self.get_burn_gt_tile_path(attr_vals=aoi.attr_values_filter, gt_tile=gt_tile)
         # returns corrected attr_field if original field needed truncating
-        gdf_tile, aoi.attr_field = aoi.filter_gdf_by_attribute(gdf_tile=gt_tile,
-                                                               attr_field=aoi.attr_field,
-                                                               attr_vals=aoi.attr_vals)
-        keep_tile_pair, sat_size, annot_perc = self.filter_tile_pair(aoi,
-                                                                     img_tile=img_tile,
-                                                                     gt_tile=gdf_tile,
-                                                                     dataset=dataset,
-                                                                     tile_bounds=tile_bounds)
+        gdf_tile, aoi.attr_field = filter_gdf_by_attribute(
+            gdf_tile=gt_tile,
+            attr_field=aoi.attr_field_filter,
+            attr_vals=aoi.attr_values_filter
+        )
+        keep_tile_pair, sat_size, annot_perc = self.filter_tile_pair(
+            aoi,
+            img_tile=img_tile,
+            gt_tile=gdf_tile,
+            dataset=dataset,
+            tile_bounds=tile_bounds
+        )
         logging.debug(annot_perc)
         if keep_tile_pair:
             self.burn_gt_tile(aoi,
@@ -712,6 +578,7 @@ def gt_from_img(img_path, gt_dir_rel2img):
     return csv_line
 
 
+# TODO: useful?
 def csv_from_glob(img_glob, gt_dir_rel2img, parallel=False):
     """
     Write a GDL csv from glob patterns to imagery and ground truth data
@@ -758,7 +625,7 @@ def csv_from_glob(img_glob, gt_dir_rel2img, parallel=False):
 
 
 def map_wrapper(x):
-    '''For multi-threading'''
+    """For multi-threading"""
     return x[0](*(x[1:]))
 
 
@@ -789,11 +656,13 @@ def main(cfg: DictConfig) -> None:
     :param params: (dict) Parameters found in the yaml config file.
     """
     # PARAMETERS
-    # TODO add the Victor module to manage the modalities
-    in_bands = get_key_def('in_bands', cfg['dataset'], expected_type=Sequence)
-    out_modalities = get_key_def('out_modalities', cfg['dataset'], expected_type=Sequence)
-    num_bands = len(cfg.dataset.out_modalities)
-    bands_idxs = select_modalities(in_bands=in_bands, out_modalities=out_modalities)
+    bands_requested = get_key_def('bands', cfg['dataset'], default=None, expected_type=Sequence)
+    num_bands = len(bands_requested)
+    # FIXME: merge with AOI single bands feature
+    # in_bands = get_key_def('in_bands', cfg['dataset'], expected_type=Sequence)
+    # out_modalities = get_key_def('out_modalities', cfg['dataset'], expected_type=Sequence)
+    # num_bands = len(cfg.dataset.out_modalities)
+    # bands_idxs = select_modalities(in_bands=in_bands, out_modalities=out_modalities)
     experiment_name = get_key_def('project_name', cfg['general'], default='gdl-training')
     debug = cfg.debug
     dry_run = cfg.dry_run
@@ -815,7 +684,6 @@ def main(cfg: DictConfig) -> None:
     overwrite = get_key_def('overwrite', cfg['tiling'], default=False, expected_type=bool)
 
     val_percent = int(get_key_def('train_val_percent', cfg['dataset'], default=0.3)['val'] * 100)
-    validate_data = get_key_def('validate_data', cfg['dataset'], default=True, expected_type=bool)
     attr_field = get_key_def('attribute_field', cfg['dataset'], None, expected_type=str)
     attr_vals = get_key_def('attribute_vals', cfg['dataset'], None, expected_type=(Sequence, int))
 
@@ -838,50 +706,50 @@ def main(cfg: DictConfig) -> None:
                   resizing_factor=resize,
                   min_annot_perc=min_annot_perc,
                   num_bands=num_bands,
-                  bands_idxs=bands_idxs,
                   min_img_tile_size=min_raster_tile_size,
                   val_percent=val_percent,
                   attr_field_exp=attr_field,
                   attr_vals_exp=attr_vals,
                   overwrite=overwrite,
                   debug=debug)
-    tiler.src_data_dict = tiler.aois_from_csv(csv_path=csv_file)
+    tiler.src_data_list = aois_from_csv(
+        csv_path=csv_file,
+        bands_requested=bands_requested,
+        attr_field_filter=attr_field,
+        attr_values_filter=attr_vals)
     tiler.with_gt_checker()
-
-    # VALIDATION: Assert number of bands in imagery is {num_bands}
-    if validate_data:
-        for aoi in tqdm(tiler.src_data_dict.values(),
-                        desc=f'Asserting number of bands in imagery is {tiler.num_bands}'):
-            validate_input_imagery(raster_path=aoi.img, num_bands=tiler.num_bands)
-    else:
-        logging.warning(f"Skipping validation of imagery and correspondance between actual and expected number of "
-                        f"bands. Use only is data has already been validated once.")
 
     # For each row in csv: (1) tiling imagery and labels
     input_args = []
     tilers = []
     logging.info(f"Preparing samples \n\tSamples_size: {samples_size} ")
-    for aoi in tqdm(tiler.src_data_dict.values(), position=0, leave=False):
+    for index, aoi in tqdm(enumerate(tiler.src_data_list), position=0, leave=False):
         try:
-            out_img_dir = aoi.tiles_dir / 'images'
-            out_gt_dir = aoi.tiles_dir / 'labels' if tiler.with_gt else None
+            # FIXME
+            tiles_root_name = tiler.make_tiles_dir_name(
+                tile_size=samples_size,
+                num_bands=num_bands)
+            tiles_dir = exp_dir / tiles_root_name / aoi.split.strip() / aoi.aoi_id.strip()
+            tiles_dir_img = tiles_dir / 'images'
+            tiles_dir_gt = tiles_dir / 'labels' if tiler.with_gt else None
+
             do_tile = True
-            data_pairs, nb_act_img_t, nb_act_gt_t, nb_exp_t = tiler.tiling_checker(aoi.img, out_img_dir, out_gt_dir)
+            data_pairs, nb_act_img_t, nb_act_gt_t, nb_exp_t = tiler.tiling_checker(aoi.raster, tiles_dir_img, tiles_dir_gt)
             # add info about found tiles for each aoi by aoi's index
-            tiler.src_data_dict[aoi.index].tiles_pairs_list = [(*data_pair, None) for data_pair in data_pairs]
+            tiler.src_data_list[index].tiles_pairs_list = [(*data_pair, None) for data_pair in data_pairs]
             if nb_act_img_t == nb_exp_t == nb_act_gt_t or not tiler.with_gt and nb_act_img_t == nb_exp_t:
                 logging.info('All tiles exist. Skipping tiling.\n')
                 do_tile = False
             elif nb_act_img_t > nb_exp_t and nb_act_gt_t > nb_exp_t or \
                     not tiler.with_gt and nb_act_img_t > nb_exp_t:
-                logging.error(f'\nToo many tiles for "{aoi.img}". \n'
+                logging.error(f'\nToo many tiles for "{aoi.raster.name}". \n'
                               f'Expected: {nb_exp_t}\n'
                               f'Actual image tiles: {nb_act_img_t}\n'
                               f'Actual label tiles: {nb_act_gt_t}\n'
                               f'Skipping tiling.')
                 do_tile = False
             elif nb_act_img_t > 0 or nb_act_gt_t > 0:
-                logging.error(f'Missing tiles for {aoi.img}. \n'
+                logging.error(f'Missing tiles for {aoi.raster.name}. \n'
                               f'Expected: {nb_exp_t}\n'
                               f'Actual image tiles: {nb_act_img_t}\n'
                               f'Actual label tiles: {nb_act_gt_t}\n'
@@ -895,22 +763,22 @@ def main(cfg: DictConfig) -> None:
             # if no previous step has shown existence of all tiles, then go on and tile.
             if do_tile and not dry_run:
                 if parallel:
-                    input_args.append([tiler.tiling_per_aoi, aoi])
+                    input_args.append([tiler.tiling_per_aoi, aoi, tiles_dir_img, tiles_dir_gt])
                 else:
                     try:
-                        tiler_pair = tiler.tiling_per_aoi(aoi)
+                        tiler_pair = tiler.tiling_per_aoi(aoi, out_img_dir=tiles_dir_img, out_label_dir=tiles_dir_gt)
                         tilers.append(tiler_pair)
                     except ValueError as e:
                         logging.debug(f'Failed to tile\n'
-                                      f'Img: {aoi.img}\n'
-                                      f'GT: {aoi.gt}')
+                                      f'Img: {aoi.raster.name}\n'
+                                      f'GT: {aoi.label}')
                         raise e
             elif dry_run:
                 logging.warning(f'DRY RUN. No tiles will be written')
 
         except OSError:
-            logging.exception(f'An error occurred while preparing samples with "{aoi.img.stem}" (tiff) and '
-                              f'{aoi.gt.stem} (gpkg).')
+            logging.exception(f'An error occurred while preparing samples with "{Path(aoi.raster.name).stem}" (tiff) and '
+                              f'{aoi.label.stem} (gpkg).')
             continue
 
     if parallel:
@@ -918,10 +786,16 @@ def main(cfg: DictConfig) -> None:
         with multiprocessing.get_context('spawn').Pool(None) as pool:
             tilers = pool.map_async(map_wrapper, input_args).get()
 
-    for aoi, raster_tiler_paths, vec_tler_paths, vec_tler_tbs in tqdm(tilers,
-                                                                      desc=f"Updating AOIs' information about their tiles paths"):
-        for img_tile_path, gt_tile_path, gt_tile_bds in zip(raster_tiler_paths, vec_tler_paths, vec_tler_tbs):
-            tiler.src_data_dict[aoi.index].tiles_pairs_list.append((img_tile_path, gt_tile_path, gt_tile_bds))
+    for index, aoi in tqdm(
+            enumerate(tiler.src_data_list),
+            position=0,
+            leave=False,
+            desc=f"Updating AOIs' information about their tiles paths"):
+        for tiled_aoi, raster_tiler_paths, vec_tler_paths, vec_tler_tbs in tqdm(tilers):
+            if tiled_aoi == aoi:
+                for zipped in zip(raster_tiler_paths, vec_tler_paths, vec_tler_tbs):
+                    img_tile_path, gt_tile_path, gt_tile_bds = zipped
+                    tiler.src_data_list[index].tiles_pairs_list.append((img_tile_path, gt_tile_path, gt_tile_bds))
 
     logging.info(f"Tiling done. Creating pixel masks from clipped geojsons...\n"
                  f"Validation set: {val_percent} % of created training tiles")
@@ -943,22 +817,25 @@ def main(cfg: DictConfig) -> None:
     # loop through line of csv again and
     # (1) filter out training data that doesn't match user-defined conditions such as minimum annotated percent
     # (2) burn filtered labels to raster format
-    for aoi in tqdm(tiler.src_data_dict.values(), position=0,
+    for aoi in tqdm(tiler.src_data_list, position=0,
                     desc='Looping in AOIs'):
         if debug:
             for img_tile, gt_tile, _ in tqdm(aoi.tiles_pairs_list,
                                              desc='DEBUG: Checking if data tiles are valid'):
-                is_valid = validate_raster(img_tile)
-                if not is_valid:
-                    logging.error(f'Invalid imagery tile: {img_tile}')
                 try:
-                    gpd.read_file(gt_tile)
+                    validate_raster(img_tile)
                 except Exception as e:
-                    logging.error(f'Invalid ground truth tile: {img_tile}. Error: {e}')
+                    logging.error(f'\nInvalid imagery tile: {img_tile}'
+                                  f'\n{e}')
+                try:
+                    validate_by_geopandas(gt_tile)
+                except Exception as e:
+                    logging.error(f'\nInvalid ground truth tile: {img_tile}. '
+                                  f'\n{e}')
 
         for img_tile, gt_tile, tbs in tqdm(aoi.tiles_pairs_list, position=1,
                                            desc=f'Filter {len(aoi.tiles_pairs_list)} tiles and burn ground truth'):
-            datasets_total[aoi.dataset] += 1
+            datasets_total[aoi.split] += 1
             # If for inference, write only image tile since there's no ground truth
             if not tiler.with_gt:
                 if gt_tile is not None:
@@ -966,7 +843,7 @@ def main(cfg: DictConfig) -> None:
                                   f'Image tile: {img_tile}\n'
                                   f'Ground truth: {gt_tile}')
                 dataset_line = f'{img_tile.absolute()}\n'
-                dataset_lines.append((aoi.dataset, dataset_line))
+                dataset_lines.append((aoi.split, dataset_line))
             # if for train, validation or test dataset, then filter, burn and provided complete line to write to file
             else:
                 if parallel:

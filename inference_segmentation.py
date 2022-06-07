@@ -192,7 +192,6 @@ def segmentation(param,
         sample['metadata'] = image_metadata
         totensor_transform = augmentation.compose_transforms(param,
                                                              dataset="tst",
-                                                             input_space=BGR_to_RGB,
                                                              scale=scale,
                                                              aug_type='totensor',
                                                              print_log=print_log)

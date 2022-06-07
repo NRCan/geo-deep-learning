@@ -113,11 +113,12 @@ def main(params):
             raise FileNotFoundError(f"Couldn't locate ground truth to evaluate with.")
 
         if info['gpkg'] not in valid_gpkg_set:
-            validate_num_classes(vector_file=info['gpkg'],
-                                 num_classes=num_classes,
-                                 attribute_name=attribute_field,
-                                 ignore_index=dontcare,
-                                 attribute_values=attr_vals)
+            # FIXME: use geopandas
+            # validate_num_classes(vector_file=info['gpkg'],
+            #                      num_classes=num_classes,
+            #                      attribute_name=attribute_field,
+            #                      ignore_index=dontcare,
+            #                      attribute_values=attr_vals)
             assert_crs_match(info['tif'], info['gpkg'])
             valid_gpkg_set.add(info['gpkg'])
 

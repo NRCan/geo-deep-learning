@@ -149,10 +149,11 @@ class AOI(object):
             label_bounds = self.label_gdf.total_bounds
             label_bounds_box = box(*label_bounds.tolist())
             raster_bounds_box = box(*list(self.raster.bounds))
+            # FIXME: check amount of overlap between bounds
             if not label_bounds_box.intersects(raster_bounds_box):
                 raise ValueError(f"Features in label file {label} do not intersect with bounds of raster file "
                                  f"{self.raster.name}")
-            validate_features_from_gpkg(label, attr_field_filter)
+            validate_features_from_gpkg(label, attr_field_filter)  # FIXME: use geopandas
 
             self.label = Path(label)
             # TODO: unit test for failed CRS match
@@ -182,7 +183,7 @@ class AOI(object):
         if aoi_id and not isinstance(aoi_id, str):
             raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
         elif not aoi_id:
-            aoi_id = self.raster.stem  # Defaults to name of image without suffix
+            aoi_id = Path(self.raster.name).stem  # Defaults to name of image without suffix
         self.aoi_id = aoi_id
 
         # Check collection string
@@ -197,9 +198,12 @@ class AOI(object):
         self.attr_field_filter = attr_field_filter
 
         # If ground truth is provided, check attribute values to filter from
-        if label and attr_values_filter and not isinstance(attr_values_filter, (list, listconfig.ListConfig)):
-            raise TypeError(f'Attribute values should be a list.\n'
-                            f'Got {attr_values_filter} of type {type(attr_values_filter)}')
+        if label and attr_values_filter:
+            if isinstance(attr_values_filter, int):
+                attr_values_filter = [attr_values_filter]
+            elif not isinstance(attr_values_filter, (list, listconfig.ListConfig)):
+                raise TypeError(f'Attribute values should be a list.\n'
+                                f'Got {attr_values_filter} of type {type(attr_values_filter)}')
         self.attr_values_filter = attr_values_filter
         logging.debug(self)
 
