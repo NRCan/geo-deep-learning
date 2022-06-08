@@ -228,8 +228,7 @@ class AOI(object):
             # TODO: unit test for failed CRS match
             try:
                 # TODO: check if this creates overhead. Make data validation optional?
-                #self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(self.raster, self.label_gdf)
-                pass
+                self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(self.raster, self.label_gdf)
             except pyproj.exceptions.CRSError as e:
                 logging.warning(f"\nError while checking CRS match between raster and label."
                                 f"\n{e}")
