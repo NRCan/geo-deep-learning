@@ -215,14 +215,14 @@ class AOI(object):
         if label:
             validate_by_geopandas(label)
             # TODO generate report first time, then, skip if exists
-            # self.label_gdf = _check_gdf_load(str(label))
-            # label_bounds = self.label_gdf.total_bounds
-            # label_bounds_box = box(*label_bounds.tolist())
-            # raster_bounds_box = box(*list(self.raster.bounds))
-            # if not label_bounds_box.intersects(raster_bounds_box):
-            #     raise ValueError(f"Features in label file {label} do not intersect with bounds of raster file "
-            #                      f"{self.raster.name}")
-            # validate_features_from_gpkg(label, attr_field_filter)
+            self.label_gdf = _check_gdf_load(str(label))
+            label_bounds = self.label_gdf.total_bounds
+            label_bounds_box = box(*label_bounds.tolist())
+            raster_bounds_box = box(*list(self.raster.bounds))
+            if not label_bounds_box.intersects(raster_bounds_box):
+                raise ValueError(f"Features in label file {label} do not intersect with bounds of raster file "
+                                 f"{self.raster.name}")
+            validate_features_from_gpkg(label, attr_field_filter)
 
             self.label = Path(label)
             # TODO: unit test for failed CRS match
