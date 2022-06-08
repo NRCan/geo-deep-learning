@@ -1,15 +1,15 @@
 defaults:
-  - model: unet
+  - model: gdl_unet
   - training: default_training
   - loss: binary/softbce
   - optimizer: adamw
   - callbacks: default_callbacks
   - scheduler: plateau
-  - dataset: test_ci_segmentation_dataset
+  - dataset: test_ci_segmentation_binary
   - augmentation: basic_augmentation_segmentation
   - tracker: # set logger here or use command line (e.g. `python GDL.py tracker=mlflow`)
   - visualization: default_visualization
-  - inference: default_inference
+  - inference: default_binary
   - hydra: default
   - override hydra/hydra_logging: colorlog # enable color logging to make it pretty
   - override hydra/job_logging: colorlog # enable color logging to make it pretty
@@ -27,18 +27,13 @@ general:
   config_path: ${hydra:runtime.config_sources}
   project_name: template_project
   workspace: your_name
-  device: cuda
   max_epochs: 2 # for train only
   min_epochs: 1 # for train only
-  raw_data_dir: ${general.work_dir}/data
-  raw_data_csv: ${general.work_dir}/data/images_to_samples_ci_csv.csv
-  sample_data_dir: ${general.work_dir}/data # where the hdf5 will be saved
-  state_dict_path:
-  save_weights_dir: ${general.work_dir}/weights_saved
-
-AWS:
-  bucket_name:
+  raw_data_dir: dataset
+  raw_data_csv: tests/sampling/sampling_segmentation_binary_ci.csv
+  sample_data_dir: dataset # where the hdf5 will be saved
+  save_weights_dir: saved_model/${general.project_name}
 
 print_config: True # save the config in the log folder
-mode: {sampling, train, evaluate, inference, hyperparameters_search}
+mode: {sampling, train, inference, evaluate}
 debug: True #False # will print the complete yaml config plus run a validation test

@@ -11,7 +11,8 @@ training:
   mode: 'min'            # 'min' or 'max', will minimize or maximize the chosen metric
   max_used_ram:
   max_used_perc:
-  target_size:
+  state_dict_path:
+  state_dict_strict_load: True
 
 #  precision: 16
 #  step_size: 4

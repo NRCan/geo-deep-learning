@@ -1,0 +1,5 @@
+# @package _global_
+model:
+  _target_: models.unet.UNet
+  dropout: False    # (bool) Use dropout or not
+  prob: False    # (float) Set dropout probability, e.g. 0.5

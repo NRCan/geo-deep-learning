@@ -1,0 +1,16 @@
+# @package _global_
+inference:
+  img_dir_or_csv_file: tests/inference/inference_segmentation_ci.csv
+  state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar
+  chunk_size:  # if empty, will be calculated automatically from max_pix_per_mb_gpu
+  # Maximum number of pixels each Mb of GPU Ram to allow. E.g. if GPU has 1000 Mb of Ram and this parameter is set to
+  # 10, chunk_size will be set to sqrt(1000 * 10) = 100.
+  max_pix_per_mb_gpu: 25
+
+  # GPU parameters
+  gpu: ${training.num_gpus}
+  max_used_perc: ${training.max_used_perc}  # If RAM usage of detected GPU exceeds this percentage, it will be ignored
+  max_used_ram: ${training.max_used_ram}  # If GPU's usage exceeds this percentage, it will be ignored
+
+  # Post-processing
+  ras2vec: False  # if True, a polygonized version of the inference (.gpkg) will be created with rasterio tools

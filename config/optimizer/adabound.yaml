@@ -1,0 +1,7 @@
+# @package _global_
+optimizer:
+  _target_: utils.adabound.AdaBound
+  lr: ${training.lr}
+  gamma: 1e-3
+  eps: 1e-8
+  weight_decay: 4e-5

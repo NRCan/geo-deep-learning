@@ -1,3 +1,4 @@
+import itertools
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -6,7 +7,6 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 import rasterio
-from hydra.utils import get_original_cwd
 from mlflow import log_metrics
 from shapely.geometry import Polygon
 from tqdm import tqdm
@@ -14,7 +14,8 @@ import geopandas as gpd
 
 from utils.geoutils import clip_raster_with_gpkg, vector_to_raster
 from utils.metrics import ComputePixelMetrics
-from utils.utils import get_key_def, list_input_images, get_logger, read_modalities
+from utils.utils import get_key_def, list_input_images
+from utils.logger import get_logger
 from utils.verifications import validate_num_classes, assert_crs_match
 
 logging = get_logger(__name__)
@@ -40,30 +41,30 @@ def metrics_per_tile(label_arr: np.ndarray, pred_img: np.ndarray, input_image: r
 
     feature = defaultdict(list)
     cnt = 0
-    for row in tqdm(range(0, h, chunk_size), position=2, leave=False):
-        for col in tqdm(range(0, w, chunk_size), position=3, leave=False):
-            label = label_arr[row:row + chunk_size, col:col + chunk_size]
-            pred = pred_img[row:row + chunk_size, col:col + chunk_size]
-            pixelMetrics = ComputePixelMetrics(label.flatten(), pred.flatten(), num_classes)
-            eval = pixelMetrics.update(pixelMetrics.iou)
-            feature['id_image'].append(gpkg_name)
-            for c_num in range(num_classes):
-                feature['L_count_' + str(c_num)].append(int(np.count_nonzero(label == c_num)))
-                feature['P_count_' + str(c_num)].append(int(np.count_nonzero(pred == c_num)))
-                feature['IoU_' + str(c_num)].append(eval['iou_' + str(c_num)])
-            feature['mIoU'].append(eval['macro_avg_iou'])
-            logging.debug(eval['macro_avg_iou'])
-            x_1, y_1 = (xmin + (col * xres)), (ymax - (row * yres))
-            x_2, y_2 = (xmin + ((col * xres) + mx)), y_1
-            x_3, y_3 = x_2, (ymax - ((row * yres) + my))
-            x_4, y_4 = x_1, y_3
-            geom = Polygon([(x_1, y_1), (x_2, y_2), (x_3, y_3), (x_4, y_4)])
-            feature['geometry'].append(geom)
-            feature['length'].append(geom.length)
-            feature['pointx'].append(geom.centroid.x)
-            feature['pointy'].append(geom.centroid.y)
-            feature['area'].append(geom.area)
-            cnt += 1
+    for row, col in tqdm(itertools.product(range(0, h, chunk_size), range(0, w, chunk_size)), leave=False,
+                         desc="Calculating metrics per tile"):
+        label = label_arr[row:row + chunk_size, col:col + chunk_size]
+        pred = pred_img[row:row + chunk_size, col:col + chunk_size]
+        pixelMetrics = ComputePixelMetrics(label.flatten(), pred.flatten(), num_classes)
+        eval = pixelMetrics.update(pixelMetrics.iou)
+        feature['id_image'].append(gpkg_name)
+        for c_num in range(num_classes):
+            feature['L_count_' + str(c_num)].append(int(np.count_nonzero(label == c_num)))
+            feature['P_count_' + str(c_num)].append(int(np.count_nonzero(pred == c_num)))
+            feature['IoU_' + str(c_num)].append(eval['iou_' + str(c_num)])
+        feature['mIoU'].append(eval['macro_avg_iou'])
+        logging.debug(eval['macro_avg_iou'])
+        x_1, y_1 = (xmin + (col * xres)), (ymax - (row * yres))
+        x_2, y_2 = (xmin + ((col * xres) + mx)), y_1
+        x_3, y_3 = x_2, (ymax - ((row * yres) + my))
+        x_4, y_4 = x_1, y_3
+        geom = Polygon([(x_1, y_1), (x_2, y_2), (x_3, y_3), (x_4, y_4)])
+        feature['geometry'].append(geom)
+        feature['length'].append(geom.length)
+        feature['pointx'].append(geom.centroid.x)
+        feature['pointy'].append(geom.centroid.y)
+        feature['area'].append(geom.area)
+        cnt += 1
     gdf = gpd.GeoDataFrame(feature, crs=input_image.crs.to_epsg())
 
     return gdf
@@ -76,12 +77,12 @@ def main(params):
     @return:
     """
     start_seg = time.time()
-    state_dict = Path(params['inference']['state_dict_path']).resolve(strict=True)
-    modalities = read_modalities(get_key_def('modalities', params['dataset'], expected_type=str))
-    num_bands = len(modalities)
+    state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
+    bands_requested = get_key_def('bands', params['dataset'], default=None, expected_type=Sequence)
+    num_bands = len(bands_requested)
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
-    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=params['general']['raw_data_csv'],
-                                 expected_type=str)
+    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str, to_path=True,
+                                 validate_path_exists=True)
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
     single_class_mode = True if num_classes == 1 else False
     threshold = 0.5
@@ -91,7 +92,7 @@ def main(params):
     out_gpkg = get_key_def('out_benchmark_gpkg', params['inference'], default=working_folder/"benchmark.gpkg",
                            expected_type=str)
     chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
-    dontcare = get_key_def("ignore_index", params["training"], -1)
+    dontcare = get_key_def("ignore_index", params["dataset"], -1)
     attribute_field = get_key_def('attribute_field', params['dataset'], None, expected_type=str)
     attr_vals = get_key_def('attribute_values', params['dataset'], None, expected_type=Sequence)
 
@@ -101,8 +102,7 @@ def main(params):
             if not isinstance(item, int):
                 raise ValueError(f'\nValue "{item}" in attribute_values is {type(item)}, expected int.')
 
-    list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"],
-                                 in_case_of_path=Path(get_original_cwd())/'data')
+    list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"])
 
     # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
     valid_gpkg_set = set()
