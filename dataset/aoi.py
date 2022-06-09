@@ -15,7 +15,7 @@ from tqdm import tqdm
 from utils.geoutils import stack_vrts, is_stac_item
 from utils.logger import get_logger
 from utils.utils import read_csv
-from utils.verifications import validate_by_geopandas, assert_crs_match, validate_raster, \
+from utils.verifications import assert_crs_match, validate_raster, \
     validate_num_bands, validate_features_from_gpkg
 
 logging = get_logger(__name__)  # import logging
@@ -127,7 +127,7 @@ class AOI(object):
                                                 raster_bands_requested=self.raster_bands_request)
         # If parsed result is a tuple, then we're dealing with single-band files
         if isinstance(raster_parsed, Tuple):
-            [validate_raster(file) for file in raster_parsed]
+            [validate_raster(str(file)) for file in raster_parsed]
             self.raster_tuple = raster_parsed
             raster_parsed = stack_vrts(raster_parsed)
         else:
@@ -144,7 +144,7 @@ class AOI(object):
 
         # Check label data
         if label:
-            validate_by_geopandas(label)
+            self.label = Path(label)
             self.label_gdf = _check_gdf_load(str(label))
             label_bounds = self.label_gdf.total_bounds
             label_bounds_box = box(*label_bounds.tolist())
@@ -152,9 +152,8 @@ class AOI(object):
             if not label_bounds_box.intersects(raster_bounds_box):
                 raise ValueError(f"Features in label file {label} do not intersect with bounds of raster file "
                                  f"{self.raster.name}")
-            validate_features_from_gpkg(label, attr_field_filter)
+            self.label_invalid_features = validate_features_from_gpkg(label, attr_field_filter)
 
-            self.label = Path(label)
             # TODO: unit test for failed CRS match
             try:
                 # TODO: check if this creates overhead. Make data validation optional?
@@ -182,7 +181,7 @@ class AOI(object):
         if aoi_id and not isinstance(aoi_id, str):
             raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
         elif not aoi_id:
-            aoi_id = self.raster.stem  # Defaults to name of image without suffix
+            aoi_id = Path(self.raster.name).stem  # Defaults to name of image without suffix
         self.aoi_id = aoi_id
 
         # Check collection string

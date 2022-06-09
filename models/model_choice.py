@@ -2,9 +2,11 @@ from collections import OrderedDict
 from typing import Union, List
 import logging
 
-from hydra.utils import instantiate
+from hydra.utils import instantiate, to_absolute_path
 import torch
 import torch.nn as nn
+from pandas.io.common import is_url
+from torch.hub import load_state_dict_from_url
 
 from utils.utils import update_gdl_checkpoint
 
@@ -25,7 +27,7 @@ def define_model_architecture(
     return instantiate(net_params, in_channels=in_channels, classes=out_classes)
 
 
-def read_checkpoint(filename, update=True):
+def read_checkpoint(filename, out_dir: str = 'checkpoints', update=True) -> DictConfig:
     """
     Loads checkpoint from provided path to GDL's expected format,
     ie model's state dictionary should be under "model_state_dict" and
@@ -39,8 +41,11 @@ def read_checkpoint(filename, update=True):
         return None
     try:
         logging.info(f"\n=> loading model '{filename}'")
+        if is_url(filename):
+            checkpoint = load_state_dict_from_url(url=filename, map_location='cpu', model_dir=to_absolute_path(out_dir))
+        else:
+            checkpoint = torch.load(f=filename, map_location='cpu')
         # For loading external models with different structure in state dict.
-        checkpoint = torch.load(filename, map_location='cpu')
         if 'model_state_dict' not in checkpoint.keys() and 'model' not in checkpoint.keys():
             val_set = set()
             for val in checkpoint.values():
@@ -56,8 +61,9 @@ def read_checkpoint(filename, update=True):
         elif update:
             checkpoint = update_gdl_checkpoint(checkpoint)
         return checkpoint
-    except FileNotFoundError:
-        raise logging.critical(FileNotFoundError(f"\n=> No model found at '{filename}'"))
+    except FileNotFoundError as e:
+        logging.critical(f"\n=> No model found at '{filename}'")
+        raise e
 
 
 def adapt_checkpoint_to_dp_model(checkpoint: dict, model: Union[nn.Module, nn.DataParallel]):
