@@ -52,17 +52,6 @@ class Interpolate(torch.nn.Module):
         return x
 
 
-def list_s3_subfolders(bucket, data_path):
-    list_classes = []
-
-    client = boto3.client('s3')
-    result = client.list_objects(Bucket=bucket, Prefix=data_path+'/', Delimiter='/')
-    for p in result.get('CommonPrefixes'):
-        if p['Prefix'].split('/')[-2] is not data_path:
-            list_classes.append(p['Prefix'].split('/')[-2])
-    return list_classes
-
-
 def get_device_ids(
         number_requested: int,
         max_used_ram_perc: int = 25,
