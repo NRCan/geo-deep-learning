@@ -78,7 +78,7 @@ def main(cfg):
         cfg['inference']['input_stac_item'] = aoi.raster_raw_input
         cfg['inference']['output_name'] = aoi.aoi_id + '_BUIL'
 
-        pred_raster, pred_raster_path = gdl_inference(cfg.copy())
+        pred_raster_path, pred_raster = gdl_inference(cfg.copy())
         pred_raster = _check_rasterio_im_load(pred_raster_path).read()
 
         # burn to raster

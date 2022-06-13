@@ -167,7 +167,7 @@ class AOI(object):
 
         # validate raster data
         for single_raster in raster_parsed:
-            validate_raster(str(single_raster))
+            validate_raster(single_raster)
         self.raster_parsed = raster_parsed
 
         # Download assets if desired
@@ -176,8 +176,8 @@ class AOI(object):
 
         if self.download_data:
             for index, single_raster in enumerate(self.raster_parsed):
-                if is_url(str(single_raster)):
-                    out_name = self.root_dir / single_raster.name
+                if is_url(single_raster):
+                    out_name = self.root_dir / Path(single_raster).name
                     download_url(single_raster, root=str(self.root_dir), filename=str(out_name))
                     # replace with local copy
                     self.raster_parsed[index] = out_name
@@ -346,18 +346,18 @@ class AOI(object):
         if is_stac_item(csv_raster_str):
             item = SingleBandItemEO(item=pystac.Item.from_file(csv_raster_str),
                                     bands_requested=raster_bands_requested)
-            raster = [Path(value['meta'].href) for value in item.bands_requested.values()]
+            raster = [value['meta'].href for value in item.bands_requested.values()]
             return raster
         elif "${dataset.bands}" in csv_raster_str:
             if not isinstance(raster_bands_requested, (List, ListConfig, tuple)) or len(raster_bands_requested) == 0:
                 raise TypeError(f"\nRequested bands should a list of bands. "
                                 f"\nGot {raster_bands_requested} of type {type(raster_bands_requested)}")
-            raster = [Path(csv_raster_str.replace("${dataset.bands}", band)) for band in raster_bands_requested]
+            raster = [csv_raster_str.replace("${dataset.bands}", band) for band in raster_bands_requested]
             return raster
         else:
             try:
                 validate_raster(csv_raster_str)
-                return [Path(csv_raster_str)]
+                return [csv_raster_str]
             except (FileNotFoundError, rasterio.RasterioIOError, TypeError) as e:
                 logging.critical(f"Couldn't parse input raster. Got {csv_raster_str}")
                 raise e
