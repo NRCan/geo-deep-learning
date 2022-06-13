@@ -38,6 +38,9 @@ def main(cfg):
     models_dir = get_key_def('checkpoint_dir', cfg['inference'], default=root / 'checkpoints', to_path=True)
     models_dir.mkdir(exist_ok=True)
     checkpoint = get_key_def('state_dict_path', cfg['inference'], expected_type=str, to_path=True, validate_path_exists=True)
+    # Save to directory named after model
+    root = root / Path(checkpoint).stem
+    root.mkdir(exist_ok=True)
     download_data = get_key_def('download_data', cfg['inference'], default=False, expected_type=bool)
     min_iou = get_key_def('iou_threshold', cfg['evaluate'], default=0.5, expected_type=float)
             
@@ -93,7 +96,6 @@ def main(cfg):
 
         # compute vector metrics from prediction and ground truth
         pred_vector_path = gdl_postprocess(cfg.copy())
-        #pred_vector_path = "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred.gpkg"
 
         metric_vector = iou_per_obj(
             pred=pred_vector_path,
@@ -123,7 +125,10 @@ def main(cfg):
 
 if __name__ == '__main__':
     # test benchmarking with spacenet data
+
+    # test raster iou calculation with test data
     pred_raster_path = "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred.tif"
+    # pred_vector_path = "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred.gpkg"
     pred_raster = _check_rasterio_im_load(pred_raster_path).read()
 
     label_raster_path = "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_gt.tif"
@@ -132,6 +137,7 @@ if __name__ == '__main__':
     iou = iou_torchmetrics(torch.from_numpy(pred_raster), torch.from_numpy(label_raster), device='cuda:0')
     print(iou)
 
+    # TODO: which csv to use?
     csv_file = "tests/sampling/sampling_segmentation_binary-stac_ci.csv"
     checkpoint = "/media/data/ccmeo_models/pl_unet_resnet50_epoch-62-step-24066_gdl.ckpt"
     cfg = {'dataset': {'raw_data_csv': csv_file,

@@ -349,9 +349,9 @@ class AOI(object):
             raster = [Path(value['meta'].href) for value in item.bands_requested.values()]
             return raster
         elif "${dataset.bands}" in csv_raster_str:
-            if not isinstance(raster_bands_requested, (List, ListConfig)) or len(raster_bands_requested) == 0:
-                raise ValueError(f"\nRequested bands should a list of bands. "
-                                 f"\nGot {raster_bands_requested} of type {type(raster_bands_requested)}")
+            if not isinstance(raster_bands_requested, (List, ListConfig, tuple)) or len(raster_bands_requested) == 0:
+                raise TypeError(f"\nRequested bands should a list of bands. "
+                                f"\nGot {raster_bands_requested} of type {type(raster_bands_requested)}")
             raster = [Path(csv_raster_str.replace("${dataset.bands}", band)) for band in raster_bands_requested]
             return raster
         else:
