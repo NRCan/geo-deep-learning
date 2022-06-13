@@ -77,6 +77,7 @@ class InferenceDataset(RasterDataset):
         self.index = Index(interleaved=False, properties=Property(dimension=3))
 
         self.item_url = self.item_url if is_url(self.item_url) else to_absolute_path(self.item_url)
+        # TODO: merge with dataset/aoi.py, make generic, not just stac items
         # Read Stac item from url
         if self.separate_files:
             self.item = SingleBandItemEO(pystac.Item.from_file(str(self.item_url)))
@@ -93,6 +94,7 @@ class InferenceDataset(RasterDataset):
         if not set(self.bands).issubset(set(self.all_bands)):
             raise ValueError(f"Selected bands ({self.bands}) should be a subset of available bands ({self.all_bands})")
 
+        # TODO: merge with dataset/aoi.py
         # Download assets if desired
         if self.download:
             for cname in self.bands:

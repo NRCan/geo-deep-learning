@@ -33,41 +33,36 @@ class SingleBandItemEO(ItemEOExtension):
     def __init__(
             self,
             item: pystac.Item,
-            bands: Optional[Sequence] = None,
-            download: bool = False,
-            root: str = "data",
+            bands_requested: Optional[Sequence] = None,
     ):
         """
 
         @param item:
-            Stac tem containing metadata linking imagery assets
-        @param bands:
+            Stac item containing metadata linking imagery assets
+        @param bands_requested:
             band selection which must be a list of STAC Item common names from eo extension.
             See: https://github.com/stac-extensions/eo/#common-band-names
-        @param download:
-            if True, download dataset and store it in the root directory.
-        @param root:
-            root directory where dataset can be found or downloaded
         """
+        super().__init__(item)
         if not is_stac_item(item):
             raise TypeError(f"Expected a valid pystac.Item object. Got {type(item)}")
         self.item = item
         self._assets_by_common_name = None
 
-        if len(bands) == 0:
+        if len(bands_requested) == 0:
             logging.warning(f"At least one band should be chosen if assets need to be reached")
-        if bands is not None and len(bands) == 0:
+        if bands_requested is not None and len(bands_requested) == 0:
             logging.warning(f"At least one band should be chosen if assets need to be reached")
 
         # Create band inventory (all available bands)
         self.bands_all = [band for band in self.asset_by_common_name.keys()]
 
         # Make sure desired bands are subset of inventory
-        if not set(bands).issubset(set(self.bands_all)):
-            raise ValueError(f"Requested bands ({bands}) should be a subset of available bands ({self.bands_all})")
+        if not set(bands_requested).issubset(set(self.bands_all)):
+            raise ValueError(f"Requested bands ({bands_requested}) should be a subset of available bands ({self.bands_all})")
 
         # Filter only requested bands
-        self.bands_requested = {band: self.asset_by_common_name[band] for band in bands}
+        self.bands_requested = {band: self.asset_by_common_name[band] for band in bands_requested}
         logging.debug(self.bands_all)
         logging.debug(self.bands_requested)
 
@@ -80,28 +75,7 @@ class SingleBandItemEO(ItemEOExtension):
                 center_wavelength=self.bands_requested[band]['meta'].extra_fields['eo:bands'][0]['center_wavelength'],
                 full_width_half_max=self.bands_requested[band]['meta'].extra_fields['eo:bands'][0]['full_width_half_max'])
             bands.append(band)
-
-        super().__init__(item)
-        # TODO: some refactoring is needed
-        self.bands = [band for band in self.bands if band.common_name in self.bands_requested.keys()]
-
-        self.download = download
-        self.root = Path(root)
-
-        # Download assets if desired
-        if self.download:
-            for band in self.bands:
-                cname = band.common_name
-                out_name = self.root / Path(self.bands_dict[cname]['meta'].href).name
-                download_url(self.bands_dict[cname]['meta'].href, root=str(self.root), filename=str(out_name))
-                self.bands_dict[cname]['meta'].href = out_name
-
-        # Open first asset with rasterio (for metadata: colormap, crs, resolution, etc.)
-        if self.bands:
-            self.first_asset = list(self.bands_dict.values())[0]['meta'].href
-            self.first_asset = self.first_asset if is_url(self.first_asset) else to_absolute_path(self.first_asset)
-
-            self.src = rasterio.open(self.first_asset)
+        self.bands = bands
 
     @property
     def asset_by_common_name(self) -> Dict:
@@ -171,7 +145,7 @@ class AOI(object):
             If not provided, all values in field will be considered
         @param download_data:
             if True, download dataset and store it in the root directory.
-        @param root:
+        @param root_dir:
             root directory where dataset can be found or downloaded
         @param write_multiband: bool, optional
             If True, a multi-band raster side by side with single-bands rasters as provided in input csv. For debugging purposes.
@@ -186,25 +160,40 @@ class AOI(object):
         self.raster_bands_request = raster_bands_request
         raster_parsed = self.parse_input_raster(
             csv_raster_str=self.raster_raw_input,
-            raster_bands_requested=self.raster_bands_request,
-            download_data=download_data,
-            root_dir=root_dir
+            raster_bands_requested=self.raster_bands_request
         )
-        # If parsed result is a tuple, then we're dealing with single-band files
-        if isinstance(raster_parsed, Tuple):
-            [validate_raster(file) for file in raster_parsed]
-            self.raster_tuple = raster_parsed
-            raster_parsed = stack_vrts(raster_parsed)
+        # If parsed result has more than a single file, then we're dealing with single-band files
+        self.raster_src_is_multiband = True if len(raster_parsed) == 1 else False
+
+        # validate raster data
+        for single_raster in raster_parsed:
+            validate_raster(str(single_raster))
+        self.raster_parsed = raster_parsed
+
+        # Download assets if desired
+        self.download_data = download_data
+        self.root_dir = Path(root_dir)
+
+        if self.download_data:
+            for index, single_raster in enumerate(self.raster_parsed):
+                if is_url(str(single_raster)):
+                    out_name = self.root_dir / single_raster.name
+                    download_url(single_raster, root=str(self.root_dir), filename=str(out_name))
+                    # replace with local copy
+                    self.raster_parsed[index] = out_name
+
+        # if single band assets, build multiband VRT
+        if not self.raster_src_is_multiband:
+            self.raster_multiband_vrt = stack_vrts(raster_parsed)
+            self.raster = _check_rasterio_im_load(self.raster_multiband_vrt)
         else:
-            validate_raster(self.raster_raw_input)
-            self.raster_tuple = None
+            self.raster_multiband_vrt = None
+            self.raster = _check_rasterio_im_load(str(self.raster_parsed[0]))
 
         if raster_num_bands_expected:
-            validate_num_bands(raster_path=raster_parsed, num_bands=raster_num_bands_expected)
+            validate_num_bands(raster_path=self.raster, num_bands=raster_num_bands_expected)
 
-        self.raster = _check_rasterio_im_load(str(raster_parsed))
-
-        if self.raster_tuple and write_multiband:
+        if self.raster_parsed and write_multiband:
             self.write_multiband_from_singleband_rasters_as_vrt()
 
         # Check label data
@@ -320,7 +309,7 @@ class AOI(object):
 
     def write_multiband_from_singleband_rasters_as_vrt(self):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
-        if not self.raster.driver == 'VRT' or not self.raster_tuple or not "${dataset.bands}" in self.raster_raw_input:
+        if not self.raster.driver == 'VRT' or not self.raster_parsed or not "${dataset.bands}" in self.raster_raw_input:
             logging.warning(f"To write a multi-band raster from single-band files, a VRT must be provided."
                             f"\nGot {self.raster.meta}")
             return
@@ -337,10 +326,8 @@ class AOI(object):
     @staticmethod
     def parse_input_raster(
             csv_raster_str: str,
-            raster_bands_requested: Sequence,
-            download_data: bool = False,
-            root_dir: str = "data"
-    ) -> Union[str, Tuple]:
+            raster_bands_requested: Sequence
+    ) -> Union[List, Tuple]:
         """
         From input csv, determine if imagery is
         1. A Stac Item with single-band assets (multi-band assets not implemented)
@@ -358,21 +345,19 @@ class AOI(object):
         """
         if is_stac_item(csv_raster_str):
             item = SingleBandItemEO(item=pystac.Item.from_file(csv_raster_str),
-                                    bands=raster_bands_requested,
-                                    download=download_data,
-                                    root=root_dir)
+                                    bands_requested=raster_bands_requested)
             raster = [Path(value['meta'].href) for value in item.bands_requested.values()]
-            return tuple(raster)
+            return raster
         elif "${dataset.bands}" in csv_raster_str:
             if not isinstance(raster_bands_requested, (List, ListConfig)) or len(raster_bands_requested) == 0:
                 raise ValueError(f"\nRequested bands should a list of bands. "
                                  f"\nGot {raster_bands_requested} of type {type(raster_bands_requested)}")
             raster = [Path(csv_raster_str.replace("${dataset.bands}", band)) for band in raster_bands_requested]
-            return tuple(raster)
+            return raster
         else:
             try:
                 validate_raster(csv_raster_str)
-                return Path(csv_raster_str)
+                return [Path(csv_raster_str)]
             except (FileNotFoundError, rasterio.RasterioIOError, TypeError) as e:
                 logging.critical(f"Couldn't parse input raster. Got {csv_raster_str}")
                 raise e

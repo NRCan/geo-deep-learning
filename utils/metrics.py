@@ -4,10 +4,12 @@ from pathlib import Path
 from typing import Union, List
 
 import numpy as np
+import torch
 from sklearn.metrics import classification_report
 
 import geopandas as gpd
 from solaris.eval.base import Evaluator
+from torchmetrics import MetricCollection, JaccardIndex
 
 from dataset.aoi import AOI
 
@@ -116,6 +118,16 @@ def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
         metric_dict['iou'].update(mean_IOU, batch_size)
     return metric_dict
 
+
+def iou_torchmetrics(pred: torch.Tensor, label: torch.Tensor, device: str = 'cpu'):  # FIXME: merge with iou() above
+    metrics = MetricCollection([JaccardIndex(num_classes=2, ignore_index=False, )], prefix="evaluate_").to(device)
+    metrics(pred.to(device), label.to(device))
+    results = metrics.compute()
+    metrics.reset()
+    iou = results["evaluate_JaccardIndex"].item()
+    return iou
+
+
 #### Benchmark Metrics ####
 """ Segmentation Metrics from : https://github.com/jeremiahws/dlae/blob/master/metnet_seg_experiment_evaluator.py """
 
@@ -167,6 +179,7 @@ class ComputePixelMetrics():
 
         return dice
 
+
 def iou_per_obj(
         pred: Union[str, Path],
         gt:Union[str, Path],
@@ -174,6 +187,7 @@ def iou_per_obj(
         attr_vals: List = None,
         aoi_id: str = None,
         aoi_categ: str = None,
+        min_iou: float = 0.5,
         gt_clip_bounds = None):
     """
     Calculate iou per object by comparing vector ground truth and vectorized prediction
@@ -193,7 +207,10 @@ def iou_per_obj(
     evaluator = Evaluator(ground_truth_vector_file=gt_gdf_filtered)
 
     evaluator.load_proposal(pred, conf_field_list=None)
-    scoring_dict_list, TP_gdf, FN_gdf, FP_gdf = evaluator.eval_iou_return_GDFs(calculate_class_scores=False)
+    scoring_dict_list, TP_gdf, FN_gdf, FP_gdf = evaluator.eval_iou_return_GDFs(
+        calculate_class_scores=False,
+        miniou=min_iou
+    )
 
     if TP_gdf is not None:
         TP_gdf.to_file(pred, layer='True_Pos', driver="GPKG")

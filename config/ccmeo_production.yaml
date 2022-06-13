@@ -2,6 +2,7 @@ defaults:
   - model: smp_unet
   - inference: production
   - postprocess: production
+  - evaluate: default_evaluate
   - callbacks: default_callbacks
   - dataset: ccmeo_datacube_dataset
   - augmentation: basic_augmentation_segmentation

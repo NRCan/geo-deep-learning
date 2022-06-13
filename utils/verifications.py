@@ -169,7 +169,7 @@ def assert_crs_match(
 
         if epsg_raster != epsg_gt:
             logging.error(f"CRS mismatch: \n"
-                          f"TIF file \"{raster}\" has {epsg_raster} CRS; \n"
+                          f"TIF file \"{raster.name}\" has {epsg_raster} CRS; \n"
                           f"GPKG file \"{label}\" has {epsg_gt} CRS.")
             return False, raster_crs, gt_crs
         else:

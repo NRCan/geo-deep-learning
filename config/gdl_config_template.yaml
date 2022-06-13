@@ -11,6 +11,7 @@ defaults:
   - visualization: default_visualization
   - inference: default_binary
   - postprocess: default_postprocess
+  - evaluate: default_evaluate
   - hydra: default
   - override hydra/hydra_logging: colorlog # enable color logging to make it pretty
   - override hydra/job_logging: colorlog # enable color logging to make it pretty
