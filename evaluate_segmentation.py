@@ -5,6 +5,7 @@ from typing import Sequence
 
 import omegaconf
 import torch
+from omegaconf import OmegaConf, open_dict
 from pandas.io.common import is_url
 from solaris import vector
 from solaris.utils.core import _check_rasterio_im_load
@@ -41,6 +42,9 @@ def main(cfg):
     # Save to directory named after model
     root = root / Path(checkpoint).stem
     root.mkdir(exist_ok=True)
+    with open_dict(cfg):
+        OmegaConf.update(cfg, 'inference.root_dir', str(root), merge=False)
+        OmegaConf.update(cfg, 'postprocess.regularization', False, merge=False)
     download_data = get_key_def('download_data', cfg['inference'], default=False, expected_type=bool)
     min_iou = get_key_def('iou_threshold', cfg['evaluate'], default=0.5, expected_type=float)
             
@@ -70,6 +74,14 @@ def main(cfg):
         data_dir=data_dir,
     )
 
+    keys = ["state_dict", "iou_raster", "category", "aoi", "class_id", "iou_field", "TruePos", "FalsePos", "FalseNeg",
+            "Precision", "Recall", "F1Score", "iou_threshold"]
+    outpath = root / "benchmark.csv"
+    if not outpath.is_file():
+        with open(outpath, 'w', newline='') as output_file:
+            dict_writer = csv.DictWriter(output_file, keys)
+            dict_writer.writeheader()
+
     metrics = []
     for aoi in benchmark_raw_data:
         metric_per_aoi = {'state_dict': Path(checkpoint).name}
@@ -79,9 +91,9 @@ def main(cfg):
         cfg['inference']['output_name'] = aoi.aoi_id + '_BUIL'
 
         pred_raster_path, pred_raster = gdl_inference(cfg.copy())
-        pred_raster = _check_rasterio_im_load(pred_raster_path).read()
+        pred_raster = _check_rasterio_im_load(str(pred_raster_path)).read()
 
-        # burn to raster
+        logging.info(f"Burning ground truth to raster")
         burn_val = 1 if not aoi.attr_field_filter and not aoi.attr_values_filter else None
         label_raster = vector.mask.footprint_mask(
             df=aoi.label_gdf,
@@ -89,12 +101,13 @@ def main(cfg):
             burn_field=aoi.attr_field_filter,
             burn_value=burn_val)
 
-        # compute raster metrics from prediction and ground truth
+        logging.info(f"Computing raster metrics from prediction and ground truth")
         # FIXME num_classes and ignore_index
         iou = iou_torchmetrics(torch.from_numpy(pred_raster), torch.from_numpy(label_raster), device=device)
+        logging.info(f"Result:\nRaster IOU | {iou}")
         metric_per_aoi['iou_raster'] = iou
 
-        # compute vector metrics from prediction and ground truth
+        logging.info(f"Computing vector metrics from prediction and ground truth")
         pred_vector_path = gdl_postprocess(cfg.copy())
 
         metric_vector = iou_per_obj(
@@ -109,18 +122,10 @@ def main(cfg):
         metric_vector['iou_threshold'] = min_iou
         metric_per_aoi.update(metric_vector)
         metrics.append(metric_per_aoi)
-    keys = metrics[0].keys()
-    outpath = root / "benchmark.csv"
-    logging.info(f"Benchmark report will be saved: ")
-    if not outpath.is_file():
-        with open(outpath, 'w', newline='') as output_file:
-            dict_writer = csv.DictWriter(output_file, keys)
-            dict_writer.writeheader()
-            dict_writer.writerows(metrics)
-    else:
         with open(outpath, 'a', newline='') as output_file:
             dict_writer = csv.DictWriter(output_file, keys)
-            dict_writer.writerows(metrics)
+            dict_writer.writerows([metric_per_aoi])
+    logging.info(f"Benchmark report will be saved: ")
 
 
 if __name__ == '__main__':

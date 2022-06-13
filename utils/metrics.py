@@ -202,9 +202,7 @@ def iou_per_obj(
         aoi_id = Path(pred).stem
     # filter out non-buildings
     gt_gdf = gpd.read_file(gt, bbox=gt_clip_bounds)
-    # TODO remove filtering ?
-    gt_gdf_filtered, _ = AOI.filter_gdf_by_attribute(gt_gdf.copy(deep=True), attr_field, attr_vals)
-    evaluator = Evaluator(ground_truth_vector_file=gt_gdf_filtered)
+    evaluator = Evaluator(ground_truth_vector_file=gt_gdf)
 
     evaluator.load_proposal(pred, conf_field_list=None)
     scoring_dict_list, TP_gdf, FN_gdf, FP_gdf = evaluator.eval_iou_return_GDFs(

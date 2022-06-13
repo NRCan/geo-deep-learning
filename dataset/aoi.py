@@ -165,22 +165,22 @@ class AOI(object):
         # If parsed result has more than a single file, then we're dealing with single-band files
         self.raster_src_is_multiband = True if len(raster_parsed) == 1 else False
 
-        # validate raster data
-        for single_raster in raster_parsed:
-            validate_raster(single_raster)
-        self.raster_parsed = raster_parsed
-
         # Download assets if desired
         self.download_data = download_data
         self.root_dir = Path(root_dir)
 
         if self.download_data:
-            for index, single_raster in enumerate(self.raster_parsed):
+            for index, single_raster in enumerate(raster_parsed):
                 if is_url(single_raster):
                     out_name = self.root_dir / Path(single_raster).name
                     download_url(single_raster, root=str(self.root_dir), filename=str(out_name))
                     # replace with local copy
-                    self.raster_parsed[index] = out_name
+                    raster_parsed[index] = str(out_name)
+
+        # validate raster data
+        for single_raster in raster_parsed:
+            validate_raster(single_raster)
+        self.raster_parsed = raster_parsed
 
         # if single band assets, build multiband VRT
         if not self.raster_src_is_multiband:
@@ -248,6 +248,12 @@ class AOI(object):
         if label and attr_field_filter and not isinstance(attr_field_filter, str):
             raise TypeError(f'Attribute field name should be a string.\n'
                             f'Got {attr_field_filter} of type {type(attr_field_filter)}')
+        if attr_field_filter not in self.label_gdf.columns:
+            # fiona and geopandas don't expect attribute name exactly the same way: "properties/class" vs "class"
+            attr_field_filter = attr_field_filter.split('/')[-1]
+            if attr_field_filter not in self.label_gdf.columns:
+                raise ValueError(f"\nAttribute field \"{attr_field_filter}\" not found in label attributes:\n"
+                                 f"{self.label_gdf.columns}")
         self.attr_field_filter = attr_field_filter
 
         # If ground truth is provided, check attribute values to filter from
@@ -255,6 +261,16 @@ class AOI(object):
             raise TypeError(f'Attribute values should be a list.\n'
                             f'Got {attr_values_filter} of type {type(attr_values_filter)}')
         self.attr_values_filter = attr_values_filter
+        label_gdf_filtered, _ = self.filter_gdf_by_attribute(
+            self.label_gdf.copy(deep=True),
+            self.attr_field_filter,
+            self.attr_values_filter,
+        )
+        if len(label_gdf_filtered) == 0:
+            raise ValueError(f"\nNo features found for ground truth \"{self.label}\","
+                             f"\nfiltered by attribute field \"{self.attr_field_filter}\""
+                             f"\nwith values \"{self.attr_values_filter}\"")
+        self.label_gdf = label_gdf_filtered
         logging.debug(self)
 
     @classmethod
@@ -376,9 +392,6 @@ class AOI(object):
         gdf_tile = _check_gdf_load(gdf_tile)
         if not attr_field or not attr_vals:
             return gdf_tile, None
-        if not attr_field in gdf_tile.columns:
-            attr_field = attr_field.split('/')[-1]
-        # TODO: warn if no features with values in given attribute field. Values may be wrong.
         try:
             condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
             condList.extend([gdf_tile[f'{attr_field}'] == str(val) for val in attr_vals])
