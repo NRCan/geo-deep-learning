@@ -44,6 +44,8 @@ def main(cfg):
     root.mkdir(exist_ok=True)
     with open_dict(cfg):
         OmegaConf.update(cfg, 'inference.root_dir', str(root), merge=False)
+        OmegaConf.update(cfg, 'inference.max_used_ram', 100, merge=False)
+        OmegaConf.update(cfg, 'inference.max_used_perc', 100, merge=False)
         OmegaConf.update(cfg, 'postprocess.regularization', False, merge=False)
     download_data = get_key_def('download_data', cfg['inference'], default=False, expected_type=bool)
     min_iou = get_key_def('iou_threshold', cfg['evaluate'], default=0.5, expected_type=float)
