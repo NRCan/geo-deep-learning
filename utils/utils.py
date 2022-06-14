@@ -803,7 +803,7 @@ def extension_remover(name: str) -> str:
         return name
 
 
-def stretch_heatmap(heatmap_arr: np.ndarray, out_max: int = 100) -> np.ndarray:
+def stretch_heatmap(heatmap_arr: np.ndarray, out_max: int = 100, range_warning: bool = True) -> np.ndarray:
     """
     Stretches heatmap values between 0 and an inputted maximum value
     @param heatmap_arr:
@@ -811,19 +811,22 @@ def stretch_heatmap(heatmap_arr: np.ndarray, out_max: int = 100) -> np.ndarray:
         after sigmoid or softmax operation (expects values between 0 and 1)
     @param out_max:
         Output maximum value
+    @param range_warning:
+        if True, a warning will be emitted if values of heatmap range under 0 or above 1.
     @return: numpy array with stretched values
     """
     imin, imax = map(float, intensity_range(heatmap_arr, 'image'))
     if imin < 0 or imax > 1:
-        logging.warning(f"\nProvided heatmap should be the result of sigmoid or softmax operation."
-                      f"\nExpected values are between 0 and 1. Got min {imin} and max {imax}.")
+        if range_warning:
+            logging.warning(f"\nProvided heatmap should be the result of sigmoid or softmax operation."
+                            f"\nExpected values are between 0 and 1. Got min {imin} and max {imax}.")
         omax = imax
     else:
         _, omax = map(float, intensity_range(heatmap_arr, 'dtype'))
     return np.array(heatmap_arr) / omax * out_max
 
 
-def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: int = 50) -> np.ndarray:
+def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: int = 50, range_warning: bool = True) -> np.ndarray:
     """
     Sets class value from raw heatmap as predicted by model
     @param heatmap_arr:
@@ -831,10 +834,12 @@ def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: int = 50) -> 
         after sigmoid or softmax operation (expects values between 0 and 1)
     @param heatmap_threshold:
         threshold (%) to apply to heatmap if single class prediction
+    @param range_warning:
+        if True, a warning will be emitted if values of heatmap range under 0 or above 1.
     @return: flattened array where pixel values correspond to final class values
     """
     if heatmap_arr.shape[-1] == 1:
-        heatmap_arr = stretch_heatmap(heatmap_arr=heatmap_arr, out_max=100)
+        heatmap_arr = stretch_heatmap(heatmap_arr=heatmap_arr, out_max=100, range_warning=range_warning)
         flattened_arr = (heatmap_arr > heatmap_threshold)
         flattened_arr = np.squeeze(flattened_arr, axis=-1)
     else:

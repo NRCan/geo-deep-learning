@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import Union, Optional, Sequence, Callable, Dict, Any, cast, List
 
-import numpy as np
 import pystac
 import rasterio
 import torch
@@ -134,26 +133,6 @@ class InferenceDataset(RasterDataset):
             self.index.insert(0, coords, self.first_asset)
             self._crs = cast(CRS, crs)
             self.res = cast(float, res)
-
-    def create_empty_outraster(self):
-        """
-        Writes an empty output raster to disk
-        @return:
-        """
-        pred = np.zeros(self.src.shape, dtype=np.uint8)
-        pred = pred[np.newaxis, :, :].astype(np.uint8)
-        out_meta = self.src.profile
-        out_meta.update({"driver": "GTiff",
-                         "height": pred.shape[1],
-                         "width": pred.shape[2],
-                         "count": pred.shape[0],
-                         "dtype": 'uint8',
-                         'tiled': True,
-                         'blockxsize': 256,
-                         'blockysize': 256,
-                         "compress": 'lzw'})
-        with rasterio.open(self.outpath, 'w+', **out_meta) as dest:
-            dest.write(pred)
 
     def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:
         """Retrieve image/mask and metadata indexed by query.

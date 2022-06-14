@@ -1,3 +1,5 @@
 # @package _global_
 evaluate:
   iou_threshold: 0.5
+  parallel: False
+  parallel_gpu_ids:

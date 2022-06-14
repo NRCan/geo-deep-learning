@@ -16,6 +16,8 @@ from rasterio.mask import mask
 from rasterio.shutil import copy as riocopy
 import xml.etree.ElementTree as ET
 
+from solaris.utils.core import _check_rasterio_im_load
+
 logger = logging.getLogger(__name__)
 
 
@@ -158,36 +160,33 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
     return np_label_raster
 
 
-def create_new_raster_from_base(input_raster, output_raster, write_array):
+def create_new_raster_from_base(
+        input_raster: Union[str, Path, rasterio.DatasetReader],
+        output_raster: Union[str, Path],
+        write_array: np.ndarray):
     """Function to use info from input raster to create new one.
-    Args:
-        input_raster: input raster path and name
-        output_raster: raster name and path to be created with info from input
-        write_array (optional): array to write into the new raster
-
+    @param input_raster:
+        input raster path and name
+    @param output_raster:
+        raster name and path to be created with info from input
+    @param write_array:
+        Numpy array to write to output file. Must be 8bit integer values.
     Return:
-        none
     """
-    if len(write_array.shape) == 2:  # 2D array
-        count = 1
-    elif len(write_array.shape) == 3:  # 3D array  # FIXME: why not keep all bands?
-        count = 3
-    else:
-        raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
-
-    with rasterio.open(input_raster, 'r') as src:
-        with rasterio.open(output_raster, 'w',
-                           driver=src.driver,
-                           width=src.width,
-                           height=src.height,
-                           count=count,
-                           crs=src.crs,
-                           dtype=np.uint8,
-                           transform=src.transform) as dst:
-            if count == 1:
-                dst.write(write_array[:, :], 1)
-            elif count == 3:
-                dst.write(write_array[:, :, :3])  # Take only first three bands assuming they are RGB.
+    if len(write_array.shape) == 2:
+        write_array = write_array[np.newaxis, :, :].astype(np.uint8)
+    out_meta = _check_rasterio_im_load(input_raster).profile
+    out_meta.update({"driver": "GTiff",
+                     "height": write_array.shape[1],
+                     "width": write_array.shape[2],
+                     "count": write_array.shape[0],
+                     "dtype": 'uint8',
+                     'tiled': True,
+                     'blockxsize': 256,
+                     'blockysize': 256,
+                     "compress": 'lzw'})
+    with rasterio.open(output_raster, 'w+', **out_meta) as dest:
+        dest.write(write_array)
 
 
 def get_key_recursive(key, config):

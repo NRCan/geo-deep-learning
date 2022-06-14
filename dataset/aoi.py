@@ -7,7 +7,6 @@ import geopandas as gpd
 import pyproj
 import pystac
 import rasterio
-from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
 from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
@@ -16,7 +15,7 @@ from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load
 from torchvision.datasets.utils import download_url
 from tqdm import tqdm
 
-from utils.geoutils import stack_vrts, is_stac_item
+from utils.geoutils import stack_vrts, is_stac_item, create_new_raster_from_base
 from utils.logger import get_logger
 from utils.utils import read_csv
 from utils.verifications import assert_crs_match, validate_raster, \
@@ -245,15 +244,16 @@ class AOI(object):
         self.aoi_id = aoi_id
 
         # If ground truth is provided, check attribute field
-        if label and attr_field_filter and not isinstance(attr_field_filter, str):
-            raise TypeError(f'Attribute field name should be a string.\n'
-                            f'Got {attr_field_filter} of type {type(attr_field_filter)}')
-        if attr_field_filter not in self.label_gdf.columns:
-            # fiona and geopandas don't expect attribute name exactly the same way: "properties/class" vs "class"
-            attr_field_filter = attr_field_filter.split('/')[-1]
-            if attr_field_filter not in self.label_gdf.columns:
-                raise ValueError(f"\nAttribute field \"{attr_field_filter}\" not found in label attributes:\n"
-                                 f"{self.label_gdf.columns}")
+        if label and attr_field_filter:
+            if not isinstance(attr_field_filter, str):
+                raise TypeError(f'Attribute field name should be a string.\n'
+                                f'Got {attr_field_filter} of type {type(attr_field_filter)}')
+            elif attr_field_filter not in self.label_gdf.columns:
+                # fiona and geopandas don't expect attribute name exactly the same way: "properties/class" vs "class"
+                attr_field_filter = attr_field_filter.split('/')[-1]
+                if attr_field_filter not in self.label_gdf.columns:
+                    raise ValueError(f"\nAttribute field \"{attr_field_filter}\" not found in label attributes:\n"
+                                     f"{self.label_gdf.columns}")
         self.attr_field_filter = attr_field_filter
 
         # If ground truth is provided, check attribute values to filter from
@@ -270,7 +270,7 @@ class AOI(object):
             raise ValueError(f"\nNo features found for ground truth \"{self.label}\","
                              f"\nfiltered by attribute field \"{self.attr_field_filter}\""
                              f"\nwith values \"{self.attr_values_filter}\"")
-        self.label_gdf = label_gdf_filtered
+        self.label_gdf_filtered = label_gdf_filtered
         logging.debug(self)
 
     @classmethod
@@ -325,19 +325,20 @@ class AOI(object):
 
     def write_multiband_from_singleband_rasters_as_vrt(self):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
-        if not self.raster.driver == 'VRT' or not self.raster_parsed or not "${dataset.bands}" in self.raster_raw_input:
-            logging.warning(f"To write a multi-band raster from single-band files, a VRT must be provided."
-                            f"\nGot {self.raster.meta}")
+        if not self.raster.driver == 'VRT':
+            logging.error(f"To write a multi-band raster from single-band files, a VRT must be provided."
+                          f"\nGot {self.raster.meta}")
             return
-
-        out_tif_path = self.raster_raw_input.replace("${dataset.bands}", ''.join(self.raster_bands_request))
-        out_meta = self.raster.meta.copy()
-        out_meta.update({"driver": "GTiff",
-                         "count": self.raster.count})
-        with rasterio.open(out_tif_path, "w", **out_meta) as dest:
-            logging.debug(f"Writing multi-band raster to {out_tif_path}")
-            out_img = self.raster.read()
-            dest.write(out_img)
+        if "${dataset.bands}" in self.raster_raw_input:
+            out_tif_path = self.raster_raw_input.replace("${dataset.bands}", ''.join(self.raster_bands_request))
+        elif is_stac_item(self.raster_raw_input):
+            out_tif_path = self.root_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
+        logging.debug(f"Writing multi-band raster to {out_tif_path}")
+        create_new_raster_from_base(
+            input_raster=self.raster,
+            output_raster=str(out_tif_path),
+            write_array=self.raster.read())
+        return out_tif_path
 
     @staticmethod
     def parse_input_raster(

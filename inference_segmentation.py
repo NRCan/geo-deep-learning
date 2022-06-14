@@ -28,6 +28,7 @@ from tqdm import tqdm
 
 from inference.InferenceDataModule import InferenceDataModule, preprocess, pad
 from models.model_choice import define_model_architecture
+from utils.geoutils import create_new_raster_from_base
 from utils.logger import get_logger
 from utils.utils import _window_2D, get_device_ids, get_key_def, set_device, override_model_params_from_checkpoint, \
     gdl2pl_checkpoint, read_checkpoint, extension_remover, class_from_heatmap, stretch_heatmap
@@ -172,7 +173,7 @@ def eval_batch_generator(
         batch_output['bbox'] = batch['bbox']
         batch_output['crs'] = batch['crs']
         inputs = batch["image"].to(device)
-        with autocast(device_type=device.type):
+        with torch.no_grad(), autocast(device_type=device.type):
             outputs = model(inputs)
         if single_class_mode:
             outputs = torch.sigmoid(outputs)
@@ -194,24 +195,11 @@ def save_heatmap(heatmap: np.ndarray, outpath: Union[str, Path], src: rasterio.D
         path to desired output file
     @param src:
         a rasterio file handler (aka DatasetReader) from source imagery. Contains metadata to write heatmap
-    @param meta:
-        metadata as expected by rasterio.open() to write output file
     @return:
     """
     heatmap_arr = stretch_heatmap(heatmap_arr=heatmap, out_max=100)
     heatmap_arr = reshape_as_raster(heatmap_arr).astype(np.uint8)
-    out_meta = src.profile
-    out_meta.update({"driver": "GTiff",
-                     "height": heatmap_arr.shape[1],
-                     "width": heatmap_arr.shape[2],
-                     "count": heatmap_arr.shape[0],
-                     "dtype": 'uint8',
-                     'tiled': True,
-                     'blockxsize': 256,
-                     'blockysize': 256,
-                     "compress": 'lzw'})
-    with rasterio.open(outpath, 'w+', **out_meta) as dest:
-        dest.write(heatmap_arr)
+    create_new_raster_from_base(input_raster=src, output_raster=outpath, write_array=heatmap_arr)
 
 
 def main(params):
@@ -235,6 +223,8 @@ def main(params):
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
     save_heatmap_bool = get_key_def('save_heatmap', params['inference'], default=False, expected_type=bool)
     heatmap_threshold = get_key_def('heatmap_threshold', params['inference'], default=50, expected_type=int)
+    heatmap_name = get_key_def('heatmap_name', params['inference'], default=f"{outpath.stem}_heatmap", expected_type=str)
+    outpath_heat = root / f"{heatmap_name}.tif"
 
     # Create yaml to use pytorch lightning model management
     if is_url(checkpoint):
@@ -256,14 +246,20 @@ def main(params):
 
     # Hardware
     num_devices = get_key_def('gpu', params['inference'], default=1, expected_type=(int, bool))
+    device_id = get_key_def('gpu_id', params['inference'], default=None, expected_type=int)
     max_used_ram = get_key_def('max_used_ram', params['inference'], default=100, expected_type=int)
     if not (0 <= max_used_ram <= 100):
         raise ValueError(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}.')
     max_used_perc = get_key_def('max_used_perc', params['inference'], default=25, expected_type=int)
     # list of GPU devices that are available and unused. If no GPUs, returns empty dict
     gpu_devices_dict = get_device_ids(num_devices, max_used_ram_perc=max_used_ram, max_used_perc=max_used_perc)
-    device = set_device(gpu_devices_dict=gpu_devices_dict)
-    num_workers_default = 0 if device == 'cpu' else len(gpu_devices_dict.keys()) * 4
+    if device_id:
+        logging.warning(
+            f"\nWill use GPU with id {device_id}. This parameter has priority over \"inference.gpu\" parameter")
+        device = torch.device(f'cuda:{device_id}')
+    else:
+        device = set_device(gpu_devices_dict=gpu_devices_dict)
+    num_workers_default = 0 if device == 'cpu' else 4
     num_workers = get_key_def('num_workers', params['inference'], default=num_workers_default, expected_type=int)
 
     # Sampling, batching and augmentations configuration
@@ -370,16 +366,12 @@ def main(params):
     fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, num_classes))
     pred_img = class_from_heatmap(heatmap_arr=fp, heatmap_threshold=heatmap_threshold)
     pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
-    dm.inference_dataset.create_empty_outraster()
-    meta = rasterio.open(outpath).meta
-    with rasterio.open(outpath, 'w+', **meta) as dest:
-        dest.write(pred_img)
+    create_new_raster_from_base(input_raster=dm.inference_dataset.src, output_raster=outpath, write_array=pred_img)
 
     logging.info(f'\nInference completed on {dm.inference_dataset.item_url}'
                  f'\nFinal prediction written to {outpath}')
 
     if dm.save_heatmap:
-        outpath_heat = root / f"{outpath.stem}_heatmap.tif"
         logging.info(f"\nSaving heatmap...")
         save_heatmap(heatmap=fp, outpath=outpath_heat, src=dm.inference_dataset.src)
         logging.info(f'\nSaved heatmap to {outpath_heat}')

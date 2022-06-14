@@ -193,8 +193,8 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
                 logging.info(codecs.decode(line))
         exit_code = container.wait(timeout=1200)
         logging.info(exit_code)
-        if exit_code != 0:
-            raise IOError(f"Error while executing singularity with subprocess. Return code: {exit_code}")
+        if exit_code['StatusCode'] != 0:
+            raise IOError(f"Error while executing docker with subprocess. Return code: {exit_code}")
     # Singularity: validate installation and assert version >= 3.0.0
     elif container_type == 'singularity':
         # Work around to prevent string parsing error: unexpected EOF while looking for matching `"'
@@ -317,7 +317,10 @@ def add_confidence_from_heatmap(in_heatmap: Union[str, Path], in_vect: Union[str
             window = rasterio.windows.from_bounds(left, bottom, right, top, transform=src.transform)
             conf_vals = src.read(window=window)  # only read band relative to feature class
             conf_vals = reshape_as_image(conf_vals)
-            flattened = class_from_heatmap(heatmap_arr=conf_vals, heatmap_threshold=heatmap_threshold)
+            flattened = class_from_heatmap(
+                heatmap_arr=conf_vals,
+                heatmap_threshold=heatmap_threshold,
+                range_warning=False)
             mask = flattened == feature.value
             conf_vals = conf_vals[..., feature.value] if conf_vals.shape[-1] > 1 else conf_vals[..., 0]
             confidence = conf_vals[mask].mean()
@@ -344,7 +347,9 @@ def main(params):
                          f"\nhydra's successful interpolation of input and output names in commands set in config.")
     inf_outname = extension_remover(inf_outname)
     inf_outpath = root / f"{inf_outname}.tif"
-    in_heatmap = root / f"{inf_outpath.stem}_heatmap.tif"
+    heatmap_name = get_key_def('heatmap_name', params['inference'], default=f"{inf_outpath.stem}_heatmap", expected_type=str)
+    heatmap_name = extension_remover(heatmap_name)
+    in_heatmap = root / f"{heatmap_name}.tif"
     outname = get_key_def('output_name', params['postprocess'], default=inf_outname, expected_type=str)
     outname = extension_remover(outname)
     if not inf_outpath.is_file():
