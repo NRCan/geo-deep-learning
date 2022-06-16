@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from dataset.aoi import AOI
 from utils.utils import read_csv
 from utils.verifications import validate_features_from_gpkg
@@ -20,6 +22,14 @@ class Test_AOI(object):
         data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['red', 'green', 'blue'])
+
+    def test_missing_label(self):
+        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        for row in data:
+            row['gpkg'] = "missing_file.gpkg"
+            with pytest.raises(AttributeError):
+                aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
+
 
     # TODO
     # def test_invalid_label_feature(self):

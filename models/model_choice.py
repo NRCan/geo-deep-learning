@@ -5,6 +5,7 @@ import logging
 from hydra.utils import instantiate, to_absolute_path
 import torch
 import torch.nn as nn
+from omegaconf import DictConfig
 from pandas.io.common import is_url
 from torch.hub import load_state_dict_from_url
 
