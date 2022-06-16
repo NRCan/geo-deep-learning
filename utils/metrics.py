@@ -116,7 +116,7 @@ def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
     return metric_dict
 
 
-def iou_torchmetrics(pred: torch.Tensor, label: torch.Tensor, num_classes: int, device: str = 'cpu'):  # FIXME: merge with iou() above
+def iou_torchmetrics(pred: torch.Tensor, label: torch.Tensor, num_classes: int, device: torch.device = 'cpu'):  # FIXME: merge with iou() above
     metrics = MetricCollection(
         [JaccardIndex(num_classes=num_classes, ignore_index=False, multilabel=True)], prefix="evaluate_"
     )

@@ -1,6 +1,5 @@
 import csv
 import logging
-import multiprocessing
 from collections import OrderedDict
 from pathlib import Path
 from typing import Sequence
@@ -23,11 +22,6 @@ from inference_segmentation import main as gdl_inference
 from postprocess_segmentation import main as gdl_postprocess
 
 
-def map_wrapper(x):
-    """For multi-threading"""
-    return x[0](*(x[1:]))
-
-
 def benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num_classes, min_iou, outpath_csv, keys):
     metric_per_aoi = OrderedDict(
         {'aoi_id': aoi.aoi_id, 'state_dict': Path(checkpoint).name, 'heatmap_threshold': heatmap_threshold})
@@ -48,6 +42,7 @@ def benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num
     out_raster = root / f"{pred_vector_path.stem}_metrics_thresh{str(heatmap_threshold)}.tif"
     out_vector = root / f"{pred_vector_path.stem}_metrics_iou{str(min_iou).replace('.', '')}_thresh{str(heatmap_threshold)}.gpkg"
 
+    # TODO: cleanup! why inference.output_name defined twice?
     with open_dict(cfg):
         OmegaConf.update(cfg, 'inference.output_name', str(out_raster.stem), merge=False)
         OmegaConf.update(cfg, 'inference.heatmap_name', str(outpath_heat.stem), merge=False)
@@ -75,17 +70,26 @@ def benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num
         burn_val = None
         burn_field = aoi.attr_field_filter
     label_raster = vector.mask.footprint_mask(
-        df=aoi.label_gdf,
+        df=aoi.label_gdf_filtered,
         reference_im=aoi.raster,
         burn_field=burn_field,
         burn_value=burn_val)
 
     logging.info(f"Computing raster metrics from prediction and ground truth")
-    iou = iou_torchmetrics(
-        torch.from_numpy(pred_raster),
-        torch.from_numpy(label_raster),
-        num_classes=num_classes,
-        device=device)
+    try:
+        iou = iou_torchmetrics(
+            torch.from_numpy(pred_raster),
+            torch.from_numpy(label_raster),
+            num_classes=num_classes,
+            device=device)
+    except RuntimeError as e:
+        logging.error(f"{aoi.aoi_id}: {e}")
+        logging.info(f"Trying on cpu...")
+        iou = iou_torchmetrics(
+            torch.from_numpy(pred_raster),
+            torch.from_numpy(label_raster),
+            num_classes=num_classes,
+            device=torch.device('cpu'))
     torch.cuda.empty_cache()
     logging.info(f"Result:\nRaster IOU | {iou}")
     metric_per_aoi['iou_raster'] = iou
@@ -93,7 +97,7 @@ def benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num
     logging.info(f"Computing vector metrics from prediction and ground truth")
     metric_vector = iou_per_obj(
         pred=pred_vector_path,
-        gt=aoi.label_gdf,
+        gt=aoi.label_gdf_filtered,
         outfile=out_vector,
         min_iou=min_iou)
     logging.info(f"\nVector metrics: {metric_vector}\nClassified features saved to: {out_vector}")
@@ -175,23 +179,9 @@ def main(cfg):
             dict_writer = csv.DictWriter(output_file, keys)
             dict_writer.writeheader()
 
-    input_args = []
     for index, aoi in enumerate(benchmark_raw_data):
-        if parallel:
-            device = torch.device(f"cuda:{parallel_gpu_ids[index % len(parallel_gpu_ids)]}")
-            # TODO Remove when solved: https://github.com/dymaxionlabs/dask-rasterio/issues/3
-            aoi_raster = aoi.write_multiband_from_singleband_rasters_as_vrt()
-            aoi.raster = str(aoi_raster)
-            logging.debug(f"Aoi: {aoi.aoi_id} | Device: {device}")
-            input_args.append([benchmark_per_aoi, cfg, checkpoint, root, aoi, heatmap_threshold, device, num_classes, min_iou, outpath_csv, keys])
-        else:
-            device = set_device(gpu_devices_dict=gpu_id)
-            benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num_classes, min_iou, outpath_csv, keys)
-
-    if parallel:
-        logging.info(f"Will parallelize inferences on {len(parallel_gpu_ids)} gpu(s). Let's heat'em up!")
-        with multiprocessing.get_context('spawn').Pool(processes=len(parallel_gpu_ids)) as pool:
-            metrics = pool.map_async(map_wrapper, input_args).get()
+        device = set_device(gpu_devices_dict=gpu_id)
+        benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num_classes, min_iou, outpath_csv, keys)
 
     logging.info(f"Benchmark report will be saved: {outpath_csv}")
 
