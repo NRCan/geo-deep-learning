@@ -209,7 +209,8 @@ def is_stac_item(path: str) -> bool:
         try:
             pystac.Item.from_file(str(path))
             return True
-        except (FileNotFoundError, pystac.STACTypeError, UnicodeDecodeError):
+        # with .tif as url, pystac/stac_io.py/read_test_from_href() returns Exception, not HTTPError
+        except Exception:
             return False
 
 

@@ -172,7 +172,7 @@ class AOI(object):
             for index, single_raster in enumerate(raster_parsed):
                 if is_url(single_raster):
                     out_name = self.root_dir / Path(single_raster).name
-                    download_url(single_raster, root=str(self.root_dir), filename=str(out_name))
+                    download_url(single_raster, root=str(out_name.parent), filename=out_name.name)
                     # replace with local copy
                     raster_parsed[index] = str(out_name)
 
