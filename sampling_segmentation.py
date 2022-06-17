@@ -27,35 +27,6 @@ logging = get_logger(__name__)  # import logging
 np.random.seed(1234)
 
 
-def mask_image(arrayA, arrayB):
-    """Function to mask values of arrayB, based on 0 values from arrayA.
-
-    >>> x1 = np.array([0, 2, 4, 6, 0, 3, 9, 8], dtype=np.uint8).reshape(2,2,2)
-    >>> x2 = np.array([1.5, 1.2, 1.6, 1.2, 11., 1.1, 25.9, 0.1], dtype=np.float32).reshape(2,2,2)
-    >>> mask_image(x1, x2)
-    array([[[ 0. ,  0. ],
-            [ 1.6,  1.2]],
-    <BLANKLINE>
-           [[ 0. ,  0. ],
-            [25.9,  0.1]]], dtype=float32)
-    """
-
-    # Handle arrayA of shapes (h,w,c) and (h,w)
-    if len(arrayA.shape) == 3:
-        mask = arrayA[:, :, 0] != 0
-    else:
-        mask = arrayA != 0
-
-    ma_array = np.zeros(arrayB.shape, dtype=arrayB.dtype)
-    # Handle arrayB of shapes (h,w,c) and (h,w)
-    if len(arrayB.shape) == 3:
-        for i in range(0, arrayB.shape[2]):
-            ma_array[:, :, i] = mask * arrayB[:, :, i]
-    else:
-        ma_array = arrayB * mask
-    return ma_array
-
-
 def validate_class_prop_dict(actual_classes_dict, config_dict):
     """
     Populate dictionary containing class values found in vector data with values (thresholds) from sample/class_prop
@@ -342,8 +313,6 @@ def main(cfg: DictConfig) -> None:
         3. Assert Coordinate reference system between raster and gpkg match.
     3. Read csv file and for each line in the file, do the following:
         1. Read input image as array with utils.readers.image_reader_as_array().
-            - If gpkg's extent is smaller than raster's extent,
-              raster is clipped to gpkg's extent.
             - If gpkg's extent is bigger than raster's extent,
               gpkg is clipped to raster's extent.
         2. Convert GeoPackage vector information into the "label" raster with
@@ -400,7 +369,6 @@ def main(cfg: DictConfig) -> None:
     # OTHER PARAMETERS
     # TODO class_prop get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
     class_prop = None
-    mask_reference = False  # TODO get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
     # set dontcare (aka ignore_index) value
     dontcare = cfg.dataset.ignore_index if cfg.dataset.ignore_index is not None else -1
     if dontcare == 0:
@@ -475,10 +443,7 @@ def main(cfg: DictConfig) -> None:
             logging.info(f"\nReading as array: {aoi.raster.name}")
             with _check_rasterio_im_load(aoi.raster) as raster:
                 # 1. Read the input raster image
-                np_input_image, raster, dataset_nodata = image_reader_as_array(
-                    input_image=raster,
-                    #FIXME: remove clip_gpkg=aoi.label
-                )
+                np_input_image, raster, dataset_nodata = image_reader_as_array(input_image=raster)
 
                 # 2. Burn vector file in a raster file
                 logging.info(f"\nRasterizing vector file (attribute: {attribute_field}): {aoi.label}")
@@ -497,32 +462,6 @@ def main(cfg: DictConfig) -> None:
                 if dataset_nodata is not None:
                     # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
                     np_label_raster[dataset_nodata] = dontcare
-
-            if debug:
-                out_meta = raster.meta.copy()
-                np_image_debug = np_input_image.transpose(2, 0, 1).astype(out_meta['dtype'])
-                out_meta.update({"driver": "GTiff",
-                                 "height": np_image_debug.shape[1],
-                                 "width": np_image_debug.shape[2]})
-                out_tif = samples_dir / f"{Path(aoi.raster.name).stem}_clipped.tif"
-                logging.debug(f"Writing clipped raster to {out_tif}")
-                with rasterio.open(out_tif, "w", **out_meta) as dest:
-                    dest.write(np_image_debug)
-
-                out_meta = raster.meta.copy()
-                np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(out_meta['dtype'])
-                out_meta.update({"driver": "GTiff",
-                                 "height": np_label_debug.shape[1],
-                                 "width": np_label_debug.shape[2],
-                                 'count': 1})
-                out_tif = samples_dir / f"{Path(aoi.label).stem}_clipped.tif"
-                logging.debug(f"\nWriting final rasterized gpkg to {out_tif}")
-                with rasterio.open(out_tif, "w", **out_meta) as dest:
-                    dest.write(np_label_debug)
-
-            # Mask the zeros from input image into label raster.
-            if mask_reference:
-                np_label_raster = mask_image(np_input_image, np_label_raster)
 
             if aoi.split == 'trn':
                 out_file = trn_hdf5
