@@ -403,7 +403,7 @@ class AOI(object):
                           f'Total features: {len(gdf_tile)}\n'
                           f'Attribute field: "{attr_field}"\n'
                           f'Filtered values: {attr_vals}')
-            return gdf_filtered, attr_field
+            return gdf_filtered
         except KeyError as e:
             logging.critical(f'No attribute named {attr_field} in GeoDataFrame. \n'
                              f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'

@@ -1,13 +1,9 @@
-import csv
 import difflib
-import functools
-import glob
 import math
 import multiprocessing
 import shutil
 
 import matplotlib.pyplot
-import os
 from typing import Union, Sequence, List
 from pathlib import Path
 
@@ -24,9 +20,7 @@ from dataset.aoi import aois_from_csv, AOI
 from utils.utils import (
     get_key_def, get_git_hash
 )
-from utils.verifications import (
-    validate_raster, assert_crs_match, validate_by_geopandas
-)
+from utils.verifications import validate_raster, assert_crs_match
 # Set the logging file
 from utils import utils
 logging = utils.get_logger(__name__)  # import logging
@@ -37,47 +31,6 @@ from solaris_gdl import tile
 from solaris_gdl import vector
 from solaris_gdl.utils.core import _check_rasterio_im_load, _check_gdf_load
 from solaris_gdl.utils.geo import reproject_geometry
-
-
-def filter_gdf_by_attribute(gdf_tile: Union[str, Path, gpd.GeoDataFrame], attr_field: str = None,
-                            attr_vals: Sequence = None):
-    """
-    Filter features from a geopandas.GeoDataFrame according to an attribute field and filtering values
-    @param gdf_tile: str, Path or gpd.GeoDataFrame
-        GeoDataFrame or path to GeoDataFrame to filter feature from
-    @return: Subset of source GeoDataFrame with only filtered features (deep copy)
-    """
-    gdf_tile = _check_gdf_load(gdf_tile)
-    if not attr_field:
-        return gdf_tile, None
-    elif attr_field and not attr_vals:
-        raise ValueError(f'No attribute values given to filter features for attribute field "{attr_field}". '
-                         f'If all values are to be kept, these values should be listed in attribute values '
-                         f'in the dataset configuration')
-    if not attr_field in gdf_tile.columns:
-        attr_field = attr_field.split('/')[-1]
-    if gdf_tile.empty:
-        return gdf_tile, attr_field
-    try:
-        condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
-        condList.extend([gdf_tile[f'{attr_field}'] == str(val) for val in attr_vals])
-        allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
-        gdf_filtered = gdf_tile[allcond].copy(deep=True)
-        logging.debug(f'\nSuccessfully filtered features from GeoDataFrame"\n'
-                      f'Filtered features: {len(gdf_filtered)}\n'
-                      f'Total features: {len(gdf_tile)}\n'
-                      f'Attribute field: "{attr_field}"\n'
-                      f'Filtered values: {attr_vals}')
-        if gdf_filtered.empty:
-            logging.warning(f'\nFeatures are present for given attribute field "{attr_field}", but none with values'
-                            f'{attr_vals}. Values present: {gdf_tile[attr_field].unique()}')
-        return gdf_filtered, attr_field
-    except KeyError as e:
-        logging.critical(f'\nNo attribute named {attr_field} in GeoDataFrame. \n'
-                         f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'
-                         f'Attributes: {gdf_tile.columns}\n'
-                         f'GeoDataFrame: {gdf_tile.info()}')
-        raise e
 
 
 def annot_percent(img_tile: Union[str, Path, rasterio.DatasetReader],
@@ -532,7 +485,7 @@ class Tiler(object):
             img_tile, gt_tile = img_tile_dest, gt_tile_dest
         out_gt_burned_path = self.get_burn_gt_tile_path(attr_vals=aoi.attr_values_filter, gt_tile=gt_tile)
         # returns corrected attr_field if original field needed truncating
-        gdf_tile, aoi.attr_field = filter_gdf_by_attribute(
+        gdf_tile = AOI.filter_gdf_by_attribute(
             gdf_tile=gt_tile,
             attr_field=aoi.attr_field_filter,
             attr_vals=aoi.attr_values_filter
@@ -576,52 +529,6 @@ def gt_from_img(img_path, gt_dir_rel2img):
     gt = gt_dir / gt_matches[0]
     csv_line = (image, gt.resolve(), 'trn')
     return csv_line
-
-
-# TODO: useful?
-def csv_from_glob(img_glob, gt_dir_rel2img, parallel=False):
-    """
-    Write a GDL csv from glob patterns to imagery and ground truth data
-    @param img_glob: glob pattern to imagery
-    @param gt_dir_rel2img: ground truth directory relative to imagery
-    @return: path to output csv
-    """
-    csv_lines = []
-    # 10 next lines from: https://github.com/WongKinYiu/yolor/blob/main/utils/datasets.py
-    p = str(Path(img_glob))  # os-agnostic
-    p = os.path.abspath(p)  # absolute path
-    if '*' in p:
-        images = sorted(glob.glob(p, recursive=True))  # glob
-    elif os.path.isdir(p):
-        images = sorted(glob.glob(os.path.join(p, '*.*')))  # dir
-    elif os.path.isfile(p):
-        images = [p]  # files
-    else:
-        raise Exception('ERROR: %s does not exist' % p)
-    logging.warning(f"Dataset will only be 'trn' when creating csv from glob")
-    input_args = []
-    for image in tqdm(images, desc=f'Searching for ground truth match to {len(images)} globbed images'):
-        if parallel:
-            input_args.append([gt_from_img, image, gt_dir_rel2img])
-        else:
-            csv_line = gt_from_img(image, gt_dir_rel2img)
-            csv_lines.append(csv_line)
-
-    if parallel:
-        logging.info(f'Parallelizing search for ground truth for {len(images)} globbed images...')
-        proc = multiprocessing.cpu_count()
-        with multiprocessing.get_context('spawn').Pool(processes=proc) as pool:
-            lines = pool.map_async(map_wrapper, input_args).get()
-        csv_lines = lines
-
-    # Export to pickle rather than csv?
-    # TODO: https://towardsdatascience.com/stop-using-csvs-for-storage-here-are-the-top-5-alternatives-e3a7c9018de0
-    out_csv = Path(img_glob.split('/*')[0]) / f'{Path(img_glob.split("*")[0]).stem}.csv'
-    with open(out_csv, 'w') as out:
-        write = csv.writer(out)
-        write.writerows(csv_lines)
-    logging.info(f'Finished glob. Wrote to csv: {out_csv}')
-    return str(out_csv)
 
 
 def map_wrapper(x):
@@ -828,7 +735,7 @@ def main(cfg: DictConfig) -> None:
                     logging.error(f'\nInvalid imagery tile: {img_tile}'
                                   f'\n{e}')
                 try:
-                    validate_by_geopandas(gt_tile)
+                    _check_gdf_load(gt_tile)  # validates ground truth tile
                 except Exception as e:
                     logging.error(f'\nInvalid ground truth tile: {img_tile}. '
                                   f'\n{e}')
