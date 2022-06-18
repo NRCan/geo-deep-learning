@@ -6,9 +6,6 @@ import fiona
 import geopandas as gpd
 import numpy as np
 import rasterio
-from fiona._err import CPLE_OpenFailedError
-from fiona.errors import DriverError
-from rasterio.features import is_valid_geom
 from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load, _check_crs
 from tqdm import tqdm
 
@@ -101,22 +98,21 @@ def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: 
     if not raster:
         raise FileNotFoundError(f"No raster provided. Got: {raster}")
     try:
-        raster = Path(raster) if isinstance(raster, str) and not is_url(raster) else raster
-    except TypeError as e:
+        raster = _check_rasterio_im_load(raster)
+    except (TypeError, ValueError) as e:
         logging.critical(f"Invalid raster.\nRaster path: {raster}\n{e}")
         raise e
     try:
+        size = Path(raster.name).stat().st_size if not is_url(raster.name) else None
         logging.debug(f'Raster to validate: {raster}\n'
-                      f'Size: {raster.stat().st_size}\n'
+                      f'Size: {size}\n'
                       f'Extended check: {extended}')
-        with rasterio.open(raster, 'r') as raster:
-            if not raster.meta['dtype'] in ['uint8', 'uint16']:  # will trigger exception if invalid raster
-                logging.warning(f"Only uint8 and uint16 are supported in current version.\n"
-                                f"Datatype {raster.meta['dtype']} for {raster.aoi_id} may cause problems.")
+        if not raster.meta['dtype'] in ['uint8', 'uint16']:  # will trigger exception if invalid raster
+            logging.warning(f"Only uint8 and uint16 are supported in current version.\n"
+                            f"Datatype {raster.meta['dtype']} for {raster.aoi_id} may cause problems.")
         if extended:
             logging.debug(f'Will perform extended check.\nWill read first band: {raster}')
-            with rasterio.open(raster, 'r') as raster:
-                raster_np = raster.read(1)
+            raster_np = raster.read(1)
             logging.debug(raster_np.shape)
             if not np.any(raster_np):
                 logging.critical(f"Raster data filled with zero values.\nRaster path: {raster}")
@@ -199,45 +195,12 @@ def assert_crs_match(
         return False, raster_crs, gt_crs
 
 
-def validate_features_from_gpkg(label: Union[str, Path], attribute_name: str):
+def validate_features_from_gpkg(label: Union[str, Path, gpd.GeoDataFrame], attribute_name: str):
     """
     Validate features in gpkg file
     :param label: (str or Path) path to gpkg file
     :param attribute_name: name of the value field representing the required classes in the vector image file
     """
-    # FIXME: use geopandas
-    # TODO: test this with invalid features.
-    invalid_features_list = []
-    # Validate vector features to burn in the raster image
-    with fiona.open(label, 'r') as src:
-        lst_vector = [vector for vector in src]
-    shapes = lst_ids(list_vector=lst_vector, attr_name=attribute_name)
-    for index, item in enumerate(tqdm([v for vecs in shapes.values() for v in vecs], leave=False, position=1)):
-        feature_id = lst_vector[index]["id"]
-        # geom must be a valid GeoJSON geometry type and non-empty
-        geom, value = item
-        geom = getattr(geom, '__geo_interface__', None) or geom
-        if not is_valid_geom(geom):
-            if feature_id not in invalid_features_list:  # ignore if feature is already appended
-                if index == 0:
-                    logging.critical(f"Label file contains at least one invalid feature: {label}")
-                invalid_features_list.append(feature_id)
-                logging.critical(f"Invalid geometry object: '{feature_id}'")
-    return invalid_features_list
-
-
-def validate_by_geopandas(label: Union[Path, str]):
-    # TODO: unit test for valid/invalid label file
-    """Check if `label` is readable by geopandas, if not, log and raise error."""
-    # adapted from https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L52
-    if not Path(label).is_file() or os.stat(label).st_size == 0:
-        raise FileNotFoundError(f'{label} is not a valid file')
-    try:
-        return gpd.read_file(label)
-    except (DriverError, CPLE_OpenFailedError) as e:
-        logging.error(
-            f"GeoDataFrame couldn't be loaded: either {label} isn't a valid"
-            " path or it isn't a valid vector file. Returning an empty"
-            " GeoDataFrame."
-        )
-        raise e
+    label_gdf = _check_gdf_load(label)
+    invalid_features = list(np.where(label_gdf.is_valid != True)[0])
+    return invalid_features
