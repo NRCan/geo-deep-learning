@@ -263,7 +263,7 @@ class AOI(object):
             raise TypeError(f'Attribute values should be a list or integer.\n'
                             f'Got {attr_values_filter} of type {type(attr_values_filter)}')
         self.attr_values_filter = attr_values_filter
-        label_gdf_filtered, _ = self.filter_gdf_by_attribute(
+        label_gdf_filtered = self.filter_gdf_by_attribute(
             self.label_gdf.copy(deep=True),
             self.attr_field_filter,
             self.attr_values_filter,
@@ -393,7 +393,7 @@ class AOI(object):
         @return: Subset of source GeoDataFrame with only filtered features (deep copy)
         """
         gdf_tile = _check_gdf_load(gdf_tile)
-        if not attr_field or not attr_vals:
+        if gdf_tile.empty or not attr_field or not attr_vals:
             return gdf_tile
         try:
             condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]

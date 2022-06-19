@@ -484,9 +484,8 @@ class Tiler(object):
             shutil.move(gt_tile, gt_tile_dest)
             img_tile, gt_tile = img_tile_dest, gt_tile_dest
         out_gt_burned_path = self.get_burn_gt_tile_path(attr_vals=aoi.attr_values_filter, gt_tile=gt_tile)
-        # returns corrected attr_field if original field needed truncating
         gdf_tile = AOI.filter_gdf_by_attribute(
-            gdf_tile=gt_tile,
+            gdf_tile=str(gt_tile),
             attr_field=aoi.attr_field_filter,
             attr_vals=aoi.attr_values_filter
         )
@@ -730,7 +729,7 @@ def main(cfg: DictConfig) -> None:
             for img_tile, gt_tile, _ in tqdm(aoi.tiles_pairs_list,
                                              desc='DEBUG: Checking if data tiles are valid'):
                 try:
-                    validate_raster(img_tile)
+                    validate_raster(str(img_tile))
                 except Exception as e:
                     logging.error(f'\nInvalid imagery tile: {img_tile}'
                                   f'\n{e}')
