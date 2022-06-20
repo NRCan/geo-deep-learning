@@ -409,15 +409,6 @@ def main(cfg: DictConfig) -> None:
             f'\nDebug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.'
         )
 
-    # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg
-    valid_gpkg_set = set()
-    for aoi in tqdm(list_data_prep, position=0):
-        if aoi.label not in valid_gpkg_set:
-            gpkg_classes = validate_num_classes(
-                aoi.label, num_classes, attribute_field, dontcare, attribute_values=attr_vals,
-            )
-            valid_gpkg_set.add(aoi.label)
-
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 

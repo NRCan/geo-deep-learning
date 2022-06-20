@@ -8,6 +8,7 @@ dataset:
   train_val_percent: {'trn':0.7, 'val':0.3, 'tst':0}
   raw_data_csv: tests/sampling/sampling_segmentation_multiclass_ci.csv
   raw_data_dir: ${general.raw_data_dir}
+  download_data: False
 
   # imagery
   bands: [R, G, B]
