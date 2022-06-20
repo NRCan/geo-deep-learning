@@ -1,4 +1,5 @@
 import functools
+import json
 from collections import OrderedDict
 from pathlib import Path
 from typing import Union, Sequence, Dict, Tuple, List, Optional
@@ -159,6 +160,15 @@ class AOI(object):
             csv_raster_str=self.raster_raw_input,
             raster_bands_requested=self.raster_bands_request
         )
+
+        # If stac item input, keep Stac item object as attribute
+        if is_stac_item(self.raster_raw_input):
+            item = SingleBandItemEO(item=pystac.Item.from_file(self.raster_raw_input),
+                                    bands_requested=self.raster_bands_request)
+            self.raster_stac_item = item
+        else:
+            self.raster_stac_item = None
+
         # If parsed result has more than a single file, then we're dealing with single-band files
         self.raster_src_is_multiband = True if len(raster_parsed) == 1 else False
 
@@ -319,8 +329,21 @@ class AOI(object):
     # TODO def to_dict()
     # return a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)
 
-    # TODO def raster_stats()
-    # return a dictionary with mean and std of raster, per band
+    def raster_stats(self):
+        """ For stac items formatted as expected, reads mean and std of raster imagery, per band.
+        See stac item example: tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
+        If source imagery is not a stac item or stac item lacks stats assets, stats are calculed on the fly"""
+        stats = {name: {} for name in self.raster_bands_request}
+        try:
+            stats_asset = self.raster_stac_item.item.assets['STATS']
+            with open(stats_asset.href, 'r') as ifile:
+                stac_stats = json.loads(ifile.read())
+            stac_stats = {bandwise_stats['asset']: bandwise_stats for bandwise_stats in stac_stats}
+            for band in self.raster_stac_item.bands:
+                stats[band.common_name] = stac_stats[band.name]
+            return stats
+        except (AttributeError, KeyError):
+            raster_np = self.raster.read()
 
     def write_multiband_from_singleband_rasters_as_vrt(self):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
