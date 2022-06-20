@@ -9,6 +9,7 @@ import numpy as np
 import pyproj
 import pystac
 import rasterio
+from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
 from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
@@ -244,8 +245,10 @@ class AOI(object):
         # Check aoi_id string
         if aoi_id and not isinstance(aoi_id, str):
             raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
-        elif not aoi_id:
+        elif not aoi_id and self.raster_src_is_multiband:
             aoi_id = Path(self.raster.name).stem  # Defaults to name of image without suffix
+        elif not aoi_id and not self.raster_src_is_multiband:
+            aoi_id = Path(self.raster_raw_input).stem  # Defaults to name of first singleband image without suffix
         self.aoi_id = aoi_id
 
         # Check collection string
@@ -316,6 +319,7 @@ class AOI(object):
         )
         return new_aoi
 
+    # TODO: is this necessary if to_dict() is good enough?
     def __str__(self):
         return (
             f"\nAOI ID: {self.aoi_id}"
@@ -327,8 +331,22 @@ class AOI(object):
             f"\n\tAttribute values filter: {self.attr_values_filter}"
             )
 
-    # TODO def to_dict()
-    # return a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)
+    def to_dict(self):
+        """returns a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)"""
+        out_dict = {
+            'raster': self.raster_raw_input,
+            'label': self.label,
+            'split': self.split,
+            'id': self.aoi_id,
+            'raster_parsed': self.raster_parsed,
+            'label_nb_features': len(self.label_gdf),
+            'label_nb_features_filtered': len(self.label_gdf_filtered),
+            'raster_label_bounds_iou': self.bounds_iou,
+            'crs_raster': self.epsg_raster,
+            'crs_label': self.epsg_label,
+            'crs_match': self.crs_match
+        }
+        return out_dict
 
     def raster_stats(self):
         """ For stac items formatted as expected, reads mean and std of raster imagery, per band.
@@ -340,7 +358,7 @@ class AOI(object):
             stats = {f"band_{index}": {} for index in range(self.raster.count)}
         try:
             stats_asset = self.raster_stac_item.item.assets['STATS']
-            with open(stats_asset.href, 'r') as ifile:
+            with open(to_absolute_path(stats_asset.href), 'r') as ifile:
                 stac_stats = json.loads(ifile.read())
             stac_stats = {bandwise_stats['asset']: bandwise_stats for bandwise_stats in stac_stats}
             for band in self.raster_stac_item.bands:

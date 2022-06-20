@@ -114,5 +114,12 @@ class Test_AOI(object):
             break
 
 
+    def test_to_dict(self):
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
+        for row in data:
+            aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['red', 'green', 'blue'])
+            aoi_dict = aoi.to_dict()
+
 # TODO: SingleBandItem
 # test raise ValueError if request more than available bands
