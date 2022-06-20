@@ -48,8 +48,6 @@ class SingleBandItemEO(ItemEOExtension):
         self.item = item
         self._assets_by_common_name = None
 
-        if len(bands_requested) == 0:
-            logging.warning(f"At least one band should be chosen if assets need to be reached")
         if bands_requested is not None and len(bands_requested) == 0:
             logging.warning(f"At least one band should be chosen if assets need to be reached")
 
@@ -261,7 +259,7 @@ class AOI(object):
             raise TypeError(f'Attribute values should be a list.\n'
                             f'Got {attr_values_filter} of type {type(attr_values_filter)}')
         self.attr_values_filter = attr_values_filter
-        label_gdf_filtered, _ = self.filter_gdf_by_attribute(
+        label_gdf_filtered = self.filter_gdf_by_attribute(
             self.label_gdf.copy(deep=True),
             self.attr_field_filter,
             self.attr_values_filter,
@@ -333,6 +331,11 @@ class AOI(object):
             out_tif_path = self.raster_raw_input.replace("${dataset.bands}", ''.join(self.raster_bands_request))
         elif is_stac_item(self.raster_raw_input):
             out_tif_path = self.root_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
+        else:
+            logging.error(f"\nTo write multiband raster from single band imagery, "
+                          f"source imagery must be referenced with expected formats.\n"
+                          f"See dataset/README.md")
+            return
         logging.debug(f"Writing multi-band raster to {out_tif_path}")
         create_new_raster_from_base(
             input_raster=self.raster,
@@ -354,10 +357,6 @@ class AOI(object):
             input imagery to parse
         @param raster_bands_requested:
             dataset configuration parameters
-        @param download_data:
-            if True, download dataset and store it in the root directory.
-        @param root_dir:
-            root directory where dataset can be found or downloaded
         @return:
         """
         if is_stac_item(csv_raster_str):
@@ -392,7 +391,7 @@ class AOI(object):
         """
         gdf_tile = _check_gdf_load(gdf_tile)
         if not attr_field or not attr_vals:
-            return gdf_tile, None
+            return gdf_tile
         try:
             condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
             condList.extend([gdf_tile[f'{attr_field}'] == str(val) for val in attr_vals])
@@ -403,7 +402,7 @@ class AOI(object):
                           f'Total features: {len(gdf_tile)}\n'
                           f'Attribute field: "{attr_field}"\n'
                           f'Filtered values: {attr_vals}')
-            return gdf_filtered, attr_field
+            return gdf_filtered
         except KeyError as e:
             logging.critical(f'No attribute named {attr_field} in GeoDataFrame. \n'
                              f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'
