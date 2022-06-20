@@ -19,12 +19,14 @@ class Test_AOI(object):
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
 
     def test_singleband_input(self):
+        """Tests singleband input imagery with ${dataset.bands} pattern"""
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-singleband_ci.csv")
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'])
 
     def test_stac_input(self):
+        """Tests singleband input imagery from stac item"""
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
         for row in data:
@@ -75,6 +77,21 @@ class Test_AOI(object):
         iou = AOI.bounds_iou(label_bounds_box, raster_bounds_box)
         expected_iou = 0.013904645827033404
         assert iou == expected_iou
+
+    def test_raster_stats_from_stac(self) -> None:
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
+        for row in data:
+            aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['red', 'green', 'blue'])
+            stats = aoi.raster_stats()
+
+    # TODO
+    # def test_raster_stats_not_stac(self) -> None:
+    #     extract_archive(src="tests/data/spacenet.zip")
+    #     data = read_csv("tests/sampling/sampling_segmentation_multiclass_ci.csv")
+    #     for row in data:
+    #         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
+    #         stats = aoi.raster_stats()
 
 # TODO: SingleBandItem
 # test raise ValueError if request more than available bands
