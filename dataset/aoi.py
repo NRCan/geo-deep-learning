@@ -403,6 +403,25 @@ class AOI(object):
         return out_tif_path
 
     @staticmethod
+    def bounds_iou(polygon1: Polygon, polygon2: Polygon) -> float:
+        """Calculate intersection over union of areas between two shapely polygons"""
+        if not polygon1.intersects(polygon2):
+            return 0
+        else:
+            intersection = polygon1.intersection(polygon2).area
+            union = polygon1.area + polygon2.area - intersection
+            return intersection / union
+
+    @staticmethod
+    def bounds_iou_gdf_riodataset(gdf: gpd.GeoDataFrame, raster: rasterio.DatasetReader) -> float:
+        """Calculates intersection over union of the total bounds of a GeoDataFrame and bounds of a rasterio Dataset"""
+        label_bounds = gdf.total_bounds
+        label_bounds_box = box(*label_bounds.tolist())
+        raster_bounds_box = box(*list(raster.bounds))
+        bounds_iou = AOI.bounds_iou(polygon1=label_bounds_box, polygon2=raster_bounds_box)
+        return bounds_iou
+
+    @staticmethod
     def parse_input_raster(
             csv_raster_str: str,
             raster_bands_requested: Sequence
