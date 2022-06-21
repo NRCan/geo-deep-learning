@@ -564,19 +564,15 @@ def main(cfg: DictConfig) -> None:
     # PARAMETERS
     bands_requested = get_key_def('bands', cfg['dataset'], default=None, expected_type=Sequence)
     num_bands = len(bands_requested)
-    # FIXME: merge with AOI single bands feature
-    # in_bands = get_key_def('in_bands', cfg['dataset'], expected_type=Sequence)
-    # out_modalities = get_key_def('out_modalities', cfg['dataset'], expected_type=Sequence)
-    # num_bands = len(cfg.dataset.out_modalities)
-    # bands_idxs = select_modalities(in_bands=in_bands, out_modalities=out_modalities)
     experiment_name = get_key_def('project_name', cfg['general'], default='gdl-training')
     debug = cfg.debug
     dry_run = cfg.dry_run
 
     # RAW DATA PARAMETERS
-    data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
+    data_dir = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
     csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
-    tiles_root_dir = get_key_def('tiles_data_dir', cfg['dataset'], default=data_path, to_path=True,
+    download_data = get_key_def('download_data', cfg['dataset'], default=False, expected_type=bool)
+    tiles_root_dir = get_key_def('tiles_data_dir', cfg['dataset'], default=data_dir, to_path=True,
                                  validate_path_exists=True)
 
     # SAMPLE PARAMETERS
@@ -591,7 +587,7 @@ def main(cfg: DictConfig) -> None:
 
     val_percent = int(get_key_def('train_val_percent', cfg['dataset'], default=0.3)['val'] * 100)
     attr_field = get_key_def('attribute_field', cfg['dataset'], None, expected_type=str)
-    attr_vals = get_key_def('attribute_vals', cfg['dataset'], None, expected_type=(Sequence, int))
+    attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
 
     # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to hdf5s).
     with open_dict(cfg):
@@ -622,7 +618,10 @@ def main(cfg: DictConfig) -> None:
         csv_path=csv_file,
         bands_requested=bands_requested,
         attr_field_filter=attr_field,
-        attr_values_filter=attr_vals)
+        attr_values_filter=attr_vals,
+        download_data=download_data,
+        data_dir=data_dir,
+    )
     tiler.with_gt_checker()
 
     # For each row in csv: (1) tiling imagery and labels

@@ -8,14 +8,12 @@ dataset:
   raw_data_dir: ${general.raw_data_dir}
   download_data: False
 
-  # imagery FIXME: which config to keep?
-  in_bands: ['B','G','R']
-  out_modalities: ['R','G','B']
+  # imagery
   bands: [R, G, B]
 
   # ground truth
   attribute_field: class
-  attribute_vals: 1
+  attribute_values: 1
   class_name: # will follow in the next version
   classes_dict: {'BUIL':1}
   class_weights:
