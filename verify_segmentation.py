@@ -46,49 +46,69 @@ def main(cfg: DictConfig) -> None:
         data_dir=data_dir,
     )
 
-    outpath_csv = output_report_dir / "report_verify_aois.csv"
+    outpath_csv = output_report_dir / f"report_info_{csv_file.stem}.csv"
+    outpath_csv_errors = output_report_dir / f"report_error_{csv_file.stem}.log"
 
     if outpath_csv.is_file():
         last_mod_time_suffix = datetime.fromtimestamp(outpath_csv.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
         shutil.move(outpath_csv, outpath_csv.parent / f'{outpath_csv.stem}_{last_mod_time_suffix}.csv')
+    if outpath_csv_errors.is_file():
+        last_mod_time_suffix = datetime.fromtimestamp(outpath_csv_errors.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+        shutil.move(outpath_csv_errors, outpath_csv_errors.parent / f'{outpath_csv_errors.stem}_{last_mod_time_suffix}.csv')
 
     report_list = []
-    for aoi in tqdm(list_data_prep, position=0):
-        # get aoi info
-        aoi_dict = aoi.to_dict()
+    errors = []
+    for aoi in tqdm(list_data_prep, position=0, desc="Verifying data"):
+        try:
+            # get aoi info
+            aoi_dict = aoi.to_dict()
 
-        # Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage
-        if aoi.attr_field_filter:
-            label_unique_classes = aoi.label_gdf_filtered[aoi.attr_field_filter].unique()
-        else:
-            label_unique_classes = None
-        aoi_dict['label_unique_classes'] = label_unique_classes
+            # Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage
+            if aoi.attr_field_filter:
+                label_unique_classes = aoi.label_gdf_filtered[aoi.attr_field_filter].unique()
+            else:
+                label_unique_classes = None
+            aoi_dict['label_unique_classes'] = label_unique_classes
 
-        if output_raster_stats:
-            aoi_stats = aoi.raster_stats()
-            aoi_stats_report = {}
-            for cname, stats in aoi_stats.items():
-                aoi_stats_report.update({f"{cname}_{k_stat}": v_stat for k_stat, v_stat in stats['statistics'].items()})
-            aoi_dict.update(aoi_stats_report)
+            if output_raster_stats:
+                logging.info(f"\nGetting raster stats for {aoi.aoi_id}...")
+                aoi_stats = aoi.raster_stats()
+                aoi_stats_report = {}
+                for cname, stats in aoi_stats.items():
+                    aoi_stats_report.update({f"{cname}_{k_stat}": v_stat for k_stat, v_stat in stats['statistics'].items()})
+                aoi_dict.update(aoi_stats_report)
 
-        report_list.append(aoi_dict)
+            report_list.append(aoi_dict)
+
+            if output_raster_plots:
+                logging.info(f"\nGenerating plots for {aoi.aoi_id}...")
+                out_plot = output_report_dir / f"raster_{aoi.aoi_id}.png"
+                # https://rasterio.readthedocs.io/en/latest/topics/plotting.html
+                fig, (axrgb, axhist) = plt.subplots(1, 2, figsize=(14, 7))
+                arr = aoi.raster.read()
+                show(arr, ax=axrgb, transform=aoi.raster.transform)
+                show_hist(
+                    arr, bins=50, lw=1.0, stacked=False, alpha=0.75,
+                    histtype='step', title="Histogram", ax=axhist, label=aoi.raster_bands_request)
+                plt.title(aoi.aoi_id)
+                plt.savefig(out_plot)
+                logging.info(f"Saved plot: {out_plot}")
+                plt.close()
+        except Exception as e:
+            logging.error(e)
+            errors.append(e)
 
     with open(outpath_csv, 'w', newline='') as output_file:
         dict_writer = csv.DictWriter(output_file, report_list[0].keys())
         dict_writer.writeheader()
         dict_writer.writerows(report_list)
 
-    if output_raster_plots:
-        # https://rasterio.readthedocs.io/en/latest/topics/plotting.html
-        fig, (axrgb, axhist) = plt.subplots(1, 2, figsize=(14, 7))
-        arr = aoi.raster.read()
-        show(arr, ax=axrgb, transform=aoi.raster.transform)
-        show_hist(
-            arr, bins=50, lw=1.0, stacked=False, alpha=0.75,
-            histtype='step', title="Histogram", ax=axhist, label=aoi.raster_bands_request)
-        plt.title(aoi.aoi_id)
-        plt.savefig(output_report_dir/f"raster_{aoi.aoi_id}.png")
-        plt.close()
+    if errors:
+        logging.critical(f"Verification raised {len(errors)} errors:")
+        errors_str = [str(e) for e in errors]
+        with open(outpath_csv_errors, 'w') as output_file:
+            output_file.writelines(errors_str)
+        raise Exception(errors)
 
     logging.info(f"\nInput data verification done. See outputs in {output_report_dir}")
 
