@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Union, Sequence, Dict, Tuple, List, Optional
 
 import geopandas as gpd
+import numpy as np
 import pyproj
 import pystac
 import rasterio
@@ -333,7 +334,10 @@ class AOI(object):
         """ For stac items formatted as expected, reads mean and std of raster imagery, per band.
         See stac item example: tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
         If source imagery is not a stac item or stac item lacks stats assets, stats are calculed on the fly"""
-        stats = {name: {} for name in self.raster_bands_request}
+        if self.raster_bands_request:
+            stats = {name: {} for name in self.raster_bands_request}
+        else:
+            stats = {f"band_{index}": {} for index in range(self.raster.count)}
         try:
             stats_asset = self.raster_stac_item.item.assets['STATS']
             with open(stats_asset.href, 'r') as ifile:
@@ -344,6 +348,14 @@ class AOI(object):
             return stats
         except (AttributeError, KeyError):
             raster_np = self.raster.read()
+            for index, band in enumerate(stats.keys()):
+                stats[band] = {'statistics': {}}
+                stats[band]["statistics"]['minimum'] = raster_np[index].min()
+                stats[band]["statistics"]['maximum'] = raster_np[index].max()
+                stats[band]["statistics"]['mean'] = raster_np[index].mean()
+                stats[band]["statistics"]['median'] = np.median(raster_np[index])
+                stats[band]["statistics"]['std'] = raster_np[index].std()
+            return stats
 
     def write_multiband_from_singleband_rasters_as_vrt(self):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
