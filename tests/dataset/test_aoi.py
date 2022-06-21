@@ -125,7 +125,6 @@ class Test_AOI(object):
                 assert stats[f"band_{index}"]['statistics'] == expected_stats[f"band_{index}"]['statistics']
             break
 
-
     def test_to_dict(self):
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
