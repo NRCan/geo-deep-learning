@@ -416,7 +416,8 @@ class RasterTiler(object):
                            height=self.dest_tile_size[0],
                            crs=self.dest_crs,
                            transform=dst_transform,
-                           compress='lzw')
+                           compress='lzw',
+                           driver='GTiff')
             if len(tile_data.shape) == 2:  # if there's no channel band
                 profile.update(count=1)
             else:

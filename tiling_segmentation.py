@@ -781,7 +781,7 @@ def main(cfg: DictConfig) -> None:
 
     # final report
     logging.info(f"\nExpected val/trn ratio: {tiler.val_percent} %"
-                 f"\nActual val/trn ratio: {datasets_kept['val'] / datasets_kept['trn'] * 100:.2f} %")
+                 f"\nActual val/trn ratio: {datasets_kept['val'] / (datasets_kept['trn'] * 100 + 1e-10):.2f} %")
     for dataset in tiler.datasets:
         if dataset == 'trn':
             logging.info(f"\nDataset: {dataset}"
