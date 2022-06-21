@@ -360,7 +360,8 @@ class AOI(object):
             stats = {f"band_{index}": {} for index in range(self.raster.count)}
         try:
             stats_asset = self.raster_stac_item.item.assets['STATS']
-            with open(to_absolute_path(stats_asset.href), 'r') as ifile:
+            stats_asset = to_absolute_path(stats_asset.href) if not is_url(stats_asset) else stats_asset
+            with open(stats_asset, 'r') as ifile:
                 stac_stats = json.loads(ifile.read())
             stac_stats = {bandwise_stats['asset']: bandwise_stats for bandwise_stats in stac_stats}
             for band in self.raster_stac_item.bands:
