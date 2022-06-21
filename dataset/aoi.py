@@ -375,16 +375,17 @@ class AOI(object):
                 stats[band]["statistics"]['std'] = raster_np[index].std()
             return stats
 
-    def write_multiband_from_singleband_rasters_as_vrt(self):
+    def write_multiband_from_singleband_rasters_as_vrt(self, out_dir: Union[str, Path] = None):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
+        out_dir = self.root_dir if out_dir is not None else Path(out_dir)
         if not self.raster.driver == 'VRT':
             logging.error(f"To write a multi-band raster from single-band files, a VRT must be provided."
                           f"\nGot {self.raster.meta}")
             return
         if "${dataset.bands}" in self.raster_raw_input:
-            out_tif_path = self.raster_raw_input.replace("${dataset.bands}", ''.join(self.raster_bands_request))
+            out_tif_path = out_dir / Path(self.raster_raw_input).name.replace("${dataset.bands}", ''.join(self.raster_bands_request))
         elif is_stac_item(self.raster_raw_input):
-            out_tif_path = self.root_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
+            out_tif_path = out_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
         else:
             logging.error(f"\nTo write multiband raster from single band imagery, "
                           f"source imagery must be referenced with expected formats.\n"
