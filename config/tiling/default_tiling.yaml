@@ -1,5 +1,6 @@
 # @package _global_
 tiling:
+  tiles_data_dir: ${general.raw_data_dir}
   tile_size: 32
   min_annot_perc: 1
   continuous_values: True
