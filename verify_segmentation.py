@@ -27,7 +27,7 @@ def main(cfg: DictConfig) -> None:
         raise ValueError("\nThe 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero.")
     attribute_field = get_key_def('attribute_field', cfg['dataset'], None) #, expected_type=str)
     # Assert that all items in attribute_values are integers (ex.: single-class samples from multi-class label)
-    attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=Sequence)
+    attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
 
     output_report_dir = get_key_def('output_report_dir', cfg['verify'], to_path=True, validate_path_exists=True)
     output_raster_stats = get_key_def('output_raster_stats', cfg['verify'], default=False, expected_type=bool)

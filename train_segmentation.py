@@ -547,7 +547,7 @@ def train(cfg: DictConfig) -> None:
     # PARAMETERS FOR TILES
     samples_size = get_key_def("tile_size", cfg['tiling'], expected_type=int, default=256)
     min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], expected_type=int, default=0)
-    attr_vals = get_key_def('attribute_vals', cfg['dataset'], None, expected_type=(Sequence, int))
+    attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
 
     data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
     tiles_root_dir = get_key_def('tiles_data_dir', cfg['dataset'], default=data_path, to_path=True,
