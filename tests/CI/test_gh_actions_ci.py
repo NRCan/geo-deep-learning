@@ -14,8 +14,8 @@ class Test_GH_Actions(object):
             modes = cfg.mode
             for dataset_type in ['binary', 'multiclass']:
                 for mode in modes:
-                    if dataset_type == 'multiclass' and mode == 'evaluate':
-                        logging.critical(f"Fix bug with NB imagery crs during evaluation!")
+                    if mode == 'evaluate':
+                        logging.critical(f"FIXME!")
                         continue
                     cfg = compose(config_name="gdl_config_template",
                                   overrides=[f"mode={mode}",

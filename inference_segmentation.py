@@ -210,7 +210,8 @@ def segmentation(param,
         for transformer in transforms:
             # augment inputs
             augmented_input = transformer.augment_image(inputs)
-            augmented_output = model(augmented_input)
+            with torch.cuda.amp.autocast():
+                augmented_output = model(augmented_input)
             if isinstance(augmented_output, OrderedDict) and 'out' in augmented_output.keys():
                 augmented_output = augmented_output['out']
             logging.debug(f'Shape of augmented output: {augmented_output.shape}')
