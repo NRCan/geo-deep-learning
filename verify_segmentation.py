@@ -4,7 +4,9 @@ import shutil
 from datetime import datetime
 from typing import Sequence
 
+from matplotlib import pyplot as plt
 from omegaconf import open_dict, DictConfig
+from rasterio.plot import show_hist, show
 from tqdm import tqdm
 
 from dataset.aoi import aois_from_csv
@@ -29,6 +31,7 @@ def main(cfg: DictConfig) -> None:
 
     output_report_dir = get_key_def('output_report_dir', cfg['verify'], to_path=True, validate_path_exists=True)
     output_raster_stats = get_key_def('output_raster_stats', cfg['verify'], default=False, expected_type=bool)
+    output_raster_plots = get_key_def('output_raster_plots', cfg['verify'], default=False, expected_type=bool)
 
     # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to hdf5s).
     with open_dict(cfg):
@@ -74,6 +77,18 @@ def main(cfg: DictConfig) -> None:
         dict_writer = csv.DictWriter(output_file, report_list[0].keys())
         dict_writer.writeheader()
         dict_writer.writerows(report_list)
+
+    if output_raster_plots:
+        # https://rasterio.readthedocs.io/en/latest/topics/plotting.html
+        fig, (axrgb, axhist) = plt.subplots(1, 2, figsize=(14, 7))
+        arr = aoi.raster.read()
+        show(arr, ax=axrgb, transform=aoi.raster.transform)
+        show_hist(
+            arr, bins=50, lw=1.0, stacked=False, alpha=0.75,
+            histtype='step', title="Histogram", ax=axhist, label=aoi.raster_bands_request)
+        plt.title(aoi.aoi_id)
+        plt.savefig(output_report_dir/f"raster_{aoi.aoi_id}.png")
+        plt.close()
 
     logging.info(f"\nInput data verification done. See outputs in {output_report_dir}")
 
