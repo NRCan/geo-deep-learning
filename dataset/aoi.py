@@ -248,10 +248,8 @@ class AOI(object):
         # Check aoi_id string
         if aoi_id and not isinstance(aoi_id, str):
             raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
-        elif not aoi_id and self.raster_src_is_multiband:
+        elif not aoi_id:
             aoi_id = Path(self.raster.name).stem  # Defaults to name of image without suffix
-        elif not aoi_id and not self.raster_src_is_multiband:
-            aoi_id = Path(self.raster_raw_input).stem  # Defaults to name of first singleband image without suffix
         self.aoi_id = aoi_id
 
         # Check collection string
@@ -273,8 +271,6 @@ class AOI(object):
         self.attr_field_filter = attr_field_filter
 
         # If ground truth is provided, check attribute values to filter from
-        if isinstance(attr_values_filter, int):
-            attr_values_filter = [attr_values_filter]
         if label and attr_values_filter and not isinstance(attr_values_filter, (list, listconfig.ListConfig)):
             raise TypeError(f'Attribute values should be a list.\n'
                             f'Got {attr_values_filter} of type {type(attr_values_filter)}')
@@ -285,7 +281,7 @@ class AOI(object):
             self.attr_values_filter,
         )
         if len(label_gdf_filtered) == 0:
-            logging.warning(f"\nNo features found for ground truth \"{self.label}\","
+            raise ValueError(f"\nNo features found for ground truth \"{self.label}\","
                              f"\nfiltered by attribute field \"{self.attr_field_filter}\""
                              f"\nwith values \"{self.attr_values_filter}\"")
         self.label_gdf_filtered = label_gdf_filtered
@@ -326,7 +322,6 @@ class AOI(object):
         )
         return new_aoi
 
-    # TODO: is this necessary if to_dict() is good enough?
     def __str__(self):
         return (
             f"\nAOI ID: {self.aoi_id}"
@@ -338,22 +333,8 @@ class AOI(object):
             f"\n\tAttribute values filter: {self.attr_values_filter}"
             )
 
-    def to_dict(self):
-        """returns a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)"""
-        out_dict = {
-            'raster': self.raster_raw_input,
-            'label': self.label,
-            'split': self.split,
-            'id': self.aoi_id,
-            'raster_parsed': self.raster_parsed,
-            'label_nb_features': len(self.label_gdf),
-            'label_nb_features_filtered': len(self.label_gdf_filtered),
-            'raster_label_bounds_iou': self.bounds_iou,
-            'crs_raster': self.epsg_raster,
-            'crs_label': self.epsg_label,
-            'crs_match': self.crs_match
-        }
-        return out_dict
+    # TODO def to_dict()
+    # return a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)
 
     def calc_raster_stats(self):
         """ For stac items formatted as expected, reads mean and std of raster imagery, per band.
@@ -365,7 +346,12 @@ class AOI(object):
             stats = {f"band_{index}": {} for index in range(self.raster.count)}
         try:
             stats_asset = self.raster_stac_item.item.assets['STATS']
-            with open(to_absolute_path(stats_asset.href), 'r') as ifile:
+            if is_url(stats_asset.href):
+                download_url(stats_asset.href, root=str(self.root_dir), filename=Path(stats_asset.href).name)
+                stats_href = self.root_dir / Path(stats_asset.href).name
+            else:
+                stats_href = to_absolute_path(stats_asset.href)
+            with open(stats_href, 'r') as ifile:
                 stac_stats = json.loads(ifile.read())
             stac_stats = {bandwise_stats['asset']: bandwise_stats for bandwise_stats in stac_stats}
             for band in self.raster_stac_item.bands:
@@ -394,17 +380,16 @@ class AOI(object):
             "histogram": {"buckets": mean_hist}}
         return stats
 
-    def write_multiband_from_singleband_rasters_as_vrt(self, out_dir: Union[str, Path] = None):
+    def write_multiband_from_singleband_rasters_as_vrt(self):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
-        out_dir = self.root_dir if out_dir is not None else Path(out_dir)
         if not self.raster.driver == 'VRT':
             logging.error(f"To write a multi-band raster from single-band files, a VRT must be provided."
                           f"\nGot {self.raster.meta}")
             return
         if "${dataset.bands}" in self.raster_raw_input:
-            out_tif_path = out_dir / Path(self.raster_raw_input).name.replace("${dataset.bands}", ''.join(self.raster_bands_request))
+            out_tif_path = self.raster_raw_input.replace("${dataset.bands}", ''.join(self.raster_bands_request))
         elif is_stac_item(self.raster_raw_input):
-            out_tif_path = out_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
+            out_tif_path = self.root_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
         else:
             logging.error(f"\nTo write multiband raster from single band imagery, "
                           f"source imagery must be referenced with expected formats.\n"
@@ -483,7 +468,7 @@ class AOI(object):
         @return: Subset of source GeoDataFrame with only filtered features (deep copy)
         """
         gdf_tile = _check_gdf_load(gdf_tile)
-        if gdf_tile.empty or not attr_field or not attr_vals:
+        if not attr_field or not attr_vals:
             return gdf_tile
         try:
             condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
