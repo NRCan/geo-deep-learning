@@ -273,6 +273,8 @@ class AOI(object):
         self.attr_field_filter = attr_field_filter
 
         # If ground truth is provided, check attribute values to filter from
+        if isinstance(attr_values_filter, int):
+            attr_values_filter = [attr_values_filter]
         if label and attr_values_filter and not isinstance(attr_values_filter, (list, listconfig.ListConfig)):
             raise TypeError(f'Attribute values should be a list.\n'
                             f'Got {attr_values_filter} of type {type(attr_values_filter)}')
@@ -481,7 +483,7 @@ class AOI(object):
         @return: Subset of source GeoDataFrame with only filtered features (deep copy)
         """
         gdf_tile = _check_gdf_load(gdf_tile)
-        if not attr_field or not attr_vals:
+        if gdf_tile.empty or not attr_field or not attr_vals:
             return gdf_tile
         try:
             condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
