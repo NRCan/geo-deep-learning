@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Sequence, List, Dict, Union
 
 from hydra.utils import to_absolute_path
+from pandas.io.common import is_url
 from pytorch_lightning.utilities import rank_zero_only
 import rich.syntax
 import rich.tree
@@ -176,13 +177,18 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
                     raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
     if not val:  # Skips below if statements if val is None
         return val
-    if to_path or validate_path_exists:
+    if is_url(val):
+        logging.info(f"\nProvided path is url. Cannot validate it's existence nor convert to Path object. Got:"
+                        f"\n{val}")
+        validate_path_exists = False
+    elif to_path:
         try:
             val = Path(to_absolute_path(val))
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
-    if validate_path_exists and not val.exists():
-        raise FileNotFoundError(f"Couldn't locate path: {val}.\nProvided key: {key}")
+    if validate_path_exists and not Path(to_absolute_path(val)).exists():
+        logging.critical(f"Couldn't locate path: {val}.\nProvided key: {key}")
+        raise FileNotFoundError()
     return val
 
 
@@ -288,13 +294,6 @@ def BGR_to_RGB(array):
     return array
 
 
-def is_url(url):
-    if urlparse(url).scheme in ('http', 'https', 's3'):
-        return True
-    else:
-        return False
-
-
 def checkpoint_url_download(url: str):
     mime_type = ('application/tar', 'application/x-tar', 'applicaton/x-gtar',
                  'multipart/x-tar', 'application/x-compress', 'application/x-compressed')
@@ -376,8 +375,8 @@ def read_csv(csv_file_name: str) -> Dict:
             if not len(row_lengths_set) == 1:
                 raise ValueError(f"Rows in csv should be of same length. Got rows with length: {row_lengths_set}")
             row.extend([None] * (4 - len(row)))  # fill row with None values to obtain row of length == 5
-            row[0] = to_absolute_path(row[0])  # Convert relative paths to absolute with hydra's util to_absolute_path()
-            row[1] = to_absolute_path(row[1])
+            row[0] = to_absolute_path(row[0]) if not is_url(row[0]) else row[0] # Convert relative paths to absolute with hydra's util to_absolute_path()
+            row[1] = to_absolute_path(row[1]) if not is_url(row[1]) else row[1]
 
             # save all values
             list_values.append(
