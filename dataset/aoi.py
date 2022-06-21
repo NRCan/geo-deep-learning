@@ -282,7 +282,7 @@ class AOI(object):
             self.attr_values_filter,
         )
         if len(label_gdf_filtered) == 0:
-            raise ValueError(f"\nNo features found for ground truth \"{self.label}\","
+            logging.warning(f"\nNo features found for ground truth \"{self.label}\","
                              f"\nfiltered by attribute field \"{self.attr_field_filter}\""
                              f"\nwith values \"{self.attr_values_filter}\"")
         self.label_gdf_filtered = label_gdf_filtered
