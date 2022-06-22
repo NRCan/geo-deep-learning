@@ -27,11 +27,12 @@ def main(cfg: DictConfig) -> None:
         raise ValueError("\nThe 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero.")
     attribute_field = get_key_def('attribute_field', cfg['dataset'], None) #, expected_type=str)
     # Assert that all items in attribute_values are integers (ex.: single-class samples from multi-class label)
-    attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=Sequence)
+    attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
 
     output_report_dir = get_key_def('output_report_dir', cfg['verify'], to_path=True, validate_path_exists=True)
     output_raster_stats = get_key_def('output_raster_stats', cfg['verify'], default=False, expected_type=bool)
     output_raster_plots = get_key_def('output_raster_plots', cfg['verify'], default=False, expected_type=bool)
+    extended_label_stats = get_key_def('extended_label_stats', cfg['verify'], default=False, expected_type=bool)
 
     # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to hdf5s).
     with open_dict(cfg):
@@ -61,7 +62,8 @@ def main(cfg: DictConfig) -> None:
     for aoi in tqdm(list_data_prep, position=0, desc="Verifying data"):
         try:
             # get aoi info
-            aoi_dict = aoi.to_dict()
+            logging.info(f"\nGetting data info for {aoi.aoi_id}...")
+            aoi_dict = aoi.to_dict(extended=extended_label_stats)
 
             # Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage
             if aoi.attr_field_filter:
@@ -72,10 +74,12 @@ def main(cfg: DictConfig) -> None:
 
             if output_raster_stats:
                 logging.info(f"\nGetting raster stats for {aoi.aoi_id}...")
-                aoi_stats = aoi.raster_stats()
+                aoi_stats = aoi.calc_raster_stats()
                 aoi_stats_report = {}
                 for cname, stats in aoi_stats.items():
-                    aoi_stats_report.update({f"{cname}_{k_stat}": v_stat for k_stat, v_stat in stats['statistics'].items()})
+                    aoi_stats_report.update(
+                        {f"{cname}_{stat_name}": stat_val for stat_name, stat_val in stats['statistics'].items()})
+                    aoi_stats_report.update({f"{cname}_buckets": stats['histogram']['buckets']})
                 aoi_dict.update(aoi_stats_report)
 
             report_list.append(aoi_dict)
@@ -98,6 +102,7 @@ def main(cfg: DictConfig) -> None:
             logging.error(e)
             errors.append(e)
 
+    logging.info(f"\nWriting to csv: {outpath_csv}...")
     with open(outpath_csv, 'w', newline='') as output_file:
         dict_writer = csv.DictWriter(output_file, report_list[0].keys())
         dict_writer.writeheader()
