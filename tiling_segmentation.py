@@ -207,8 +207,8 @@ class Tiler(object):
             else:
                 logging.critical(f'\nTiling failed. To overwrite existing chips, set tiling.overwrite to "True"')
 
-        Path.mkdir(self.tiles_root_dir, parents=True)
-        [Path.mkdir(self.tiles_root_dir/dataset) for dataset in self.datasets]
+        Path.mkdir(self.tiles_root_dir, parents=True, exist_ok=True)
+        [Path.mkdir(self.tiles_root_dir/dataset, exist_ok=True) for dataset in self.datasets]
         logging.info(f'Tiles will be written to {self.tiles_root_dir}\n\n')
 
     def with_gt_checker(self):
