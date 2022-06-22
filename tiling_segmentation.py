@@ -596,13 +596,14 @@ def main(cfg: DictConfig) -> None:
     exp_dir = tiles_root_dir / experiment_name
 
     if exp_dir.is_dir():
-        print(f'WARNING: Data path exists: {exp_dir}. Make sure samples belong to the same experiment.')
+        logging.warning(f'Data path exists: {exp_dir}. Make sure samples belong to the same experiment.')
     Path.mkdir(exp_dir, exist_ok=True, parents=True)
 
     if debug:
         logging.warning(f'Debug mode activated. Some debug features may mobilize extra disk space and '
                         f'cause delays in execution.')
 
+    # FIXME: KeyError with tiler.datasets if aoi.split == inference.
     tiler = Tiler(experiment_root_dir=exp_dir,
                   tile_size=samples_size,
                   resizing_factor=resize,
@@ -667,6 +668,8 @@ def main(cfg: DictConfig) -> None:
 
             # if no previous step has shown existence of all tiles, then go on and tile.
             if do_tile and not dry_run:
+                # FIXME: aoi cannot be a rasterio Dataset (cannot be pickled)
+                # https://github.com/rasterio/rasterio/issues/1731
                 if parallel:
                     input_args.append([tiler.tiling_per_aoi, aoi, tiles_dir_img, tiles_dir_gt])
                 else:
