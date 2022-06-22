@@ -47,18 +47,6 @@ class Test_AOI(object):
             )
             # TODO assert actual == expected
 
-    def test_stac_url_input(self):
-        data = read_csv("tests/sampling/sampling_segmentation_binary-singleband-url_ci.csv")
-        for row in data:
-            aoi = AOI(
-                raster=row['tif'],
-                label=row['gpkg'],
-                split=row['split'],
-                raster_bands_request=['R'],
-                download_data=True,
-                root_dir="data"
-            )
-
     def test_missing_label(self):
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")

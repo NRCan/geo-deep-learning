@@ -674,3 +674,8 @@ def update_gdl_checkpoint(checkpoint_params: Dict) -> Dict:
         })
         checkpoint_params['params'].update({'model': model_ckpt})
         return checkpoint_params
+
+
+def map_wrapper(x):
+    """For multi-threading"""
+    return x[0](*(x[1:]))
