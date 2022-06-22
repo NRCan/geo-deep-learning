@@ -4,3 +4,4 @@ verify:
   output_raster_stats: True
   output_raster_plots: True
   extended_label_stats: True
+  multiprocessing: False

@@ -364,14 +364,18 @@ class AOI(object):
 
     def to_dict(self, extended=True):
         """returns a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)"""
+        try:
+            raster_area = (self.raster.res[0] * self.raster.width) * (self.raster.res[1] * self.raster.height)
+        except AttributeError:
+            raster_area = None
         out_dict = {
             'raster': self.raster_raw_input,
             'label': self.label,
             'split': self.split,
             'id': self.aoi_id,
             'raster_parsed': self.raster_parsed,
-            'raster_area': (self.raster.res[0] * self.raster.width) * (self.raster.res[1] * self.raster.height),
-            'raster_meta': self.raster.meta,
+            'raster_area': raster_area,
+            'raster_meta': self.raster_meta,
             'label_features_nb': len(self.label_gdf),
             'label_features_filtered_nb': len(self.label_gdf_filtered),
             'raster_label_bounds_iou': self.bounds_iou,

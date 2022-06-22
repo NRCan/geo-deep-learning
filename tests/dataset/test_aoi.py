@@ -1,8 +1,6 @@
 import multiprocessing
 from pathlib import Path
 
-import multiprocessing
-
 import geopandas as gpd
 import pytest
 import rasterio
