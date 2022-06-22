@@ -356,15 +356,21 @@ class AOI(object):
             'crs_match': self.crs_match
         }
         if extended:
-            if isinstance(list(self.label_gdf_filtered.geometry)[0], MultiPolygon):
-                ext_vert = []
-                for multipolygon in list(self.label_gdf_filtered.geometry):
-                    ext_vert.extend([len(geom.exterior.coords) for geom in list(multipolygon)])
-                mean_ext_vert_nb = np.mean(ext_vert)
-            elif isinstance(list(self.label_gdf_filtered.geometry)[0], Polygon):
-                mean_ext_vert_nb = np.mean([len(geom.exterior.coords) for geom in self.label_gdf_filtered.geometry])
-            else:
-                mean_ext_vert_nb = None
+            mean_ext_vert_nb = None
+            try:
+                if isinstance(list(self.label_gdf_filtered.geometry)[0], MultiPolygon):
+                    ext_vert = []
+                    for multipolygon in list(self.label_gdf_filtered.geometry):
+                        ext_vert.extend([len(geom.exterior.coords) for geom in list(multipolygon)])
+                    mean_ext_vert_nb = np.mean(ext_vert)
+                elif isinstance(list(self.label_gdf_filtered.geometry)[0], Polygon):
+                    mean_ext_vert_nb = np.mean([len(geom.exterior.coords) for geom in self.label_gdf_filtered.geometry])
+            # TODO: resolve with MB18 ('Polygon' object is not iterable)
+            # TODO: Kingston1 ('MultiPolygon' object has no attribute 'exterior')
+            # TODO: AB11 (0 filtered features)
+            except Exception as e:
+                logging.warning(e)
+
             out_dict.update({
                 'label_features_filtered_mean_area': np.mean(self.label_gdf_filtered.area),
                 'label_features_filtered_mean_perimeter': np.mean(self.label_gdf_filtered.length),
