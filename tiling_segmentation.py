@@ -264,13 +264,13 @@ class Tiler(object):
             raise FileNotFoundError(f'Missing ground truth tile {gt_tile}')
 
     def tiling_checker(self,
-                       src_img: Union[str, Path, DatasetReader],
+                       src_img_meta: dict,
                        dest_img_tiles_dir: Union[str, Path],
                        dest_gt_tiles_dir: Union[str, Path] = None,
                        verbose: bool = True):
         """
         Checks how many tiles should be created and compares with number of tiles already written to output directory
-        @param src_img: path to source image
+        @param src_img_meta: path to source image
         @param dest_img_tiles_dir: optional, path to output directory where imagery tiles will be created
         @param dest_gt_tiles_dir: optional, path to output directory where ground truth tiles will be created
         @param tile_size: (int) optional, size of tile. Defaults to 1024.
@@ -278,14 +278,13 @@ class Tiler(object):
         @return: number of actual tiles in output directory, number of expected tiles
         """
         act_data_tiles = []
-        metadata = _check_rasterio_im_load(src_img).meta
-        dest_width = metadata['width'] * self.resizing_factor
-        dest_height = metadata['height'] * self.resizing_factor
+        dest_width = src_img_meta['width'] * self.resizing_factor
+        dest_height = src_img_meta['height'] * self.resizing_factor
         tiles_x = 1 + math.ceil((dest_width - self.dest_tile_size) / self.tile_stride)
         tiles_y = 1 + math.ceil((dest_height - self.dest_tile_size) / self.tile_stride)
         nb_exp_tiles = tiles_x * tiles_y
         # glob for tiles of the vector ground truth if 'geojson' is in the suffix
-        act_img_tiles = list(dest_img_tiles_dir.glob(f'{Path(src_img.name).stem}*.tif'))
+        act_img_tiles = list(dest_img_tiles_dir.glob(f'{Path(src_img_meta["name"]).stem}*.tif'))
         nb_act_img_tiles = len(act_img_tiles)
         nb_act_gt_tiles = 0
         if dest_gt_tiles_dir:
@@ -329,6 +328,9 @@ class Tiler(object):
         @param out_label_dir: optional, path to output tiled images directory
         @return: written tiles to output directories as .tif for imagery and .geojson for label.
         """
+        if not aoi.raster:  # in case of multiprocessing
+            aoi.raster_to_multiband()
+
         self.src_tile_size = self.get_src_tile_size()
         raster_tiler = tile.raster_tile.RasterTiler(dest_dir=out_img_dir,
                                                     src_tile_size=(self.src_tile_size, self.src_tile_size),
@@ -340,6 +342,7 @@ class Tiler(object):
         logging.debug(f'Raster bounds crs: {raster_bounds_crs}\n'
                       f'')
 
+        vec_tler_tile_paths = vec_tler_tile_bds_reprojtd = None
         if self.with_gt:
             dest_crs = raster_tiler.dest_crs if raster_tiler.dest_crs.is_epsg_code else None
             vec_tler = tile.vector_tile.VectorTiler(dest_dir=out_label_dir,
@@ -349,11 +352,13 @@ class Tiler(object):
             vec_tler.tile(src=aoi.label,
                           tile_bounds=raster_tiler.tile_bounds,
                           tile_bounds_crs=raster_bounds_crs,
-                          dest_fname_base=Path(aoi.raster.name).stem)
+                          dest_fname_base=Path(aoi.raster_meta['name']).stem)
+            vec_tler_tile_paths = vec_tler.tile_paths
+            vec_tler_tile_bds_reprojtd = vec_tler.tile_bds_reprojtd
 
-        else:
-            return aoi, raster_tiler.tile_paths, None, None
-        return aoi, raster_tiler.tile_paths, vec_tler.tile_paths, vec_tler.tile_bds_reprojtd
+        aoi.raster = None  # for multiprocessing
+
+        return aoi, raster_tiler.tile_paths, vec_tler_tile_paths, vec_tler_tile_bds_reprojtd
 
     def filter_tile_pair(self,
                          aoi: AOI,
@@ -471,6 +476,9 @@ class Tiler(object):
         @param dry_run:
         @return:
         """
+        if not aoi.raster:  # in case of multiprocessing
+            aoi.raster_to_multiband()
+
         random_val = np.random.randint(1, 100)
         # for trn tiles, sort between trn and val based on random number
         dataset = self.datasets[1] if aoi.split == 'trn' and random_val < self.val_percent else aoi.split
@@ -622,6 +630,7 @@ def main(cfg: DictConfig) -> None:
         attr_values_filter=attr_vals,
         download_data=download_data,
         data_dir=data_dir,
+        for_multiprocessing=parallel,
     )
     tiler.with_gt_checker()
 
@@ -640,7 +649,7 @@ def main(cfg: DictConfig) -> None:
             tiles_dir_gt = tiles_dir / 'labels' if tiler.with_gt else None
 
             do_tile = True
-            data_pairs, nb_act_img_t, nb_act_gt_t, nb_exp_t = tiler.tiling_checker(aoi.raster, tiles_dir_img, tiles_dir_gt)
+            data_pairs, nb_act_img_t, nb_act_gt_t, nb_exp_t = tiler.tiling_checker(aoi.raster_meta, tiles_dir_img, tiles_dir_gt)
             # add info about found tiles for each aoi by aoi's index
             tiler.src_data_list[index].tiles_pairs_list = [(*data_pair, None) for data_pair in data_pairs]
             if nb_act_img_t == nb_exp_t == nb_act_gt_t or not tiler.with_gt and nb_act_img_t == nb_exp_t:
@@ -648,14 +657,14 @@ def main(cfg: DictConfig) -> None:
                 do_tile = False
             elif nb_act_img_t > nb_exp_t and nb_act_gt_t > nb_exp_t or \
                     not tiler.with_gt and nb_act_img_t > nb_exp_t:
-                logging.error(f'\nToo many tiles for "{aoi.raster.name}". \n'
+                logging.error(f'\nToo many tiles for "{aoi.aoi_id}". \n'
                               f'Expected: {nb_exp_t}\n'
                               f'Actual image tiles: {nb_act_img_t}\n'
                               f'Actual label tiles: {nb_act_gt_t}\n'
                               f'Skipping tiling.')
                 do_tile = False
             elif nb_act_img_t > 0 or nb_act_gt_t > 0:
-                logging.error(f'Missing tiles for {aoi.raster.name}. \n'
+                logging.error(f'Missing tiles for {aoi.aoi_id}. \n'
                               f'Expected: {nb_exp_t}\n'
                               f'Actual image tiles: {nb_act_img_t}\n'
                               f'Actual label tiles: {nb_act_gt_t}\n'
