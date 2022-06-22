@@ -1,3 +1,4 @@
+import multiprocessing
 from pathlib import Path
 
 import geopandas as gpd
@@ -75,6 +76,28 @@ class Test_AOI(object):
         iou = AOI.bounds_iou(label_bounds_box, raster_bounds_box)
         expected_iou = 0.013904645827033404
         assert iou == expected_iou
+
+    def test_for_multiprocessing(self) -> None:
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/sampling/sampling_segmentation_multiclass_ci.csv")
+        inputs = []
+        for row in data:
+            aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], for_multiprocessing=True)
+            inputs.append([aoi_read_raster, aoi])
+
+        with multiprocessing.get_context('spawn').Pool(None) as pool:
+            aoi_meta = pool.map_async(map_wrapper, inputs).get()
+        print(aoi_meta)
+
+
+def map_wrapper(x):
+    """For multi-threading"""
+    return x[0](*(x[1:]))
+
+
+def aoi_read_raster(aoi: AOI):
+    aoi.raster_to_multiband()
+    return aoi.raster.meta
 
 # TODO: SingleBandItem
 # test raise ValueError if request more than available bands
