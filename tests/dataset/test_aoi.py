@@ -1,3 +1,8 @@
+import multiprocessing
+from pathlib import Path
+
+import multiprocessing
+
 import geopandas as gpd
 import pytest
 import rasterio
@@ -43,18 +48,6 @@ class Test_AOI(object):
                 raster_bands_request=['R'], download_data=True, root_dir="data"
             )
             # TODO assert actual == expected
-
-    def test_stac_url_input(self):
-        data = read_csv("tests/sampling/sampling_segmentation_binary-singleband-url_ci.csv")
-        for row in data:
-            aoi = AOI(
-                raster=row['tif'],
-                label=row['gpkg'],
-                split=row['split'],
-                raster_bands_request=['R'],
-                download_data=True,
-                root_dir="data"
-            )
 
     def test_missing_label(self):
         extract_archive(src="tests/data/spacenet.zip")
@@ -137,3 +130,25 @@ class Test_AOI(object):
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['red', 'green', 'blue'])
             aoi_dict = aoi.to_dict()
+
+    def test_for_multiprocessing(self) -> None:
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/sampling/sampling_segmentation_multiclass_ci.csv")
+        inputs = []
+        for row in data:
+            aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], for_multiprocessing=True)
+            inputs.append([aoi_read_raster, aoi])
+
+        with multiprocessing.get_context('spawn').Pool(None) as pool:
+            aoi_meta = pool.map_async(map_wrapper, inputs).get()
+        print(aoi_meta)
+
+
+def map_wrapper(x):
+    """For multi-threading"""
+    return x[0](*(x[1:]))
+
+
+def aoi_read_raster(aoi: AOI):
+    aoi.raster_to_multiband()
+    return aoi.raster.meta
