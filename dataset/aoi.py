@@ -121,6 +121,7 @@ class AOI(object):
                  attr_values_filter: Sequence = None,
                  download_data: bool = False,
                  root_dir: str = "data",
+                 raster_stats: bool = False,
                  write_multiband: bool = False):
         # TODO: dict printer to output report on list of aois
         """
@@ -147,6 +148,8 @@ class AOI(object):
             if True, download dataset and store it in the root directory.
         @param root_dir:
             root directory where dataset can be found or downloaded
+        @param raster_stats:
+            if True, radiometric stats will be read from Stac Item if available or calculated
         @param write_multiband: bool, optional
             If True, a multi-band raster side by side with single-bands rasters as provided in input csv. For debugging purposes.
         """
@@ -282,6 +285,8 @@ class AOI(object):
                              f"\nfiltered by attribute field \"{self.attr_field_filter}\""
                              f"\nwith values \"{self.attr_values_filter}\"")
         self.label_gdf_filtered = label_gdf_filtered
+
+        self.raster_stats = self.calc_raster_stats() if raster_stats else None
         logging.debug(self)
 
     @classmethod
@@ -331,7 +336,7 @@ class AOI(object):
     # TODO def to_dict()
     # return a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)
 
-    def raster_stats(self):
+    def calc_raster_stats(self):
         """ For stac items formatted as expected, reads mean and std of raster imagery, per band.
         See stac item example: tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
         If source imagery is not a stac item or stac item lacks stats assets, stats are calculed on the fly"""
@@ -351,17 +356,29 @@ class AOI(object):
             stac_stats = {bandwise_stats['asset']: bandwise_stats for bandwise_stats in stac_stats}
             for band in self.raster_stac_item.bands:
                 stats[band.common_name] = stac_stats[band.name]
-            return stats
         except (AttributeError, KeyError):
             raster_np = self.raster.read()
             for index, band in enumerate(stats.keys()):
-                stats[band] = {'statistics': {}}
-                stats[band]["statistics"]['minimum'] = raster_np[index].min()
-                stats[band]["statistics"]['maximum'] = raster_np[index].max()
-                stats[band]["statistics"]['mean'] = raster_np[index].mean()
-                stats[band]["statistics"]['median'] = np.median(raster_np[index])
-                stats[band]["statistics"]['std'] = raster_np[index].std()
-            return stats
+                stats[band] = {"statistics": {}, "histogram": {}}
+                stats[band]["statistics"]["minimum"] = raster_np[index].min()
+                stats[band]["statistics"]["maximum"] = raster_np[index].max()
+                stats[band]["statistics"]["mean"] = raster_np[index].mean()
+                stats[band]["statistics"]["median"] = np.median(raster_np[index])
+                stats[band]["statistics"]["std"] = raster_np[index].std()
+                stats[band]["histogram"]["buckets"] = list(np.bincount(raster_np.flatten()))
+        mean_minimum = np.mean([band_stat["statistics"]["minimum"] for band_stat in stats.values()])
+        mean_maximum = np.mean([band_stat["statistics"]["maximum"] for band_stat in stats.values()])
+        mean_mean = np.mean([band_stat["statistics"]["mean"] for band_stat in stats.values()])
+        mean_median = np.mean([band_stat["statistics"]["median"] for band_stat in stats.values()])
+        mean_std = np.mean([band_stat["statistics"]["std"] for band_stat in stats.values()])
+        hists_np = [np.asarray(band_stat["histogram"]["buckets"]) for band_stat in stats.values()]
+        mean_hist_np = np.sum(hists_np, axis=0) / len(hists_np)
+        mean_hist = list(mean_hist_np.astype(int))
+        stats["all"] = {
+            "statistics": {"minimum": mean_minimum, "maximum": mean_maximum, "mean": mean_mean,
+                           "median": mean_median, "std": mean_std},
+            "histogram": {"buckets": mean_hist}}
+        return stats
 
     def write_multiband_from_singleband_rasters_as_vrt(self):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
