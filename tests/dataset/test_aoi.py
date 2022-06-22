@@ -100,12 +100,15 @@ class Test_AOI(object):
             'green': {'statistics': {'minimum': 0, 'maximum': 255, 'mean': 19.382699380973825, 'median': 20.0,
                                      'std': 14.121321954317324}},
             'blue': {'statistics': {'minimum': 0, 'maximum': 255, 'mean': 21.429019052130965, 'median': 24.0,
-                                    'std': 13.91999326196311}}}
+                                    'std': 13.91999326196311}},
+            'all': {'statistics': {'minimum': 0.0, 'maximum': 255.0, 'mean': 16.98176567459573,
+                                   'median': 17.666666666666668, 'std': 12.566239874581086}}}
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands_request)
-            stats = aoi.raster_stats()
-            for band in bands_request:
-                assert stats[band]['statistics'] == expected_stats[band]['statistics']
+            stats = aoi.calc_raster_stats()
+            for band, band_stat in stats.items():
+                assert band_stat['statistics'] == expected_stats[band]['statistics']
+                assert len(band_stat['histogram']['buckets']) == 256
             break
 
     def test_raster_stats_not_stac(self) -> None:
@@ -117,12 +120,15 @@ class Test_AOI(object):
             'band_1': {'statistics': {'minimum': 12, 'maximum': 255, 'mean': 149.58768328445748, 'median': 154.0,
                                       'std': 46.204003828563714}},
             'band_2': {'statistics': {'minimum': 26, 'maximum': 254, 'mean': 119.60827398408044, 'median': 117.0,
-                                      'std': 41.85516710316288}}}
+                                      'std': 41.85516710316288}},
+            'all': {'statistics': {'minimum': 16.333333333333332, 'maximum': 254.33333333333334,
+                                   'mean': 142.8522378159475, 'median': 145.33333333333334, 'std': 45.68388743111347}}}
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
-            stats = aoi.raster_stats()
-            for index in range(aoi.raster.count):
-                assert stats[f"band_{index}"]['statistics'] == expected_stats[f"band_{index}"]['statistics']
+            stats = aoi.calc_raster_stats()
+            for band, band_stat in stats.items():
+                assert band_stat['statistics'] == expected_stats[band]['statistics']
+                assert len(band_stat['histogram']['buckets']) == 256
             break
 
     def test_to_dict(self):
@@ -131,6 +137,3 @@ class Test_AOI(object):
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['red', 'green', 'blue'])
             aoi_dict = aoi.to_dict()
-
-# TODO: SingleBandItem
-# test raise ValueError if request more than available bands

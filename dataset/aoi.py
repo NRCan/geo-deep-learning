@@ -13,7 +13,7 @@ from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
 from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
-from shapely.geometry import box, Polygon
+from shapely.geometry import box, Polygon, MultiPolygon
 from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load
 from torchvision.datasets.utils import download_url
 from tqdm import tqdm
@@ -121,6 +121,7 @@ class AOI(object):
                  attr_values_filter: Sequence = None,
                  download_data: bool = False,
                  root_dir: str = "data",
+                 raster_stats: bool = False,
                  write_multiband: bool = False):
         # TODO: dict printer to output report on list of aois
         """
@@ -147,6 +148,8 @@ class AOI(object):
             if True, download dataset and store it in the root directory.
         @param root_dir:
             root directory where dataset can be found or downloaded
+        @param raster_stats:
+            if True, radiometric stats will be read from Stac Item if available or calculated
         @param write_multiband: bool, optional
             If True, a multi-band raster side by side with single-bands rasters as provided in input csv. For debugging purposes.
         """
@@ -286,6 +289,8 @@ class AOI(object):
                              f"\nfiltered by attribute field \"{self.attr_field_filter}\""
                              f"\nwith values \"{self.attr_values_filter}\"")
         self.label_gdf_filtered = label_gdf_filtered
+
+        self.raster_stats = self.calc_raster_stats() if raster_stats else None
         logging.debug(self)
 
     @classmethod
@@ -333,7 +338,7 @@ class AOI(object):
             f"\n\tAttribute values filter: {self.attr_values_filter}"
             )
 
-    def to_dict(self):
+    def to_dict(self, extended=True):
         """returns a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)"""
         out_dict = {
             'raster': self.raster_raw_input,
@@ -341,16 +346,33 @@ class AOI(object):
             'split': self.split,
             'id': self.aoi_id,
             'raster_parsed': self.raster_parsed,
-            'label_nb_features': len(self.label_gdf),
-            'label_nb_features_filtered': len(self.label_gdf_filtered),
+            'raster_area': (self.raster.res[0] * self.raster.width) * (self.raster.res[1] * self.raster.height),
+            'raster_meta': self.raster.meta,
+            'label_features_nb': len(self.label_gdf),
+            'label_features_filtered_nb': len(self.label_gdf_filtered),
             'raster_label_bounds_iou': self.bounds_iou,
             'crs_raster': self.epsg_raster,
             'crs_label': self.epsg_label,
             'crs_match': self.crs_match
         }
+        if extended:
+            if isinstance(list(self.label_gdf_filtered.geometry)[0], MultiPolygon):
+                ext_vert = []
+                for multipolygon in list(self.label_gdf_filtered.geometry):
+                    ext_vert.extend([len(geom.exterior.coords) for geom in list(multipolygon)])
+                mean_ext_vert_nb = np.mean(ext_vert)
+            elif isinstance(list(self.label_gdf_filtered.geometry)[0], Polygon):
+                mean_ext_vert_nb = np.mean([len(geom.exterior.coords) for geom in self.label_gdf_filtered.geometry])
+            else:
+                mean_ext_vert_nb = None
+            out_dict.update({
+                'label_features_filtered_mean_area': np.mean(self.label_gdf_filtered.area),
+                'label_features_filtered_mean_perimeter': np.mean(self.label_gdf_filtered.length),
+                'label_features_filtered_mean_exterior_vertices_nb': mean_ext_vert_nb
+            })
         return out_dict
 
-    def raster_stats(self):
+    def calc_raster_stats(self):
         """ For stac items formatted as expected, reads mean and std of raster imagery, per band.
         See stac item example: tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
         If source imagery is not a stac item or stac item lacks stats assets, stats are calculed on the fly"""
@@ -370,17 +392,29 @@ class AOI(object):
             stac_stats = {bandwise_stats['asset']: bandwise_stats for bandwise_stats in stac_stats}
             for band in self.raster_stac_item.bands:
                 stats[band.common_name] = stac_stats[band.name]
-            return stats
         except (AttributeError, KeyError):
             raster_np = self.raster.read()
             for index, band in enumerate(stats.keys()):
-                stats[band] = {'statistics': {}}
-                stats[band]["statistics"]['minimum'] = raster_np[index].min()
-                stats[band]["statistics"]['maximum'] = raster_np[index].max()
-                stats[band]["statistics"]['mean'] = raster_np[index].mean()
-                stats[band]["statistics"]['median'] = np.median(raster_np[index])
-                stats[band]["statistics"]['std'] = raster_np[index].std()
-            return stats
+                stats[band] = {"statistics": {}, "histogram": {}}
+                stats[band]["statistics"]["minimum"] = raster_np[index].min()
+                stats[band]["statistics"]["maximum"] = raster_np[index].max()
+                stats[band]["statistics"]["mean"] = raster_np[index].mean()
+                stats[band]["statistics"]["median"] = np.median(raster_np[index])
+                stats[band]["statistics"]["std"] = raster_np[index].std()
+                stats[band]["histogram"]["buckets"] = list(np.bincount(raster_np.flatten()))
+        mean_minimum = np.mean([band_stat["statistics"]["minimum"] for band_stat in stats.values()])
+        mean_maximum = np.mean([band_stat["statistics"]["maximum"] for band_stat in stats.values()])
+        mean_mean = np.mean([band_stat["statistics"]["mean"] for band_stat in stats.values()])
+        mean_median = np.mean([band_stat["statistics"]["median"] for band_stat in stats.values()])
+        mean_std = np.mean([band_stat["statistics"]["std"] for band_stat in stats.values()])
+        hists_np = [np.asarray(band_stat["histogram"]["buckets"]) for band_stat in stats.values()]
+        mean_hist_np = np.sum(hists_np, axis=0) / len(hists_np)
+        mean_hist = list(mean_hist_np.astype(int))
+        stats["all"] = {
+            "statistics": {"minimum": mean_minimum, "maximum": mean_maximum, "mean": mean_mean,
+                           "median": mean_median, "std": mean_std},
+            "histogram": {"buckets": mean_hist}}
+        return stats
 
     def write_multiband_from_singleband_rasters_as_vrt(self, out_dir: Union[str, Path] = None):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
