@@ -10,7 +10,7 @@ import rasterio
 from pandas.io.common import is_url
 from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
-from shapely.geometry import box
+from shapely.geometry import box, Polygon
 from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load
 from torchvision.datasets.utils import download_url
 from tqdm import tqdm
@@ -197,12 +197,13 @@ class AOI(object):
         if label:
             self.label = Path(label)
             self.label_gdf = _check_gdf_load(str(label))
-            label_bounds = self.label_gdf.total_bounds
-            label_bounds_box = box(*label_bounds.tolist())
-            raster_bounds_box = box(*list(self.raster.bounds))
-            if not label_bounds_box.intersects(raster_bounds_box):
-                raise ValueError(f"Features in label file {label} do not intersect with bounds of raster file "
-                                 f"{self.raster.name}")
+            self.bounds_iou = self.bounds_iou_gdf_riodataset(
+                gdf=self.label_gdf,
+                raster=self.raster)
+            if self.bounds_iou == 0:
+                logging.error(
+                    f"Features in label file {label} do not intersect with bounds of raster file "
+                    f"{self.raster.name}")
             # TODO generate report first time, then, skip if exists
             self.label_invalid_features = validate_features_from_gpkg(label, attr_field_filter)
 
@@ -377,6 +378,25 @@ class AOI(object):
             except (FileNotFoundError, rasterio.RasterioIOError, TypeError) as e:
                 logging.critical(f"Couldn't parse input raster. Got {csv_raster_str}")
                 raise e
+
+    @staticmethod
+    def bounds_iou(polygon1: Polygon, polygon2: Polygon) -> float:
+        """Calculate intersection over union of areas between two shapely polygons"""
+        if not polygon1.intersects(polygon2):
+            return 0
+        else:
+            intersection = polygon1.intersection(polygon2).area
+            union = polygon1.area + polygon2.area - intersection
+            return intersection / union
+
+    @staticmethod
+    def bounds_iou_gdf_riodataset(gdf: gpd.GeoDataFrame, raster: rasterio.DatasetReader) -> float:
+        """Calculates intersection over union of the total bounds of a GeoDataFrame and bounds of a rasterio Dataset"""
+        label_bounds = gdf.total_bounds
+        label_bounds_box = box(*label_bounds.tolist())
+        raster_bounds_box = box(*list(raster.bounds))
+        bounds_iou = AOI.bounds_iou(polygon1=label_bounds_box, polygon2=raster_bounds_box)
+        return bounds_iou
 
     @staticmethod
     def filter_gdf_by_attribute(
