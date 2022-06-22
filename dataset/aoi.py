@@ -185,6 +185,12 @@ class AOI(object):
 
         # if single band assets, build multiband VRT
         self.raster_to_multiband(virtual=True)
+        self.raster_meta = self.raster.meta
+        self.raster_meta['name'] = self.raster.name
+        if self.raster_src_is_multiband:
+            self.raster_name = self.raster.name
+        else:
+            self.raster_name = Path(self.raster_raw_input[0]).name.replace("${dataset.bands}", "")
 
         if raster_num_bands_expected:
             validate_num_bands(raster_path=self.raster, num_bands=raster_num_bands_expected)
@@ -274,7 +280,7 @@ class AOI(object):
             raise ValueError(f"\n\"for_multiprocessing\" should be a boolean.\nGot {for_multiprocessing}.")
         self.for_multiprocessing = for_multiprocessing
         if self.for_multiprocessing:
-            self.raster_multiband = self.raster = None
+            self.raster = None
         logging.debug(self)
 
     @classmethod
@@ -284,7 +290,8 @@ class AOI(object):
                   attr_field_filter: str = None,
                   attr_values_filter: list = None,
                   download_data: bool = False,
-                  root_dir: str = "data"):
+                  root_dir: str = "data",
+                  for_multiprocessing: bool = False):
         """Instanciates an AOI object from an input-data dictionary as expected by geo-deep-learning"""
         if not isinstance(aoi_dict, dict):
             raise TypeError('Input data should be a dictionary.')
@@ -307,6 +314,7 @@ class AOI(object):
             aoi_id=aoi_dict['aoi_id'],
             download_data=download_data,
             root_dir=root_dir,
+            for_multiprocessing=for_multiprocessing,
         )
         return new_aoi
 
@@ -453,7 +461,8 @@ def aois_from_csv(
         attr_field_filter: str = None,
         attr_values_filter: str = None,
         download_data: bool = False,
-        data_dir: str = "data"
+        data_dir: str = "data",
+        for_multiprocessing = False,
 ):
     """
     Creates list of AOIs by parsing a csv file referencing input data
@@ -485,6 +494,7 @@ def aois_from_csv(
                 attr_values_filter=attr_values_filter,
                 download_data=download_data,
                 root_dir=data_dir,
+                for_multiprocessing=for_multiprocessing,
             )
             logging.debug(new_aoi)
             aois.append(new_aoi)
