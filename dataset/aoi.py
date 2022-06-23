@@ -157,6 +157,9 @@ class AOI(object):
             If True, no rasterio.DatasetReader will be generated in __init__. User will have to call read raster later.
             See: https://github.com/rasterio/rasterio/issues/1731
         """
+        self.raster_multiband = None
+        self.raster_np = None
+
         # Check and parse raster data
         if not isinstance(raster, str):
             raise TypeError(f"Raster path should be a string.\nGot {raster} of type {type(raster)}")
@@ -200,6 +203,7 @@ class AOI(object):
 
         # if single band assets, build multiband VRT
         self.raster_to_multiband(virtual=True)
+        self.raster_read()
         self.raster_meta = self.raster.meta
         self.raster_meta['name'] = self.raster.name
         if self.raster_src_is_multiband:
@@ -357,10 +361,11 @@ class AOI(object):
                 self.raster_multiband = stack_singlebands_vrt(self.raster_parsed)
             else:
                 self.raster_multiband = self.write_multiband_from_singleband_rasters_as_vrt()
-            self.raster = _check_rasterio_im_load(self.raster_multiband)
         else:
             self.raster_multiband = self.raster_parsed[0]
-            self.raster = _check_rasterio_im_load(self.raster_multiband)
+
+    def raster_read(self):
+        self.raster = _check_rasterio_im_load(self.raster_multiband)
 
     def to_dict(self, extended=True):
         """returns a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)"""
@@ -427,15 +432,15 @@ class AOI(object):
             for band in self.raster_stac_item.bands:
                 stats[band.common_name] = stac_stats[band.name]
         except (AttributeError, KeyError):
-            raster_np = self.raster.read()
+            self.raster_np = self.raster.read()
             for index, band in enumerate(stats.keys()):
                 stats[band] = {"statistics": {}, "histogram": {}}
-                stats[band]["statistics"]["minimum"] = raster_np[index].min()
-                stats[band]["statistics"]["maximum"] = raster_np[index].max()
-                stats[band]["statistics"]["mean"] = raster_np[index].mean()
-                stats[band]["statistics"]["median"] = np.median(raster_np[index])
-                stats[band]["statistics"]["std"] = raster_np[index].std()
-                stats[band]["histogram"]["buckets"] = list(np.bincount(raster_np.flatten()))
+                stats[band]["statistics"]["minimum"] = self.raster_np[index].min()
+                stats[band]["statistics"]["maximum"] = self.raster_np[index].max()
+                stats[band]["statistics"]["mean"] = self.raster_np[index].mean()
+                stats[band]["statistics"]["median"] = np.median(self.raster_np[index])
+                stats[band]["statistics"]["std"] = self.raster_np[index].std()
+                stats[band]["histogram"]["buckets"] = list(np.bincount(self.raster_np.flatten()))
         mean_minimum = np.mean([band_stat["statistics"]["minimum"] for band_stat in stats.values()])
         mean_maximum = np.mean([band_stat["statistics"]["maximum"] for band_stat in stats.values()])
         mean_mean = np.mean([band_stat["statistics"]["mean"] for band_stat in stats.values()])

@@ -3,7 +3,8 @@ import logging
 import multiprocessing
 import shutil
 from datetime import datetime
-from typing import Sequence
+from pathlib import Path
+from typing import Sequence, Union
 
 from matplotlib import pyplot as plt
 from omegaconf import open_dict, DictConfig
@@ -14,10 +15,30 @@ from dataset.aoi import aois_from_csv, AOI
 from utils.utils import get_key_def, get_git_hash, map_wrapper
 
 
-def verify_per_aoi(aoi: AOI, extended_label_stats, output_raster_stats, output_raster_plots, output_report_dir):
+def verify_per_aoi(
+        aoi: AOI,
+        output_report_dir: Union[str, Path],
+        extended_label_stats: bool = True,
+        output_raster_stats: bool = True,
+        output_raster_plots: bool = True
+):
+    """
+    Verifies a single AOI
+    @param aoi:
+        AOI object containing raster and label data to verify
+    @param extended_label_stats:
+        if True, will calculate polygon-related stats on label (mean area, mean perimeter, mean number of vertices)
+    @param output_raster_stats:
+        if True, will output stats on raster radiometric data
+    @param output_raster_plots:
+        if True, will output plots of RGB raster and histogram for all bands
+    @param output_report_dir:
+        Path where output report as csv should be written.
+    @return:
+        Returns info on AOI or error raised, if any.
+    """
     try:
-        if not aoi.raster:  # in case of multiprocessing
-            aoi.raster_to_multiband()
+        aoi.raster_read()  # in case of multiprocessing
 
         # get aoi info
         logging.info(f"\nGetting data info for {aoi.aoi_id}...")
@@ -32,7 +53,7 @@ def verify_per_aoi(aoi: AOI, extended_label_stats, output_raster_stats, output_r
 
         if output_raster_stats:
             logging.info(f"\nGetting raster stats for {aoi.aoi_id}...")
-            aoi_stats = aoi.calc_raster_stats()
+            aoi_stats = aoi.calc_raster_stats()  # creates self.raster_np
             aoi_stats_report = {}
             for cname, stats in aoi_stats.items():
                 aoi_stats_report.update(
@@ -42,13 +63,13 @@ def verify_per_aoi(aoi: AOI, extended_label_stats, output_raster_stats, output_r
 
         if output_raster_plots:
             logging.info(f"\nGenerating plots for {aoi.aoi_id}...")
-            out_plot = output_report_dir / f"raster_{aoi.aoi_id}.png"
+            out_plot = Path(output_report_dir) / f"raster_{aoi.aoi_id}.png"
             # https://rasterio.readthedocs.io/en/latest/topics/plotting.html
             fig, (axrgb, axhist) = plt.subplots(1, 2, figsize=(14, 7))
-            arr = aoi.raster.read()
-            show(arr, ax=axrgb, transform=aoi.raster.transform)
+            aoi.raster_np = aoi.raster.read() if aoi.raster_np is None else aoi.raster_np  # prevent read if in memory
+            show(aoi.raster_np, ax=axrgb, transform=aoi.raster.transform)
             show_hist(
-                arr, bins=50, lw=1.0, stacked=False, alpha=0.75,
+                aoi.raster_np, bins=50, lw=1.0, stacked=False, alpha=0.75,
                 histtype='step', title="Histogram", ax=axhist, label=aoi.raster_bands_request)
             plt.title(aoi.aoi_id)
             plt.savefig(out_plot)
@@ -61,7 +82,14 @@ def verify_per_aoi(aoi: AOI, extended_label_stats, output_raster_stats, output_r
 
 
 def main(cfg: DictConfig) -> None:
-    """TODO"""
+    """Data verification pipeline:
+    1. Get AOI infos
+    2. Read or calculate stats on raster's radiometric data (min, max, median, mean, std, bincount, etc.)
+    3. Generate plots for raster's radiometric data
+    4. Write infos and stats to output csv.
+    N.B: In current implementation, this pipeline is meant to go through no matter what error is raised.
+    Errors are saved as log.
+    """
     # PARAMETERS
     num_classes = len(cfg.dataset.classes_dict.keys())
     bands_requested = get_key_def('bands', cfg['dataset'], default=None, expected_type=Sequence)
@@ -86,6 +114,7 @@ def main(cfg: DictConfig) -> None:
     with open_dict(cfg):
         cfg.general.git_hash = get_git_hash()
 
+    logging.info(f"Building list of AOIs from input csv: {csv_file}")
     list_data_prep = aois_from_csv(
         csv_path=csv_file,
         bands_requested=bands_requested,
@@ -99,6 +128,7 @@ def main(cfg: DictConfig) -> None:
     outpath_csv = output_report_dir / f"report_info_{csv_file.stem}.csv"
     outpath_csv_errors = output_report_dir / f"report_error_{csv_file.stem}.log"
 
+    # rename latest report if any
     if outpath_csv.is_file():
         last_mod_time_suffix = datetime.fromtimestamp(outpath_csv.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
         shutil.move(outpath_csv, outpath_csv.parent / f'{outpath_csv.stem}_{last_mod_time_suffix}.csv')
@@ -111,9 +141,11 @@ def main(cfg: DictConfig) -> None:
     errors = []
     for aoi in tqdm(list_data_prep, position=0, desc="Verifying data"):
         if parallel:
-            input_args.append([verify_per_aoi, aoi, extended_label_stats, output_raster_stats, output_raster_plots, output_report_dir])
+            input_args.append([verify_per_aoi, aoi, output_report_dir, extended_label_stats,
+                               output_raster_stats, output_raster_plots])
         else:
-            aoi_dict, error = verify_per_aoi(aoi, extended_label_stats, output_raster_stats, output_raster_plots, output_report_dir)
+            aoi_dict, error = verify_per_aoi(aoi, output_report_dir, extended_label_stats,
+                                             output_raster_stats, output_raster_plots)
             report_list.append(aoi_dict)
             errors.append(error)
 
