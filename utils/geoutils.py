@@ -152,7 +152,7 @@ def is_stac_item(path: str) -> bool:
             return False
 
 
-def stack_vrts(srcs, band=1):
+def stack_singlebands_vrt(srcs, band=1):
     """
     Stacks multiple single-band raster into a single multiband virtual raster
     Source: https://gis.stackexchange.com/questions/392695/is-it-possible-to-build-a-vrt-file-from-multiple-files-with-rasterio

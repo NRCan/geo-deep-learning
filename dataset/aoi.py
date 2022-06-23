@@ -18,7 +18,7 @@ from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load
 from torchvision.datasets.utils import download_url
 from tqdm import tqdm
 
-from utils.geoutils import stack_vrts, is_stac_item, create_new_raster_from_base
+from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base
 from utils.logger import get_logger
 from utils.utils import read_csv
 from utils.verifications import assert_crs_match, validate_raster, \
@@ -121,6 +121,7 @@ class AOI(object):
                  attr_values_filter: Sequence = None,
                  download_data: bool = False,
                  root_dir: str = "data",
+                 for_multiprocessing: bool = False,
                  raster_stats: bool = False,
                  write_multiband: bool = False):
         # TODO: dict printer to output report on list of aois
@@ -152,6 +153,9 @@ class AOI(object):
             if True, radiometric stats will be read from Stac Item if available or calculated
         @param write_multiband: bool, optional
             If True, a multi-band raster side by side with single-bands rasters as provided in input csv. For debugging purposes.
+        @param for_multiprocessing: bool, optional
+            If True, no rasterio.DatasetReader will be generated in __init__. User will have to call read raster later.
+            See: https://github.com/rasterio/rasterio/issues/1731
         """
         # Check and parse raster data
         if not isinstance(raster, str):
@@ -195,12 +199,13 @@ class AOI(object):
         self.raster_parsed = raster_parsed
 
         # if single band assets, build multiband VRT
-        if not self.raster_src_is_multiband:
-            self.raster_multiband_vrt = stack_vrts(raster_parsed)
-            self.raster = _check_rasterio_im_load(self.raster_multiband_vrt)
+        self.raster_to_multiband(virtual=True)
+        self.raster_meta = self.raster.meta
+        self.raster_meta['name'] = self.raster.name
+        if self.raster_src_is_multiband:
+            self.raster_name = self.raster.name
         else:
-            self.raster_multiband_vrt = None
-            self.raster = _check_rasterio_im_load(str(self.raster_parsed[0]))
+            self.raster_name = Path(self.raster_raw_input[0]).name.replace("${dataset.bands}", "")
 
         if raster_num_bands_expected:
             validate_num_bands(raster_path=self.raster, num_bands=raster_num_bands_expected)
@@ -287,6 +292,12 @@ class AOI(object):
         self.label_gdf_filtered = label_gdf_filtered
 
         self.raster_stats = self.calc_raster_stats() if raster_stats else None
+
+        if not isinstance(for_multiprocessing, bool):
+            raise ValueError(f"\n\"for_multiprocessing\" should be a boolean.\nGot {for_multiprocessing}.")
+        self.for_multiprocessing = for_multiprocessing
+        if self.for_multiprocessing:
+            self.raster = None
         logging.debug(self)
 
     @classmethod
@@ -296,7 +307,8 @@ class AOI(object):
                   attr_field_filter: str = None,
                   attr_values_filter: list = None,
                   download_data: bool = False,
-                  root_dir: str = "data"):
+                  root_dir: str = "data",
+                  for_multiprocessing: bool = False):
         """Instanciates an AOI object from an input-data dictionary as expected by geo-deep-learning"""
         if not isinstance(aoi_dict, dict):
             raise TypeError('Input data should be a dictionary.')
@@ -319,6 +331,7 @@ class AOI(object):
             aoi_id=aoi_dict['aoi_id'],
             download_data=download_data,
             root_dir=root_dir,
+            for_multiprocessing=for_multiprocessing,
         )
         return new_aoi
 
@@ -332,6 +345,17 @@ class AOI(object):
             f"\n\tAttribute field filter: {self.attr_field_filter}"
             f"\n\tAttribute values filter: {self.attr_values_filter}"
             )
+
+    def raster_to_multiband(self, virtual=True):
+        if not self.raster_src_is_multiband:
+            if virtual:
+                self.raster_multiband = stack_singlebands_vrt(self.raster_parsed)
+            else:
+                self.raster_multiband = self.write_multiband_from_singleband_rasters_as_vrt()
+            self.raster = _check_rasterio_im_load(self.raster_multiband)
+        else:
+            self.raster_multiband = self.raster_parsed[0]
+            self.raster = _check_rasterio_im_load(self.raster_multiband)
 
     # TODO def to_dict()
     # return a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)
@@ -495,7 +519,8 @@ def aois_from_csv(
         attr_field_filter: str = None,
         attr_values_filter: str = None,
         download_data: bool = False,
-        data_dir: str = "data"
+        data_dir: str = "data",
+        for_multiprocessing = False,
 ):
     """
     Creates list of AOIs by parsing a csv file referencing input data
@@ -527,6 +552,7 @@ def aois_from_csv(
                 attr_values_filter=attr_values_filter,
                 download_data=download_data,
                 root_dir=data_dir,
+                for_multiprocessing=for_multiprocessing,
             )
             logging.debug(new_aoi)
             aois.append(new_aoi)
