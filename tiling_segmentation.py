@@ -47,12 +47,6 @@ def annot_percent(img_tile: Union[str, Path, rasterio.DatasetReader],
         return 0
     img_tile_dataset = _check_rasterio_im_load(img_tile)
     if not tile_bounds:
-        crs_match, img_crs, gt_crs = assert_crs_match(img_tile, gdf_tile)
-        if not crs_match:
-            tile_bounds = reproject_geometry(box(*img_tile_dataset.bounds),
-                                             input_crs=img_crs,
-                                             target_crs=gt_crs)
-        else:
             tile_bounds = box(*img_tile_dataset.bounds)
 
     annot_ct_vec = gdf_tile.area.sum()
@@ -228,7 +222,6 @@ class Tiler(object):
         vals = "_feat" + "-".join([str(val) for val in attr_vals]) if attr_vals else ""
         min_annot_str = f"_min-annot{min_annot}"
         sampling_str = vals + min_annot_str
-        # TODO: should this be a csv or txt?
         dataset_file_name = f'{exp_name}{sampling_str}_{dataset}.csv'
         return dataset_file_name, sampling_str
 
@@ -273,8 +266,6 @@ class Tiler(object):
         @param src_img_meta: path to source image
         @param dest_img_tiles_dir: optional, path to output directory where imagery tiles will be created
         @param dest_gt_tiles_dir: optional, path to output directory where ground truth tiles will be created
-        @param tile_size: (int) optional, size of tile. Defaults to 1024.
-        @param tile_stride: (int) optional, stride to use during tiling. Defaults to tile_size.
         @return: number of actual tiles in output directory, number of expected tiles
         """
         act_data_tiles = []
