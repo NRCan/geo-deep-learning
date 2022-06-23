@@ -1,16 +1,15 @@
 import collections
 import logging
-from pathlib import Path
 
 import numpy as np
 
 import fiona
-import os
 
 import pystac
 import rasterio
 from rasterio import MemoryFile
 from rasterio.features import is_valid_geom
+from rasterio.plot import reshape_as_raster
 from rasterio.shutil import copy as riocopy
 import xml.etree.ElementTree as ET
 
@@ -110,6 +109,10 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     if len(write_array.shape) == 2:  # 2D array
         count = 1
     elif len(write_array.shape) == 3:  # 3D array
+        if write_array.shape[0] > 100:
+            logging.warning(f"\nGot {write_array.shape[0]} bands. "
+                            f"\nMake sure array follows rasterio's channels first convention")
+            write_array = reshape_as_raster(write_array)
         count = write_array.shape[0]
     else:
         raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')

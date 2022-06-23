@@ -537,7 +537,7 @@ def print_config(
         fields += (
             "general.raw_data_dir",
             "general.raw_data_csv",
-            "general.tiles_data_dir",
+            "general.sample_data_dir",
         )
     elif config.get('mode') == 'train':
         fields += (
@@ -547,14 +547,14 @@ def print_config(
             'callbacks',
             'scheduler',
             'augmentation',
-            "general.tiles_data_dir",
+            "general.sample_data_dir",
             "general.save_weights_dir",
         )
     elif config.get('mode') == 'inference':
         fields += (
             "inference",
             "model",
-            "general.tiles_data_dir",
+            "general.sample_data_dir",
         )
 
     if config.get('tracker'):

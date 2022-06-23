@@ -148,5 +148,5 @@ def map_wrapper(x):
 
 
 def aoi_read_raster(aoi: AOI):
-    aoi.raster_to_multiband()
+    aoi.raster_read()
     return aoi.raster.meta
