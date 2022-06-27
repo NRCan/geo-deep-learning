@@ -15,7 +15,7 @@ from torch.hub import load_state_dict_from_url
 from dataset.aoi import aois_from_csv
 from utils.geoutils import create_new_raster_from_base
 from utils.metrics import iou_per_obj, iou_torchmetrics
-from utils.utils import get_key_def, gdl2pl_checkpoint, read_checkpoint, \
+from utils.utils import get_key_def, checkpoint_converter, read_checkpoint, \
     override_model_params_from_checkpoint, get_device_ids, extension_remover, set_device
 
 from inference_segmentation import main as gdl_inference
@@ -153,7 +153,7 @@ def main(cfg):
     if is_url(checkpoint):
         load_state_dict_from_url(url=checkpoint, map_location='cpu', model_dir=models_dir)
         checkpoint = models_dir / Path(checkpoint).name
-    checkpoint = gdl2pl_checkpoint(in_pth_path=checkpoint, out_dir=models_dir)
+    checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
     checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir)
     cfg_overridden = override_model_params_from_checkpoint(params=cfg.copy(), checkpoint_params=checkpoint_dict['params'])
 

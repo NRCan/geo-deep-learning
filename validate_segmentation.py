@@ -15,7 +15,7 @@ import rasterio
 from omegaconf import DictConfig
 
 from utils.logger import get_logger
-from utils.utils import get_key_def, override_model_params_from_checkpoint, gdl2pl_checkpoint, read_checkpoint, \
+from utils.utils import get_key_def, override_model_params_from_checkpoint, checkpoint_converter, read_checkpoint, \
     extension_remover
 
 # Set the logging file
@@ -53,7 +53,7 @@ def main(params):
 
     # Create yaml to use pytorch lightning model management
     logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
-    checkpoint = gdl2pl_checkpoint(in_pth_path=checkpoint, out_dir=models_dir)
+    checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
     checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
 

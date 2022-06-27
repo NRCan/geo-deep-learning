@@ -31,7 +31,7 @@ from models.model_choice import define_model_architecture
 from utils.geoutils import create_new_raster_from_base
 from utils.logger import get_logger
 from utils.utils import _window_2D, get_device_ids, get_key_def, set_device, override_model_params_from_checkpoint, \
-    gdl2pl_checkpoint, read_checkpoint, extension_remover, class_from_heatmap, stretch_heatmap
+    checkpoint_converter, read_checkpoint, extension_remover, class_from_heatmap, stretch_heatmap, ckpt_is_compatible
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -230,8 +230,11 @@ def main(params):
     if is_url(checkpoint):
         load_state_dict_from_url(url=checkpoint, map_location='cpu', model_dir=models_dir)
         checkpoint = models_dir / Path(checkpoint).name
-    checkpoint = gdl2pl_checkpoint(in_pth_path=checkpoint, out_dir=models_dir)
-    checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir)
+    if not ckpt_is_compatible(checkpoint):
+        checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
+        checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=True)
+    else:
+        checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=False)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
 
     # TODO: remove if no old models are used in production.

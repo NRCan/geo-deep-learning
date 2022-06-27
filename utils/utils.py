@@ -5,7 +5,7 @@ import subprocess
 from collections import OrderedDict
 from functools import reduce
 from pathlib import Path
-from typing import Sequence, List, Dict, Union
+from typing import Sequence, List, Dict
 
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
@@ -16,6 +16,7 @@ from omegaconf import DictConfig, OmegaConf, ListConfig, open_dict
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2575
 import torch
 from skimage.exposure.exposure import intensity_range
+from torch import Tensor
 from torch.hub import load_state_dict_from_url, get_dir
 from torchvision import models
 import numpy as np
@@ -608,20 +609,51 @@ def override_model_params_from_checkpoint(
     return params
 
 
-def update_gdl_checkpoint(checkpoint_params: DictConfig) -> DictConfig:
+def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
     """
     Updates old geo-deep-learning checkpoint to the most recent version
     @param checkpoint_params:
         Checkpoint as dictionary containing training parameters, model weights, etc.
     @return: updated checkpoint
     """
+    if ckpt_is_compatible(checkpoint):
+        return checkpoint
+    model_params = get_key_def('model', checkpoint['params'])
+    if not "in_channels" in model_params.keys() or not "classes" in model_params.keys():
+        class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
+        # TODO: remove if no old models are used in production.
+        single_class_mode = True
+        if 'inference' in checkpoint['params'].keys():
+            single_class_mode = get_key_def('state_dict_single_mode', checkpoint['params']['inference'], default=True)
+        # +1 for background(multiclass mode)
+        num_classes = class_keys if class_keys == 1 and single_class_mode else class_keys + 1
+        # Store hyper parameters to checkpoint as expected by pytorch lightning
+        if isinstance(model_params, DictConfig):
+            OmegaConf.set_struct(model_params, False)
+        model_params["in_channels"] = len(checkpoint['params']['dataset']['bands'])
+        model_params["classes"] = num_classes
+
+    # adapt to what pytorch lightning expects: add "model" prefix to model keys
+    if not list(checkpoint["params"]['model_state_dict'].keys())[0].startswith('model'):
+        new_state_dict = {}
+        new_state_dict['model_state_dict'] = checkpoint["params"]['model_state_dict'].copy()
+        new_state_dict['model_state_dict'] = {'model.'+k: v for k, v in checkpoint["params"]['model_state_dict'].items()}
+        checkpoint["params"]['model_state_dict'] = new_state_dict['model_state_dict']
+
+    # keep all keys and copy model weights to new state_dict key
+    pl_checkpoint = checkpoint.copy()
+    if not "state_dict" in pl_checkpoint.keys() and not isinstance(pl_checkpoint["state_dict"], dict):
+        pl_checkpoint['state_dict'] = pl_checkpoint['model_state_dict']
+    if not "hyper_parameters" in pl_checkpoint.keys():
+        pl_checkpoint['hyper_parameters'] = model_params
+    
     # covers gdl checkpoints from version <= 2.0.1
-    if 'model' in checkpoint_params.keys():
-        checkpoint_params['model_state_dict'] = checkpoint_params['model']
-        del checkpoint_params['model']
-    if 'optimizer' in checkpoint_params.keys():
-        checkpoint_params['optimizer_state_dict'] = checkpoint_params['optimizer']
-        del checkpoint_params['optimizer']
+    if 'model' in checkpoint["params"].keys():
+        checkpoint["params"]['model_state_dict'] = checkpoint["params"]['model']
+        del checkpoint["params"]['model']
+    if 'optimizer' in checkpoint["params"].keys():
+        checkpoint["params"]['optimizer_state_dict'] = checkpoint["params"]['optimizer']
+        del checkpoint["params"]['optimizer']
 
     # covers gdl checkpoints pre-hydra (<=2.0.0)
     bands = {'red': 'R', 'green': 'G', 'blue': 'B', 'nir': 'N'}
@@ -655,19 +687,19 @@ def update_gdl_checkpoint(checkpoint_params: DictConfig) -> DictConfig:
     }
     try:
         # don't update if already a recent checkpoint
-        get_key_def('classes_dict', checkpoint_params['params']['dataset'], expected_type=(dict, DictConfig))
-        get_key_def('model', checkpoint_params['params'], expected_type=(dict, DictConfig))
-        bands = get_key_def('bands', checkpoint_params['params']['dataset'], expected_type=Sequence)
+        get_key_def('classes_dict', checkpoint["params"]['params']['dataset'], expected_type=(dict, DictConfig))
+        get_key_def('model', checkpoint["params"]['params'], expected_type=(dict, DictConfig))
+        bands = get_key_def('bands', checkpoint["params"]['params']['dataset'], expected_type=Sequence)
         if isinstance(bands, str):
             mod_old2new = {v: k for k, v in bands.items()}
-            checkpoint_params['params']['dataset'].update(
+            checkpoint["params"]['params']['dataset'].update(
                 {'bands': [mod_old2new[band] for band in bands]}
             )
-        return checkpoint_params
+        return checkpoint["params"]
     except KeyError:
-        num_classes_ckpt = get_key_def('num_classes', checkpoint_params['params']['global'], expected_type=int)
-        num_bands_ckpt = get_key_def('number_of_bands', checkpoint_params['params']['global'], expected_type=int)
-        model_name = get_key_def('model_name', checkpoint_params['params']['global'], expected_type=str)
+        num_classes_ckpt = get_key_def('num_classes', checkpoint["params"]['params']['global'], expected_type=int)
+        num_bands_ckpt = get_key_def('number_of_bands', checkpoint["params"]['params']['global'], expected_type=int)
+        model_name = get_key_def('model_name', checkpoint["params"]['params']['global'], expected_type=str)
         try:
             model_ckpt = old2new[model_name]
         except KeyError as e:
@@ -676,7 +708,7 @@ def update_gdl_checkpoint(checkpoint_params: DictConfig) -> DictConfig:
                              f"\nError {type(e)}: {e}")
             raise e
         # For GDL pre-v2.0.2
-        checkpoint_params['params'].update({
+        checkpoint["params"]['params'].update({
             'dataset': {
                 # Necessary to manually update when using old in postprocess pipeline
                 # 'bands': ['nir', 'red', 'green'],
@@ -685,16 +717,67 @@ def update_gdl_checkpoint(checkpoint_params: DictConfig) -> DictConfig:
                 "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)},
             }
         })
-        checkpoint_params['params'].update({'model': model_ckpt})
+        checkpoint["params"]['params'].update({'model': model_ckpt})
         # Necessary to manually update when using old in postprocess pipeline
-        # checkpoint_params['params']['inference'].update({'enhance_clip_limit': 0.1})
-        #checkpoint_params['params'].update({'inference': {'state_dict_single_mode': False}})
-        return checkpoint_params
+        # checkpoint["params"]['params']['inference'].update({'enhance_clip_limit': 0.1})
+        #checkpoint["params"]['params'].update({'inference': {'state_dict_single_mode': False}})
+        return checkpoint
 
 
-def gdl2pl_checkpoint(in_pth_path: str, out_dir: str = None) -> str:
+def ckpt_is_compatible(in_ckpt_path: str, download_dir: str = None):
     """
-    Converts a geo-deep-learning/pytorch checkpoint (from v2.0.0+) to a pytorch lightning checkpoint.
+    Checks if model checkpoint is compatible with GDL's inference pipeline
+    @param in_ckpt_path:
+        Path to checkpoint to validate
+    @param download_dir:
+        Path to directory where checkpoint will be download if URI
+    @return:
+    """
+    logging.info(f"\n=> checking model compatibility '{in_ckpt_path}'")
+    if isinstance(in_ckpt_path, (dict, DictConfig)):
+        checkpoint = in_ckpt_path
+    elif is_url(in_ckpt_path):
+        checkpoint = load_state_dict_from_url(url=in_ckpt_path, map_location='cpu', model_dir=to_absolute_path(download_dir))
+    else:
+        checkpoint = torch.load(f=in_ckpt_path, map_location='cpu')
+    try:
+        isinstance(checkpoint['state_dict'], dict)
+        isinstance(list(checkpoint['state_dict'].values())[0], Tensor)
+        isinstance(checkpoint["params"], dict)
+        isinstance(checkpoint["params"]["model"], dict)
+        isinstance(checkpoint["params"]["model"]["in_channels"], int)
+        isinstance(checkpoint["params"]["model"]["classes"], int)
+        isinstance(checkpoint["params"]["model"]["_target_"], str)
+        isinstance(checkpoint["params"]["dataset"]["bands"], list)
+        return True
+    except (KeyError, AttributeError) as e:
+        logging.warning(f"\nCheckpoint is incompatible with inference pipeline: {in_ckpt_path}\n{e}")
+        return False
+
+
+def convert_pl_checkpoint(checkpoint: dict):
+    """
+    Convert a pytorch lightning checkpoint trained with https://github.com/remtav/torchgeo/tree/ccmeo-dataset.
+    Will fallback to try
+    @param checkpoint:
+    @return:
+    """
+    if 'state_dict' in checkpoint.keys():
+        checkpoint['params'] = checkpoint['hyper_parameters']
+        naive_bands = ["red", "green", "blue", "nir"]
+        checkpoint["params"]["dataset"] = {"bands": [naive_bands[index] for index in range(checkpoint['params']["model"]["in_channels"])]}
+        checkpoint["params"]["inference"] = {'state_dict_single_mode': False}
+        classes_dict = {f"class_{index}": index+1 for index in range(checkpoint['params']["model"]["classes"])}
+        checkpoint["params"]['dataset'] = {'classes_dict': classes_dict}
+        return checkpoint
+    else:
+        raise KeyError(f"Cannot convert provided checkpoint.")
+
+
+def checkpoint_converter(in_pth_path: str, out_dir: str = None) -> str:
+    """
+    Converts a geo-deep-learning/pytorch checkpoint (from v2.0.0+) to checkpoint as expected by inference pipeline,
+    i.e. pytorch lightning state dict with config saved under "params" key as done by GDL.
     The outputted model should remain compatible with geo-deep-learning's checkpoint loading.
     @param in_pth_path:
         path or url to input checkpoint
@@ -715,36 +798,16 @@ def gdl2pl_checkpoint(in_pth_path: str, out_dir: str = None) -> str:
     out_path = out_dir / f'pl_{Path(in_pth_path).name}'
     if Path(out_path).is_file():
         return out_path
-    logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
+    logging.info(f"Trying to make checkpoint compatible with this inference pipeline...")
     # load with geo-deep-learning method
-    checkpoint = read_checkpoint(in_pth_path)
-    checkpoint = update_gdl_checkpoint(checkpoint)
+    checkpoint = read_checkpoint(in_pth_path, update=False)
+    if str(in_pth_path).endswith(".ckpt"):
+        pl_checkpoint = convert_pl_checkpoint(checkpoint=checkpoint)
+    elif str(in_pth_path).endswith(".pth.tar"):
+        pl_checkpoint = update_gdl_checkpoint(checkpoint)
+    else:
+        raise KeyError(f"Cannot convert provided checkpoint: {in_pth_path}")
 
-    hparams = get_key_def('model', checkpoint['params'])
-    class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
-    # TODO: remove if no old models are used in production.
-    single_class_mode = True
-    if 'inference' in checkpoint['params'].keys():
-        single_class_mode = get_key_def('state_dict_single_mode', checkpoint['params']['inference'], default=True)
-    # +1 for background(multiclass mode)
-    num_classes = class_keys if class_keys == 1 and single_class_mode else class_keys + 1
-    # Store hyper parameters to checkpoint as expected by pytorch lightning
-    if isinstance(hparams, DictConfig):
-        OmegaConf.set_struct(hparams, False)
-    hparams["in_channels"] = len(checkpoint['params']['dataset']['bands'])
-    hparams["classes"] = num_classes
-
-    # adapt to what pytorch lightning expects: add "model" prefix to model keys
-    if not list(checkpoint['model_state_dict'].keys())[0].startswith('model'):
-        new_state_dict = {}
-        new_state_dict['model_state_dict'] = checkpoint['model_state_dict'].copy()
-        new_state_dict['model_state_dict'] = {'model.'+k: v for k, v in checkpoint['model_state_dict'].items()}
-        checkpoint['model_state_dict'] = new_state_dict['model_state_dict']
-
-    # keep all keys and copy model weights to new state_dict key
-    pl_checkpoint = checkpoint.copy()
-    pl_checkpoint['state_dict'] = pl_checkpoint['model_state_dict']
-    pl_checkpoint['hyper_parameters'] = hparams
     torch.save(pl_checkpoint, out_path)
 
     return out_path
@@ -761,27 +824,14 @@ def read_checkpoint(filename, out_dir: str = 'checkpoints', update=True) -> Dict
     """
     if not filename:
         logging.warning(f"No path to checkpoint provided.")
-        return None
+        return
     try:
         logging.info(f"\n=> loading model '{filename}'")
         if is_url(filename):
             checkpoint = load_state_dict_from_url(url=filename, map_location='cpu', model_dir=to_absolute_path(out_dir))
         else:
             checkpoint = torch.load(f=filename, map_location='cpu')
-        # For loading external models with different structure in state dict.
-        if 'model_state_dict' not in checkpoint.keys() and 'model' not in checkpoint.keys():
-            val_set = set()
-            for val in checkpoint.values():
-                val_set.add(type(val))
-            if len(val_set) == 1 and list(val_set)[0] == torch.Tensor:
-                # places entire state_dict inside expected key
-                new_checkpoint = OrderedDict()
-                new_checkpoint['model_state_dict'] = OrderedDict({k: v for k, v in checkpoint.items()})
-                del checkpoint
-                checkpoint = new_checkpoint
-            else:
-                raise ValueError(f"GDL cannot find weight in provided checkpoint")
-        elif update:
+        if update:
             checkpoint = update_gdl_checkpoint(checkpoint)
         return checkpoint
     except FileNotFoundError as e:
