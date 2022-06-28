@@ -105,21 +105,11 @@ def main(params):
     list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"])
 
     # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
-    valid_gpkg_set = set()
     for info in tqdm(list_img, desc='Validating ground truth'):
         if not 'gpkg' in info.keys() and not info['gpkg']:
             raise ValueError(f"No ground truth was inputted to evaluate with")
         elif not Path(info['gpkg']).is_file():
             raise FileNotFoundError(f"Couldn't locate ground truth to evaluate with.")
-
-        if info['gpkg'] not in valid_gpkg_set:
-            validate_num_classes(vector_file=info['gpkg'],
-                                 num_classes=num_classes,
-                                 attribute_name=attribute_field,
-                                 ignore_index=dontcare,
-                                 attribute_values=attr_vals)
-            assert_crs_match(info['tif'], info['gpkg'])
-            valid_gpkg_set.add(info['gpkg'])
 
     logging.info('\nSuccessfully validated label data for benchmarking')
 
