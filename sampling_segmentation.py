@@ -1,7 +1,6 @@
 import shutil
 from typing import Sequence
 
-import rasterio
 import numpy as np
 from solaris.utils.core import _check_rasterio_im_load
 from tqdm import tqdm
@@ -17,9 +16,7 @@ from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.utils import (
     get_key_def, pad, pad_diff, add_metadata_from_raster_to_sample, get_git_hash,
 )
-from utils.verifications import (
-    validate_num_classes
-)
+
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
@@ -413,9 +410,7 @@ def main(cfg: DictConfig) -> None:
     valid_gpkg_set = set()
     for aoi in tqdm(list_data_prep, position=0):
         if aoi.label not in valid_gpkg_set:
-            gpkg_classes = validate_num_classes(
-                aoi.label, num_classes, attribute_field, dontcare, attribute_values=attr_vals,
-            )
+            gpkg_classes = aoi.label_gdf_filtered[aoi.attr_field_filter].unique().astype(int)
             valid_gpkg_set.add(aoi.label)
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}

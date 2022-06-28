@@ -13,7 +13,7 @@ from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
 from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
-from shapely.geometry import box, Polygon
+from shapely.geometry import box, Polygon, MultiPolygon
 from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load
 from torchvision.datasets.utils import download_url
 from tqdm import tqdm
@@ -157,6 +157,9 @@ class AOI(object):
             If True, no rasterio.DatasetReader will be generated in __init__. User will have to call read raster later.
             See: https://github.com/rasterio/rasterio/issues/1731
         """
+        self.raster_multiband = None
+        self.raster_np = None
+
         # Check and parse raster data
         if not isinstance(raster, str):
             raise TypeError(f"Raster path should be a string.\nGot {raster} of type {type(raster)}")
@@ -200,6 +203,7 @@ class AOI(object):
 
         # if single band assets, build multiband VRT
         self.raster_to_multiband(virtual=True)
+        self.raster_read()
         self.raster_meta = self.raster.meta
         self.raster_meta['name'] = self.raster.name
         if self.raster_src_is_multiband:
@@ -253,8 +257,10 @@ class AOI(object):
         # Check aoi_id string
         if aoi_id and not isinstance(aoi_id, str):
             raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
-        elif not aoi_id:
+        elif not aoi_id and self.raster_src_is_multiband:
             aoi_id = Path(self.raster.name).stem  # Defaults to name of image without suffix
+        elif not aoi_id and not self.raster_src_is_multiband:
+            aoi_id = Path(self.raster_raw_input).stem  # Defaults to name of first singleband image without suffix
         self.aoi_id = aoi_id
 
         # Check collection string
@@ -276,6 +282,8 @@ class AOI(object):
         self.attr_field_filter = attr_field_filter
 
         # If ground truth is provided, check attribute values to filter from
+        if isinstance(attr_values_filter, int):
+            attr_values_filter = [attr_values_filter]
         if label and attr_values_filter and not isinstance(attr_values_filter, (list, listconfig.ListConfig)):
             raise TypeError(f'Attribute values should be a list.\n'
                             f'Got {attr_values_filter} of type {type(attr_values_filter)}')
@@ -286,7 +294,7 @@ class AOI(object):
             self.attr_values_filter,
         )
         if len(label_gdf_filtered) == 0:
-            raise ValueError(f"\nNo features found for ground truth \"{self.label}\","
+            logging.warning(f"\nNo features found for ground truth \"{self.label}\","
                              f"\nfiltered by attribute field \"{self.attr_field_filter}\""
                              f"\nwith values \"{self.attr_values_filter}\"")
         self.label_gdf_filtered = label_gdf_filtered
@@ -335,6 +343,7 @@ class AOI(object):
         )
         return new_aoi
 
+    # TODO: is this necessary if to_dict() is good enough?
     def __str__(self):
         return (
             f"\nAOI ID: {self.aoi_id}"
@@ -352,13 +361,55 @@ class AOI(object):
                 self.raster_multiband = stack_singlebands_vrt(self.raster_parsed)
             else:
                 self.raster_multiband = self.write_multiband_from_singleband_rasters_as_vrt()
-            self.raster = _check_rasterio_im_load(self.raster_multiband)
         else:
             self.raster_multiband = self.raster_parsed[0]
-            self.raster = _check_rasterio_im_load(self.raster_multiband)
 
-    # TODO def to_dict()
-    # return a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)
+    def raster_read(self):
+        self.raster = _check_rasterio_im_load(self.raster_multiband)
+
+    def to_dict(self, extended=True):
+        """returns a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)"""
+        try:
+            raster_area = (self.raster.res[0] * self.raster.width) * (self.raster.res[1] * self.raster.height)
+        except AttributeError:
+            raster_area = None
+        out_dict = {
+            'raster': self.raster_raw_input,
+            'label': self.label,
+            'split': self.split,
+            'id': self.aoi_id,
+            'raster_parsed': self.raster_parsed,
+            'raster_area': raster_area,
+            'raster_meta': self.raster_meta,
+            'label_features_nb': len(self.label_gdf),
+            'label_features_filtered_nb': len(self.label_gdf_filtered),
+            'raster_label_bounds_iou': self.bounds_iou,
+            'crs_raster': self.epsg_raster,
+            'crs_label': self.epsg_label,
+            'crs_match': self.crs_match
+        }
+        if extended:
+            mean_ext_vert_nb = None
+            try:
+                if isinstance(list(self.label_gdf_filtered.geometry)[0], MultiPolygon):
+                    ext_vert = []
+                    for multipolygon in list(self.label_gdf_filtered.geometry):
+                        ext_vert.extend([len(geom.exterior.coords) for geom in list(multipolygon)])
+                    mean_ext_vert_nb = np.mean(ext_vert)
+                elif isinstance(list(self.label_gdf_filtered.geometry)[0], Polygon):
+                    mean_ext_vert_nb = np.mean([len(geom.exterior.coords) for geom in self.label_gdf_filtered.geometry])
+            # TODO: resolve with MB18 ('Polygon' object is not iterable)
+            # TODO: Kingston1 ('MultiPolygon' object has no attribute 'exterior')
+            # TODO: AB11 (0 filtered features)
+            except Exception as e:
+                logging.warning(e)
+
+            out_dict.update({
+                'label_features_filtered_mean_area': np.mean(self.label_gdf_filtered.area),
+                'label_features_filtered_mean_perimeter': np.mean(self.label_gdf_filtered.length),
+                'label_features_filtered_mean_exterior_vertices_nb': mean_ext_vert_nb
+            })
+        return out_dict
 
     def calc_raster_stats(self):
         """ For stac items formatted as expected, reads mean and std of raster imagery, per band.
@@ -381,15 +432,15 @@ class AOI(object):
             for band in self.raster_stac_item.bands:
                 stats[band.common_name] = stac_stats[band.name]
         except (AttributeError, KeyError):
-            raster_np = self.raster.read()
+            self.raster_np = self.raster.read()
             for index, band in enumerate(stats.keys()):
                 stats[band] = {"statistics": {}, "histogram": {}}
-                stats[band]["statistics"]["minimum"] = raster_np[index].min()
-                stats[band]["statistics"]["maximum"] = raster_np[index].max()
-                stats[band]["statistics"]["mean"] = raster_np[index].mean()
-                stats[band]["statistics"]["median"] = np.median(raster_np[index])
-                stats[band]["statistics"]["std"] = raster_np[index].std()
-                stats[band]["histogram"]["buckets"] = list(np.bincount(raster_np.flatten()))
+                stats[band]["statistics"]["minimum"] = self.raster_np[index].min()
+                stats[band]["statistics"]["maximum"] = self.raster_np[index].max()
+                stats[band]["statistics"]["mean"] = self.raster_np[index].mean()
+                stats[band]["statistics"]["median"] = np.median(self.raster_np[index])
+                stats[band]["statistics"]["std"] = self.raster_np[index].std()
+                stats[band]["histogram"]["buckets"] = list(np.bincount(self.raster_np.flatten()))
         mean_minimum = np.mean([band_stat["statistics"]["minimum"] for band_stat in stats.values()])
         mean_maximum = np.mean([band_stat["statistics"]["maximum"] for band_stat in stats.values()])
         mean_mean = np.mean([band_stat["statistics"]["mean"] for band_stat in stats.values()])
@@ -404,16 +455,17 @@ class AOI(object):
             "histogram": {"buckets": mean_hist}}
         return stats
 
-    def write_multiband_from_singleband_rasters_as_vrt(self):
+    def write_multiband_from_singleband_rasters_as_vrt(self, out_dir: Union[str, Path] = None):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
+        out_dir = self.root_dir if out_dir is not None else Path(out_dir)
         if not self.raster.driver == 'VRT':
             logging.error(f"To write a multi-band raster from single-band files, a VRT must be provided."
                           f"\nGot {self.raster.meta}")
             return
         if "${dataset.bands}" in self.raster_raw_input:
-            out_tif_path = self.raster_raw_input.replace("${dataset.bands}", ''.join(self.raster_bands_request))
+            out_tif_path = out_dir / Path(self.raster_raw_input).name.replace("${dataset.bands}", ''.join(self.raster_bands_request))
         elif is_stac_item(self.raster_raw_input):
-            out_tif_path = self.root_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
+            out_tif_path = out_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
         else:
             logging.error(f"\nTo write multiband raster from single band imagery, "
                           f"source imagery must be referenced with expected formats.\n"
@@ -492,7 +544,7 @@ class AOI(object):
         @return: Subset of source GeoDataFrame with only filtered features (deep copy)
         """
         gdf_tile = _check_gdf_load(gdf_tile)
-        if not attr_field or not attr_vals:
+        if gdf_tile.empty or not attr_field or not attr_vals:
             return gdf_tile
         try:
             condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
