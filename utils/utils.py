@@ -733,7 +733,7 @@ def ckpt_is_compatible(in_ckpt_path: str, download_dir: str = None):
         Path to directory where checkpoint will be download if URI
     @return:
     """
-    logging.info(f"\n=> checking model compatibility '{in_ckpt_path}'")
+    logging.info(f"\n=> checking model compatibility...")
     if isinstance(in_ckpt_path, (dict, DictConfig)):
         checkpoint = in_ckpt_path
     elif is_url(in_ckpt_path):
