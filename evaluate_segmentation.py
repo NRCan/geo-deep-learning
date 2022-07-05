@@ -83,13 +83,16 @@ def benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num
             num_classes=num_classes,
             device=device)
     except RuntimeError as e:
-        logging.error(f"{aoi.aoi_id}: {e}")
+        logging.error(f"{aoi.aoi_id} | RuntimeError: {e}")
         logging.info(f"Trying on cpu...")
         iou = iou_torchmetrics(
             torch.from_numpy(pred_raster),
             torch.from_numpy(label_raster),
             num_classes=num_classes,
             device=torch.device('cpu'))
+    except ValueError as e:
+        logging.error(f"{aoi.aoi_id} | ValueError: {e}")
+        iou = None
     torch.cuda.empty_cache()
     logging.info(f"Result:\nRaster IOU | {iou}")
     metric_per_aoi['iou_raster'] = iou
