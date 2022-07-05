@@ -4,6 +4,7 @@ from pathlib import Path
 import geopandas as gpd
 import pytest
 import rasterio
+from rasterio import RasterioIOError
 from shapely.geometry import box
 from torchgeo.datasets.utils import extract_archive
 
@@ -82,22 +83,26 @@ class Test_AOI(object):
         assert iou == expected_iou
 
     def test_corrupt_raster(self) -> None:
-        raster_file = "tests/data/massachusetts_buildings_kaggle/corrupt_file.tif"
-        with pytest.raises(BaseException):
-            raster = rasterio.open(raster_file)
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        for row in data:
+            row['tif'] = "tests/data/massachusetts_buildings_kaggle/corrupt_file.tif"
+            with pytest.raises(BaseException):
+                aoi = AOI(raster=row['tif'], label=None)
 
     def test_image_only(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
         for row in data:
             aoi = AOI(raster=row['tif'], label=None)
+            assert aoi.label == None
 
     def test_missing_raster(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
         for row in data:
             row['tif'] = "missing_raster.tif"
-            with pytest.raises(FileNotFoundError):
+            with pytest.raises(RasterioIOError):
                 aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
 
     def test_wrong_split(self) -> None:
@@ -110,9 +115,12 @@ class Test_AOI(object):
 
     def test_download_data(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/spacenet-samples/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif")
+        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
         for row in data:
-            aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], download_data= True)
+            row['tif'] = "http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/spacenet-samples/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif"
+            aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], download_data= True, root_dir="data")
+            assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif").is_file()
+            assert aoi.download_data == True
 
     def test_stac_input_missing_band(self):
         """Tests singleband input imagery from stac item"""
@@ -128,8 +136,8 @@ class Test_AOI(object):
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/no_intersection.csv")
         for row in data:
-            with pytest.raises(TypeError):
-                aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
+            aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
+            assert aoi.bounds_iou == 0
 
     def test_raster_stats_from_stac(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
