@@ -239,7 +239,7 @@ class AOI(object):
                 logging.warning(f"\nError while checking CRS match between raster and label."
                                 f"\n{e}")
         else:
-            self.label = self.crs_match = self.epsg_raster = self.epsg_label = None
+            self.label = self.label_gdf = self.crs_match = self.epsg_raster = self.epsg_label = None
 
         # Check split string
         if split and not isinstance(split, str):
@@ -288,16 +288,18 @@ class AOI(object):
             raise TypeError(f'Attribute values should be a list.\n'
                             f'Got {attr_values_filter} of type {type(attr_values_filter)}')
         self.attr_values_filter = attr_values_filter
-        label_gdf_filtered = self.filter_gdf_by_attribute(
-            self.label_gdf.copy(deep=True),
-            self.attr_field_filter,
-            self.attr_values_filter,
-        )
-        if len(label_gdf_filtered) == 0:
-            logging.warning(f"\nNo features found for ground truth \"{self.label}\","
-                             f"\nfiltered by attribute field \"{self.attr_field_filter}\""
-                             f"\nwith values \"{self.attr_values_filter}\"")
-        self.label_gdf_filtered = label_gdf_filtered
+        if label:
+            self.label_gdf_filtered = self.filter_gdf_by_attribute(
+                self.label_gdf.copy(deep=True),
+                self.attr_field_filter,
+                self.attr_values_filter,
+            )
+            if len(self.label_gdf_filtered) == 0:
+                logging.warning(f"\nNo features found for ground truth \"{self.label}\","
+                                 f"\nfiltered by attribute field \"{self.attr_field_filter}\""
+                                 f"\nwith values \"{self.attr_values_filter}\"")
+        else:
+            self.label_gdf_filtered = None
 
         self.raster_stats = self.calc_raster_stats() if raster_stats else None
 
