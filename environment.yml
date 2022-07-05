@@ -1,6 +1,5 @@
 name: geo_deep_env
 channels:
-  - defaults
   - pytorch
   - conda-forge
 dependencies:

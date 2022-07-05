@@ -15,7 +15,8 @@ jobs:
           environment-file: environment.yml
           python-version: 3.9
           auto-activate-base: false
-      - shell: bash -l {0}
+      - name: test GDL's 4 major modes
+        shell: bash -l {0}
         run: |
           for z in tests/data/*.zip; do unzip "$z" -d tests/data; done
           coverage run -m pytest --log-cli-level=INFO --capture=tee-sys
