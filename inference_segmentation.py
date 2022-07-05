@@ -44,7 +44,7 @@ class InferenceTask(LightningModule):
     """
     def config_task(self) -> None:
         """Configures the task based on kwargs parameters passed to the constructor."""
-        self.model = define_model_architecture(self.hparams, self.hparams["in_channels"], self.hparams["classes"])
+        self.model = define_model_architecture(self.hparams["model"], self.hparams["model"]["in_channels"], self.hparams["model"]["classes"])
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the LightningModule with a model.

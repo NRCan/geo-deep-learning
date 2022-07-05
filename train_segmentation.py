@@ -132,7 +132,6 @@ def create_dataloader(samples_folder: Path,
 
     return trn_dataloader, val_dataloader, tst_dataloader
 
-
 def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: int, max_pix_per_mb_gpu: int = 280):
     """
     Calculate maximum batch size that could fit on GPU during evaluation based on thumb rule with harcoded
