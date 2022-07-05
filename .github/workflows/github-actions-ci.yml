@@ -16,6 +16,8 @@ jobs:
       run: |
         docker run --rm gdl:latest /bin/bash -c "source /opt/conda/etc/profile.d/conda.sh &&
         conda activate geo_deep_env && cd geo-deep-learning &&
-        for z in tests/data/*.zip; do unzip "$z" -d tests/data; done &&
+        unzip tests/data/massachusetts_buildings_kaggle.zip && 
+        unzip tests/data/new_brunswick_aerial.zip && 
+        unzip tests/data/spacenet.zip &&
         coverage run -m pytest --log-cli-level=INFO --capture=tee-sys &&
-        coverage report -m --sort=Cover
+        coverage report -m --sort=Cover"
