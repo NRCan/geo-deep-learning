@@ -108,21 +108,6 @@ class Test_AOI(object):
             with pytest.raises(ValueError):
                 aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
 
-    def test_wrong_seperation(self) -> None:
-        extract_archive(src="tests/data/spacenet.zip")
-        with pytest.raises(TypeError):
-            data = read_csv("tests/sampling/point_virgule.csv")
-        ##for row in data:
-            ##aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
-
-    def test_with_header_in_csv(self) -> None:
-        extract_archive(src="tests/data/spacenet.zip")
-        with pytest.raises(TypeError):
-            data = read_csv("tests/sampling/header.csv")
-        ##for row in data:
-            ##aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
-
-
     def test_download_data(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/spacenet-samples/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif")
@@ -141,7 +126,7 @@ class Test_AOI(object):
 
     def test_no_intersection(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
+        data = read_csv("tests/sampling/no_intersection.csv")
         for row in data:
             with pytest.raises(TypeError):
                 aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
