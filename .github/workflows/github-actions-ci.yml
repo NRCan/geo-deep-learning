@@ -14,6 +14,8 @@ jobs:
       run: sudo docker build -t gdl -f Dockerfile .
     - name: test GDL's 4 major modes
       run: |
-        for z in tests/data/*.zip; do unzip "$z" -d tests/data; done
-        coverage run -m pytest --log-cli-level=INFO --capture=tee-sys
+        docker run --rm gdl:latest /bin/bash -c "source /opt/conda/etc/profile.d/conda.sh &&
+        conda activate geo_deep_env && cd geo-deep-learning &&
+        for z in tests/data/*.zip; do unzip "$z" -d tests/data; done &&
+        coverage run -m pytest --log-cli-level=INFO --capture=tee-sys &&
         coverage report -m --sort=Cover
