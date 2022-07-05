@@ -1,23 +1,19 @@
-name: GitHub Actions Demo
+name: Docker Image CI
+
 on: [push, pull_request]
+
 jobs:
-  miniconda:
-    name: Miniconda ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-        matrix:
-            os: ["ubuntu-latest"]
+
+  build:
+
+    runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v2
-      - uses: conda-incubator/setup-miniconda@v2
-        with:
-          activate-environment: geo_deep_env
-          environment-file: environment.yml
-          python-version: 3.9
-          auto-activate-base: false
-      - name: test GDL's 4 major modes
-        shell: bash -l {0}
-        run: |
-          for z in tests/data/*.zip; do unzip "$z" -d tests/data; done
-          coverage run -m pytest --log-cli-level=INFO --capture=tee-sys
-          coverage report -m --sort=Cover
+    - uses: actions/checkout@v2
+    - name: Build the Docker image
+      run: sudo docker build -t gdl -f Dockerfile .
+    - name: test GDL's 4 major modes
+      run: |
+        for z in tests/data/*.zip; do unzip "$z" -d tests/data; done
+        coverage run -m pytest --log-cli-level=INFO --capture=tee-sys
+        coverage report -m --sort=Cover
