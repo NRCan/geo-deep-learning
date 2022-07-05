@@ -1,5 +1,6 @@
 defaults:
   - model: gdl_unet
+  - verify: default_verify
   - training: default_training
   - loss: binary/softbce
   - optimizer: adamw
@@ -37,6 +38,6 @@ general:
   save_weights_dir: saved_model/${general.project_name}
 
 print_config: True # save the config in the log folder
-mode: {sampling, train, inference, postprocess} #, evaluate} FIXME evaluate with stac item and label!
+mode: {verify, sampling, train, inference, postprocess} #, evaluate} FIXME evaluate with stac item and label!
 # TODO deactivate rasterio/fiona logs
 debug: True # will print the complete yaml config plus run a validation test

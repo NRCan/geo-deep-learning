@@ -1,21 +1,24 @@
 import functools
+import json
 from collections import OrderedDict
 from pathlib import Path
 from typing import Union, Sequence, Dict, Tuple, List, Optional
 
 import geopandas as gpd
+import numpy as np
 import pyproj
 import pystac
 import rasterio
+from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
 from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
-from shapely.geometry import box
+from shapely.geometry import box, Polygon, MultiPolygon
 from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load
 from torchvision.datasets.utils import download_url
 from tqdm import tqdm
 
-from utils.geoutils import stack_vrts, is_stac_item, create_new_raster_from_base
+from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base
 from utils.logger import get_logger
 from utils.utils import read_csv
 from utils.verifications import assert_crs_match, validate_raster, \
@@ -48,8 +51,6 @@ class SingleBandItemEO(ItemEOExtension):
         self.item = item
         self._assets_by_common_name = None
 
-        if len(bands_requested) == 0:
-            logging.warning(f"At least one band should be chosen if assets need to be reached")
         if bands_requested is not None and len(bands_requested) == 0:
             logging.warning(f"At least one band should be chosen if assets need to be reached")
 
@@ -120,6 +121,8 @@ class AOI(object):
                  attr_values_filter: Sequence = None,
                  download_data: bool = False,
                  root_dir: str = "data",
+                 for_multiprocessing: bool = False,
+                 raster_stats: bool = False,
                  write_multiband: bool = False):
         # TODO: dict printer to output report on list of aois
         """
@@ -146,9 +149,17 @@ class AOI(object):
             if True, download dataset and store it in the root directory.
         @param root_dir:
             root directory where dataset can be found or downloaded
+        @param raster_stats:
+            if True, radiometric stats will be read from Stac Item if available or calculated
         @param write_multiband: bool, optional
             If True, a multi-band raster side by side with single-bands rasters as provided in input csv. For debugging purposes.
+        @param for_multiprocessing: bool, optional
+            If True, no rasterio.DatasetReader will be generated in __init__. User will have to call read raster later.
+            See: https://github.com/rasterio/rasterio/issues/1731
         """
+        self.raster_multiband = None
+        self.raster_np = None
+
         # Check and parse raster data
         if not isinstance(raster, str):
             raise TypeError(f"Raster path should be a string.\nGot {raster} of type {type(raster)}")
@@ -161,6 +172,15 @@ class AOI(object):
             csv_raster_str=self.raster_raw_input,
             raster_bands_requested=self.raster_bands_request
         )
+
+        # If stac item input, keep Stac item object as attribute
+        if is_stac_item(self.raster_raw_input):
+            item = SingleBandItemEO(item=pystac.Item.from_file(self.raster_raw_input),
+                                    bands_requested=self.raster_bands_request)
+            self.raster_stac_item = item
+        else:
+            self.raster_stac_item = None
+
         # If parsed result has more than a single file, then we're dealing with single-band files
         self.raster_src_is_multiband = True if len(raster_parsed) == 1 else False
 
@@ -172,7 +192,7 @@ class AOI(object):
             for index, single_raster in enumerate(raster_parsed):
                 if is_url(single_raster):
                     out_name = self.root_dir / Path(single_raster).name
-                    download_url(single_raster, root=str(self.root_dir), filename=str(out_name))
+                    download_url(single_raster, root=str(out_name.parent), filename=out_name.name)
                     # replace with local copy
                     raster_parsed[index] = str(out_name)
 
@@ -182,12 +202,14 @@ class AOI(object):
         self.raster_parsed = raster_parsed
 
         # if single band assets, build multiband VRT
-        if not self.raster_src_is_multiband:
-            self.raster_multiband_vrt = stack_vrts(raster_parsed)
-            self.raster = _check_rasterio_im_load(self.raster_multiband_vrt)
+        self.raster_to_multiband(virtual=True)
+        self.raster_read()
+        self.raster_meta = self.raster.meta
+        self.raster_meta['name'] = self.raster.name
+        if self.raster_src_is_multiband:
+            self.raster_name = self.raster.name
         else:
-            self.raster_multiband_vrt = None
-            self.raster = _check_rasterio_im_load(str(self.raster_parsed[0]))
+            self.raster_name = Path(self.raster_raw_input[0]).name.replace("${dataset.bands}", "")
 
         if raster_num_bands_expected:
             validate_num_bands(raster_path=self.raster, num_bands=raster_num_bands_expected)
@@ -199,18 +221,19 @@ class AOI(object):
         if label:
             self.label = Path(label)
             self.label_gdf = _check_gdf_load(str(label))
-            label_bounds = self.label_gdf.total_bounds
-            label_bounds_box = box(*label_bounds.tolist())
-            raster_bounds_box = box(*list(self.raster.bounds))
-            if not label_bounds_box.intersects(raster_bounds_box):
-                raise ValueError(f"Features in label file {label} do not intersect with bounds of raster file "
-                                 f"{self.raster.name}")
+            self.bounds_iou = self.bounds_iou_gdf_riodataset(
+                gdf=self.label_gdf,
+                raster=self.raster)
+            if self.bounds_iou == 0:
+                logging.error(
+                    f"Features in label file {label} do not intersect with bounds of raster file "
+                    f"{self.raster.name}")
             # TODO generate report first time, then, skip if exists
             self.label_invalid_features = validate_features_from_gpkg(label, attr_field_filter)
 
             # TODO: unit test for failed CRS match
             try:
-                # TODO: check if this creates overhead. Make data validation optional?
+                # TODO: check if this creates overhead. Skip if report exists?
                 self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(self.raster, self.label_gdf)
             except pyproj.exceptions.CRSError as e:
                 logging.warning(f"\nError while checking CRS match between raster and label."
@@ -234,8 +257,10 @@ class AOI(object):
         # Check aoi_id string
         if aoi_id and not isinstance(aoi_id, str):
             raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
-        elif not aoi_id:
+        elif not aoi_id and self.raster_src_is_multiband:
             aoi_id = Path(self.raster.name).stem  # Defaults to name of image without suffix
+        elif not aoi_id and not self.raster_src_is_multiband:
+            aoi_id = Path(self.raster_raw_input).stem  # Defaults to name of first singleband image without suffix
         self.aoi_id = aoi_id
 
         # Check collection string
@@ -257,20 +282,30 @@ class AOI(object):
         self.attr_field_filter = attr_field_filter
 
         # If ground truth is provided, check attribute values to filter from
+        if isinstance(attr_values_filter, int):
+            attr_values_filter = [attr_values_filter]
         if label and attr_values_filter and not isinstance(attr_values_filter, (list, listconfig.ListConfig)):
             raise TypeError(f'Attribute values should be a list.\n'
                             f'Got {attr_values_filter} of type {type(attr_values_filter)}')
         self.attr_values_filter = attr_values_filter
-        label_gdf_filtered, _ = self.filter_gdf_by_attribute(
+        label_gdf_filtered = self.filter_gdf_by_attribute(
             self.label_gdf.copy(deep=True),
             self.attr_field_filter,
             self.attr_values_filter,
         )
         if len(label_gdf_filtered) == 0:
-            raise ValueError(f"\nNo features found for ground truth \"{self.label}\","
+            logging.warning(f"\nNo features found for ground truth \"{self.label}\","
                              f"\nfiltered by attribute field \"{self.attr_field_filter}\""
                              f"\nwith values \"{self.attr_values_filter}\"")
         self.label_gdf_filtered = label_gdf_filtered
+
+        self.raster_stats = self.calc_raster_stats() if raster_stats else None
+
+        if not isinstance(for_multiprocessing, bool):
+            raise ValueError(f"\n\"for_multiprocessing\" should be a boolean.\nGot {for_multiprocessing}.")
+        self.for_multiprocessing = for_multiprocessing
+        if self.for_multiprocessing:
+            self.raster = None
         logging.debug(self)
 
     @classmethod
@@ -280,7 +315,8 @@ class AOI(object):
                   attr_field_filter: str = None,
                   attr_values_filter: list = None,
                   download_data: bool = False,
-                  root_dir: str = "data"):
+                  root_dir: str = "data",
+                  for_multiprocessing: bool = False):
         """Instanciates an AOI object from an input-data dictionary as expected by geo-deep-learning"""
         if not isinstance(aoi_dict, dict):
             raise TypeError('Input data should be a dictionary.')
@@ -303,9 +339,11 @@ class AOI(object):
             aoi_id=aoi_dict['aoi_id'],
             download_data=download_data,
             root_dir=root_dir,
+            for_multiprocessing=for_multiprocessing,
         )
         return new_aoi
 
+    # TODO: is this necessary if to_dict() is good enough?
     def __str__(self):
         return (
             f"\nAOI ID: {self.aoi_id}"
@@ -317,22 +355,122 @@ class AOI(object):
             f"\n\tAttribute values filter: {self.attr_values_filter}"
             )
 
-    # TODO def to_dict()
-    # return a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)
+    def raster_to_multiband(self, virtual=True):
+        if not self.raster_src_is_multiband:
+            if virtual:
+                self.raster_multiband = stack_singlebands_vrt(self.raster_parsed)
+            else:
+                self.raster_multiband = self.write_multiband_from_singleband_rasters_as_vrt()
+        else:
+            self.raster_multiband = self.raster_parsed[0]
 
-    # TODO def raster_stats()
-    # return a dictionary with mean and std of raster, per band
+    def raster_read(self):
+        self.raster = _check_rasterio_im_load(self.raster_multiband)
 
-    def write_multiband_from_singleband_rasters_as_vrt(self):
+    def to_dict(self, extended=True):
+        """returns a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)"""
+        try:
+            raster_area = (self.raster.res[0] * self.raster.width) * (self.raster.res[1] * self.raster.height)
+        except AttributeError:
+            raster_area = None
+        out_dict = {
+            'raster': self.raster_raw_input,
+            'label': self.label,
+            'split': self.split,
+            'id': self.aoi_id,
+            'raster_parsed': self.raster_parsed,
+            'raster_area': raster_area,
+            'raster_meta': self.raster_meta,
+            'label_features_nb': len(self.label_gdf),
+            'label_features_filtered_nb': len(self.label_gdf_filtered),
+            'raster_label_bounds_iou': self.bounds_iou,
+            'crs_raster': self.epsg_raster,
+            'crs_label': self.epsg_label,
+            'crs_match': self.crs_match
+        }
+        if extended:
+            mean_ext_vert_nb = None
+            try:
+                if isinstance(list(self.label_gdf_filtered.geometry)[0], MultiPolygon):
+                    ext_vert = []
+                    for multipolygon in list(self.label_gdf_filtered.geometry):
+                        ext_vert.extend([len(geom.exterior.coords) for geom in list(multipolygon)])
+                    mean_ext_vert_nb = np.mean(ext_vert)
+                elif isinstance(list(self.label_gdf_filtered.geometry)[0], Polygon):
+                    mean_ext_vert_nb = np.mean([len(geom.exterior.coords) for geom in self.label_gdf_filtered.geometry])
+            # TODO: resolve with MB18 ('Polygon' object is not iterable)
+            # TODO: Kingston1 ('MultiPolygon' object has no attribute 'exterior')
+            # TODO: AB11 (0 filtered features)
+            except Exception as e:
+                logging.warning(e)
+
+            out_dict.update({
+                'label_features_filtered_mean_area': np.mean(self.label_gdf_filtered.area),
+                'label_features_filtered_mean_perimeter': np.mean(self.label_gdf_filtered.length),
+                'label_features_filtered_mean_exterior_vertices_nb': mean_ext_vert_nb
+            })
+        return out_dict
+
+    def calc_raster_stats(self):
+        """ For stac items formatted as expected, reads mean and std of raster imagery, per band.
+        See stac item example: tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
+        If source imagery is not a stac item or stac item lacks stats assets, stats are calculed on the fly"""
+        if self.raster_bands_request:
+            stats = {name: {} for name in self.raster_bands_request}
+        else:
+            stats = {f"band_{index}": {} for index in range(self.raster.count)}
+        try:
+            stats_asset = self.raster_stac_item.item.assets['STATS']
+            if is_url(stats_asset.href):
+                download_url(stats_asset.href, root=str(self.root_dir), filename=Path(stats_asset.href).name)
+                stats_href = self.root_dir / Path(stats_asset.href).name
+            else:
+                stats_href = to_absolute_path(stats_asset.href)
+            with open(stats_href, 'r') as ifile:
+                stac_stats = json.loads(ifile.read())
+            stac_stats = {bandwise_stats['asset']: bandwise_stats for bandwise_stats in stac_stats}
+            for band in self.raster_stac_item.bands:
+                stats[band.common_name] = stac_stats[band.name]
+        except (AttributeError, KeyError):
+            self.raster_np = self.raster.read()
+            for index, band in enumerate(stats.keys()):
+                stats[band] = {"statistics": {}, "histogram": {}}
+                stats[band]["statistics"]["minimum"] = self.raster_np[index].min()
+                stats[band]["statistics"]["maximum"] = self.raster_np[index].max()
+                stats[band]["statistics"]["mean"] = self.raster_np[index].mean()
+                stats[band]["statistics"]["median"] = np.median(self.raster_np[index])
+                stats[band]["statistics"]["std"] = self.raster_np[index].std()
+                stats[band]["histogram"]["buckets"] = list(np.bincount(self.raster_np.flatten()))
+        mean_minimum = np.mean([band_stat["statistics"]["minimum"] for band_stat in stats.values()])
+        mean_maximum = np.mean([band_stat["statistics"]["maximum"] for band_stat in stats.values()])
+        mean_mean = np.mean([band_stat["statistics"]["mean"] for band_stat in stats.values()])
+        mean_median = np.mean([band_stat["statistics"]["median"] for band_stat in stats.values()])
+        mean_std = np.mean([band_stat["statistics"]["std"] for band_stat in stats.values()])
+        hists_np = [np.asarray(band_stat["histogram"]["buckets"]) for band_stat in stats.values()]
+        mean_hist_np = np.sum(hists_np, axis=0) / len(hists_np)
+        mean_hist = list(mean_hist_np.astype(int))
+        stats["all"] = {
+            "statistics": {"minimum": mean_minimum, "maximum": mean_maximum, "mean": mean_mean,
+                           "median": mean_median, "std": mean_std},
+            "histogram": {"buckets": mean_hist}}
+        return stats
+
+    def write_multiband_from_singleband_rasters_as_vrt(self, out_dir: Union[str, Path] = None):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
+        out_dir = self.root_dir if out_dir is not None else Path(out_dir)
         if not self.raster.driver == 'VRT':
             logging.error(f"To write a multi-band raster from single-band files, a VRT must be provided."
                           f"\nGot {self.raster.meta}")
             return
         if "${dataset.bands}" in self.raster_raw_input:
-            out_tif_path = self.raster_raw_input.replace("${dataset.bands}", ''.join(self.raster_bands_request))
+            out_tif_path = out_dir / Path(self.raster_raw_input).name.replace("${dataset.bands}", ''.join(self.raster_bands_request))
         elif is_stac_item(self.raster_raw_input):
-            out_tif_path = self.root_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
+            out_tif_path = out_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
+        else:
+            logging.error(f"\nTo write multiband raster from single band imagery, "
+                          f"source imagery must be referenced with expected formats.\n"
+                          f"See dataset/README.md")
+            return
         logging.debug(f"Writing multi-band raster to {out_tif_path}")
         create_new_raster_from_base(
             input_raster=self.raster,
@@ -354,10 +492,6 @@ class AOI(object):
             input imagery to parse
         @param raster_bands_requested:
             dataset configuration parameters
-        @param download_data:
-            if True, download dataset and store it in the root directory.
-        @param root_dir:
-            root directory where dataset can be found or downloaded
         @return:
         """
         if is_stac_item(csv_raster_str):
@@ -380,6 +514,25 @@ class AOI(object):
                 raise e
 
     @staticmethod
+    def bounds_iou(polygon1: Polygon, polygon2: Polygon) -> float:
+        """Calculate intersection over union of areas between two shapely polygons"""
+        if not polygon1.intersects(polygon2):
+            return 0
+        else:
+            intersection = polygon1.intersection(polygon2).area
+            union = polygon1.area + polygon2.area - intersection
+            return intersection / union
+
+    @staticmethod
+    def bounds_iou_gdf_riodataset(gdf: gpd.GeoDataFrame, raster: rasterio.DatasetReader) -> float:
+        """Calculates intersection over union of the total bounds of a GeoDataFrame and bounds of a rasterio Dataset"""
+        label_bounds = gdf.total_bounds
+        label_bounds_box = box(*label_bounds.tolist())
+        raster_bounds_box = box(*list(raster.bounds))
+        bounds_iou = AOI.bounds_iou(polygon1=label_bounds_box, polygon2=raster_bounds_box)
+        return bounds_iou
+
+    @staticmethod
     def filter_gdf_by_attribute(
             gdf_tile: Union[str, Path, gpd.GeoDataFrame],
             attr_field: str = None,
@@ -391,8 +544,8 @@ class AOI(object):
         @return: Subset of source GeoDataFrame with only filtered features (deep copy)
         """
         gdf_tile = _check_gdf_load(gdf_tile)
-        if not attr_field or not attr_vals:
-            return gdf_tile, None
+        if gdf_tile.empty or not attr_field or not attr_vals:
+            return gdf_tile
         try:
             condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
             condList.extend([gdf_tile[f'{attr_field}'] == str(val) for val in attr_vals])
@@ -403,7 +556,7 @@ class AOI(object):
                           f'Total features: {len(gdf_tile)}\n'
                           f'Attribute field: "{attr_field}"\n'
                           f'Filtered values: {attr_vals}')
-            return gdf_filtered, attr_field
+            return gdf_filtered
         except KeyError as e:
             logging.critical(f'No attribute named {attr_field} in GeoDataFrame. \n'
                              f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'
@@ -418,7 +571,8 @@ def aois_from_csv(
         attr_field_filter: str = None,
         attr_values_filter: str = None,
         download_data: bool = False,
-        data_dir: str = "data"
+        data_dir: str = "data",
+        for_multiprocessing = False,
 ):
     """
     Creates list of AOIs by parsing a csv file referencing input data
@@ -450,6 +604,7 @@ def aois_from_csv(
                 attr_values_filter=attr_values_filter,
                 download_data=download_data,
                 root_dir=data_dir,
+                for_multiprocessing=for_multiprocessing,
             )
             logging.debug(new_aoi)
             aois.append(new_aoi)

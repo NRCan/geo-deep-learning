@@ -1,0 +1,7 @@
+# @package _global_
+verify:
+  output_report_dir: ${general.raw_data_dir}
+  output_raster_stats: True
+  output_raster_plots: True
+  extended_label_stats: True
+  multiprocessing: False

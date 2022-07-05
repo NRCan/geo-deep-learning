@@ -18,61 +18,6 @@ from utils.utils import is_url
 logger = logging.getLogger(__name__)
 
 
-def validate_num_classes(vector_file: Union[str, Path],
-                         num_classes: int,
-                         attribute_name: str,
-                         ignore_index: int,
-                         attribute_values: List):
-    """Check that `num_classes` is equal to number of classes detected in the specified attribute for each GeoPackage.
-    # FIXME: use geopandas
-    FIXME: this validation **will not succeed** if a Geopackage contains only a subset of `num_classes` (e.g. 3 of 4).
-    Args:
-        :param vector_file: full file path of the vector image
-        :param num_classes: number of classes set in old_config_template.yaml
-        :param attribute_name: name of the value field representing the required classes in the vector image file
-        :param ignore_index: (int) target value that is ignored during training and does not contribute to
-                             the input gradient
-        :param attribute_values: list of identifiers to burn from the vector file (None = use all)
-    Return:
-        List of unique attribute values found in gpkg vector file
-    """
-    if isinstance(vector_file, str):
-        vector_file = Path(vector_file)
-    if not vector_file.is_file():
-        raise FileNotFoundError(f"Could not locate gkpg file at {vector_file}")
-    unique_att_vals = set()
-    with fiona.open(vector_file, 'r') as src:
-        for feature in tqdm(src, leave=False, position=1, desc=f'Scanning features'):
-            # Use property of set to store unique values
-            unique_att_vals.add(int(get_key_recursive(attribute_name, feature)))
-
-    # if dontcare value is defined, remove from list of unique attribute values for verification purposes
-    if ignore_index in unique_att_vals:
-        unique_att_vals.remove(ignore_index)
-
-    # if burning a subset of gpkg's classes
-    if attribute_values:
-        if not len(attribute_values) == num_classes:
-            raise ValueError(f'Yaml parameters mismatch. \n'
-                             f'Got values {attribute_values} (sample sect) with length {len(attribute_values)}. '
-                             f'Expected match with num_classes {num_classes} (global sect))')
-        # make sure target ids are a subset of all attribute values in gpkg
-        if not set(attribute_values).issubset(unique_att_vals):
-            logging.warning(f'\nFailed scan of vector file: {vector_file}\n'
-                            f'\tExpected to find all target ids {attribute_values}. \n'
-                            f'\tFound {unique_att_vals} for attribute "{attribute_name}"')
-    else:
-        # this can happen if gpkg doens't contain all classes, thus the warning rather than exception
-        if len(unique_att_vals) < num_classes:
-            logging.warning(f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
-        # this should not happen, thus the exception raised
-        elif len(unique_att_vals) > num_classes:
-            raise ValueError(
-                f'Found {str(list(unique_att_vals))} classes in file {vector_file}. Expected {num_classes}')
-    num_classes_ = set([i for i in range(num_classes + 1)])
-    return num_classes_
-
-
 def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: bool = False) -> None:
     """
     Checks if raster is valid, i.e. not corrupted (based on metadata, or actual byte info if under size threshold)
