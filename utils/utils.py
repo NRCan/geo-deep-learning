@@ -754,14 +754,11 @@ def convert_pl_checkpoint(checkpoint: dict):
     if 'state_dict' in checkpoint.keys():
         checkpoint['params'] = checkpoint['hyper_parameters']
         naive_bands = ["red", "green", "blue", "nir"]
-        checkpoint["params"]["inference"] = {'state_dict_single_mode': False}
+        checkpoint["params"]["dataset"] = {"bands": [naive_bands[index] for index in range(checkpoint['params']["model"]["in_channels"])]}
         classes_dict = {f"class_{index}": index+1 for index in range(checkpoint['params']["model"]["classes"])}
-        checkpoint["params"]['dataset'] = {
-            "classes_dict": classes_dict,
-            "bands": [naive_bands[index] for index in range(checkpoint['params']["model"]["in_channels"])]
-        }
-        checkpoint["in_channels"] = checkpoint['params']["model"]["in_channels"]
-        checkpoint["classes"] = checkpoint['params']["model"]["classes"]
+        checkpoint["params"]['dataset'] = {'classes_dict': classes_dict}
+        single_class_mode = True if len(checkpoint['params']["model"]["classes"]) == 1 else False
+        checkpoint["params"]["inference"] = {'state_dict_single_mode': single_class_mode}
         return checkpoint
     else:
         raise KeyError(f"Cannot convert provided checkpoint.")
