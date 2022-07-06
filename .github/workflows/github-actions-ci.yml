@@ -1,4 +1,4 @@
-name: GeoDeepLearning CI
+name: GitHub Actions Demo
 on: [push, pull_request]
 jobs:
   Github-Actions-CI:
@@ -8,16 +8,18 @@ jobs:
         uses: actions/checkout@v2
       - run: |
           echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
-      - name: Replace pytorch requirement with pytorch-cpu for CI purposes only
-        run: |
-          sed -i -e 's/pytorch>=1.9/pytorch-cpu/g' environment.yml
-          sed -i -e 's/torchvision>=0.12/torchvision-cpu/g' environment.yml
-      - name: Install Conda environment from environment.yml
-        uses: mamba-org/provision-with-micromamba@main
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v2
         with:
-          extra-specs: |
-            python=3.9
-      - name: test GDL's 4 major modes
+          python-version: 3.9
+      - name: Add conda to system path
+        run: |
+          # $CONDA is an environment variable pointing to the root of the miniconda directory
+          echo $CONDA/bin >> $GITHUB_PATH
+      - name: Install dependencies
+        run: |
+          conda env create --file environment.yml
+      - name: test GDL
         run: |
           source /usr/share/miniconda/etc/profile.d/conda.sh
           conda activate geo_deep_env
