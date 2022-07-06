@@ -1,42 +1,27 @@
 name: geo_deep_env
 channels:
-  - pytorch
+  - pytorch  # for pytorch and torchvision.
   - conda-forge
 dependencies:
   - boto3>=1.19.2
   - coverage>=6.3.1
-  - cudatoolkit>=11.3.0
-  - pytorch-gpu>=1.10.2
-  - torchvision>=0.11.1
   - docker-py>=4.4.4
+  - hydra-core>=1.1.0
+  - pytest>=7.1
+  - python>=3.9
+  - pynvml>=11.0
+  - pytorch>=1.9
+  - rich>=11.1
+  - ruamel_yaml>=0.15
+  - scikit-image>=0.18
   - geopandas>=0.10.2
   - geopy
-  - h5py>=3.1.0
-  - hdf5>=1.10.6
-  - hydra-core>=1.1.0
-  - mlflow>=1.2.0
-  - pip>=22.0.3
-  - pynvml>=11.0.0
-  - pystac>=0.3.0
-  - pytest>=7.0.0
-  - python>=3.9.2
-  - rich>=11.1.0
-  - rtree>=0.9.7
-  - ruamel_yaml>=0.15.80
-  - scikit-image>=0.18.1
-  - setuptools=59.5.0  # make flexible when issue solved: https://github.com/pytorch/pytorch/issues/69894
-  - torchgeo>=0.2.0
-  - tqdm>=4.59.0
+  - mlflow>=1.2
+  - pip
+  - torchgeo>=0.2
   - pip:
-    - affine>=2.3.0
-    - efficientnet-pytorch>=0.6.3
     - hydra-colorlog>=1.1.0
     - hydra-optuna-sweeper>=1.1.0
-    - kiwisolver>=1.3.1
-    - pretrainedmodels>=0.7.4
-    - segmentation-models-pytorch>=0.2.0
-    - git+https://github.com/microsoft/torchgeo.git
     - git+https://github.com/remtav/projectRegularization.git@light
     - git+https://github.com/CosmiQ/solaris.git@0.5.0
-    - timm>=0.4.12
     - ttach>=0.0.3
