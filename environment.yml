@@ -1,6 +1,6 @@
-name: geo_deep_env_cpu
+name: geo_deep_env
 channels:
-  - pytorch  # for pytorch and torchvision.
+  - pytorch
   - conda-forge
 dependencies:
   - coverage>=6.3.1
@@ -13,12 +13,12 @@ dependencies:
   - pystac>=0.3.0
   - pytest>=7.1
   - python>=3.10
-  - pytorch-cpu
+  - pytorch>=1.9
   - rich>=11.1
   - ruamel_yaml>=0.15
   - scikit-image>=0.18
   - torchgeo>=0.2
-  - torchvision-cpu
+  - torchvision>=0.12
   - pip:
     - hydra-colorlog>=1.1.0
     - hydra-optuna-sweeper>=1.1.0
