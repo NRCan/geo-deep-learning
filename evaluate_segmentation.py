@@ -12,7 +12,7 @@ from shapely.geometry import Polygon
 from tqdm import tqdm
 import geopandas as gpd
 
-from utils.geoutils import clip_raster_with_gpkg, vector_to_raster
+from utils.geoutils import vector_to_raster
 from utils.metrics import ComputePixelMetrics
 from utils.utils import get_key_def, list_input_images
 from utils.logger import get_logger
@@ -105,21 +105,11 @@ def main(params):
     list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"])
 
     # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
-    valid_gpkg_set = set()
     for info in tqdm(list_img, desc='Validating ground truth'):
         if not 'gpkg' in info.keys() and not info['gpkg']:
             raise ValueError(f"No ground truth was inputted to evaluate with")
         elif not Path(info['gpkg']).is_file():
             raise FileNotFoundError(f"Couldn't locate ground truth to evaluate with.")
-
-        if info['gpkg'] not in valid_gpkg_set:
-            validate_num_classes(vector_file=info['gpkg'],
-                                 num_classes=num_classes,
-                                 attribute_name=attribute_field,
-                                 ignore_index=dontcare,
-                                 attribute_values=attr_vals)
-            assert_crs_match(info['tif'], info['gpkg'])
-            valid_gpkg_set.add(info['gpkg'])
 
     logging.info('\nSuccessfully validated label data for benchmarking')
 
@@ -139,15 +129,12 @@ def main(params):
         local_gpkg = Path(info['gpkg'])
 
         logging.info(f'\nBurning label as raster: {local_gpkg}')
-        with rasterio.open(local_img, 'r') as raster:
-            local_img = clip_raster_with_gpkg(raster, local_gpkg)
-
-        raster_clipped = rasterio.open(local_img, 'r')
-        logging.info(f'\nReading clipped image: {raster_clipped.name}')
-        inf_meta = raster_clipped.meta
+        raster = rasterio.open(local_img, 'r')
+        logging.info(f'\nReading image: {raster.name}')
+        inf_meta = raster.meta
 
         label = vector_to_raster(vector_file=local_gpkg,
-                                 input_image=raster_clipped,
+                                 input_image=raster,
                                  out_shape=(inf_meta['height'], inf_meta['width']),
                                  attribute_name=attribute_field,
                                  fill=0,  # background value in rasterized vector.
@@ -156,7 +143,7 @@ def main(params):
             logging.debug(f'\nUnique values in loaded label as raster: {np.unique(label)}\n'
                           f'Shape of label as raster: {label.shape}')
 
-        gdf = metrics_per_tile(label_arr=label, pred_img=pred, input_image=raster_clipped, chunk_size=chunk_size,
+        gdf = metrics_per_tile(label_arr=label, pred_img=pred, input_image=raster, chunk_size=chunk_size,
                                gpkg_name=local_gpkg.stem, num_classes=num_classes)
 
         gdf_.append(gdf.to_crs(4326))

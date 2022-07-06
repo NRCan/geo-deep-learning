@@ -1,7 +1,6 @@
 import shutil
 from typing import Sequence
 
-import rasterio
 import numpy as np
 from solaris.utils.core import _check_rasterio_im_load
 from tqdm import tqdm
@@ -17,9 +16,7 @@ from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.utils import (
     get_key_def, pad, pad_diff, add_metadata_from_raster_to_sample, get_git_hash,
 )
-from utils.verifications import (
-    validate_num_classes
-)
+
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
@@ -313,8 +310,6 @@ def main(cfg: DictConfig) -> None:
         3. Assert Coordinate reference system between raster and gpkg match.
     3. Read csv file and for each line in the file, do the following:
         1. Read input image as array with utils.readers.image_reader_as_array().
-            - If gpkg's extent is smaller than raster's extent,
-              raster is clipped to gpkg's extent.
             - If gpkg's extent is bigger than raster's extent,
               gpkg is clipped to raster's extent.
         2. Convert GeoPackage vector information into the "label" raster with
@@ -415,9 +410,7 @@ def main(cfg: DictConfig) -> None:
     valid_gpkg_set = set()
     for aoi in tqdm(list_data_prep, position=0):
         if aoi.label not in valid_gpkg_set:
-            gpkg_classes = validate_num_classes(
-                aoi.label, num_classes, attribute_field, dontcare, attribute_values=attr_vals,
-            )
+            gpkg_classes = aoi.label_gdf_filtered[aoi.attr_field_filter].unique().astype(int)
             valid_gpkg_set.add(aoi.label)
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
@@ -445,10 +438,7 @@ def main(cfg: DictConfig) -> None:
             logging.info(f"\nReading as array: {aoi.raster.name}")
             with _check_rasterio_im_load(aoi.raster) as raster:
                 # 1. Read the input raster image
-                np_input_image, raster, dataset_nodata = image_reader_as_array(
-                    input_image=raster,
-                    #FIXME: remove clip_gpkg=aoi.label
-                )
+                np_input_image, raster, dataset_nodata = image_reader_as_array(input_image=raster)
 
                 # 2. Burn vector file in a raster file
                 logging.info(f"\nRasterizing vector file (attribute: {attribute_field}): {aoi.label}")
@@ -467,28 +457,6 @@ def main(cfg: DictConfig) -> None:
                 if dataset_nodata is not None:
                     # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
                     np_label_raster[dataset_nodata] = dontcare
-
-            if debug:
-                out_meta = raster.meta.copy()
-                np_image_debug = np_input_image.transpose(2, 0, 1).astype(out_meta['dtype'])
-                out_meta.update({"driver": "GTiff",
-                                 "height": np_image_debug.shape[1],
-                                 "width": np_image_debug.shape[2]})
-                out_tif = samples_dir / f"{Path(aoi.raster.name).stem}_clipped.tif"
-                logging.debug(f"Writing clipped raster to {out_tif}")
-                with rasterio.open(out_tif, "w", **out_meta) as dest:
-                    dest.write(np_image_debug)
-
-                out_meta = raster.meta.copy()
-                np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(out_meta['dtype'])
-                out_meta.update({"driver": "GTiff",
-                                 "height": np_label_debug.shape[1],
-                                 "width": np_label_debug.shape[2],
-                                 'count': 1})
-                out_tif = samples_dir / f"{Path(aoi.label).stem}_clipped.tif"
-                logging.debug(f"\nWriting final rasterized gpkg to {out_tif}")
-                with rasterio.open(out_tif, "w", **out_meta) as dest:
-                    dest.write(np_label_debug)
 
             if aoi.split == 'trn':
                 out_file = trn_hdf5
