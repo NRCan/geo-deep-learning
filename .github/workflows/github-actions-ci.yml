@@ -9,7 +9,7 @@ jobs:
       - run: |
           echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
       - name: Replace pytorch requirement with pytorch-cpu for CI purposes only
-      - run: |
+        run: |
           sed -i -e 's/pytorch>=1.9/pytorch-cpu/g' environment.yml
       - name: Install Conda environment from environment.yml
         uses: mamba-org/provision-with-micromamba@main
