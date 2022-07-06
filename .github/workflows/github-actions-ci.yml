@@ -11,6 +11,7 @@ jobs:
       - name: Replace pytorch requirement with pytorch-cpu for CI purposes only
         run: |
           sed -i -e 's/pytorch>=1.9/pytorch-cpu/g' environment.yml
+          sed -i -e 's/torchvision>=0.12/torchvision-cpu/g' environment.yml
       - name: Install Conda environment from environment.yml
         uses: mamba-org/provision-with-micromamba@main
       - name: test GDL's 4 major modes

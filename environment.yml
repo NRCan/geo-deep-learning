@@ -6,10 +6,10 @@ dependencies:
   - boto3>=1.19.2
   - docker-py>=4.4.4
   - hydra-core>=1.1.0
-  - pytest>=7.1
   - python>=3.9
   - pynvml>=11.0
   - pytorch>=1.9
+  - torchvision>=0.12
   - rich>=11.1
   - ruamel_yaml>=0.15
   - scikit-image>=0.18
@@ -20,6 +20,7 @@ dependencies:
   - torchgeo>=0.2
   - pip:
     - coverage>=6.4
+    - pytest>=7.1
     - hydra-colorlog>=1.1.0
     - hydra-optuna-sweeper>=1.1.0
     - git+https://github.com/remtav/projectRegularization.git@light
