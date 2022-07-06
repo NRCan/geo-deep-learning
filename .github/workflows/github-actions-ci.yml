@@ -1,23 +1,19 @@
-name: Docker Image CI
-
+name: GeoDeepLearning CI
 on: [push, pull_request]
-
 jobs:
-
-  build:
-
+  Github-Actions-CI:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v2
-    - name: Build the Docker image
-      run: sudo docker build -t gdl -f Dockerfile .
-    - name: test GDL's 4 major modes
-      run: |
-        docker run --rm gdl:latest /bin/bash -c "source /opt/conda/etc/profile.d/conda.sh &&
-        conda activate geo_deep_env && cd geo-deep-learning &&
-        unzip tests/data/massachusetts_buildings_kaggle.zip && 
-        unzip tests/data/new_brunswick_aerial.zip && 
-        unzip tests/data/spacenet.zip &&
-        coverage run -m pytest --log-cli-level=INFO --capture=tee-sys &&
-        coverage report -m --sort=Cover"
+      - name: Check out repository code
+        uses: actions/checkout@v2
+      - run: |
+          echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
+      - name: Install Conda environment from environment.yml
+        uses: mamba-org/provision-with-micromamba@main
+      - name: test GDL's 4 major modes
+        run: |
+          source /usr/share/miniconda/etc/profile.d/conda.sh
+          conda activate geo_deep_env
+          for z in tests/data/*.zip; do unzip "$z" -d tests/data; done
+          coverage run -m pytest --log-cli-level=INFO --capture=tee-sys
+          coverage report -m --sort=Cover
