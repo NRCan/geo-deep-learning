@@ -44,7 +44,11 @@ class InferenceTask(LightningModule):
     """
     def config_task(self) -> None:
         """Configures the task based on kwargs parameters passed to the constructor."""
-        self.model = define_model_architecture(self.hparams["model"], self.hparams["model"]["in_channels"], self.hparams["model"]["classes"])
+        self.model = define_model_architecture(
+            self.hparams["model"],
+            self.hparams["model"]["in_channels"],
+            self.hparams["model"]["classes"]
+        )
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the LightningModule with a model.
@@ -232,10 +236,8 @@ def main(params):
         checkpoint = models_dir / Path(checkpoint).name
     if not ckpt_is_compatible(checkpoint):
         checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
-        checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=True)
-    else:
-        checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=False)
-    params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
+    checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=False)
+    params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict["hyper_parameters"])
 
     # TODO: remove if no old models are used in production.
     # Covers old single-class models with 2 input channels rather than 1 (ie with background)

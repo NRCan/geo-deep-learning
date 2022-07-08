@@ -2,9 +2,9 @@
 inference:
   input_stac_item: tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
   root_dir: data/inference
-  checkpoint_dir: checkpoints  # (string, optional): directory in which to save the object
+  checkpoint_dir: ${general.save_weights_dir}  # (string, optional): directory in which to save the object
   output_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred # name of output file to write in root.
-  state_dict_path: https://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/share/models/pl_smp_manet_RGB_BUIL_2020.pth.tar
+  state_dict_path: ${general.save_weights_dir}/checkpoint.pth.tar
   download_data: True  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer
   save_heatmap: True  # saves a heatmap to root_dir/{output_name}_heatmap.tif

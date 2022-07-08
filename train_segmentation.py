@@ -732,7 +732,7 @@ def train(cfg: DictConfig) -> None:
 
     # load checkpoint model and evaluate it on test dataset.
     if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
-        checkpoint = read_checkpoint(filename)
+        checkpoint = read_checkpoint(filename, update=False)
         checkpoint = adapt_checkpoint_to_dp_model(checkpoint, model)
         model.load_state_dict(state_dict=checkpoint['model_state_dict'])
 

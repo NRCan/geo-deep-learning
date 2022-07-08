@@ -19,6 +19,7 @@ import omegaconf
 import rasterio
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig
+from pandas.io.common import is_url
 from rasterio import features
 from rasterio.plot import reshape_as_image
 from rasterio.windows import Window
@@ -27,7 +28,7 @@ from tqdm import tqdm
 
 from utils.logger import get_logger
 from utils.utils import get_key_def, override_model_params_from_checkpoint, checkpoint_converter, read_checkpoint, \
-    extension_remover, class_from_heatmap
+    extension_remover, class_from_heatmap, ckpt_is_compatible
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -401,9 +402,13 @@ def main(params):
 
     logging.debug('\nCreate "hparams" yaml to use pytorch lightning model management')
     logging.info(f"\nConverting geo-deep-learning checkpoint to pytorch lightning...")
-    checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
-    checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir)
-    params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
+    if is_url(checkpoint):
+        load_state_dict_from_url(url=checkpoint, map_location='cpu', model_dir=models_dir)
+        checkpoint = models_dir / Path(checkpoint).name
+    if not ckpt_is_compatible(checkpoint):
+        checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
+    checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=False)
+    params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict["hyper_parameters"])
 
     logging.debug(f"\nFilter generalization commands based on extracted classes")
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)

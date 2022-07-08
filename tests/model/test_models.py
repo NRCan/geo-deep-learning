@@ -1,6 +1,7 @@
 import logging
 import os
 from pathlib import Path
+from typing import OrderedDict
 
 import torch
 import torchvision.models
@@ -68,7 +69,8 @@ class TestReadCheckpoint(object):
                 'model': dummy_model.state_dict(),
                 'best_loss': 0.1,
                 'optimizer': dummy_optimizer.state_dict()}, filename)
-    read_checkpoint(filename)
+    checkpoint = read_checkpoint(filename, update=False)
+    assert isinstance(checkpoint['model'], OrderedDict)
     os.remove(filename)
 
 

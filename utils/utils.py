@@ -577,8 +577,12 @@ def override_model_params_from_checkpoint(
     bands_ckpt = get_key_def('bands', checkpoint_params['dataset'], expected_type=Sequence)
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
-    single_class_mode_ckpt = get_key_def('state_dict_single_mode', checkpoint_params['inference'], expected_type=bool)
-    clip_limit_ckpt = get_key_def('enhance_clip_limit', checkpoint_params['inference'], expected_type=float)
+    if "inference" in checkpoint_params:
+        single_class_mode_ckpt = get_key_def('state_dict_single_mode', checkpoint_params['inference'], expected_type=bool)
+        clip_limit_ckpt = get_key_def('enhance_clip_limit', checkpoint_params['inference'], expected_type=float)
+    else:
+        single_class_mode_ckpt = single_class_mode
+        clip_limit_ckpt = clip_limit
 
     if model_ckpt != params.model or classes_ckpt != classes or bands_ckpt != bands \
             or clip_limit != clip_limit_ckpt:
@@ -605,44 +609,14 @@ def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
         Checkpoint as dictionary containing training parameters, model weights, etc.
     @return: updated checkpoint
     """
-    if ckpt_is_compatible(checkpoint):
-        return checkpoint
-    model_params = get_key_def('model', checkpoint['params'])
-    if not "in_channels" in model_params.keys() or not "classes" in model_params.keys():
-        class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
-        # TODO: remove if no old models are used in production.
-        single_class_mode = True
-        if 'inference' in checkpoint['params'].keys():
-            single_class_mode = get_key_def('state_dict_single_mode', checkpoint['params']['inference'], default=True)
-        # +1 for background(multiclass mode)
-        num_classes = class_keys if class_keys == 1 and single_class_mode else class_keys + 1
-        # Store hyper parameters to checkpoint as expected by pytorch lightning
-        if isinstance(model_params, DictConfig):
-            OmegaConf.set_struct(model_params, False)
-        model_params["in_channels"] = len(checkpoint['params']['dataset']['bands'])
-        model_params["classes"] = num_classes
-
-    # adapt to what pytorch lightning expects: add "model" prefix to model keys
-    if not list(checkpoint["params"]['model_state_dict'].keys())[0].startswith('model'):
-        new_state_dict = {}
-        new_state_dict['model_state_dict'] = checkpoint["params"]['model_state_dict'].copy()
-        new_state_dict['model_state_dict'] = {'model.'+k: v for k, v in checkpoint["params"]['model_state_dict'].items()}
-        checkpoint["params"]['model_state_dict'] = new_state_dict['model_state_dict']
-
-    # keep all keys and copy model weights to new state_dict key
-    pl_checkpoint = checkpoint.copy()
-    if not "state_dict" in pl_checkpoint.keys() and not isinstance(pl_checkpoint["state_dict"], dict):
-        pl_checkpoint['state_dict'] = pl_checkpoint['model_state_dict']
-    if not "hyper_parameters" in pl_checkpoint.keys():
-        pl_checkpoint['hyper_parameters'] = model_params
-
     # covers gdl checkpoints from version <= 2.0.1
-    if 'model' in checkpoint["params"].keys():
-        checkpoint["params"]['model_state_dict'] = checkpoint["params"]['model']
-        del checkpoint["params"]['model']
-    if 'optimizer' in checkpoint["params"].keys():
-        checkpoint["params"]['optimizer_state_dict'] = checkpoint["params"]['optimizer']
-        del checkpoint["params"]['optimizer']
+    # TODO test this
+    if 'model' in checkpoint.keys() and isinstance(list(checkpoint['model'].values())[0], Tensor):
+        checkpoint['model_state_dict'] = checkpoint['model']
+        del checkpoint['model']
+    if 'optimizer' in checkpoint.keys() and 'state' in checkpoint["optimizer"].keys():
+        checkpoint['optimizer_state_dict'] = checkpoint['optimizer']
+        del checkpoint['optimizer']
 
     # covers gdl checkpoints pre-hydra (<=2.0.0)
     bands = {'red': 'R', 'green': 'G', 'blue': 'B', 'nir': 'N'}
@@ -676,19 +650,19 @@ def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
     }
     try:
         # don't update if already a recent checkpoint
-        get_key_def('classes_dict', checkpoint["params"]['params']['dataset'], expected_type=(dict, DictConfig))
-        get_key_def('model', checkpoint["params"]['params'], expected_type=(dict, DictConfig))
-        bands = get_key_def('bands', checkpoint["params"]['params']['dataset'], expected_type=Sequence)
+        get_key_def('classes_dict', checkpoint["params"]['dataset'], expected_type=(dict, DictConfig))
+        get_key_def('model', checkpoint["params"], expected_type=(dict, DictConfig))
+        bands = get_key_def('bands', checkpoint["params"]['dataset'], expected_type=Sequence)
         if isinstance(bands, str):
             mod_old2new = {v: k for k, v in bands.items()}
-            checkpoint["params"]['params']['dataset'].update(
+            checkpoint["params"]['dataset'].update(
                 {'bands': [mod_old2new[band] for band in bands]}
             )
-        return checkpoint["params"]
+        return checkpoint
     except KeyError:
-        num_classes_ckpt = get_key_def('num_classes', checkpoint["params"]['params']['global'], expected_type=int)
-        num_bands_ckpt = get_key_def('number_of_bands', checkpoint["params"]['params']['global'], expected_type=int)
-        model_name = get_key_def('model_name', checkpoint["params"]['params']['global'], expected_type=str)
+        num_classes_ckpt = get_key_def('num_classes', checkpoint["params"]['global'], expected_type=int)
+        num_bands_ckpt = get_key_def('number_of_bands', checkpoint["params"]['global'], expected_type=int)
+        model_name = get_key_def('model_name', checkpoint["params"]['global'], expected_type=str)
         try:
             model_ckpt = old2new[model_name]
         except KeyError as e:
@@ -697,7 +671,7 @@ def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
                              f"\nError {type(e)}: {e}")
             raise e
         # For GDL pre-v2.0.2
-        checkpoint["params"]['params'].update({
+        checkpoint["params"].update({
             'dataset': {
                 # Necessary to manually update when using old in postprocess pipeline
                 # 'bands': ['nir', 'red', 'green'],
@@ -706,10 +680,10 @@ def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
                 "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)},
             }
         })
-        checkpoint["params"]['params'].update({'model': model_ckpt})
+        checkpoint["params"].update({'model': model_ckpt})
         # Necessary to manually update when using old in postprocess pipeline
-        # checkpoint["params"]['params']['inference'].update({'enhance_clip_limit': 0.1})
-        #checkpoint["params"]['params'].update({'inference': {'state_dict_single_mode': False}})
+        # checkpoint["params"]['inference'].update({'enhance_clip_limit': 0.1})
+        #checkpoint["params"].update({'inference': {'state_dict_single_mode': False}})
         return checkpoint
 
 
@@ -732,16 +706,56 @@ def ckpt_is_compatible(in_ckpt_path: str, download_dir: str = None):
     try:
         isinstance(checkpoint['state_dict'], dict)
         isinstance(list(checkpoint['state_dict'].values())[0], Tensor)
-        isinstance(checkpoint["params"], dict)
-        isinstance(checkpoint["params"]["model"], dict)
-        isinstance(checkpoint["params"]["model"]["in_channels"], int)
-        isinstance(checkpoint["params"]["model"]["classes"], int)
-        isinstance(checkpoint["params"]["model"]["_target_"], str)
-        isinstance(checkpoint["params"]["dataset"]["bands"], list)
+        isinstance(checkpoint["hyper_parameters"], dict)
+        isinstance(checkpoint["hyper_parameters"]["model"], dict)
+        isinstance(checkpoint["hyper_parameters"]["model"]["in_channels"], int)
+        isinstance(checkpoint["hyper_parameters"]["model"]["classes"], int)
+        isinstance(checkpoint["hyper_parameters"]["model"]["_target_"], str)
+        isinstance(checkpoint["hyper_parameters"]["dataset"]["bands"], list)
+        isinstance(checkpoint["hyper_parameters"]["dataset"]["classes_dict"], (dict, DictConfig))
         return True
     except (KeyError, AttributeError) as e:
-        logging.warning(f"\nCheckpoint is incompatible with inference pipeline: {in_ckpt_path}\n{e}")
+        logging.warning(f"\nCheckpoint is incompatible with inference pipeline.\n{e}")
         return False
+
+
+def convert_gdl_checkpoint(checkpoint: dict):
+    """
+    Converts a checkpoint produced by latest version of geo-deep-learning to the inference pipeline.
+    """
+    try:
+        model_params = get_key_def('model', checkpoint["params"], default=None)
+        if model_params and (not "in_channels" in model_params.keys() or not "classes" in model_params.keys()):
+            class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
+            single_class_mode = True  # TODO: remove if no old models are used in production.
+            if 'inference' in checkpoint['params'].keys():
+                single_class_mode = get_key_def('state_dict_single_mode', checkpoint['params']['inference'], default=True)
+            # +1 for background(multiclass mode)
+            num_classes = class_keys if class_keys == 1 and single_class_mode else class_keys + 1
+            # Store hyper parameters to checkpoint as expected by pytorch lightning
+            if isinstance(checkpoint["params"]["model"], DictConfig):
+                OmegaConf.set_struct(checkpoint["params"]["model"], False)
+            checkpoint["params"]["model"]["in_channels"] = len(checkpoint['params']['dataset']['bands'])
+            checkpoint["params"]["model"]["classes"] = num_classes
+
+        # adapt to what pytorch lightning expects: add "model" prefix to model keys
+        if not list(checkpoint['model_state_dict'].keys())[0].startswith('model'):
+            new_state_dict = {}
+            new_state_dict['model_state_dict'] = checkpoint['model_state_dict'].copy()
+            new_state_dict['model_state_dict'] = {'model.'+k: v for k, v in checkpoint['model_state_dict'].items()}
+            checkpoint['model_state_dict'] = new_state_dict['model_state_dict']
+
+        # keep all keys and copy model weights to new state_dict key
+        pl_checkpoint = checkpoint.copy()
+        if not "state_dict" in pl_checkpoint.keys() or not isinstance(pl_checkpoint["state_dict"], dict):
+            pl_checkpoint['state_dict'] = checkpoint['model_state_dict']
+            del pl_checkpoint['model_state_dict']
+        if not "hyper_parameters" in pl_checkpoint.keys():
+            pl_checkpoint['hyper_parameters'] = checkpoint["params"]
+            del pl_checkpoint["params"]
+        return pl_checkpoint
+    except KeyError as e:
+        raise KeyError(f"Cannot convert provided checkpoint. Missing key: {e}")
 
 
 def convert_pl_checkpoint(checkpoint: dict):
@@ -751,14 +765,18 @@ def convert_pl_checkpoint(checkpoint: dict):
     @param checkpoint:
     @return:
     """
-    if 'state_dict' in checkpoint.keys():
-        checkpoint['params'] = checkpoint['hyper_parameters']
+    if 'state_dict' in checkpoint.keys() and 'hyper_parameters' in checkpoint.keys():
         naive_bands = ["red", "green", "blue", "nir"]
-        checkpoint["params"]["dataset"] = {"bands": [naive_bands[index] for index in range(checkpoint['params']["model"]["in_channels"])]}
-        classes_dict = {f"class_{index}": index+1 for index in range(checkpoint['params']["model"]["classes"])}
-        checkpoint["params"]['dataset'] = {'classes_dict': classes_dict}
-        single_class_mode = True if len(checkpoint['params']["model"]["classes"]) == 1 else False
-        checkpoint["params"]["inference"] = {'state_dict_single_mode': single_class_mode}
+        ckpt_bands_nb = checkpoint["hyper_parameters"]["model"]["in_channels"]
+        classes_dict = {f"class_{index}": index+1 for index in
+                        range(checkpoint["hyper_parameters"]["model"]["classes"])}
+
+        checkpoint["hyper_parameters"]['dataset'] = {
+            "classes_dict": classes_dict,
+            "bands": [naive_bands[index] for index in range(ckpt_bands_nb)]
+        }
+        single_class_mode = True if checkpoint["hyper_parameters"]["model"]["classes"] == 1 else False
+        checkpoint["hyper_parameters"]["inference"] = {'state_dict_single_mode': single_class_mode}
         return checkpoint
     else:
         raise KeyError(f"Cannot convert provided checkpoint.")
@@ -781,20 +799,22 @@ def checkpoint_converter(in_pth_path: str, out_dir: str = None) -> str:
     if Path(in_pth_path).name.startswith('pl_'):
         logging.info(f"Already a pytorch lightning checkpoint!")
         return in_pth_path
+    logging.info(f"Trying to make checkpoint compatible with this inference pipeline...")
     if not out_dir:
         out_dir = get_dir() / 'checkpoint'
     if not out_dir.is_dir():
         out_dir.mkdir(exist_ok=True, parents=True)
     out_path = out_dir / f'pl_{Path(in_pth_path).name}'
     if Path(out_path).is_file():
+        logging.info(f"Found an existing pre-converted checkpoint!")
         return out_path
-    logging.info(f"Trying to make checkpoint compatible with this inference pipeline...")
     # load with geo-deep-learning method
     checkpoint = read_checkpoint(in_pth_path, update=False)
     if str(in_pth_path).endswith(".ckpt"):
         pl_checkpoint = convert_pl_checkpoint(checkpoint=checkpoint)
     elif str(in_pth_path).endswith(".pth.tar"):
-        pl_checkpoint = update_gdl_checkpoint(checkpoint)
+        checkpoint = update_gdl_checkpoint(checkpoint)
+        pl_checkpoint = convert_gdl_checkpoint(checkpoint)
     else:
         raise KeyError(f"Cannot convert provided checkpoint: {in_pth_path}")
 
@@ -885,3 +905,8 @@ def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: int = 50, ran
     else:
         flattened_arr = heatmap_arr.argmax(axis=-1)
     return flattened_arr.astype(np.uint8)
+
+
+def map_wrapper(x):
+    """For multi-threading"""
+    return x[0](*(x[1:]))

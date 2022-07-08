@@ -347,7 +347,7 @@ class AOI(object):
     def __str__(self):
         return (
             f"\nAOI ID: {self.aoi_id}"
-            f"\n\tRaster: {self.raster.name}"
+            f"\n\tRaster: {self.raster_name}"
             f"\n\tLabel: {self.label}"
             f"\n\tCRS match: {self.crs_match}"
             f"\n\tSplit: {self.split}"
