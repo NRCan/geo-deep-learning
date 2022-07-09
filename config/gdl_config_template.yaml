@@ -38,6 +38,8 @@ general:
   save_weights_dir: checkpoints/${general.project_name}
 
 print_config: True # save the config in the log folder
-mode: {verify, sampling, train, inference, postprocess} #, evaluate} FIXME evaluate with stac item and label!
+# FIXME postprocess: Fallback causing error on github's CI...
+# FIXME evaluate with stac item and label!
+mode: {verify, sampling, train, inference} #, postprocess, evaluate}
 # TODO deactivate rasterio/fiona logs
 debug: True # will print the complete yaml config plus run a validation test
