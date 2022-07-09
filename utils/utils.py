@@ -36,11 +36,6 @@ try:
     from pynvml import *
 except ModuleNotFoundError:
     logging.warning(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
-# AWS module
-try:
-    import boto3
-except ModuleNotFoundError:
-    logging.warning('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
 
 
 class Interpolate(torch.nn.Module):
@@ -302,7 +297,6 @@ def list_input_images(img_dir_or_csv: Path,
     Create list of images from given directory or csv file.
 
     :param img_dir_or_csv: (str) directory containing input images or csv with list of images
-    :param bucket_name: (str, optional) name of aws s3 bucket
     :param glob_patterns: (list of str) if directory is given as input (not csv),
                            these are the glob patterns that will be used to find desired images
 
