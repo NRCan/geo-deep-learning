@@ -27,6 +27,6 @@ jobs:
         run: |
           source /usr/share/miniconda/etc/profile.d/conda.sh
           conda activate geo_deep_env
-          for z in tests/data/*.zip; do unzip "$z" -d tests/data; done
+          for z in tests/data/*.zip; do unzip -o "$z" -d tests/data; done
           coverage run -m pytest --log-cli-level=INFO --capture=tee-sys
           coverage report -m --sort=Cover
