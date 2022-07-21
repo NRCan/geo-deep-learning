@@ -1,4 +1,5 @@
 import multiprocessing
+import os.path
 from pathlib import Path
 
 import geopandas as gpd
@@ -18,6 +19,7 @@ class Test_AOI(object):
         data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
+            aoi.aoi_closing_file()
             # TODO assert actual == expected
 
     def test_singleband_input(self):
@@ -26,6 +28,7 @@ class Test_AOI(object):
         data = read_csv("tests/sampling/sampling_segmentation_binary-singleband_ci.csv")
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'])
+            aoi.aoi_closing_file()
             # TODO assert actual == expected
 
     def test_stac_input(self):
@@ -36,6 +39,7 @@ class Test_AOI(object):
             aoi = AOI(
                 raster=row['tif'], label=row['gpkg'], split=row['split'],
                 raster_bands_request=['red', 'green', 'blue'])
+            aoi.aoi_closing_file()
             # TODO assert actual == expected
 
     def test_stac_url_input(self):
@@ -44,9 +48,13 @@ class Test_AOI(object):
         for row in data:
             aoi = AOI(
                 raster=row['tif'], label=row['gpkg'], split=row['split'],
-                raster_bands_request=['R'], download_data=True, root_dir="data"
+               raster_bands_request=['R'], download_data=True, root_dir="data"
             )
-            # TODO assert actual == expected
+            assert aoi.download_data == True
+            assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif").is_file()
+            aoi.aoi_closing_file()
+        if os.path.exists("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif"):
+            os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif")
 
     def test_missing_label(self):
         extract_archive(src="tests/data/spacenet.zip")
@@ -55,6 +63,7 @@ class Test_AOI(object):
             row['gpkg'] = "missing_file.gpkg"
             with pytest.raises(AttributeError):
                 aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
+                aoi.aoi_closing_file()
 
     def test_parse_input_raster(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
@@ -89,6 +98,7 @@ class Test_AOI(object):
             row['tif'] = "tests/data/massachusetts_buildings_kaggle/corrupt_file.tif"
             with pytest.raises(BaseException):
                 aoi = AOI(raster=row['tif'], label=None)
+                aoi.aoi_closing_file()
 
     def test_image_only(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
@@ -96,6 +106,7 @@ class Test_AOI(object):
         for row in data:
             aoi = AOI(raster=row['tif'], label=None)
             assert aoi.label == None
+            aoi.aoi_closing_file()
 
     def test_missing_raster(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
@@ -104,6 +115,7 @@ class Test_AOI(object):
             row['tif'] = "missing_raster.tif"
             with pytest.raises(RasterioIOError):
                 aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
+                aoi.aoi_closing_file()
 
     def test_wrong_split(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
@@ -112,6 +124,7 @@ class Test_AOI(object):
             row['split'] = "missing_split"
             with pytest.raises(ValueError):
                 aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
+                aoi.aoi_closing_file()
 
     def test_download_data(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
@@ -121,6 +134,9 @@ class Test_AOI(object):
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], download_data= True, root_dir="data")
             assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif").is_file()
             assert aoi.download_data == True
+            aoi.aoi_closing_file()
+        if os.path.exists("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif"):
+            os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif")
 
     def test_stac_input_missing_band(self):
         """Tests singleband input imagery from stac item"""
@@ -131,6 +147,7 @@ class Test_AOI(object):
                 aoi = AOI(
                     raster=row['tif'], label=row['gpkg'], split=row['split'],
                     raster_bands_request=['ru', 'gris', 'but'])
+                aoi.aoi_closing_file()
 
     def test_no_intersection(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
@@ -138,6 +155,43 @@ class Test_AOI(object):
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
             assert aoi.bounds_iou == 0
+            aoi.aoi_closing_file()
+
+    def test_write_multiband_from_single_band(self) -> None:
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/sampling/sampling_segmentation_binary-singleband_ci.csv")
+        for row in data:
+            aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'],
+                      write_multiband=True, root_dir="data")
+            assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif").is_file()
+            aoi.aoi_closing_file()
+        if os.path.exists("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif"):
+            os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif")
+
+    def test_write_multiband_from_single_band_url(self) -> None:
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/sampling/sampling_segmentation_binary-singleband-url_ci.csv")
+        for row in data:
+            aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'],
+                      write_multiband=True, root_dir="data", download_data=True)
+            assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif").is_file()
+            assert aoi.download_data == True
+            aoi.aoi_closing_file()
+        if os.path.exists("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif"):
+            os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif")
+        if os.path.exists("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif"):
+            os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif")
+        if os.path.exists("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-G.tif"):
+            os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-G.tif")
+        if os.path.exists("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-B.tif"):
+            os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-B.tif")
+
+    def test_download_true_not_url(self) -> None:
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/sampling/sampling_segmentation_binary-singleband_ci.csv")
+        for row in data:
+            aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], download_data=True, raster_bands_request=['R', 'G', 'B'])
+            aoi.aoi_closing_file()
 
     def test_raster_stats_from_stac(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
@@ -158,6 +212,7 @@ class Test_AOI(object):
             for band, band_stat in stats.items():
                 assert band_stat['statistics'] == expected_stats[band]['statistics']
                 assert len(band_stat['histogram']['buckets']) == 256
+            aoi.aoi_closing_file()
             break
 
     def test_raster_stats_not_stac(self) -> None:
@@ -178,6 +233,7 @@ class Test_AOI(object):
             for band, band_stat in stats.items():
                 assert band_stat['statistics'] == expected_stats[band]['statistics']
                 assert len(band_stat['histogram']['buckets']) == 256
+            aoi.aoi_closing_file()
             break
 
     def test_to_dict(self):
@@ -186,6 +242,7 @@ class Test_AOI(object):
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['red', 'green', 'blue'])
             aoi_dict = aoi.to_dict()
+            aoi.aoi_closing_file()
 
     def test_for_multiprocessing(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
@@ -194,10 +251,12 @@ class Test_AOI(object):
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], for_multiprocessing=True)
             inputs.append([aoi_read_raster, aoi])
+            aoi.aoi_closing_file()
 
         with multiprocessing.get_context('spawn').Pool(None) as pool:
             aoi_meta = pool.map_async(map_wrapper, inputs).get()
         print(aoi_meta)
+        #aoi.aoi_closing_file()
 
 
 def map_wrapper(x):
@@ -208,3 +267,4 @@ def map_wrapper(x):
 def aoi_read_raster(aoi: AOI):
     aoi.raster_read()
     return aoi.raster.meta
+

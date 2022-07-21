@@ -159,6 +159,7 @@ class AOI(object):
         """
         self.raster_multiband = None
         self.raster_np = None
+        self.raster_close = False
 
         # Check and parse raster data
         if not isinstance(raster, str):
@@ -303,10 +304,13 @@ class AOI(object):
 
         self.raster_stats = self.calc_raster_stats() if raster_stats else None
 
+        #self.raster_np = self.raster.read() and self.raster.close()
+
         if not isinstance(for_multiprocessing, bool):
             raise ValueError(f"\n\"for_multiprocessing\" should be a boolean.\nGot {for_multiprocessing}.")
         self.for_multiprocessing = for_multiprocessing
         if self.for_multiprocessing:
+            self.aoi_closing_file()
             self.raster = None
         logging.debug(self)
 
@@ -349,7 +353,7 @@ class AOI(object):
     def __str__(self):
         return (
             f"\nAOI ID: {self.aoi_id}"
-            f"\n\tRaster: {self.raster.name}"
+            f"\n\tRaster: {self.raster_name}"
             f"\n\tLabel: {self.label}"
             f"\n\tCRS match: {self.crs_match}"
             f"\n\tSplit: {self.split}"
@@ -455,11 +459,15 @@ class AOI(object):
             "statistics": {"minimum": mean_minimum, "maximum": mean_maximum, "mean": mean_mean,
                            "median": mean_median, "std": mean_std},
             "histogram": {"buckets": mean_hist}}
+        self.aoi_closing_file()
         return stats
 
     def write_multiband_from_singleband_rasters_as_vrt(self, out_dir: Union[str, Path] = None):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
-        out_dir = self.root_dir if out_dir is not None else Path(out_dir)
+        out_dir = self.root_dir #if out_dir is not None else Path(out_dir)
+        if out_dir is None:
+            logging.error(f"There is no path for the output, root_dir shoudn't be None")
+            return
         if not self.raster.driver == 'VRT':
             logging.error(f"To write a multi-band raster from single-band files, a VRT must be provided."
                           f"\nGot {self.raster.meta}")
@@ -565,6 +573,11 @@ class AOI(object):
                              f'Attributes: {gdf_tile.columns}\n'
                              f'GeoDataFrame: {gdf_tile.info()}')
             raise e
+
+    def aoi_closing_file(self) -> None:
+        if self.raster_close == False:
+            self.raster.close()
+            self.raster_close = True
 
 
 def aois_from_csv(
