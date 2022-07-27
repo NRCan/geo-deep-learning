@@ -14,6 +14,7 @@ from utils.utils import read_csv
 
 
 class Test_AOI(object):
+    # Test reading a multiband
     def test_multiband_input(self):
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
@@ -22,6 +23,7 @@ class Test_AOI(object):
             aoi.aoi_closing_file()
             # TODO assert actual == expected
 
+    # Test reading a singleband
     def test_singleband_input(self):
         """Tests singleband input imagery with ${dataset.bands} pattern"""
         extract_archive(src="tests/data/spacenet.zip")
@@ -31,6 +33,7 @@ class Test_AOI(object):
             aoi.aoi_closing_file()
             # TODO assert actual == expected
 
+    # Test reading a stac
     def test_stac_input(self):
         """Tests singleband input imagery from stac item"""
         extract_archive(src="tests/data/spacenet.zip")
@@ -42,6 +45,7 @@ class Test_AOI(object):
             aoi.aoi_closing_file()
             # TODO assert actual == expected
 
+    # Test for download
     def test_stac_url_input(self):
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-singleband-url_ci.csv")
@@ -56,6 +60,7 @@ class Test_AOI(object):
         if os.path.exists("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif"):
             os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif")
 
+    # Error testing with missing label
     def test_missing_label(self):
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
@@ -64,6 +69,7 @@ class Test_AOI(object):
             with pytest.raises(AttributeError):
                 aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
                 aoi.aoi_closing_file()
+
 
     def test_parse_input_raster(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
@@ -79,6 +85,7 @@ class Test_AOI(object):
             print(raster_parsed)
             # TODO assert actual == expected
 
+    # Test with IOU
     def test_bounds_iou(self) -> None:
         raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
         raster = rasterio.open(raster_file)
@@ -91,6 +98,7 @@ class Test_AOI(object):
         expected_iou = 0.013904645827033404
         assert iou == expected_iou
 
+    # Error testing reading a corrupt file
     def test_corrupt_raster(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
@@ -100,6 +108,7 @@ class Test_AOI(object):
                 aoi = AOI(raster=row['tif'], label=None)
                 aoi.aoi_closing_file()
 
+    # Test with image only
     def test_image_only(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
@@ -108,6 +117,7 @@ class Test_AOI(object):
             assert aoi.label == None
             aoi.aoi_closing_file()
 
+    # Error testing a missing raster
     def test_missing_raster(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
@@ -117,15 +127,17 @@ class Test_AOI(object):
                 aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
                 aoi.aoi_closing_file()
 
+    # Error testing wrong split
     def test_wrong_split(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/wrong_split.csv")
+        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
         for row in data:
             row['split'] = "missing_split"
             with pytest.raises(ValueError):
                 aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
                 aoi.aoi_closing_file()
 
+    # Test download data
     def test_download_data(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
@@ -138,6 +150,7 @@ class Test_AOI(object):
         if os.path.exists("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif"):
             os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif")
 
+    # Error testing wrong input band
     def test_stac_input_missing_band(self):
         """Tests singleband input imagery from stac item"""
         extract_archive(src="tests/data/spacenet.zip")
@@ -149,14 +162,17 @@ class Test_AOI(object):
                     raster_bands_request=['ru', 'gris', 'but'])
                 aoi.aoi_closing_file()
 
+    # Error testing no intersection between raster and label
     def test_no_intersection(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/no_intersection.csv")
+        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
         for row in data:
+            row['gpkg'] = "tests/data/new_brunswick_aerial/BakerLake_2017_clipped.gpkg"
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
             assert aoi.bounds_iou == 0
             aoi.aoi_closing_file()
 
+    # Test for the methode write multiband
     def test_write_multiband_from_single_band(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-singleband_ci.csv")
@@ -168,6 +184,7 @@ class Test_AOI(object):
         if os.path.exists("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif"):
             os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif")
 
+    # Test for the methode write multiband with a URL
     def test_write_multiband_from_single_band_url(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-singleband-url_ci.csv")
@@ -186,6 +203,7 @@ class Test_AOI(object):
         if os.path.exists("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-B.tif"):
             os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-B.tif")
 
+    # Test the download function if not necessary
     def test_download_true_not_url(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-singleband_ci.csv")
@@ -193,6 +211,7 @@ class Test_AOI(object):
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], download_data=True, raster_bands_request=['R', 'G', 'B'])
             aoi.aoi_closing_file()
 
+    # Test to see the statistics
     def test_raster_stats_from_stac(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
@@ -215,6 +234,7 @@ class Test_AOI(object):
             aoi.aoi_closing_file()
             break
 
+    # Test to calculate the statistics
     def test_raster_stats_not_stac(self) -> None:
         extract_archive(src="tests/data/new_brunswick_aerial.zip")
         data = read_csv("tests/sampling/sampling_segmentation_multiclass_ci.csv")
@@ -236,6 +256,7 @@ class Test_AOI(object):
             aoi.aoi_closing_file()
             break
 
+    # Test for the methode to dict
     def test_to_dict(self):
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
@@ -244,6 +265,7 @@ class Test_AOI(object):
             aoi_dict = aoi.to_dict()
             aoi.aoi_closing_file()
 
+    # Test for multiprocessing
     def test_for_multiprocessing(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/sampling/sampling_segmentation_multiclass_ci.csv")
@@ -256,7 +278,7 @@ class Test_AOI(object):
         with multiprocessing.get_context('spawn').Pool(None) as pool:
             aoi_meta = pool.map_async(map_wrapper, inputs).get()
         print(aoi_meta)
-        #aoi.aoi_closing_file()
+
 
 
 def map_wrapper(x):

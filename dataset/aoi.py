@@ -304,7 +304,6 @@ class AOI(object):
 
         self.raster_stats = self.calc_raster_stats() if raster_stats else None
 
-        #self.raster_np = self.raster.read() and self.raster.close()
 
         if not isinstance(for_multiprocessing, bool):
             raise ValueError(f"\n\"for_multiprocessing\" should be a boolean.\nGot {for_multiprocessing}.")
@@ -464,7 +463,8 @@ class AOI(object):
 
     def write_multiband_from_singleband_rasters_as_vrt(self, out_dir: Union[str, Path] = None):
         """Writes a multiband raster to file from a pre-built VRT. For debugging and demoing"""
-        out_dir = self.root_dir #if out_dir is not None else Path(out_dir)
+        out_dir = self.root_dir
+
         if out_dir is None:
             logging.error(f"There is no path for the output, root_dir shoudn't be None")
             return
