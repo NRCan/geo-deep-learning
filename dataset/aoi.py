@@ -159,7 +159,7 @@ class AOI(object):
         """
         self.raster_multiband = None
         self.raster_np = None
-        self.raster_close = False
+        self.raster_closed = False
 
         # Check and parse raster data
         if not isinstance(raster, str):
@@ -304,12 +304,11 @@ class AOI(object):
 
         self.raster_stats = self.calc_raster_stats() if raster_stats else None
 
-
         if not isinstance(for_multiprocessing, bool):
             raise ValueError(f"\n\"for_multiprocessing\" should be a boolean.\nGot {for_multiprocessing}.")
         self.for_multiprocessing = for_multiprocessing
         if self.for_multiprocessing:
-            self.aoi_closing_file()
+            self.close_raster()
             self.raster = None
         logging.debug(self)
 
@@ -458,7 +457,7 @@ class AOI(object):
             "statistics": {"minimum": mean_minimum, "maximum": mean_maximum, "mean": mean_mean,
                            "median": mean_median, "std": mean_std},
             "histogram": {"buckets": mean_hist}}
-        self.aoi_closing_file()
+        self.close_raster()
         return stats
 
     def write_multiband_from_singleband_rasters_as_vrt(self, out_dir: Union[str, Path] = None):
@@ -574,10 +573,10 @@ class AOI(object):
                              f'GeoDataFrame: {gdf_tile.info()}')
             raise e
 
-    def aoi_closing_file(self) -> None:
-        if self.raster_close == False:
+    def close_raster(self) -> None:
+        if self.raster_closed is False:
             self.raster.close()
-            self.raster_close = True
+            self.raster_closed = True
 
 
 def aois_from_csv(
