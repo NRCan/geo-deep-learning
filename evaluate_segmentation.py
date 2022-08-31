@@ -12,11 +12,11 @@ from shapely.geometry import Polygon
 from tqdm import tqdm
 import geopandas as gpd
 
+from dataset.aoi import aois_from_csv
 from utils.geoutils import vector_to_raster
 from utils.metrics import ComputePixelMetrics
-from utils.utils import get_key_def, list_input_images
+from utils.utils import get_key_def
 from utils.logger import get_logger
-from utils.verifications import validate_num_classes, assert_crs_match
 
 logging = get_logger(__name__)
 
@@ -81,8 +81,8 @@ def main(params):
     bands_requested = get_key_def('bands', params['dataset'], default=None, expected_type=Sequence)
     num_bands = len(bands_requested)
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
-    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], expected_type=str, to_path=True,
-                                 validate_path_exists=True)
+    raw_data_csv = get_key_def('raw_data_csv', params['inference'], default=working_folder,
+                                 expected_type=str, to_path=True, validate_path_exists=True)
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
     single_class_mode = True if num_classes == 1 else False
     threshold = 0.5
@@ -102,38 +102,33 @@ def main(params):
             if not isinstance(item, int):
                 raise ValueError(f'\nValue "{item}" in attribute_values is {type(item)}, expected int.')
 
-    list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"])
+    list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested)
 
     # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
-    for info in tqdm(list_img, desc='Validating ground truth'):
-        if not 'gpkg' in info.keys() and not info['gpkg']:
+    for aoi in tqdm(list_aois, desc='Validating ground truth'):
+        if aoi.label is None:
             raise ValueError(f"No ground truth was inputted to evaluate with")
-        elif not Path(info['gpkg']).is_file():
-            raise FileNotFoundError(f"Couldn't locate ground truth to evaluate with.")
 
     logging.info('\nSuccessfully validated label data for benchmarking')
 
     gdf_ = []
     gpkg_name_ = []
 
-    for info in tqdm(list_img, desc='Evaluating from input list', position=0, leave=True):
-        local_img = Path(info['tif'])
-        Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
-        inference_image = working_folder / local_img.parent.name / f"{local_img.stem}_inference.tif"
+    for aoi in tqdm(list_aois, desc='Evaluating from input list', position=0, leave=True):
+        Path.mkdir(working_folder / aoi.raster_name.parent.name, parents=True, exist_ok=True)
+        inference_image = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_inference.tif"
         if not inference_image.is_file():
             raise FileNotFoundError(f"Couldn't locate inference to evaluate metrics with. Make inferece has been run "
                                     f"before you run evaluate mode.")
 
         pred = rasterio.open(inference_image).read()[0, ...]
 
-        local_gpkg = Path(info['gpkg'])
-
-        logging.info(f'\nBurning label as raster: {local_gpkg}')
-        raster = rasterio.open(local_img, 'r')
+        logging.info(f'\nBurning label as raster: {aoi.label}')
+        raster = rasterio.open(aoi.raster_name, 'r')
         logging.info(f'\nReading image: {raster.name}')
         inf_meta = raster.meta
 
-        label = vector_to_raster(vector_file=local_gpkg,
+        label = vector_to_raster(vector_file=aoi.label,
                                  input_image=raster,
                                  out_shape=(inf_meta['height'], inf_meta['width']),
                                  attribute_name=attribute_field,
@@ -144,10 +139,10 @@ def main(params):
                           f'Shape of label as raster: {label.shape}')
 
         gdf = metrics_per_tile(label_arr=label, pred_img=pred, input_image=raster, chunk_size=chunk_size,
-                               gpkg_name=local_gpkg.stem, num_classes=num_classes)
+                               gpkg_name=aoi.label.stem, num_classes=num_classes)
 
         gdf_.append(gdf.to_crs(4326))
-        gpkg_name_.append(local_gpkg.stem)
+        gpkg_name_.append(aoi.label.stem)
 
         if 'tracker_uri' in locals():
             pixelMetrics = ComputePixelMetrics(label, pred, num_classes)

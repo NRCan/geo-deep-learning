@@ -20,12 +20,12 @@ from pathlib import Path
 from omegaconf import OmegaConf, DictConfig, open_dict
 from omegaconf.listconfig import ListConfig
 
+from dataset.aoi import aois_from_csv
 from utils.logger import get_logger, set_tracker
 from models.model_choice import define_model, read_checkpoint
 from utils import augmentation
 from utils.utils import get_device_ids, get_key_def, \
-    list_input_images, add_metadata_from_raster_to_sample, _window_2D, set_device
-from utils.verifications import validate_input_imagery
+    add_metadata_from_raster_to_sample, _window_2D, set_device
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -339,7 +339,7 @@ def main(params: Union[DictConfig, dict]) -> None:
     Path.mkdir(working_folder, parents=True, exist_ok=True)
     logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     # Default input directory based on default output directory
-    img_dir_or_csv = get_key_def('img_dir_or_csv_file', params['inference'], default=working_folder,
+    raw_data_csv = get_key_def('raw_data_csv', params['inference'], default=working_folder,
                                  expected_type=str, to_path=True, validate_path_exists=True)
     BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
 
@@ -386,28 +386,18 @@ def main(params: Union[DictConfig, dict]) -> None:
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
-    list_img = list_input_images(img_dir_or_csv, glob_patterns=["*.tif", "*.TIF"])
-
-    # VALIDATION: anticipate problems with imagery before entering main for loop
-    for info in tqdm(list_img, desc='Validating imagery'):
-        is_valid = validate_input_imagery(info['tif'], num_bands=num_bands, extended=debug)
-        # TODO: address with issue #310
-    logging.info('\nSuccessfully validated imagery')
+    list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested)
 
     # LOOP THROUGH LIST OF INPUT IMAGES
-    for info in tqdm(list_img, desc='Inferring from images', position=0, leave=True):
-        img_name = Path(info['tif']).name
-        local_img = Path(info['tif'])
-        Path.mkdir(working_folder.joinpath(local_img.parent.name), parents=True, exist_ok=True)
-        inference_image = working_folder.joinpath(local_img.parent.name,
-                                                  f"{img_name.split('.')[0]}_inference.tif")
-        temp_file = working_folder.joinpath(local_img.parent.name, f"{img_name.split('.')[0]}.dat")
-        raster = rasterio.open(local_img, 'r')
-        logging.info(f'\nReading image: {raster.name}')
-        inf_meta = raster.meta
+    for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
+        Path.mkdir(working_folder / aoi.raster_name.parent.name, parents=True, exist_ok=True)
+        inference_image = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_inference.tif"
+        temp_file = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}.dat"
+        logging.info(f'\nReading image: {aoi.raster_name}')
+        inf_meta = aoi.raster.meta
 
         pred = segmentation(param=params,
-                            input_image=raster,
+                            input_image=aoi.raster,
                             num_classes=num_classes,
                             model=model,
                             chunk_size=chunk_size,
@@ -424,7 +414,7 @@ def main(params: Union[DictConfig, dict]) -> None:
                          "count": pred.shape[0],
                          "dtype": 'uint8',
                          "compress": 'lzw'})
-        logging.info(f'\nSuccessfully inferred on {img_name}\nWriting to file: {inference_image}')
+        logging.info(f'\nSuccessfully inferred on {aoi.raster_name}\nWriting to file: {inference_image}')
         with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
             dest.write(pred)
         del pred
@@ -434,8 +424,8 @@ def main(params: Union[DictConfig, dict]) -> None:
             logging.warning(f'File Error: {temp_file, e.strerror}')
         if raster_to_vec:
             start_vec = time.time()
-            inference_vec = working_folder.joinpath(local_img.parent.name,
-                                                    f"{img_name.split('.')[0]}_inference.gpkg")
+            inference_vec = working_folder.joinpath(aoi.raster_name.parent.name,
+                                                    f"{aoi.raster_name.split('.')[0]}_inference.gpkg")
             ras2vec(inference_image, inference_vec)
             end_vec = time.time() - start_vec
             logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))
