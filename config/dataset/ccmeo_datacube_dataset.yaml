@@ -14,7 +14,7 @@ dataset:
 
   # ground truth
   attribute_field: properties/class
-  attribute_values: [1]
+  attribute_values: [1]  # class(es) that you want to process, ex [1] only process class 1, [1, 2] will process two classes 
   min_annot_perc:
   class_name: # will follow in the next version
   classes_dict:

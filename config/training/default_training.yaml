@@ -5,8 +5,8 @@ training:
   eval_batch_size:
   batch_metrics:
   lr: 0.0001
-  max_epochs: ${general.max_epochs}
-  min_epochs: ${general.min_epochs}
+  max_epochs: 1 #${general.max_epochs}
+  min_epochs: 2 #${general.min_epochs}
   num_workers:
   mode: 'min'            # 'min' or 'max', will minimize or maximize the chosen metric
   max_used_ram:

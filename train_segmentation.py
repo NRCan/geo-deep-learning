@@ -468,8 +468,8 @@ def train(cfg: DictConfig) -> None:
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     # MANDATORY PARAMETERS
-    class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
-    num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
+    attribute_values = len(get_key_def('attribute_values', cfg['dataset']))
+    num_classes = attribute_values if attribute_values == 1 else attribute_values + 1  # +1 for background(multiclass mode)
     modalities = get_key_def('bands', cfg['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
     num_bands = len(modalities)
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
@@ -495,10 +495,9 @@ def train(cfg: DictConfig) -> None:
         raise ValueError(f"Parameter mismatch: a multiclass loss was chosen for a 1-class (binary) task")
     del cfg.loss.is_binary  # prevent exception at instantiation
     optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam', expected_type=str)  # TODO change something to call the function
-    pretrained = get_key_def('pretrained', cfg['model'], default=True, expected_type=(bool, str))
     train_state_dict_path = get_key_def('state_dict_path', cfg['training'], default=None, expected_type=str)
     state_dict_strict = get_key_def('state_dict_strict_load', cfg['training'], default=True, expected_type=bool)
-    dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None, expected_type=float)
+    #dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None, expected_type=float)
     # if error
     if train_state_dict_path and not Path(train_state_dict_path).is_file():
         raise logging.critical(
@@ -507,7 +506,7 @@ def train(cfg: DictConfig) -> None:
     if class_weights:
         verify_weights(num_classes, class_weights)
     # Read the concatenation point if requested model is deeplabv3 dualhead
-    conc_point = get_key_def('conc_point', cfg['model'], None)
+    #conc_point = get_key_def('conc_point', cfg['model'], None)
     step_size = get_key_def('step_size', cfg['scheduler']['params'], default=4, expected_type=int)
     gamma = get_key_def('gamma', cfg['scheduler']['params'], default=0.9, expected_type=float)
 
@@ -731,7 +730,7 @@ def train(cfg: DictConfig) -> None:
         # logging.info(f'\nCurrent elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
+    if int(cfg['training']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = read_checkpoint(filename, update=False)
         checkpoint = adapt_checkpoint_to_dp_model(checkpoint, model)
         model.load_state_dict(state_dict=checkpoint['model_state_dict'])
