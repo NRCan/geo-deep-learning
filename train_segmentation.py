@@ -497,7 +497,7 @@ def train(cfg: DictConfig) -> None:
     optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam', expected_type=str)  # TODO change something to call the function
     train_state_dict_path = get_key_def('state_dict_path', cfg['training'], default=None, expected_type=str)
     state_dict_strict = get_key_def('state_dict_strict_load', cfg['training'], default=True, expected_type=bool)
-    #dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None, expected_type=float)
+    
     # if error
     if train_state_dict_path and not Path(train_state_dict_path).is_file():
         raise logging.critical(
@@ -506,9 +506,12 @@ def train(cfg: DictConfig) -> None:
     if class_weights:
         verify_weights(num_classes, class_weights)
     # Read the concatenation point if requested model is deeplabv3 dualhead
-    #conc_point = get_key_def('conc_point', cfg['model'], None)
     step_size = get_key_def('step_size', cfg['scheduler']['params'], default=4, expected_type=int)
     gamma = get_key_def('gamma', cfg['scheduler']['params'], default=0.9, expected_type=float)
+
+    # TODO Review the importance of those unused parameters 
+    #dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None, expected_type=float)
+    #conc_point = get_key_def('conc_point', cfg['model'], None)
 
     # GPU PARAMETERS
     num_devices = get_key_def('num_gpus', cfg['training'], default=0)
