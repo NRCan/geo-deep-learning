@@ -286,14 +286,6 @@ def unnormalize(input_img, mean, std):
     return (input_img * std) + mean
 
 
-def BGR_to_RGB(array):
-    assert array.shape[2] >= 3, f"Not enough channels in array of shape {array.shape}"
-    BGR_channels = array[..., :3]
-    RGB_channels = np.ascontiguousarray(BGR_channels[..., ::-1])
-    array[:, :, :3] = RGB_channels
-    return array
-
-
 def checkpoint_url_download(url: str):
     mime_type = ('application/tar', 'application/x-tar', 'applicaton/x-gtar',
                  'multipart/x-tar', 'application/x-compress', 'application/x-compressed')

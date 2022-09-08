@@ -13,14 +13,13 @@ import random
 import numpy as np
 from skimage import transform, exposure
 from torchvision import transforms
-from utils.utils import get_key_def, pad, minmax_scale, BGR_to_RGB
+from utils.utils import get_key_def, pad, minmax_scale
 
 logging.getLogger(__name__)
 
 
 def compose_transforms(params,
                        dataset,
-                       input_space: bool = False,
                        scale: Sequence = None,
                        aug_type: str = '',
                        dontcare=None,
@@ -29,7 +28,6 @@ def compose_transforms(params,
                        print_log=True):
     """
     Function to compose the transformations to be applied on every batches.
-    :param input_space: (bool) if True, flip BGR channels to RGB
     :param params: (dict) Parameters found in the yaml config file
     :param dataset: (str) One of 'trn', 'val', 'tst'
     :param aug_type: (str) One of 'geometric', 'radiometric'
@@ -83,15 +81,6 @@ def compose_transforms(params,
             else:
                 trim_at_eval = round((random_radiom_trim_range[-1] - random_radiom_trim_range[0]) / 2, 1)
             lst_trans.append(RadiometricTrim(random_range=[trim_at_eval, trim_at_eval]))
-
-        if input_space:
-            lst_trans.append(BgrToRgb(input_space))
-        else:
-            if print_log:
-                logging.info(
-                    f"\nThe '{dataset}' images will be fed to model as is. "
-                    f'First 3 bands of imagery should be RGB, not BGR.'
-                )
 
         if scale:
             lst_trans.append(Scale(scale))  # TODO: assert coherence with below normalization
@@ -358,19 +347,6 @@ class Normalize(object):
             return sample
         else:
             return sample
-
-
-class BgrToRgb(object):
-    """Normalize Image with Mean and STD and similar to Pytorch(transform.Normalize) function """
-
-    def __init__(self, bgr_to_rgb):
-        self.bgr_to_rgb = bgr_to_rgb
-
-    def __call__(self, sample):
-        sat_img = BGR_to_RGB(sample['sat_img']) if self.bgr_to_rgb else sample['sat_img']
-        sample['sat_img'] = sat_img
-
-        return sample
 
 
 class ToTensorTarget(object):

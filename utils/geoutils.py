@@ -1,7 +1,7 @@
 import collections
 import logging
 from pathlib import Path
-from typing import List, Union
+from typing import List, Union, Sequence
 
 import numpy as np
 
@@ -189,7 +189,7 @@ def stack_singlebands_vrt(srcs: List, band: int = 1):
     return ET.tostring(vrt_dataset).decode('UTF-8')
 
 
-def subset_multiband_vrt(src: Union[str, Path], band_request: List = []):
+def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
     """
     Creates a multiband virtual raster containing a subset of all available bands in a source multiband raster
     @param src:
