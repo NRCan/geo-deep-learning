@@ -18,7 +18,7 @@ from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load
 from torchvision.datasets.utils import download_url
 from tqdm import tqdm
 
-from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base
+from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base, subset_multiband_vrt
 from utils.logger import get_logger
 from utils.utils import read_csv
 from utils.verifications import assert_crs_match, validate_raster, \
@@ -51,8 +51,8 @@ class SingleBandItemEO(ItemEOExtension):
         self.item = item
         self._assets_by_common_name = None
 
-        if bands_requested is not None and len(bands_requested) == 0:
-            logging.warning(f"At least one band should be chosen if assets need to be reached")
+        if not bands_requested:
+            raise ValueError(f"At least one band should be chosen if assets need to be reached")
 
         # Create band inventory (all available bands)
         self.bands_all = [band for band in self.asset_by_common_name.keys()]
@@ -183,7 +183,10 @@ class AOI(object):
             self.raster_stac_item = None
 
         # If parsed result has more than a single file, then we're dealing with single-band files
-        self.raster_src_is_multiband = True if len(raster_parsed) == 1 else False
+        if len(raster_parsed) == 1 and rasterio.open(raster_parsed[0]).count > 1:
+            self.raster_src_is_multiband = True
+        else:
+            self.raster_src_is_multiband = False
 
         # Download assets if desired
         self.download_data = download_data
@@ -203,8 +206,8 @@ class AOI(object):
         self.raster_parsed = raster_parsed
 
         # if single band assets, build multiband VRT
-        self.raster_to_multiband(virtual=True)
-        self.raster_read()
+        self.src_raster_to_dest_multiband(virtual=True)
+        self.raster_open()
         self.raster_meta = self.raster.meta
         self.raster_meta['name'] = self.raster.name
         if self.raster_src_is_multiband:
@@ -297,8 +300,8 @@ class AOI(object):
             )
             if len(self.label_gdf_filtered) == 0:
                 logging.warning(f"\nNo features found for ground truth \"{self.label}\","
-                                 f"\nfiltered by attribute field \"{self.attr_field_filter}\""
-                                 f"\nwith values \"{self.attr_values_filter}\"")
+                                f"\nfiltered by attribute field \"{self.attr_field_filter}\""
+                                f"\nwith values \"{self.attr_values_filter}\"")
         else:
             self.label_gdf_filtered = None
 
@@ -347,7 +350,6 @@ class AOI(object):
         )
         return new_aoi
 
-    # TODO: is this necessary if to_dict() is good enough?
     def __str__(self):
         return (
             f"\nAOI ID: {self.aoi_id}"
@@ -359,16 +361,29 @@ class AOI(object):
             f"\n\tAttribute values filter: {self.attr_values_filter}"
             )
 
-    def raster_to_multiband(self, virtual=True):
+    def src_raster_to_dest_multiband(self, virtual=True):
+        """
+        Outputs a multiband raster from multiple sources of input raster
+        E.g.: multiple singleband files, single multiband file with undesired bands, etc.
+        """
         if not self.raster_src_is_multiband:
             if virtual:
                 self.raster_multiband = stack_singlebands_vrt(self.raster_parsed)
             else:
                 self.raster_multiband = self.write_multiband_from_singleband_rasters_as_vrt()
+        elif self.raster_src_is_multiband and self.raster_bands_request:
+            if not all([isinstance(band, int) for band in self.raster_bands_request]):
+                raise ValueError(f"Use only a list of integers to select bands from a multiband raster.\n"
+                                 f"Got {self.raster_bands_request}")
+            if len(self.raster_bands_request) > rasterio.open(self.raster_raw_input).count:
+                raise ValueError(f"Trying to subset more bands than actual number in source raster.\n"
+                                 f"Requested: {self.raster_bands_request}\n"
+                                 f"Available: {rasterio.open(self.raster_raw_input).count}")
+            self.raster_multiband = subset_multiband_vrt(self.raster_parsed[0], band_request=self.raster_bands_request)
         else:
             self.raster_multiband = self.raster_parsed[0]
 
-    def raster_read(self):
+    def raster_open(self):
         self.raster = _check_rasterio_im_load(self.raster_multiband)
 
     def to_dict(self, extended=True):
@@ -509,8 +524,10 @@ class AOI(object):
             raster = [value['meta'].href for value in item.bands_requested.values()]
             return raster
         elif "${dataset.bands}" in csv_raster_str:
-            if not isinstance(raster_bands_requested, (List, ListConfig, tuple)) or len(raster_bands_requested) == 0:
-                raise TypeError(f"\nRequested bands should a list of bands. "
+            if not raster_bands_requested \
+                    or not isinstance(raster_bands_requested, (List, ListConfig, tuple)) \
+                    or len(raster_bands_requested) == 0:
+                raise TypeError(f"\nRequested bands should be a list of bands. "
                                 f"\nGot {raster_bands_requested} of type {type(raster_bands_requested)}")
             raster = [csv_raster_str.replace("${dataset.bands}", band) for band in raster_bands_requested]
             return raster
@@ -593,7 +610,7 @@ def aois_from_csv(
     @param csv_path:
         path to csv file containing list of input data. See README for details on expected structure of csv.
     @param bands_requested:
-        List of bands to select from inputted imagery. Applies only to single-band input imagery.
+        List of bands to select from inputted imagery
     @param attr_values_filter:
         Attribute filed to filter features from
     @param attr_field_filter:

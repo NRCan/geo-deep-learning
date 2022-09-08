@@ -1,5 +1,7 @@
 import collections
 import logging
+from pathlib import Path
+from typing import List, Union
 
 import numpy as np
 
@@ -159,14 +161,14 @@ def is_stac_item(path: str) -> bool:
             return False
 
 
-def stack_singlebands_vrt(srcs, band=1):
+def stack_singlebands_vrt(srcs: List, band: int = 1):
     """
     Stacks multiple single-band raster into a single multiband virtual raster
     Source: https://gis.stackexchange.com/questions/392695/is-it-possible-to-build-a-vrt-file-from-multiple-files-with-rasterio
     @param srcs:
-        List of paths/urls to single-band raster
+        List of paths/urls to single-band rasters
     @param band:
-        TODO
+        Index of band from source raster to stack into multiband VRT (index starts at 1 per GDAL convention)
     @return:
         RasterDataset object containing VRT
     """
@@ -181,6 +183,39 @@ def stack_singlebands_vrt(srcs, band=1):
                     vrt_band.set('band', str(srcnum))
                     vrt_bands.append(vrt_band)
                     vrt_dataset.remove(vrt_band)
+    for vrt_band in vrt_bands:
+        vrt_dataset.append(vrt_band)
+
+    return ET.tostring(vrt_dataset).decode('UTF-8')
+
+
+def subset_multiband_vrt(src: Union[str, Path], band_request: List = []):
+    """
+    Creates a multiband virtual raster containing a subset of all available bands in a source multiband raster
+    @param src:
+        Path/url to a multiband raster
+    @param band_request:
+        Indices of bands from source raster to subset from source multiband (index starts at 1 per GDAL convention).
+        Order matters, i.e. if source raster is BGR, "[3,2,1]" will create a VRT with bands as RGB
+    @return:
+        RasterDataset object containing VRT
+    """
+    vrt_bands = []
+    if not isinstance(src, (str, Path)) and not Path(src).is_file():
+        raise ValueError(f"Invalid source multiband raster.\n"
+                         f"Got {src}")
+    with rasterio.open(src) as ras, MemoryFile() as mem:
+        riocopy(ras, mem.name, driver='VRT')
+        vrt_xml = mem.read().decode('utf-8')
+        vrt_dataset = ET.fromstring(vrt_xml)
+        vrt_dataset_dict = {int(band.get('band')): band for band in vrt_dataset.iter("VRTRasterBand")}
+        for dest_band_idx, src_band_idx in enumerate(band_request, start=1):
+            vrt_band = vrt_dataset_dict[src_band_idx]
+            vrt_band.set('band', str(dest_band_idx))
+            vrt_bands.append(vrt_band)
+            vrt_dataset.remove(vrt_band)
+        for leftover_band in vrt_dataset.iter("VRTRasterBand"):
+            vrt_dataset.remove(leftover_band)
     for vrt_band in vrt_bands:
         vrt_dataset.append(vrt_band)
 
