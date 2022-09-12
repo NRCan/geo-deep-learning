@@ -306,47 +306,6 @@ def checkpoint_url_download(url: str):
         raise SystemExit(e)
 
 
-def list_input_images(img_dir_or_csv: Path,
-                      glob_patterns: List = None):
-    """
-    Create list of images from given directory or csv file.
-
-    :param img_dir_or_csv: (str) directory containing input images or csv with list of images
-    :param bucket_name: (str, optional) name of aws s3 bucket
-    :param glob_patterns: (list of str) if directory is given as input (not csv),
-                           these are the glob patterns that will be used to find desired images
-
-    returns list of dictionaries where keys are "tif" and values are paths to found images. "meta" key is also added
-        if input is csv and second column contains a metadata file. Then, value is path to metadata file.
-    """
-    if img_dir_or_csv.suffix == '.csv':
-        list_img = read_csv(img_dir_or_csv)
-    elif is_url(str(img_dir_or_csv)):
-        list_img = []
-        img = {'tif': img_dir_or_csv}
-        list_img.append(img)
-    else:
-        img_dir = img_dir_or_csv
-        if not img_dir.is_dir():
-            raise NotADirectoryError(f'Could not find directory/file "{img_dir_or_csv}"')
-
-        list_img_paths = set()
-        if img_dir.is_dir():
-            for glob_pattern in glob_patterns:
-                if not isinstance(glob_pattern, str):
-                    raise TypeError(f'Invalid glob pattern: "{glob_pattern}"')
-                list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
-        else:
-            list_img_paths.update([img_dir])
-        list_img = []
-        for img_path in list_img_paths:
-            img = {'tif': img_path}
-            list_img.append(img)
-        if not len(list_img) >= 0:
-            raise ValueError(f'No .tif files found in {img_dir_or_csv}')
-    return list_img
-
-
 def read_csv(csv_file_name: str) -> Dict:
     """
     Open csv file and parse it, returning a list of dictionaries with keys:

@@ -29,4 +29,4 @@ jobs:
           conda activate geo_deep_env
           for z in tests/data/*.zip; do unzip "$z" -d tests/data; done
           coverage run -m pytest --log-cli-level=INFO --capture=tee-sys
-          coverage report -m --sort=Cover
+          coverage report -m --sort=Cover -i

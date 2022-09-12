@@ -211,7 +211,7 @@ class AOI(object):
         self.raster_meta = self.raster.meta
         self.raster_meta['name'] = self.raster.name
         if self.raster_src_is_multiband:
-            self.raster_name = self.raster.name
+            self.raster_name = Path(self.raster.name)
         else:
             self.raster_name = Path(self.raster_raw_input[0]).name.replace("${dataset.bands}", "")
 
