@@ -2,7 +2,10 @@ import os
 import h5py
 import numpy as np
 from pathlib import Path
+
+import rasterio
 from omegaconf import OmegaConf, DictConfig
+from rasterio.plot import reshape_as_image
 from torch.utils.data import Dataset
 
 from utils.logger import get_logger
@@ -96,21 +99,24 @@ class SegmentationDataset(Dataset):
         return self.max_sample_count
 
     def __getitem__(self, index):
-        with h5py.File(self.hdf5_path, "r") as hdf5_file:
-            sat_img = np.float32(hdf5_file["sat_img"][index, ...])
+        with open(self.list_path, 'r') as datafile:
+            datalist = datafile.readlines()
+            data_line = datalist[index]
+            with rasterio.open(data_line.split(';')[0], 'r') as sat_handle:
+                sat_img = reshape_as_image(sat_handle.read())
+                metadata = sat_handle.meta
+            with rasterio.open(data_line.split(';')[1].rstrip('\n'), 'r') as label_handle:
+                map_img = reshape_as_image(label_handle.read())
+                map_img = map_img[..., 0]
+
             assert self.num_bands <= sat_img.shape[-1]
-            map_img = hdf5_file["map_img"][index, ...]
-            meta_idx = int(hdf5_file["meta_idx"][index])
-            metadata = self.metadata[meta_idx]
-            sample_metadata = hdf5_file["sample_metadata"][index, ...][0]
-            sample_metadata = eval(sample_metadata)
+
             if isinstance(metadata, np.ndarray) and len(metadata) == 1:
                 metadata = metadata[0]
             elif isinstance(metadata, bytes):
                 metadata = metadata.decode('UTF-8')
             try:
                 metadata = eval(metadata)
-                metadata.update(sample_metadata)
             except TypeError:
                 pass
 

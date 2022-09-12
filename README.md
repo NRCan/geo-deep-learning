@@ -7,7 +7,7 @@ The **geo-deep-learning** project stems from an initiative at NRCan's [CCMEO](ht
 
 In geo-deep-learning, the learning process comprises two broad stages: sampling and training, followed by inference, which makes use of a trained model to make new predictions on unseen imagery. 
 
-### Data sampling (or [tiling](https://torchgeo.readthedocs.io/en/latest/user/glossary.html#term-tiling))
+### Data [tiling](https://torchgeo.readthedocs.io/en/latest/user/glossary.html#term-tiling)
 The data preparation phase creates [chips](https://torchgeo.readthedocs.io/en/latest/user/glossary.html#term-chip) (or patches) that will be used for either training, validation or testing.
 The sampling step requires a csv as input with a list of rasters and labels to be used in the subsequent training phase. See [dataset documentation](dataset#input-data).
 

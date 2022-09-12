@@ -1,6 +1,7 @@
 defaults:
   - model: gdl_unet
   - verify: default_verify
+  - tiling: default_tiling
   - training: default_training
   - loss: binary/softbce
   - optimizer: adamw
@@ -31,10 +32,10 @@ general:
   max_epochs: 2 # for train only
   min_epochs: 1 # for train only
   raw_data_dir: dataset
-  raw_data_csv: tests/sampling/sampling_segmentation_binary_ci.csv
-  sample_data_dir: dataset # where the hdf5 will be saved
+  raw_data_csv: tests/tiling/tiling_segmentation_binary_ci.csv
+  tiles_data_dir: dataset # where the chips will be saved
   save_weights_dir: saved_model/${general.project_name}
 
 print_config: True # save the config in the log folder
-mode: {verify, sampling, train, inference, evaluate}
+mode: {verify, tiling, train, inference, evaluate}
 debug: True #False # will print the complete yaml config plus run a validation test
