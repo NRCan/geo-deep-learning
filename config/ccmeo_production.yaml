@@ -6,6 +6,9 @@ defaults:
   - callbacks: default_callbacks
   - dataset: ccmeo_datacube_dataset
   - augmentation: basic_augmentation_segmentation
+  - optimizer: adam
+  - scheduler: plateau
+  - visualization: default_visualization
   - tracker: # set logger here or use command line (e.g. `python GDL.py tracker=mlflow`)
   - hydra: default
   - loss: binary/softbce  # TODO: remove from utils/print_config()
@@ -27,7 +30,7 @@ general:
   project_name: template_project
   workspace: your_name
   raw_data_dir: data
-  raw_data_csv: data/images_to_samples_ci_csv.csv
+  raw_data_csv: tests/sampling/sampling_segmentation_binary_ci.csv
   sample_data_dir: data # where the hdf5 will be saved
   state_dict_path:
   save_weights_dir: saved_model/${general.project_name}
