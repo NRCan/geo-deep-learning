@@ -48,6 +48,7 @@ class Test_AOI(object):
         bands_request = ["R", "G"]
         with pytest.raises(ValueError):
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands_request)
+            aoi.close_raster()
 
     def test_multiband_input_band_selection_too_many(self):
         """Tests error when selecting too many bands from a multiband raster"""
@@ -190,8 +191,8 @@ class Test_AOI(object):
                     raster_bands_request=['ru', 'gris', 'but'])
                 aoi.close_raster()
 
-    def test_empty_band_request(self):
-        """Tests error when band selection is required but missing"""
+    def test_stac_input_empty_band_request(self):
+        """Tests error when band selection is required (stac item) but missing"""
         extract_archive(src="tests/data/spacenet.zip")
         extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
         raster_raw = (
