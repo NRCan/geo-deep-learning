@@ -24,10 +24,6 @@ from utils.visualization import vis_from_batch
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
-try:
-    from pynvml import *
-except ModuleNotFoundError:
-    logging.warning(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 def flatten_labels(annotations):
     """Flatten labels"""
@@ -312,9 +308,9 @@ def training(train_loader,
 
         if device.type == 'cuda' and debug:
             res, mem = gpu_stats(device=device.index)
-            logging.debug(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
-                                      gpu_perc=f'{res.gpu} %',
-                                      gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+            logging.debug(OrderedDict(trn_loss=f"{train_metrics['loss'].val:.2f}",
+                                      gpu_perc=f"{res['gpu']} %",
+                                      gpu_RAM=f"{mem['used'] / (1024 ** 2):.0f}/{mem['total'] / (1024 ** 2):.0f} MiB",
                                       lr=optimizer.param_groups[0]['lr'],
                                       img=data['sat_img'].numpy().shape,
                                       smpl=data['map_img'].numpy().shape,
@@ -422,8 +418,8 @@ def evaluation(eval_loader,
             if debug and device.type == 'cuda':
                 res, mem = gpu_stats(device=device.index)
                 logging.debug(OrderedDict(
-                    device=device, gpu_perc=f'{res.gpu} %',
-                    gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'
+                    device=device, gpu_perc=f"{res['gpu']} %",
+                    gpu_RAM=f"{mem['used']/(1024**2):.0f}/{mem['total']/(1024**2):.0f} MiB"
                 ))
 
     if eval_metrics['loss'].avg:

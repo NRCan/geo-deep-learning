@@ -1,3 +1,4 @@
+import os 
 import csv
 import logging
 import numbers
@@ -29,11 +30,6 @@ from utils.logger import get_logger
 # Set the logging file
 log = get_logger(__name__)  # need to be different from logging in this case
 
-# NVIDIA library
-try:
-    from pynvml import *
-except ModuleNotFoundError:
-    logging.warning(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 # AWS module
 try:
     import boto3
@@ -72,22 +68,22 @@ def get_device_ids(
         log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This process will run on CPU')
         return lst_free_devices
     try:
-        nvmlInit()
+        torch.cuda.init()
         if number_requested > 0:
-            device_count = nvmlDeviceGetCount()
+            device_count = torch.cuda.device_count()
             for i in range(device_count):
                 res, mem = gpu_stats(i)
-                used_ram = mem.used / (1024 ** 2)
-                max_ram = mem.total / (1024 ** 2)
+                used_ram = mem['used'] / (1024 ** 2)
+                max_ram = mem['total'] / (1024 ** 2)
                 used_ram_perc = used_ram / max_ram * 100
-                log.info(f'\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
+                log.info(f"\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res['gpu']}")
                 if used_ram_perc < max_used_ram_perc:
-                    if res.gpu < max_used_perc:
+                    if res['gpu'] < max_used_perc:
                         lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}
                     else:
-                        log.warning(f'\nGpu #{i} filtered out based on usage % threshold.\n'
-                                    f'Current % usage: {res.gpu}\n'
-                                    f'Max % usage allowed by user: {max_used_perc}.')
+                        log.warning(f"\nGpu #{i} filtered out based on usage % threshold.\n"
+                                    f"Current % usage: {res['gpu']}\n"
+                                    f"Max % usage allowed by user: {max_used_perc}.")
                 else:
                     log.warning(f'\nGpu #{i} filtered out based on RAM threshold.\n'
                                 f'Current RAM usage: {used_ram}/{max_ram}\n'
@@ -103,10 +99,7 @@ def get_device_ids(
         raise log.critical(
             NameError(f"\n{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
         )
-    except NVMLError as error:
-        raise log.critical(
-            ValueError(f"\n{error}. Make sure that the latest NVIDIA driver is installed and running.")
-        )
+  
     logging.info(f'\nGPUs devices available: {lst_free_devices}')
     return lst_free_devices
 
@@ -116,11 +109,13 @@ def gpu_stats(device=0):
     Provides GPU utilization (%) and RAM usage
     :return: res.gpu, res.memory
     """
-    nvmlInit()
-    handle = nvmlDeviceGetHandleByIndex(device)
-    res = nvmlDeviceGetUtilizationRates(handle)
-    mem = nvmlDeviceGetMemoryInfo(handle)
-
+    torch.cuda.init()
+    res = {'gpu': torch.cuda.utilization(device)}
+    torch_cuda_mem = torch.cuda.mem_get_info(device)
+    mem = {
+        'used': torch_cuda_mem[-1] - torch_cuda_mem[0],
+        'total': torch_cuda_mem[-1]
+    }    
     return res, mem
 
 
