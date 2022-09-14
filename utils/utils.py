@@ -1,3 +1,4 @@
+import os 
 import csv
 import logging
 import numbers
@@ -29,11 +30,6 @@ from utils.logger import get_logger
 # Set the logging file
 log = get_logger(__name__)  # need to be different from logging in this case
 
-# NVIDIA library
-try:
-    from pynvml import *
-except ModuleNotFoundError:
-    logging.warning(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 # AWS module
 try:
     import boto3
@@ -72,22 +68,22 @@ def get_device_ids(
         log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This process will run on CPU')
         return lst_free_devices
     try:
-        nvmlInit()
+        torch.cuda.init()
         if number_requested > 0:
-            device_count = nvmlDeviceGetCount()
+            device_count = torch.cuda.device_count()
             for i in range(device_count):
                 res, mem = gpu_stats(i)
-                used_ram = mem.used / (1024 ** 2)
-                max_ram = mem.total / (1024 ** 2)
+                used_ram = mem['used'] / (1024 ** 2)
+                max_ram = mem['total'] / (1024 ** 2)
                 used_ram_perc = used_ram / max_ram * 100
-                log.info(f'\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
+                log.info(f"\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res['gpu']}")
                 if used_ram_perc < max_used_ram_perc:
-                    if res.gpu < max_used_perc:
+                    if res['gpu'] < max_used_perc:
                         lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}
                     else:
-                        log.warning(f'\nGpu #{i} filtered out based on usage % threshold.\n'
-                                    f'Current % usage: {res.gpu}\n'
-                                    f'Max % usage allowed by user: {max_used_perc}.')
+                        log.warning(f"\nGpu #{i} filtered out based on usage % threshold.\n"
+                                    f"Current % usage: {res['gpu']}\n"
+                                    f"Max % usage allowed by user: {max_used_perc}.")
                 else:
                     log.warning(f'\nGpu #{i} filtered out based on RAM threshold.\n'
                                 f'Current RAM usage: {used_ram}/{max_ram}\n'
@@ -103,10 +99,7 @@ def get_device_ids(
         raise log.critical(
             NameError(f"\n{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
         )
-    except NVMLError as error:
-        raise log.critical(
-            ValueError(f"\n{error}. Make sure that the latest NVIDIA driver is installed and running.")
-        )
+  
     logging.info(f'\nGPUs devices available: {lst_free_devices}')
     return lst_free_devices
 
@@ -116,11 +109,13 @@ def gpu_stats(device=0):
     Provides GPU utilization (%) and RAM usage
     :return: res.gpu, res.memory
     """
-    nvmlInit()
-    handle = nvmlDeviceGetHandleByIndex(device)
-    res = nvmlDeviceGetUtilizationRates(handle)
-    mem = nvmlDeviceGetMemoryInfo(handle)
-
+    torch.cuda.init()
+    res = {'gpu': torch.cuda.utilization(device)}
+    torch_cuda_mem = torch.cuda.mem_get_info(device)
+    mem = {
+        'used': torch_cuda_mem[-1] - torch_cuda_mem[0],
+        'total': torch_cuda_mem[-1]
+    }    
     return res, mem
 
 
@@ -312,47 +307,6 @@ def checkpoint_url_download(url: str):
 
     except requests.exceptions.RequestException as e:
         raise SystemExit(e)
-
-
-def list_input_images(img_dir_or_csv: Path,
-                      glob_patterns: List = None):
-    """
-    Create list of images from given directory or csv file.
-
-    :param img_dir_or_csv: (str) directory containing input images or csv with list of images
-    :param bucket_name: (str, optional) name of aws s3 bucket
-    :param glob_patterns: (list of str) if directory is given as input (not csv),
-                           these are the glob patterns that will be used to find desired images
-
-    returns list of dictionaries where keys are "tif" and values are paths to found images. "meta" key is also added
-        if input is csv and second column contains a metadata file. Then, value is path to metadata file.
-    """
-    if img_dir_or_csv.suffix == '.csv':
-        list_img = read_csv(img_dir_or_csv)
-    elif is_url(str(img_dir_or_csv)):
-        list_img = []
-        img = {'tif': img_dir_or_csv}
-        list_img.append(img)
-    else:
-        img_dir = img_dir_or_csv
-        if not img_dir.is_dir():
-            raise NotADirectoryError(f'Could not find directory/file "{img_dir_or_csv}"')
-
-        list_img_paths = set()
-        if img_dir.is_dir():
-            for glob_pattern in glob_patterns:
-                if not isinstance(glob_pattern, str):
-                    raise TypeError(f'Invalid glob pattern: "{glob_pattern}"')
-                list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
-        else:
-            list_img_paths.update([img_dir])
-        list_img = []
-        for img_path in list_img_paths:
-            img = {'tif': img_path}
-            list_img.append(img)
-        if not len(list_img) >= 0:
-            raise ValueError(f'No .tif files found in {img_dir_or_csv}')
-    return list_img
 
 
 def read_csv(csv_file_name: str) -> Dict:

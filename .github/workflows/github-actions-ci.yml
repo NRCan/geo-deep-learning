@@ -12,6 +12,10 @@ jobs:
         uses: actions/setup-python@v2
         with:
           python-version: 3.9
+      - name: Replace pytorch requirement with pytorch-cpu to speed up CI
+        run: |
+          sed -i -e 's/pytorch..*$/pytorch-cpu/g' environment.yml
+          sed -i -e 's/torchvision..*$/torchvision-cpu/g' environment.yml
       - name: Add conda to system path
         run: |
           # $CONDA is an environment variable pointing to the root of the miniconda directory
@@ -19,10 +23,10 @@ jobs:
       - name: Install dependencies
         run: |
           conda env create --file environment.yml
-      - name: test GDL's 4 major modes
+      - name: test GDL
         run: |
           source /usr/share/miniconda/etc/profile.d/conda.sh
           conda activate geo_deep_env
           for z in tests/data/*.zip; do unzip "$z" -d tests/data; done
           coverage run -m pytest --log-cli-level=INFO --capture=tee-sys
-          coverage report -m --sort=Cover
+          coverage report -m --sort=Cover -i
