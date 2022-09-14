@@ -1,6 +1,7 @@
 import functools
 import json
 from collections import OrderedDict
+from multiprocessing import Value
 from pathlib import Path
 from typing import Union, Sequence, Dict, Tuple, List, Optional
 
@@ -229,8 +230,7 @@ class AOI(object):
                 logging.error(
                     f"Features in label file {label} do not intersect with bounds of raster file "
                     f"{self.raster.name}")
-            # TODO generate report first time, then, skip if exists
-            self.label_invalid_features = validate_features_from_gpkg(label, attr_field_filter)
+            self.label_invalid_features = validate_features_from_gpkg(label)
 
             # TODO: unit test for failed CRS match
             try:
@@ -310,6 +310,7 @@ class AOI(object):
         if self.for_multiprocessing:
             self.close_raster()
             self.raster = None
+
         logging.debug(self)
 
     @classmethod

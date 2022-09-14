@@ -5,11 +5,11 @@
 
 The **geo-deep-learning** project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced datasets.
 
-In geo-deep-learning, the learning process comprises two broad stages: sampling and training, followed by inference, which makes use of a trained model to make new predictions on unseen imagery. 
+In geo-deep-learning, the learning process comprises two broad stages: tiling and training, followed by inference, which makes use of a trained model to make new predictions on unseen imagery. 
 
 ### Data [tiling](https://torchgeo.readthedocs.io/en/latest/user/glossary.html#term-tiling)
 The data preparation phase creates [chips](https://torchgeo.readthedocs.io/en/latest/user/glossary.html#term-chip) (or patches) that will be used for either training, validation or testing.
-The sampling step requires a csv as input with a list of rasters and labels to be used in the subsequent training phase. See [dataset documentation](dataset#input-data).
+The tiling step requires a csv as input with a list of rasters and labels to be used in the subsequent training phase. See [dataset documentation](dataset#input-data).
 
 ### Training, along with validation and testing
 The training phase is where the neural network learns to use the data prepared in the previous phase to make all the predictions.
@@ -52,8 +52,8 @@ cd geo-deep-learning
 
 2. Run the wanted script (for segmentation).
 ```shell
-# Creating the hdf5 from the raw data
-python GDL.py mode=sampling
+# Creating the chips from the raw data
+python GDL.py mode=tiling
 # Training the neural network
 python GDL.py mode=train
 # Inference on the data
@@ -62,9 +62,9 @@ python GDL.py mode=inference
 
 > This example runs with a default configuration `./config/gdl_config_template.yaml`. For further examples on configuration options see the [configuration documentation](config/#Examples).
 
-> If you want to introduce a new task like object detection, you only need to add the code in the main folder and name it `object_detection_sampling.py` for example.
+> If you want to introduce a new task like object detection, you only need to add the code in the main folder and name it `object_detection_tiling.py` for example.
 > The principle is to name the code like `{task}_{mode}.py` and the `GDL.py` will deal with the rest. 
-> To run it, you will need to add a new parameter in the command line `python GDL.py mode=sampling task=object_detection` or change the parameter inside the `./config/gdl_config_template.yaml`.
+> To run it, you will need to add a new parameter in the command line `python GDL.py mode=tiling task=object_detection` or change the parameter inside the `./config/gdl_config_template.yaml`.
 
 ## **Folder Structure**
 We suggest the following high level structure to organize the images and the code.

@@ -1,15 +1,10 @@
-import os
 from pathlib import Path
-from typing import Union, List
+from typing import Union
 
-import fiona
 import geopandas as gpd
 import numpy as np
 import rasterio
 from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load, _check_crs
-from tqdm import tqdm
-
-from utils.geoutils import lst_ids, get_key_recursive
 
 import logging
 
@@ -106,11 +101,10 @@ def assert_crs_match(
         return False, raster_crs, gt_crs
 
 
-def validate_features_from_gpkg(label: Union[str, Path, gpd.GeoDataFrame], attribute_name: str):
+def validate_features_from_gpkg(label: Union[str, Path, gpd.GeoDataFrame]):
     """
     Validate features in gpkg file
     :param label: (str or Path) path to gpkg file
-    :param attribute_name: name of the value field representing the required classes in the vector image file
     """
     label_gdf = _check_gdf_load(label)
     invalid_features = list(np.where(label_gdf.is_valid != True)[0])

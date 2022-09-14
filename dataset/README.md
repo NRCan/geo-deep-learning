@@ -8,13 +8,13 @@ Each row of this csv is considered, in geo-deep-learning terms, to be an [AOI](h
 | my_dir/my_geoimagery2.tif | my_dir/my_geogt2.gpkg    | tst           | NewBrunswick-23   |
 | ...                       | ...                      | ...           | ...               |
 
-> The use of aoi id information will be implemented in a near future. It will serve, for example, to print a detailed report of sampling, training and evaluation, or for easier debugging.
+> The use of aoi id information will be implemented in a near future. It will serve, for example, to print a detailed report of tiling, training and evaluation, or for easier debugging.
 
 The path to a custom csv must be entered in the [dataset configuration](https://github.com/NRCan/geo-deep-learning/blob/develop/config/dataset/test_ci_segmentation_binary.yaml#L9). See the [configuration documentation](config/README.md) for more information.
 Also check the [suggested folder structure](https://github.com/NRCan/geo-deep-learning#folder-structure).
 
 ## Dataset splits
-Split in csv should be either "trn", "tst" or "inference". The validation split is automatically created during sampling. It's proportion is set by the [dataset config](https://github.com/NRCan/geo-deep-learning/blob/develop/config/dataset/test_ci_segmentation_binary.yaml#L8). 
+Split in csv should be either "trn", "tst" or "inference". The validation split is automatically created during tiling. It's proportion is set by the [dataset config](https://github.com/NRCan/geo-deep-learning/blob/develop/config/dataset/test_ci_segmentation_binary.yaml#L8). 
 
 ## Raster and vector file compatibility
 Rasters to be used must be in a format compatible with [rasterio](https://rasterio.readthedocs.io/en/latest/quickstart.html?highlight=supported%20raster%20format#opening-a-dataset-in-reading-mode)/[GDAL](https://gdal.org/drivers/raster/index.html) (ex.: GeoTiff). Similarly, labels (aka annotations) for each image must be stored as polygons in a [Geopandas compatible vector file](Rasters to be used must be in a format compatible with [rasterio](https://rasterio.readthedocs.io/en/latest/quickstart.html?highlight=supported%20raster%20format#opening-a-dataset-in-reading-mode)/[GDAL](https://gdal.org/drivers/raster/index.html) (ex.: GeoTiff). Similarly, labels (aka annotations) for each image must be stored as polygons in a [Geopandas compatible vector file](https://geopandas.org/en/stable/docs/user_guide/io.html#reading-spatial-data) (ex.: GeoPackage).
@@ -37,7 +37,7 @@ In [dataset config](../config/dataset/test_ci_segmentation_binary.yaml):
 
 `bands: [R, G, B]`
 
-In [input csv](../tests/sampling/sampling_segmentation_binary_ci.csv):
+In [input csv](../tests/tiling/tiling_segmentation_binary_ci.csv):
 
 | raster path                                                | ground truth path | dataset split |
 |------------------------------------------------------------|-------------------|---------------|
