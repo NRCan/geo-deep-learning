@@ -1,9 +1,13 @@
 import numpy as np
 from sklearn.metrics import classification_report
+from math import sqrt
+from torch import IntTensor
 
 min_val = 1e-6
 def create_metrics_dict(num_classes):
-    num_classes = num_classes if num_classes == 1 else num_classes + 1
+
+    num_classes = num_classes + 1 if num_classes == 1 else num_classes
+
     metrics_dict = {'precision': AverageMeter(), 'recall': AverageMeter(), 'fscore': AverageMeter(),
                     'loss': AverageMeter(), 'iou': AverageMeter()}
 
@@ -59,7 +63,15 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
     """Computes precision, recall and f-score for each class and average of all classes.
     http://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
     """
-    class_report = classification_report(label.cpu(), pred.cpu(), output_dict=True, zero_division=1)
+    pred = pred.cpu()
+    label = label.cpu()
+    pred[label == ignore_index] = ignore_index
+
+    # Required to remove ignore_index from scikit-learn's classification report 
+    n = max(IntTensor.item(pred.amax()), IntTensor.item(label.amax()))
+    labels = np.arange(n+1)
+
+    class_report = classification_report(label, pred, labels=labels, output_dict=True, zero_division=1)
 
     class_score = {}
     for key, value in class_report.items():
@@ -77,12 +89,13 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
     return metrics_dict
 
 
-def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
+def iou(pred, label, batch_size, num_classes, metric_dict, ignore_index, only_present=True):
     """Calculate the intersection over union class-wise and mean-iou"""
     ious = []
-    num_classes = num_classes if num_classes == 1 else num_classes + 1
+    num_classes = num_classes + 1 if num_classes == 1 else num_classes
     pred = pred.cpu()
     label = label.cpu()
+    pred[label == ignore_index] = ignore_index
     for i in range(num_classes):
         c_label = label == i
         if only_present and c_label.sum() == 0:
@@ -122,7 +135,7 @@ class ComputePixelMetrics():
     def __init__(self, label, pred, num_classes):
         self.label = label
         self.pred = pred
-        self.num_classes = num_classes if num_classes == 1 else num_classes + 1
+        self.num_classes = num_classes + 1 if num_classes == 1 else num_classes
 
     def update(self, metric_func):
         metric = {}
