@@ -2,7 +2,7 @@ from utils.metrics import create_metrics_dict, report_classification, iou
 import torch
 import pytest
 
-# Test arrays: [bs=2, h=2, w,2]
+# Test arrays: [bs=2, h=2, w=2]
 def init_tensors():
     pred_multi = torch.tensor([0, 0, 2, 2, 0, 2, 1, 2, 1, 0, 2, 2, 1, 0, 2, 2])
     pred_binary = torch.tensor([0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1])
