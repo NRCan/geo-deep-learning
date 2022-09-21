@@ -23,10 +23,6 @@ from tiling_segmentation import Tiler
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
-try:
-    from pynvml import *
-except ModuleNotFoundError:
-    logging.warning(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 def flatten_labels(annotations):
     """Flatten labels"""
@@ -336,9 +332,9 @@ def training(train_loader,
 
         if device.type == 'cuda' and debug:
             res, mem = gpu_stats(device=device.index)
-            logging.debug(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
-                                      gpu_perc=f'{res.gpu} %',
-                                      gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+            logging.debug(OrderedDict(trn_loss=f"{train_metrics['loss'].val:.2f}",
+                                      gpu_perc=f"{res['gpu']} %",
+                                      gpu_RAM=f"{mem['used'] / (1024 ** 2):.0f}/{mem['total'] / (1024 ** 2):.0f} MiB",
                                       lr=optimizer.param_groups[0]['lr'],
                                       img=data['sat_img'].numpy().shape,
                                       smpl=data['map_img'].numpy().shape,
@@ -367,7 +363,8 @@ def evaluation(eval_loader,
                batch_metrics=None,
                dataset='val',
                device=None,
-               debug=False):
+               debug=False,
+               dontcare=-1):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -432,31 +429,31 @@ def evaluation(eval_loader,
                                   f"{len(eval_loader)}. Metrics in validation loop won't be computed")
                 if (batch_index + 1) % batch_metrics == 0:  # +1 to skip val loop at very beginning
                     a, segmentation = torch.max(outputs_flatten, dim=1)
-                    eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
+                    eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics, dontcare)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                         ignore_index=eval_loader.dataset.dontcare)
-            elif (dataset == 'tst') and (batch_metrics is not None):
+                                                         ignore_index=dontcare)
+            elif (dataset == 'tst'):
                 a, segmentation = torch.max(outputs_flatten, dim=1)
-                eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
+                eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics, dontcare)
                 eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                     ignore_index=eval_loader.dataset.dontcare)
+                                                     ignore_index=dontcare)
 
             logging.debug(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
             if debug and device.type == 'cuda':
                 res, mem = gpu_stats(device=device.index)
                 logging.debug(OrderedDict(
-                    device=device, gpu_perc=f'{res.gpu} %',
-                    gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'
+                    device=device, gpu_perc=f"{res['gpu']} %",
+                    gpu_RAM=f"{mem['used']/(1024**2):.0f}/{mem['total']/(1024**2):.0f} MiB"
                 ))
 
     if eval_metrics['loss'].avg:
         logging.info(f"\n{dataset} Loss: {eval_metrics['loss'].avg:.4f}")
-    if batch_metrics is not None:
-        logging.info(f"\n{dataset} precision: {eval_metrics['precision'].avg}")
-        logging.info(f"\n{dataset} recall: {eval_metrics['recall'].avg}")
-        logging.info(f"\n{dataset} fscore: {eval_metrics['fscore'].avg}")
-        logging.info(f"\n{dataset} iou: {eval_metrics['iou'].avg}")
+    if batch_metrics is not None or dataset == 'tst':
+        logging.info(f"\n{dataset} precision: {eval_metrics['precision'].avg:.4f}")
+        logging.info(f"\n{dataset} recall: {eval_metrics['recall'].avg:.4f}")
+        logging.info(f"\n{dataset} fscore: {eval_metrics['fscore'].avg:.4f}")
+        logging.info(f"\n{dataset} iou: {eval_metrics['iou'].avg:.4f}")
 
     return eval_metrics
 
@@ -547,7 +544,7 @@ def train(cfg: DictConfig) -> None:
 
     # PARAMETERS FOR TILES
     samples_size = get_key_def("tile_size", cfg['tiling'], expected_type=int, default=256)
-    min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], expected_type=int, default=0)
+    min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], expected_type=Number, default=0)
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
 
     data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
@@ -711,7 +708,8 @@ def train(cfg: DictConfig) -> None:
                                 device=device,
                                 scale=scale,
                                 vis_params=vis_params,
-                                debug=debug)
+                                debug=debug,
+                                dontcare=dontcare_val)
         val_loss = val_report['loss'].avg
         if 'val_log' in locals():  # only save the value if a tracker is setup
             if batch_metrics is not None:
@@ -768,7 +766,8 @@ def train(cfg: DictConfig) -> None:
                                 dataset='tst',
                                 scale=scale,
                                 vis_params=vis_params,
-                                device=device)
+                                device=device,
+                                dontcare=dontcare_val)
         if 'tst_log' in locals():  # only save the value if a tracker is setup
             tst_log.add_values(tst_report, num_epochs)
 

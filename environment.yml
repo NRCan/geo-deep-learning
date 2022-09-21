@@ -9,7 +9,6 @@ dependencies:
   - h5py>=3.7
   - hydra-core>=1.1.0
   - pip
-  - pynvml>=11.0
   - pystac>=0.3.0
   - pytest>=7.1
   - python>=3.10
