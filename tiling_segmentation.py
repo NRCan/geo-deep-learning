@@ -1,5 +1,6 @@
 from datetime import datetime
 import multiprocessing
+from numbers import Number
 from pathlib import Path
 import shutil
 from typing import Union, Sequence, List
@@ -21,7 +22,7 @@ from utils.verifications import validate_raster
 from utils import utils
 logging = utils.get_logger(__name__)  # import logging
 # Set random seed for reproducibility
-np.random.seed(1234)
+np.random.seed(123)
 
 
 def annot_percent(img_tile: Union[str, Path, rasterio.DatasetReader],
@@ -50,7 +51,7 @@ class Tiler(object):
                  src_aoi_list: List = None,
                  tile_size: int = 1024,
                  tile_stride: int = None,
-                 min_annot_perc: int = 0,
+                 min_annot_perc: Number = 0,
                  val_percent: int = None,
                  debug: bool = False):
         """
@@ -65,7 +66,7 @@ class Tiler(object):
         @param tile_stride: int, optional
             Number of pixels between each tile. Defaults to tile_size
             without remainder. Rasterio will use bilinear resampling. Defaults to 1 (no resampling).
-        @param min_annot_perc: int, optional
+        @param min_annot_perc: Number, optional
             If ground truth tile above this minimum annotated percentage,
             the gt tile will be kept in final dataset
         @param val_percent: integer, optional
@@ -106,8 +107,8 @@ class Tiler(object):
             raise TypeError(f'Tile stride should be an integer. Got {tile_stride} of type {type(tile_stride)}')
         self.tile_stride = tile_stride
 
-        if not isinstance(min_annot_perc, int) and 0 <= min_annot_perc <= 100:
-            raise TypeError(f'Minimum annotated percent should be an integer between 0 and 100.\n'
+        if not isinstance(min_annot_perc, Number) and 0 <= min_annot_perc <= 100:
+            raise TypeError(f'Minimum annotated percent should be a number between 0 and 100.\n'
                             f'Got {min_annot_perc} of type {type(min_annot_perc)}')
         self.min_annot_perc = min_annot_perc
 
@@ -209,29 +210,27 @@ class Tiler(object):
 
         return aoi, raster_tiler.tile_paths, vec_tler_tile_paths
 
-    def filter_tile_pair(self,
+    def passes_min_annot(self,
                          img_tile: Union[str, Path],
-                         gt_tile: Union[str, Path, gpd.GeoDataFrame],
-                         dataset: str,
+                         gt_tile: Union[str, Path, gpd.GeoDataFrame]
                          ):
-        """Filters a tile pair based on minimum annotated percent threshold (i.e. maximum background proportion)"""
+        """
+        Decides whether a tile pair should be kept based on minimum annotated percent threshold (i.e. maximum background
+        proportion). This filter applies to trn and val datasets only, i.e. all tiles from tst dataset are included
+        """
         map_img_gdf = _check_gdf_load(gt_tile)
         annot_perc = annot_percent(
             img_tile=img_tile,
             gdf_tile=map_img_gdf,
         )
-        # FIXME: keeping all val chips will bust val_percent if min annot > 0, but more logical to bypass conditions for val chips
-        # val/tst datasets don't need to meet conditions
-        if annot_perc >= self.min_annot_perc or dataset in ['val', 'tst']:
+        if annot_perc >= self.min_annot_perc:
             return True, annot_perc
-        elif dataset == 'trn':
-            logging.debug(f"Ground truth tile in training dataset doesn't reach minimum annotated percentage.\n"
+        else:
+            logging.debug(f"Ground truth tile in trn/val dataset doesn't reach minimum annotated percentage.\n"
                           f"Ground truth tile: {gt_tile}\n"
                           f"Annotated percentage: {annot_perc}\n"
                           f"Minimum annotated percentage: {self.min_annot_perc}")
             return False, annot_perc
-        else:
-            raise ValueError(f'dataset should be "trn", "val" or "tst", got {dataset}')
 
     def get_burn_gt_tile_path(self, attr_vals: Sequence, gt_tile: Union[str, Path]):
         _, samples_str = self.make_dataset_file_name(None, self.min_annot_perc, None, attr_vals)
@@ -324,7 +323,7 @@ class Tiler(object):
         if not aoi.raster:  # in case of multiprocessing
             aoi.raster_read()
 
-        random_val = np.random.randint(1, 100)
+        random_val = np.random.randint(1, 101)
         if not {'trn', 'val'}.issubset(set(self.datasets)):
             raise ValueError(f"Tiler should contain a 'trn' and 'val' dataset. Got {self.datasets}")
         # for trn tiles, sort between trn and val based on random number
@@ -338,13 +337,13 @@ class Tiler(object):
             attr_field=aoi.attr_field_filter,
             attr_vals=aoi.attr_values_filter
         )
-        keep_tile_pair, annot_perc = self.filter_tile_pair(
+        # measure annotated percentage for all tiles as it is useful data analysis info for a output report
+        min_annot_success, annot_perc = self.passes_min_annot(
             img_tile=img_tile,
             gt_tile=gdf_tile,
-            dataset=dataset,
         )
         logging.debug(annot_perc)
-        if keep_tile_pair:
+        if min_annot_success or dataset == 'tst':
             self.burn_gt_tile(aoi,
                               img_tile=img_tile,
                               gt_tile=gdf_tile,
@@ -425,13 +424,14 @@ def main(cfg: DictConfig) -> None:
     download_data = get_key_def('download_data', cfg['dataset'], default=False, expected_type=bool)
     tiles_root_dir = get_key_def('tiles_data_dir', cfg['tiling'], default=data_dir, to_path=True)
 
-    # SAMPLE PARAMETERS
+    # TILING PARAMETERS
     samples_size = get_key_def('tile_size', cfg['tiling'], default=512, expected_type=int)
-    min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], default=0)
+    min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], expected_type=Number, default=0)
     continuous_vals = get_key_def('continuous_values', cfg['tiling'], default=True)
     save_prev_labels = get_key_def('save_preview_labels', cfg['tiling'], default=True)
     parallel = get_key_def('multiprocessing', cfg['tiling'], default=False, expected_type=bool)
 
+    # TODO: why not ask only for a val percentage directly?
     val_percent = int(get_key_def('train_val_percent', cfg['dataset'], default={'val': 0.3})['val'] * 100)
     attr_field = get_key_def('attribute_field', cfg['dataset'], None, expected_type=str)
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
@@ -526,7 +526,7 @@ def main(cfg: DictConfig) -> None:
     # (2) burn filtered labels to raster format
     for aoi in tqdm(tiler.src_aoi_list, position=0,
                     desc='Looping in AOIs'):
-        if debug:  # TODO: keep this extra valiation if debug?
+        if debug:
             for img_tile, gt_tile in tqdm(
                     aoi.tiles_pairs_list,
                     desc='DEBUG: Checking if data tiles are valid'):
@@ -572,14 +572,17 @@ def main(cfg: DictConfig) -> None:
     datasets_kept = {dataset: 0 for dataset in tiler.datasets}
     for line_tuple in tqdm(dataset_lines, desc=f"Writing {len(dataset_lines)} lines to dataset files"):
         dataset, dataset_line = line_tuple
-        if dataset_line:
+        if dataset_line is not None:
             with open(dataset_files[dataset], 'a') as dataset_file:
                 dataset_file.write(dataset_line)
                 datasets_kept[dataset] += 1
 
     # final report
-    logging.info(f"\nExpected val/trn ratio: {tiler.val_percent} %"
-                 f"\nActual val/trn ratio: {datasets_kept['val'] / (datasets_kept['trn'] * 100 + 1e-10):.2f} %")
+    # TODO: write to a file, include aoi-specific stats
+    logging.info(
+        f"\nExpected val ratio: {tiler.val_percent} %"
+        f"\nActual val ratio: {datasets_kept['val'] / (datasets_kept['val'] + datasets_kept['trn']) * 100:.2f} %"
+    )
     for dataset in tiler.datasets:
         if dataset == 'trn':
             logging.info(f"\nDataset: {dataset}"
