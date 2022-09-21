@@ -3,10 +3,12 @@ from torchmetrics.functional import precision_recall
 from utils.metrics import create_metrics_dict, report_classification, iou
 import torch
 
+import segmentation_models_pytorch as smp
+from torchmetrics import JaccardIndex
+
 # Test arrays: [bs=2, h=2, w,2]
 pred_multi = torch.tensor([0, 0, 2, 2, 0, 2, 1, 2, 1, 0, 2, 2, 1, 0, 2, 2])
 pred_binary = torch.tensor([0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1])
-
 
 lbl_multi = torch.tensor([1, 0, 2, 2, 0, 1, 2, 0, 2, 2, 0, 0, 1, 2, 0, 1])
 lbl_binary = torch.tensor([1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1])
@@ -100,13 +102,24 @@ class TestMetrics(object):
         """Evaluate iou calculation. 
         Multiclass, with ignore_index in array."""
         metrics_dict = create_metrics_dict(3)
+        # wih ignore_index == -1
         metrics_dict = iou(pred_multi, 
                            lbl_multi_dc, 
                            batch_size=2, 
                            num_classes=3,
                            metric_dict=metrics_dict,
                            ignore_index=-1)
-        assert "{:.6f}".format(metrics_dict['iou'].val) == "0.169841"
+        assert "{:.6f}".format(metrics_dict['iou'].val) == "0.233333"
+
+        # with ignore_index == 0
+        metrics_dict = create_metrics_dict(3)
+        metrics_dict = iou(pred_multi, 
+                           lbl_multi, 
+                           batch_size=2, 
+                           num_classes=3,
+                           metric_dict=metrics_dict,
+                           ignore_index=0)
+        assert "{:.6f}".format(metrics_dict['iou'].val) == "0.208333"
 
     def test_iou_binary(self):
         """Evaluate iou calculation. 
@@ -124,10 +137,21 @@ class TestMetrics(object):
         """Evaluate iou calculation. 
         Binary, with ignore_index in array."""
         metrics_dict = create_metrics_dict(1)
+        # with ignore_index == -1
         metrics_dict = iou(pred_binary, 
                            lbl_binary_dc, 
                            batch_size=2, 
                            num_classes=1,
                            metric_dict=metrics_dict,
                            ignore_index=-1)
-        assert "{:.6f}".format(metrics_dict['iou'].val) == "0.340659" 
+        assert "{:.6f}".format(metrics_dict['iou'].val) == "0.435897"
+
+        # with ignore_index == 0
+        metrics_dict = create_metrics_dict(3)
+        metrics_dict = iou(pred_multi, 
+                           lbl_multi, 
+                           batch_size=2, 
+                           num_classes=3,
+                           metric_dict=metrics_dict,
+                           ignore_index=0)
+        assert "{:.6f}".format(metrics_dict['iou'].val) == "0.208333"
