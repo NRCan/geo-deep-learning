@@ -11,7 +11,7 @@ dataset:
   download_data: False
 
   # imagery
-  bands: [R, G, B]
+  bands: [1,2,3]
 
   # ground truth
   attribute_field: properties/Quatreclasses

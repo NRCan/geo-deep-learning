@@ -10,6 +10,7 @@ from verify_segmentation import verify_per_aoi
 
 class TestVerify(object):
     def test_verify_per_aoi(self):
+        """Test stats outputs from an AOI"""
         extract_archive(src="tests/data/new_brunswick_aerial.zip")
         data = read_csv("tests/sampling/sampling_segmentation_multiclass_ci.csv")
         aoi = AOI(raster=data[0]['tif'], label=data[0]['gpkg'], split=data[0]['split'])
@@ -25,6 +26,7 @@ class TestVerify(object):
         assert aoi_dict['band_0_mean'] == 159.36075617930456
 
     def test_verify_segmentation_parallel(self):
+        """Integration test to check verify mode without specific assert"""
         with initialize(config_path="../config", job_name="test_ci"):
             cfg = compose(config_name="gdl_config_template",
                           overrides=[f"mode=verify",
