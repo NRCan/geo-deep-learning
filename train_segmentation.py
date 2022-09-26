@@ -1,5 +1,7 @@
 import time
 import shutil
+from numbers import Number
+
 import torch
 import numpy as np
 from hydra.utils import to_absolute_path, instantiate

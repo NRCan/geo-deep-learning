@@ -182,12 +182,14 @@ class Tiler(object):
         @return: written tiles to output directories as .tif for imagery and .geojson for label.
         """
         if not aoi.raster:  # in case of multiprocessing
-            aoi.raster_read()
+            aoi.raster_open()
 
         raster_tiler = tile.raster_tile.RasterTiler(dest_dir=out_img_dir,
                                                     src_tile_size=(self.dest_tile_size, self.dest_tile_size),
                                                     alpha=False,
                                                     verbose=True)
+        # TODO: fix bug with solaris: add possibility to serve metadata as input to tile()
+        aoi.raster.driver = "GTiff" if aoi.raster.driver == 'VRT' else aoi.raster.driver
         raster_bounds_crs = raster_tiler.tile(aoi.raster)
         logging.debug(f'Raster bounds crs: {raster_bounds_crs}\n'
                       f'')
@@ -321,7 +323,7 @@ class Tiler(object):
         @return:
         """
         if not aoi.raster:  # in case of multiprocessing
-            aoi.raster_read()
+            aoi.raster_open()
 
         random_val = np.random.randint(1, 101)
         if not {'trn', 'val'}.issubset(set(self.datasets)):
@@ -490,9 +492,10 @@ def main(cfg: DictConfig) -> None:
                                   f'GT: {aoi.label}')
                     raise e
 
-        except OSError:
+        except OSError as e:
             logging.exception(f'An error occurred while preparing samples with "{Path(aoi.raster.name).stem}" (tiff) and '
-                              f'{aoi.label.stem} (gpkg).')
+                              f'{aoi.label.stem} (gpkg).\n'
+                              f'{e}')
             continue
 
     if parallel:
@@ -581,7 +584,7 @@ def main(cfg: DictConfig) -> None:
     # TODO: write to a file, include aoi-specific stats
     logging.info(
         f"\nExpected val ratio: {tiler.val_percent} %"
-        f"\nActual val ratio: {datasets_kept['val'] / (datasets_kept['val'] + datasets_kept['trn']) * 100:.2f} %"
+        f"\nActual val ratio: {datasets_kept['val'] / (datasets_kept['val'] + datasets_kept['trn'] + 1e-5) * 100:.2f} %"
     )
     for dataset in tiler.datasets:
         if dataset == 'trn':

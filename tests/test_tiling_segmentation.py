@@ -8,7 +8,7 @@ import rasterio
 from omegaconf import DictConfig
 from torchgeo.datasets.utils import extract_archive
 
-from tiling_segmentation import annot_percent, main
+from tiling_segmentation import annot_percent, main as tiling
 from utils.utils import read_csv
 
 
@@ -37,7 +37,7 @@ class TestTiling(object):
         #     "general": {"project_name": "test"},
         #     "debug": True,
         #     "dataset": {
-        #         "bands": ["R", "G", "B"],
+        #         "bands": [1, 2, 3],
         #         "raw_data_dir": data_dir,
         #         "raw_data_csv": "tests/tiling/tiling_segmentation_multiclass_ci.csv",
         #         "attribute_field": "Quatreclasses",
@@ -46,7 +46,7 @@ class TestTiling(object):
         #     "tiling": {"tile_size": 32},
         # }
         # cfg = DictConfig(cfg)
-        # main(cfg)
+        # tiling(cfg)
         # out_labels = Path("data/tiles/test/tiles32_RGBbands/trn/23322E759967N_clipped_1m_1of2/labels_burned")
         # assert out_labels.exists()
 
@@ -54,12 +54,13 @@ class TestTiling(object):
         """Tests the attribute field and values filter with continuous output"""
         data_dir = "data/tiles"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
+        extract_archive(src="tests/data/new_brunswick_aerial.zip")
         project_name = "test_attr_filter_cont"
         cfg = {
             "general": {"project_name": project_name},
             "debug": True,
             "dataset": {
-                "bands": ["R", "G", "B"],
+                "bands": [1, 2, 3],
                 "raw_data_dir": data_dir,
                 "raw_data_csv": "tests/tiling/tiling_segmentation_multiclass_ci.csv",
                 "attribute_field": "Quatreclasses",
@@ -69,7 +70,7 @@ class TestTiling(object):
             "tiling": None,
         }
         cfg = DictConfig(cfg)
-        main(cfg)
+        tiling(cfg)
         print(os.getcwd())
         assert Path(data_dir).is_dir()
         out_labels = list(Path(f"{data_dir}/{project_name}").glob("**/trn/**/labels_burned/*"))
@@ -82,12 +83,13 @@ class TestTiling(object):
         """Tests the attribute field and values filter with discontinuous output pixel values"""
         data_dir = "data/tiles"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
+        extract_archive(src="tests/data/new_brunswick_aerial.zip")
         project_name = "test_attr_filter_discont"
         cfg = {
             "general": {"project_name": project_name},
             "debug": True,
             "dataset": {
-                "bands": ["R", "G", "B"],
+                "bands": [1, 2, 3],
                 "raw_data_dir": data_dir,
                 "raw_data_csv": "tests/tiling/tiling_segmentation_multiclass_ci.csv",
                 "attribute_field": "Quatreclasses",
@@ -98,7 +100,7 @@ class TestTiling(object):
             },
         }
         cfg = DictConfig(cfg)
-        main(cfg)
+        tiling(cfg)
         out_labels = list(Path(f"{data_dir}/{project_name}").glob("**/trn/**/labels_burned/*"))
         label = out_labels[0]
         label_np = rasterio.open(label).read()
@@ -118,6 +120,8 @@ class TestTiling(object):
         """Tests the trn/val sorting to ensure the result is close enough to requested val_percent"""
         data_dir = f"data/tiles"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
+        extract_archive(src="tests/data/spacenet.zip")
+        extract_archive(src="tests/data/new_brunswick_aerial.zip")
         proj_prefix = "test_val_percent"
         datasets = {"binary-multiband", "multiclass"}
         results = []
@@ -127,7 +131,7 @@ class TestTiling(object):
                 "general": {"project_name": proj_name},
                 "debug": True,
                 "dataset": {
-                    "bands": ["R", "G", "B"],
+                    "bands": [1, 2, 3],
                     "raw_data_dir": data_dir,
                     "raw_data_csv": f"tests/tiling/tiling_segmentation_{dataset}_ci.csv",
                     "train_val_percent": {'val': expected_val_percent},
@@ -138,7 +142,7 @@ class TestTiling(object):
                 },
             }
             cfg = DictConfig(cfg)
-            main(cfg)
+            tiling(cfg)
             out_labels_trn = list(Path(f"{data_dir}/{proj_name}/tiles32_RGBbands/trn").glob("*/labels_burned"))
             for out_lbls_aoi_trn in out_labels_trn:
                 assert out_lbls_aoi_trn.is_dir()
@@ -164,6 +168,8 @@ class TestTiling(object):
         """Tests the minimum annotated percentage to ensure the ground truth tiles with only background are rejected"""
         data_dir = f"data/tiles"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
+        extract_archive(src="tests/data/spacenet.zip")
+        extract_archive(src="tests/data/new_brunswick_aerial.zip")
         proj_prefix = "test_annot_percent"
         datasets = {"binary-multiband", "multiclass"}
         results = []
@@ -173,7 +179,7 @@ class TestTiling(object):
                 "general": {"project_name": proj_name},
                 "debug": True,
                 "dataset": {
-                    "bands": ["R", "G", "B"],
+                    "bands": [1, 2, 3],
                     "raw_data_dir": data_dir,
                     "raw_data_csv": f"tests/tiling/tiling_segmentation_{dataset}_ci.csv",
                     "train_val_percent": {'val': 0.3},
@@ -184,7 +190,7 @@ class TestTiling(object):
                 },
             }
             cfg = DictConfig(cfg)
-            main(cfg)
+            tiling(cfg)
             out_labels = list(Path(f"{data_dir}/{proj_name}/tiles32_RGBbands").glob("**/labels_burned/*"))
             for out_lbl in out_labels:
                 assert out_lbl.is_file()
@@ -204,12 +210,13 @@ class TestTiling(object):
     def test_tiling_segmentation_parallel(self):
         data_dir = "data/tiles"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
+        extract_archive(src="tests/data/new_brunswick_aerial.zip")
         proj = "test_parallel"
         cfg = {
             "general": {"project_name": proj},
             "debug": True,
             "dataset": {
-                "bands": ["R", "G", "B"],
+                "bands": [1, 2, 3],
                 "raw_data_dir": data_dir,
                 "raw_data_csv": "tests/tiling/tiling_segmentation_multiclass_ci.csv",
                 "attribute_field": "Quatreclasses",
@@ -221,7 +228,7 @@ class TestTiling(object):
             }
         }
         cfg = DictConfig(cfg)
-        main(cfg)
+        tiling(cfg)
         out_labels = [
             (Path(f"{data_dir}/{proj}/tiles32_RGBbands/trn/23322E759967N_clipped_1m_1of2/labels_burned"), (80, 95)),
             (Path(f"{data_dir}/{proj}/tiles32_RGBbands/val/23322E759967N_clipped_1m_1of2/labels_burned"), (5, 20)),
@@ -236,12 +243,13 @@ class TestTiling(object):
         """Tests tiling of imagery only for inference"""
         data_dir = "data/tiles"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
+        extract_archive(src="tests/data/new_brunswick_aerial.zip")
         project_name = "test_inference"
         cfg = {
             "general": {"project_name": project_name},
             "debug": True,
             "dataset": {
-                "bands": ["R", "G", "B"],
+                "bands": [1, 2, 3],
                 "raw_data_dir": data_dir,
                 "raw_data_csv": "tests/tiling/tiling_segmentation_trn-inference_ci.csv",
                 "attribute_field": "Quatreclasses",
@@ -250,7 +258,7 @@ class TestTiling(object):
             "tiling": {"tile_size": 32},
         }
         cfg = DictConfig(cfg)
-        main(cfg)
+        tiling(cfg)
         out_tiles = [
             (Path("data/tiles/test_inference/tiles32_RGBbands/trn/23322E759967N_clipped_1m_1of2/images"), 99),
             (Path("data/tiles/test_inference/tiles32_RGBbands/inference/23322E759967N_clipped_1m_2of2/images"), 176),
