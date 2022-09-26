@@ -53,7 +53,7 @@ class TestTiling(object):
     def test_attribute_filter_continuous(self):
         """Tests the attribute field and values filter with continuous output"""
         data_dir = "data/tiles"
-        Path(data_dir).mkdir(exist_ok=True)
+        Path(data_dir).mkdir(exist_ok=True, parents=True)
         project_name = "test_attr_filter_cont"
         cfg = {
             "general": {"project_name": project_name},
@@ -81,7 +81,7 @@ class TestTiling(object):
     def test_attribute_filter_discontinuous(self):
         """Tests the attribute field and values filter with discontinuous output pixel values"""
         data_dir = "data/tiles"
-        Path(data_dir).mkdir(exist_ok=True)
+        Path(data_dir).mkdir(exist_ok=True, parents=True)
         project_name = "test_attr_filter_discont"
         cfg = {
             "general": {"project_name": project_name},
@@ -117,7 +117,7 @@ class TestTiling(object):
     def test_val_percent(self):
         """Tests the trn/val sorting to ensure the result is close enough to requested val_percent"""
         data_dir = f"data/tiles"
-        Path(data_dir).mkdir(exist_ok=True)
+        Path(data_dir).mkdir(exist_ok=True, parents=True)
         proj_prefix = "test_val_percent"
         datasets = {"binary-multiband", "multiclass"}
         results = []
@@ -163,7 +163,7 @@ class TestTiling(object):
     def test_annot_percent(self):
         """Tests the minimum annotated percentage to ensure the ground truth tiles with only background are rejected"""
         data_dir = f"data/tiles"
-        Path(data_dir).mkdir(exist_ok=True)
+        Path(data_dir).mkdir(exist_ok=True, parents=True)
         proj_prefix = "test_annot_percent"
         datasets = {"binary-multiband", "multiclass"}
         results = []
@@ -203,7 +203,7 @@ class TestTiling(object):
 
     def test_tiling_segmentation_parallel(self):
         data_dir = "data/tiles"
-        Path(data_dir).mkdir(exist_ok=True)
+        Path(data_dir).mkdir(exist_ok=True, parents=True)
         proj = "test_parallel"
         cfg = {
             "general": {"project_name": proj},
@@ -235,7 +235,7 @@ class TestTiling(object):
     def test_tiling_inference(self):
         """Tests tiling of imagery only for inference"""
         data_dir = "data/tiles"
-        Path(data_dir).mkdir(exist_ok=True)
+        Path(data_dir).mkdir(exist_ok=True, parents=True)
         project_name = "test_inference"
         cfg = {
             "general": {"project_name": project_name},
