@@ -1,7 +1,6 @@
 import logging
 import math
 import re
-import warnings
 from pathlib import Path
 
 import numpy as np
@@ -176,7 +175,7 @@ def vis(vis_params,
 
     if inference_input_path is not None:
         if debug and len(np.unique(output_acv)) == 1:
-            warnings.warn(f'Inference contains only {np.unique(output_acv)} value. Make sure data scale '
+            logging.warning(f'Inference contains only {np.unique(output_acv)} value. Make sure data scale '
                           f'{scale} is identical with scale used for training model.')
         output_name = vis_path.joinpath(f"{inference_input_path.stem}_inference.tif")
         create_new_raster_from_base(inference_input_path, output_name, output_acv)

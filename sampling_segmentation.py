@@ -1,60 +1,27 @@
 import shutil
 from typing import Sequence
 
-import rasterio
 import numpy as np
-from os import path
+from solaris.utils.core import _check_rasterio_im_load
 from tqdm import tqdm
 from pathlib import Path
 from datetime import datetime
 from omegaconf import DictConfig, open_dict
-from hydra.core.hydra_config import HydraConfig
 
-# Our modules
+from dataset.aoi import aois_from_csv
+from utils.logger import get_logger
 from utils.geoutils import vector_to_raster
-from utils.readers import read_parameters, image_reader_as_array
+from utils.readers import image_reader_as_array
 from utils.create_dataset import create_files_and_datasets, append_to_dataset
 from utils.utils import (
-    get_key_def, pad, pad_diff, read_csv, add_metadata_from_raster_to_sample, get_git_hash,
-    read_modalities,
+    get_key_def, pad, pad_diff, add_metadata_from_raster_to_sample, get_git_hash,
 )
-from utils.verifications import (
-    validate_num_classes, validate_raster, assert_crs_match, validate_features_from_gpkg
-)
+
 # Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)  # import logging
+logging = get_logger(__name__)  # import logging
+
 # Set random seed for reproducibility
 np.random.seed(1234)
-
-
-def mask_image(arrayA, arrayB):
-    """Function to mask values of arrayB, based on 0 values from arrayA.
-
-    >>> x1 = np.array([0, 2, 4, 6, 0, 3, 9, 8], dtype=np.uint8).reshape(2,2,2)
-    >>> x2 = np.array([1.5, 1.2, 1.6, 1.2, 11., 1.1, 25.9, 0.1], dtype=np.float32).reshape(2,2,2)
-    >>> mask_image(x1, x2)
-    array([[[ 0. ,  0. ],
-            [ 1.6,  1.2]],
-    <BLANKLINE>
-           [[ 0. ,  0. ],
-            [25.9,  0.1]]], dtype=float32)
-    """
-
-    # Handle arrayA of shapes (h,w,c) and (h,w)
-    if len(arrayA.shape) == 3:
-        mask = arrayA[:, :, 0] != 0
-    else:
-        mask = arrayA != 0
-
-    ma_array = np.zeros(arrayB.shape, dtype=arrayB.dtype)
-    # Handle arrayB of shapes (h,w,c) and (h,w)
-    if len(arrayB.shape) == 3:
-        for i in range(0, arrayB.shape[2]):
-            ma_array[:, :, i] = mask * arrayB[:, :, i]
-    else:
-        ma_array = arrayB * mask
-    return ma_array
 
 
 def validate_class_prop_dict(actual_classes_dict, config_dict):
@@ -343,8 +310,6 @@ def main(cfg: DictConfig) -> None:
         3. Assert Coordinate reference system between raster and gpkg match.
     3. Read csv file and for each line in the file, do the following:
         1. Read input image as array with utils.readers.image_reader_as_array().
-            - If gpkg's extent is smaller than raster's extent,
-              raster is clipped to gpkg's extent.
             - If gpkg's extent is bigger than raster's extent,
               gpkg is clipped to raster's extent.
         2. Convert GeoPackage vector information into the "label" raster with
@@ -363,73 +328,37 @@ def main(cfg: DictConfig) -> None:
     -------
     :param cfg: (dict) Parameters found in the yaml config file.
     """
-    try:
-        import boto3
-    except ModuleNotFoundError:
-        logging.warning(
-            "\nThe boto3 library couldn't be imported. Ignore if not using AWS s3 buckets",
-            ImportWarning
-        )
-        pass
-
     # PARAMETERS
     num_classes = len(cfg.dataset.classes_dict.keys())
-    num_bands = len(cfg.dataset.modalities)
-    modalities = read_modalities(cfg.dataset.modalities)  # TODO add the Victor module to manage the modalities
+    bands_requested = get_key_def('bands', cfg['dataset'], default=None, expected_type=Sequence)
+    if not bands_requested:
+        raise ValueError(f"")
+    num_bands = len(bands_requested)
     debug = cfg.debug
-    task = cfg.task.task_name
 
     # RAW DATA PARAMETERS
-    # Data folder
-    try:
-        # check if the folder exist
-        my_data_path = Path(cfg.dataset.raw_data_dir).resolve(strict=True)
-        logging.info("\nImage directory used '{}'".format(my_data_path))
-        data_path = Path(my_data_path)
-    except FileNotFoundError:
-        raise logging.critical(
-            "\nImage directory '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_dir)
-        )
-    # CSV file
-    try:
-        my_csv_path = Path(cfg.dataset.raw_data_csv).resolve(strict=True)
-        # path.exists(cfg.dataset.raw_data_csv)
-        logging.info("\nImage csv: '{}'".format(my_csv_path))
-        csv_file = my_csv_path
-    except FileNotFoundError:
-        raise logging.critical(
-            "\nImage csv '{}' doesn't exist, please change the path".format(cfg.dataset.raw_data_csv)
-        )
-    # HDF5 data
-    try:
-        my_hdf5_path = Path(str(cfg.dataset.sample_data_dir)).resolve(strict=True)
-        logging.info("\nThe HDF5 directory used '{}'".format(my_hdf5_path))
-        Path.mkdir(Path(my_hdf5_path), exist_ok=True, parents=True)
-    except FileNotFoundError:
-        logging.info(
-            "\nThe HDF5 directory '{}' doesn't exist, please change the path.".format(cfg.dataset.sample_data_dir) +
-            "\nFor now the HDF5 directory use will be change for '{}'".format(data_path)
-        )
-        cfg.general.sample_data_dir = str(data_path)
+    data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
+    csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
+    out_path = get_key_def('sample_data_dir', cfg['dataset'], default=data_path, to_path=True, validate_path_exists=True)
 
     # SAMPLE PARAMETERS
     samples_size = get_key_def('input_dim', cfg['dataset'], default=256, expected_type=int)
     overlap = get_key_def('overlap', cfg['dataset'], default=0)
-    min_annot_perc = get_key_def('min_annot_perc', cfg['dataset'], default=0)
+    min_annot_perc = get_key_def('min_annotated_percent', cfg['dataset'], default=0)
     val_percent = get_key_def('train_val_percent', cfg['dataset'], default=0.3)['val'] * 100
     samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' \
                           f'_{num_bands}bands_{cfg.general.project_name}'
-    samples_dir = data_path.joinpath(samples_folder_name)
+    samples_dir = out_path.joinpath(samples_folder_name)
     if samples_dir.is_dir():
         if debug:
             # Move existing data folder with a random suffix.
             last_mod_time_suffix = datetime.fromtimestamp(samples_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-            shutil.move(samples_dir, data_path.joinpath(f'{str(samples_dir)}_{last_mod_time_suffix}'))
+            shutil.move(samples_dir, out_path.joinpath(f'{str(samples_dir)}_{last_mod_time_suffix}'))
         else:
             logging.critical(
                 f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.'
             )
-            raise FileExistsError()
+            raise FileExistsError(f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.')
     Path.mkdir(samples_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
 
     # LOGGING PARAMETERS  TODO see logging yaml
@@ -437,20 +366,12 @@ def main(cfg: DictConfig) -> None:
     # mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
 
     # OTHER PARAMETERS
-    metadata = None
-    meta_map = {}  # TODO get_key_def('meta_map', params['global'], default={})
     # TODO class_prop get_key_def('class_proportion', params['sample']['sampling_method'], None, expected_type=dict)
     class_prop = None
-    mask_reference = False  # TODO get_key_def('mask_reference', params['sample'], default=False, expected_type=bool)
     # set dontcare (aka ignore_index) value
     dontcare = cfg.dataset.ignore_index if cfg.dataset.ignore_index is not None else -1
     if dontcare == 0:
-        logging.warning(
-            "\nThe 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero."
-            " All valid class indices should be consecutive, and start at 0. The 'dontcare' value"
-            " will be remapped to -1 while loading the dataset, and inside the config from now on."
-        )
-        dontcare = -1
+        raise ValueError("\nThe 'dontcare' value (or 'ignore_index') used in the loss function cannot be zero.")
     attribute_field = get_key_def('attribute_field', cfg['dataset'], None, expected_type=str)
     # Assert that all items in attribute_values are integers (ex.: single-class samples from multi-class label)
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=Sequence)
@@ -474,18 +395,12 @@ def main(cfg: DictConfig) -> None:
     with open_dict(cfg):
         cfg.general.git_hash = get_git_hash()
 
-    # AWS TODO
-    bucket_name = cfg.AWS.bucket_name
-    if bucket_name:
-        final_samples_folder = None
-        bucket_name = cfg.AWS.bucket_name
-        bucket_file_cache = []
-        s3 = boto3.resource('s3')
-        bucket = s3.Bucket(bucket_name)
-        bucket.download_file(csv_file, 'samples_prep.csv')
-        list_data_prep = read_csv('samples_prep.csv', data_path)
-    else:
-        list_data_prep = read_csv(csv_file, data_path)
+    list_data_prep = aois_from_csv(
+        csv_path=csv_file,
+        bands_requested=bands_requested,
+        attr_field_filter=attribute_field,
+        attr_values_filter=attr_vals
+    )
 
     # IF DEBUG IS ACTIVATE
     if debug:
@@ -493,33 +408,18 @@ def main(cfg: DictConfig) -> None:
             f'\nDebug mode activated. Some debug features may mobilize extra disk space and cause delays in execution.'
         )
 
-    # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg and (2) check CRS match (tif and gpkg)
+    # VALIDATION: (1) Assert num_classes parameters == num actual classes in gpkg
     valid_gpkg_set = set()
-    for info in tqdm(list_data_prep, position=0):
-        validate_raster(info['tif'], num_bands, meta_map)
-        if info['gpkg'] not in valid_gpkg_set:
-            gpkg_classes = validate_num_classes(
-                info['gpkg'], num_classes, attribute_field, dontcare, attribute_values=attr_vals,
-            )
-            assert_crs_match(info['tif'], info['gpkg'])
-            valid_gpkg_set.add(info['gpkg'])
-
-    if debug:
-        # VALIDATION (debug only): Checking validity of features in vector files
-        for info in tqdm(list_data_prep, position=0, desc=f"Checking validity of features in vector files"):
-            # TODO: make unit to test this with invalid features.
-            invalid_features = validate_features_from_gpkg(info['gpkg'], attribute_field)
-            if invalid_features:
-                logging.critical(f"{info['gpkg']}: Invalid geometry object(s) '{invalid_features}'")
+    for aoi in tqdm(list_data_prep, position=0):
+        if aoi.label not in valid_gpkg_set:
+            gpkg_classes = aoi.label_gdf_filtered[aoi.attr_field_filter].unique().astype(int)
+            valid_gpkg_set.add(aoi.label)
 
     number_samples = {'trn': 0, 'val': 0, 'tst': 0}
     number_classes = 0
 
-    # with open_dict(cfg):
-    #     print(cfg)
     trn_hdf5, val_hdf5, tst_hdf5 = create_files_and_datasets(samples_size=samples_size,
                                                              number_of_bands=num_bands,
-                                                             meta_map=meta_map,
                                                              samples_folder=samples_dir,
                                                              cfg=cfg)
 
@@ -535,35 +435,24 @@ def main(cfg: DictConfig) -> None:
         f"\nPreparing samples \n  Samples_size: {samples_size} \n  Overlap: {overlap} "
         f"\n  Validation set: {val_percent} % of created training samples"
     )
-    for info in tqdm(list_data_prep, position=0, leave=False):
+    for aoi in tqdm(list_data_prep, position=0, leave=False):
         try:
-            if bucket_name:
-                bucket.download_file(info['tif'], "Images/" + info['tif'].split('/')[-1])
-                info['tif'] = "Images/" + info['tif'].split('/')[-1]
-                if info['gpkg'] not in bucket_file_cache:
-                    bucket_file_cache.append(info['gpkg'])
-                    bucket.download_file(info['gpkg'], info['gpkg'].split('/')[-1])
-                info['gpkg'] = info['gpkg'].split('/')[-1]
-
-            logging.info(f"\nReading as array: {info['tif']}")
-            with rasterio.open(info['tif'], 'r') as raster:
+            logging.info(f"\nReading as array: {aoi.raster.name}")
+            with _check_rasterio_im_load(aoi.raster) as raster:
                 # 1. Read the input raster image
-                np_input_image, raster, dataset_nodata = image_reader_as_array(
-                    input_image=raster,
-                    clip_gpkg=info['gpkg']
-                )
+                np_input_image, raster, dataset_nodata = image_reader_as_array(input_image=raster)
 
                 # 2. Burn vector file in a raster file
-                logging.info(f"\nRasterizing vector file (attribute: {attribute_field}): {info['gpkg']}")
+                logging.info(f"\nRasterizing vector file (attribute: {attribute_field}): {aoi.label}")
                 try:
-                    np_label_raster = vector_to_raster(vector_file=info['gpkg'],
+                    np_label_raster = vector_to_raster(vector_file=aoi.label,
                                                        input_image=raster,
                                                        out_shape=np_input_image.shape[:2],
                                                        attribute_name=attribute_field,
                                                        fill=background_val,
                                                        attribute_values=attr_vals)  # background value in rasterized vector.
                 except ValueError:
-                    logging.error(f"No vector features found for {info['gpkg']} with provided configuration."
+                    logging.error(f"No vector features found for {aoi.label} with provided configuration."
                                   f"Will skip to next AOI.")
                     continue
 
@@ -571,45 +460,16 @@ def main(cfg: DictConfig) -> None:
                     # 3. Set ignore_index value in label array where nodata in raster (only if nodata across all bands)
                     np_label_raster[dataset_nodata] = dontcare
 
-            if debug:
-                out_meta = raster.meta.copy()
-                np_image_debug = np_input_image.transpose(2, 0, 1).astype(out_meta['dtype'])
-                out_meta.update({"driver": "GTiff",
-                                 "height": np_image_debug.shape[1],
-                                 "width": np_image_debug.shape[2]})
-                out_tif = samples_dir / f"{Path(info['tif']).stem}_clipped.tif"
-                logging.debug(f"Writing clipped raster to {out_tif}")
-                with rasterio.open(out_tif, "w", **out_meta) as dest:
-                    dest.write(np_image_debug)
-
-                out_meta = raster.meta.copy()
-                np_label_debug = np.expand_dims(np_label_raster, axis=2).transpose(2, 0, 1).astype(out_meta['dtype'])
-                out_meta.update({"driver": "GTiff",
-                                 "height": np_label_debug.shape[1],
-                                 "width": np_label_debug.shape[2],
-                                 'count': 1})
-                out_tif = samples_dir / f"{Path(info['gpkg']).stem}_clipped.tif"
-                logging.debug(f"\nWriting final rasterized gpkg to {out_tif}")
-                with rasterio.open(out_tif, "w", **out_meta) as dest:
-                    dest.write(np_label_debug)
-
-            # Mask the zeros from input image into label raster.
-            if mask_reference:
-                np_label_raster = mask_image(np_input_image, np_label_raster)
-
-            if info['dataset'] == 'trn':
+            if aoi.split == 'trn':
                 out_file = trn_hdf5
-            elif info['dataset'] == 'tst':
+            elif aoi.split == 'tst':
                 out_file = tst_hdf5
             else:
-                raise logging.critical(
-                    ValueError(f"\nDataset value must be trn or tst. Provided value is {info['dataset']}")
-                )
+                raise ValueError(f"\nDataset value must be trn or tst. Provided value is {aoi.split}")
             val_file = val_hdf5
 
             metadata = add_metadata_from_raster_to_sample(sat_img_arr=np_input_image,
-                                                          raster_handle=raster,
-                                                          raster_info=info)
+                                                          raster_handle=raster)
             # Save label's per class pixel count to image metadata
             metadata['source_label_bincount'] = {class_num: count for class_num, count in
                                                  enumerate(np.bincount(np_label_raster.clip(min=0).flatten()))
@@ -626,7 +486,7 @@ def main(cfg: DictConfig) -> None:
                                                                  samples_file=out_file,
                                                                  val_percent=val_percent,
                                                                  val_sample_file=val_file,
-                                                                 dataset=info['dataset'],
+                                                                 dataset=aoi.split,
                                                                  pixel_classes=pixel_classes,
                                                                  dontcare=dontcare,
                                                                  image_metadata=metadata,
@@ -637,8 +497,8 @@ def main(cfg: DictConfig) -> None:
             # logging.info(f'\nNumber of samples={number_samples}')
             out_file.flush()
         except OSError:
-            logging.exception(f'\nAn error occurred while preparing samples with "{Path(info["tif"]).stem}" (tiff) and '
-                              f'{Path(info["gpkg"]).stem} (gpkg).')
+            logging.exception(f'\nAn error occurred while preparing samples with "{Path(aoi.raster.name).stem}" (tiff) and '
+                              f'{Path(aoi.label).stem} (gpkg).')
             continue
 
     trn_hdf5.close()
@@ -660,8 +520,3 @@ def main(cfg: DictConfig) -> None:
 
     logging.info(f"\nNumber of samples created: {number_samples}")
 
-    if bucket_name and final_samples_folder:  # FIXME: final_samples_folder always None in current implementation
-        logging.info('\nTransfering Samples to the bucket')
-        bucket.upload_file(samples_dir + "/trn_samples.hdf5", final_samples_folder + '/trn_samples.hdf5')
-        bucket.upload_file(samples_dir + "/val_samples.hdf5", final_samples_folder + '/val_samples.hdf5')
-        bucket.upload_file(samples_dir + "/tst_samples.hdf5", final_samples_folder + '/tst_samples.hdf5')

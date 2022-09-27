@@ -5,6 +5,7 @@ from pathlib import Path
 from omegaconf import OmegaConf, DictConfig
 from torch.utils.data import Dataset
 
+from utils.logger import get_logger
 from utils.utils import ordereddict_eval
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
@@ -12,8 +13,7 @@ from rasterio.crs import CRS
 from affine import Affine
 
 # Set the logging file
-from utils import utils
-logging = utils.get_logger(__name__)  # import logging
+logging = get_logger(__name__)  # import logging
 
 
 def append_to_dataset(dataset, sample):
@@ -29,12 +29,11 @@ def append_to_dataset(dataset, sample):
     return old_size
 
 
-def create_files_and_datasets(samples_size: int, number_of_bands: int, meta_map, samples_folder: Path, cfg: DictConfig):
+def create_files_and_datasets(samples_size: int, number_of_bands: int, samples_folder: Path, cfg: DictConfig):
     """
     Function to create the hdfs files (trn, val and tst).
     :param samples_size: size of individual hdf5 samples to be created
     :param number_of_bands: number of bands in imagery
-    :param meta_map:
     :param samples_folder: (str) Path to the output folder.
     :param cfg: (dict) Parameters found in the yaml config file.
     :return: (hdf5 datasets) trn, val ant tst datasets.
@@ -68,11 +67,9 @@ class SegmentationDataset(Dataset):
                  dataset_type,
                  num_bands,
                  max_sample_count=None,
-                 dontcare=None,
                  radiom_transform=None,
                  geom_transform=None,
                  totensor_transform=None,
-                 params=None,
                  debug=False):
         # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.work_folder = work_folder
@@ -84,7 +81,6 @@ class SegmentationDataset(Dataset):
         self.geom_transform = geom_transform
         self.totensor_transform = totensor_transform
         self.debug = debug
-        self.dontcare = dontcare
         self.hdf5_path = os.path.join(self.work_folder, self.dataset_type + "_samples.hdf5")
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
             for i in range(hdf5_file["metadata"].shape[0]):
@@ -96,29 +92,14 @@ class SegmentationDataset(Dataset):
             if self.max_sample_count is None:
                 self.max_sample_count = hdf5_file["sat_img"].shape[0]
 
-            # load yaml used to generate samples
-            hdf5_params = hdf5_file['params'][0, 0]
-            hdf5_params = ordereddict_eval(hdf5_params)
-
     def __len__(self):
         return self.max_sample_count
-
-    def _remap_labels(self, map_img):
-        # note: will do nothing if 'dontcare' is not set in constructor, or set to non-zero value
-        # TODO: seems like a temporary patch... dontcare should never be == 0, right ?
-        if self.dontcare is None or self.dontcare != 0:
-            return map_img
-        # for now, the current implementation only handles the original 'dontcare' value as zero
-        # to keep the impl simple, we just reduce all indices by one so that 'dontcare' becomes -1
-        assert map_img.dtype == np.int8 or map_img.dtype == np.int16 or map_img.dtype == np.int32
-        map_img -= 1
-        return map_img
 
     def __getitem__(self, index):
         with h5py.File(self.hdf5_path, "r") as hdf5_file:
             sat_img = np.float32(hdf5_file["sat_img"][index, ...])
             assert self.num_bands <= sat_img.shape[-1]
-            map_img = self._remap_labels(hdf5_file["map_img"][index, ...])
+            map_img = hdf5_file["map_img"][index, ...]
             meta_idx = int(hdf5_file["meta_idx"][index])
             metadata = self.metadata[meta_idx]
             sample_metadata = hdf5_file["sample_metadata"][index, ...][0]
@@ -131,9 +112,7 @@ class SegmentationDataset(Dataset):
                 metadata = eval(metadata)
                 metadata.update(sample_metadata)
             except TypeError:
-                pass # FI
-            # where bandwise array has no data values, set as np.nan
-            # sat_img[sat_img == metadata['nodata']] = np.nan # TODO: problem with lack of dynamic range. See: https://rasterio.readthedocs.io/en/latest/topics/masks.html
+                pass
 
         sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata,
                   "hdf5_path": self.hdf5_path}
@@ -148,11 +127,11 @@ class SegmentationDataset(Dataset):
         if self.debug:
             # assert no new class values in map_img
             initial_class_ids = set(np.unique(map_img))
-            if self.dontcare is not None:
-                initial_class_ids.add(self.dontcare)
             final_class_ids = set(np.unique(sample['map_img'].numpy()))
             if not final_class_ids.issubset(initial_class_ids):
-                logging.debug(f"\nWARNING: Class ids for label before and after augmentations don't match. "
-                              f"Ignore if overwritting ignore_index in ToTensorTarget")
+                logging.warning(f"\nWARNING: Class values for label before and after augmentations don't match."
+                                f"\nUnique values before: {initial_class_ids}"
+                                f"\nUnique values after: {final_class_ids}"
+                                f"\nIgnore if some augmentations have padded with dontcare value.")
         sample['index'] = index
         return sample

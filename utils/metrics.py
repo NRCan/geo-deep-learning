@@ -1,17 +1,25 @@
+from ast import Raise
+from xml.dom import ValidationErr
 import numpy as np
 from sklearn.metrics import classification_report
+from math import sqrt
+from torch import IntTensor
+from torchmetrics import JaccardIndex
 
 min_val = 1e-6
-def create_metrics_dict(num_classes):
-    num_classes = num_classes if num_classes == 1 else num_classes + 1
+def create_metrics_dict(num_classes, ignore_index=None):
+
+    num_classes = num_classes + 1 if num_classes == 1 else num_classes
+
     metrics_dict = {'precision': AverageMeter(), 'recall': AverageMeter(), 'fscore': AverageMeter(),
                     'loss': AverageMeter(), 'iou': AverageMeter()}
 
     for i in range(0, num_classes):
-        metrics_dict['precision_' + str(i)] = AverageMeter()
-        metrics_dict['recall_' + str(i)] = AverageMeter()
-        metrics_dict['fscore_' + str(i)] = AverageMeter()
-        metrics_dict['iou_' + str(i)] = AverageMeter()
+        if ignore_index != i:
+            metrics_dict['precision_' + str(i)] = AverageMeter()
+            metrics_dict['recall_' + str(i)] = AverageMeter()
+            metrics_dict['fscore_' + str(i)] = AverageMeter()
+            metrics_dict['iou_' + str(i)] = AverageMeter()
 
     # Add overall non-background iou metric
     metrics_dict['iou_nonbg'] = AverageMeter()
@@ -59,7 +67,15 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
     """Computes precision, recall and f-score for each class and average of all classes.
     http://scikit-learn.org/stable/modules/generated/sklearn.metrics.classification_report.html
     """
-    class_report = classification_report(label.cpu(), pred.cpu(), output_dict=True)
+    pred = pred.cpu()
+    label = label.cpu()
+    pred[label == ignore_index] = ignore_index
+
+    # Required to remove ignore_index from scikit-learn's classification report 
+    n = max(IntTensor.item(pred.amax()), IntTensor.item(label.amax()))
+    labels = np.arange(n+1)
+
+    class_report = classification_report(label, pred, labels=labels, output_dict=True, zero_division=1)
 
     class_score = {}
     for key, value in class_report.items():
@@ -77,35 +93,51 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
     return metrics_dict
 
 
-def iou(pred, label, batch_size, num_classes, metric_dict, only_present=True):
+def iou(pred, label, batch_size, num_classes, metric_dict, ignore_index=None):
     """Calculate the intersection over union class-wise and mean-iou"""
-    ious = []
-    num_classes = num_classes if num_classes == 1 else num_classes + 1
-    pred = pred.cpu()
-    label = label.cpu()
-    for i in range(num_classes):
-        c_label = label == i
-        if only_present and c_label.sum() == 0:
-            ious.append(np.nan)
-            continue
-        c_pred = pred == i
-        intersection = (c_pred & c_label).float().sum()
-        union = (c_pred | c_label).float().sum()
-        iou = (intersection + min_val) / (union + min_val)  # minimum value added to avoid Zero division
-        ious.append(iou)
-        metric_dict['iou_' + str(i)].update(iou.item(), batch_size)
 
-    # Add overall non-background iou metric
-    c_label = (1 <= label) & (label <= num_classes - 1)
-    c_pred = (1 <= pred) & (pred <= num_classes - 1)
-    intersection = (c_pred & c_label).float().sum()
-    union = (c_pred | c_label).float().sum()
-    iou = (intersection + min_val) / (union + min_val)  # minimum value added to avoid Zero division
-    metric_dict['iou_nonbg'].update(iou.item(), batch_size)
+    num_classes = num_classes + 1 if num_classes == 1 else num_classes
+    # Torchmetrics cannot handle ignore_index that are not in range 0 -> num_classes-1.
+    # if invalid ignore_index is provided, invalid values (e.g. -1) will be set to 0 
+    # and no ignore_index will be used.
+    if ignore_index and ignore_index not in range(0, num_classes-1):
+        pred[label == ignore_index] = 0
+        label[label == ignore_index] = 0
+        ignore_index = None
+    
+    cls_lst = [j for j in range(0, num_classes)]
+    if ignore_index is not None:
+        cls_lst.remove(ignore_index)
 
-    mean_IOU = np.nanmean(ious)
-    if (not only_present) or (not np.isnan(mean_IOU)):
-        metric_dict['iou'].update(mean_IOU, batch_size)
+    jaccard = JaccardIndex(num_classes=num_classes, 
+                           average='none',
+                           ignore_index=ignore_index,
+                           absent_score=1)
+    cls_ious = jaccard(pred, label)
+
+    
+    if len(cls_ious) > 1:
+        for i in range(len(cls_lst)):
+            metric_dict['iou_' + str(cls_lst[i])].update(cls_ious[i], batch_size)
+        
+    elif len(cls_ious) == 1:
+        if f"iou_{cls_lst[0]}" in metric_dict.keys():
+            metric_dict['iou_' + str(cls_lst[0])].update(cls_ious, batch_size)
+
+    jaccard_nobg = JaccardIndex(num_classes=num_classes, 
+                                average='macro', 
+                                ignore_index=0, 
+                                absent_score=1)
+    iou_nobg = jaccard_nobg(pred, label)
+    metric_dict['iou_nonbg'].update(iou_nobg.item(), batch_size)
+
+    jaccard = JaccardIndex(num_classes=num_classes, 
+                           average='macro', 
+                           ignore_index=ignore_index,
+                           absent_score=1)
+    mean_iou = jaccard(pred, label)
+
+    metric_dict['iou'].update(mean_iou, batch_size)
     return metric_dict
 
 #### Benchmark Metrics ####
@@ -122,7 +154,7 @@ class ComputePixelMetrics():
     def __init__(self, label, pred, num_classes):
         self.label = label
         self.pred = pred
-        self.num_classes = num_classes if num_classes == 1 else num_classes + 1
+        self.num_classes = num_classes + 1 if num_classes == 1 else num_classes
 
     def update(self, metric_func):
         metric = {}

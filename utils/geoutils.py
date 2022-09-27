@@ -1,15 +1,21 @@
 import collections
 import logging
 from pathlib import Path
+from typing import List, Union, Sequence
 
 import numpy as np
 
 import fiona
-import os
-import warnings
+
+import pystac
 import rasterio
+from rasterio import MemoryFile
 from rasterio.features import is_valid_geom
-from rasterio.mask import mask
+from rasterio.plot import reshape_as_raster
+from rasterio.shutil import copy as riocopy
+import xml.etree.ElementTree as ET
+
+from solaris.utils.core import _check_rasterio_im_load
 
 logger = logging.getLogger(__name__)
 
@@ -37,69 +43,6 @@ def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
                 # if not merging layers, just use '1' as the value for each target
                 lst_vector_tuple[att_val].append((vector['geometry'], 1))
     return lst_vector_tuple
-
-
-def channels_redistribution(raster, src_order: tuple, dst_order: tuple):
-    """ Reorganizes channels of given raster according to desired order
-    raster: Rasterio file handle holding the (already opened) input raster
-    src_order: tuple of ints where len(tuple) == num of channels
-        source order of channels
-    dst_order: tuple of ints where len(tuple) == num of channels
-        destination order of channels
-    """
-    pass
-
-
-def getFeatures(gdf):
-    """Function to parse features from GeoDataFrame in such a manner that rasterio wants them"""
-    import json
-    return [json.loads(gdf.to_json())['features'][0]['geometry']]
-
-
-def clip_raster_with_gpkg(raster, gpkg, debug=False):
-    """Clips input raster to limits of vector data in gpkg. Adapted from: https://automating-gis-processes.github.io/CSC18/lessons/L6/clipping-raster.html
-    raster: Rasterio file handle holding the (already opened) input raster
-    gpkg: Path and name of reference GeoPackage
-    debug: if True, output raster as given by this function is saved to disk
-    """
-    from shapely.geometry import box  # geopandas and shapely become a project dependency only during sample creation
-    import geopandas as gpd
-    import fiona
-    # Get extent of gpkg data with fiona
-    with fiona.open(gpkg, 'r') as src:
-        minx, miny, maxx, maxy = src.bounds  # ouest, nord, est, sud
-
-    # Create a bounding box with Shapely
-    bbox = box(minx, miny, maxx, maxy)
-
-    # Insert the bbox into a GeoDataFrame
-    geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0])  # , crs=gpkg_crs['init'])
-
-    # Re-project into the same coordinate system as the raster data
-    # geo = geo.to_crs(crs=raster.crs.data)
-
-    # Get the geometry coordinates by using the function.
-    coords = getFeatures(geo)
-
-    # clip the raster with the polygon
-    out_tif = Path(raster.name).parent / f"{Path(raster.name).stem}_clipped{Path(raster.name).suffix}"
-    if os.path.isfile(out_tif):
-        return out_tif
-    else:
-        try:
-            out_img, out_transform = mask(dataset=raster, shapes=coords, crop=True)
-            out_meta = raster.meta.copy()
-            out_meta.update({"driver": "GTiff",
-                             "height": out_img.shape[1],
-                             "width": out_img.shape[2],
-                             "transform": out_transform})
-            with rasterio.open(out_tif, "w", **out_meta) as dest:
-                print(f"writing clipped raster to {out_tif}")
-                dest.write(out_img)
-            return out_tif
-        except ValueError as e:  # if gpkg's extent outside raster: "ValueError: Input shapes do not overlap raster."
-            # TODO: warning or exception? if warning, except must be set in images_to_samples
-            warnings.warn(f"e\n {raster.name}\n{gpkg}")
 
 
 def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0, attribute_values=None, merge_all=True):
@@ -164,26 +107,33 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     Return:
         none
     """
+    src = _check_rasterio_im_load(input_raster)
     if len(write_array.shape) == 2:  # 2D array
         count = 1
-    elif len(write_array.shape) == 3:  # 3D array  # FIXME: why not keep all bands?
-        count = 3
+    elif len(write_array.shape) == 3:  # 3D array
+        if write_array.shape[0] > 100:
+            logging.warning(f"\nGot {write_array.shape[0]} bands. "
+                            f"\nMake sure array follows rasterio's channels first convention")
+            write_array = reshape_as_raster(write_array)
+        count = write_array.shape[0]
     else:
         raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
 
-    with rasterio.open(input_raster, 'r') as src:
-        with rasterio.open(output_raster, 'w',
-                           driver=src.driver,
-                           width=src.width,
-                           height=src.height,
-                           count=count,
-                           crs=src.crs,
-                           dtype=np.uint8,
-                           transform=src.transform) as dst:
-            if count == 1:
-                dst.write(write_array[:, :], 1)
-            elif count == 3:
-                dst.write(write_array[:, :, :3])  # Take only first three bands assuming they are RGB.
+    # Cannot write to 'VRT' driver
+    driver = 'GTiff' if src.driver == 'VRT' else src.driver
+
+    with rasterio.open(output_raster, 'w',
+                       driver=driver,
+                       width=src.width,
+                       height=src.height,
+                       count=count,
+                       crs=src.crs,
+                       dtype=np.uint8,
+                       transform=src.transform) as dst:
+        if count == 1:
+            dst.write(write_array[:, :], 1)
+        else:
+            dst.write(write_array)
 
 
 def get_key_recursive(key, config):
@@ -196,3 +146,77 @@ def get_key_recursive(key, config):
         assert len(key) > 1, "missing keys to index metadata subdictionaries"
         return get_key_recursive(key[1:], val)
     return int(val)
+
+
+def is_stac_item(path: str) -> bool:
+    """Checks if an input string or object is a valid stac item"""
+    if isinstance(path, pystac.Item):
+        return True
+    else:
+        try:
+            pystac.Item.from_file(str(path))
+            return True
+        # with .tif as url, pystac/stac_io.py/read_test_from_href() returns Exception, not HTTPError
+        except Exception:
+            return False
+
+
+def stack_singlebands_vrt(srcs: List, band: int = 1):
+    """
+    Stacks multiple single-band raster into a single multiband virtual raster
+    Source: https://gis.stackexchange.com/questions/392695/is-it-possible-to-build-a-vrt-file-from-multiple-files-with-rasterio
+    @param srcs:
+        List of paths/urls to single-band rasters
+    @param band:
+        Index of band from source raster to stack into multiband VRT (index starts at 1 per GDAL convention)
+    @return:
+        RasterDataset object containing VRT
+    """
+    vrt_bands = []
+    for srcnum, src in enumerate(srcs, start=1):
+        with rasterio.open(src) as ras, MemoryFile() as mem:
+            riocopy(ras, mem.name, driver='VRT')
+            vrt_xml = mem.read().decode('utf-8')
+            vrt_dataset = ET.fromstring(vrt_xml)
+            for bandnum, vrt_band in enumerate(vrt_dataset.iter('VRTRasterBand'), start=1):
+                if bandnum == band:
+                    vrt_band.set('band', str(srcnum))
+                    vrt_bands.append(vrt_band)
+                    vrt_dataset.remove(vrt_band)
+    for vrt_band in vrt_bands:
+        vrt_dataset.append(vrt_band)
+
+    return ET.tostring(vrt_dataset).decode('UTF-8')
+
+
+def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
+    """
+    Creates a multiband virtual raster containing a subset of all available bands in a source multiband raster
+    @param src:
+        Path/url to a multiband raster
+    @param band_request:
+        Indices of bands from source raster to subset from source multiband (index starts at 1 per GDAL convention).
+        Order matters, i.e. if source raster is BGR, "[3,2,1]" will create a VRT with bands as RGB
+    @return:
+        RasterDataset object containing VRT
+    """
+    vrt_bands = []
+    if not isinstance(src, (str, Path)) and not Path(src).is_file():
+        raise ValueError(f"Invalid source multiband raster.\n"
+                         f"Got {src}")
+    with rasterio.open(src) as ras, MemoryFile() as mem:
+        riocopy(ras, mem.name, driver='VRT')
+        vrt_xml = mem.read().decode('utf-8')
+        vrt_dataset = ET.fromstring(vrt_xml)
+        vrt_dataset_dict = {int(band.get('band')): band for band in vrt_dataset.iter("VRTRasterBand")}
+        for dest_band_idx, src_band_idx in enumerate(band_request, start=1):
+            vrt_band = vrt_dataset_dict[src_band_idx]
+            vrt_band.set('band', str(dest_band_idx))
+            vrt_bands.append(vrt_band)
+            vrt_dataset.remove(vrt_band)
+        for leftover_band in vrt_dataset.iter("VRTRasterBand"):
+            vrt_dataset.remove(leftover_band)
+    for vrt_band in vrt_bands:
+        vrt_dataset.append(vrt_band)
+
+    return ET.tostring(vrt_dataset).decode('UTF-8')

@@ -1,0 +1,5 @@
+# @package _global_
+model:
+  _target_: segmentation_models_pytorch.DeepLabV3Plus
+  encoder_name: resnext50_32x4d
+  encoder_weights: imagenet

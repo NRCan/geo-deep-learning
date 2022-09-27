@@ -3,19 +3,16 @@
 
 ## **Overview**
 
-The **geo-deep-learning** project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced data sets.
-The overall learning process comprises three broad stages.
+The **geo-deep-learning** project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced datasets.
 
-### Data preparation
-The data preparation phase (sampling) allows creating sub-images that will be used for either training, validation or testing.
-The first phase of the process is to determine sub-images (samples) to be used for training, validation and, optionally, test.
-Images to be used must be of the geotiff type.
-Sample locations in each image must be stored in a GeoPackage.
+In geo-deep-learning, the learning process comprises two broad stages: sampling and training, followed by inference, which makes use of a trained model to make new predictions on unseen imagery. 
 
-[comment]: <> (> Note: A data analysis module can be found [here]&#40;./utils/data_analysis.py&#41; and the documentation in [`docs/README.md`]&#40;./docs/README.md&#41;. Useful for balancing training data.)
+### Data sampling (or [tiling](https://torchgeo.readthedocs.io/en/latest/user/glossary.html#term-tiling))
+The data preparation phase creates [chips](https://torchgeo.readthedocs.io/en/latest/user/glossary.html#term-chip) (or patches) that will be used for either training, validation or testing.
+The sampling step requires a csv as input with a list of rasters and labels to be used in the subsequent training phase. See [dataset documentation](dataset#input-data).
 
 ### Training, along with validation and testing
-The training phase is where the neural network learn to use the data prepared in the previous phase to make all the predictions.
+The training phase is where the neural network learns to use the data prepared in the previous phase to make all the predictions.
 The crux of the learning process is the training phase.  
 
 - Samples labeled "*trn*" as per above are used to train the neural network.
@@ -35,21 +32,17 @@ This project comprises a set of commands to be run at a shell command prompt.  E
 - [miniconda](https://docs.conda.io/en/latest/miniconda.html) (highly recommended)
 - nvidia GPU (highly recommended)
 
-> The system can be used on your workstation or cluster and on [AWS](https://aws.amazon.com/).
+> The system can be used on your workstation or cluster.
 
 ## **Installation**
-Those steps are for your workstation on Ubuntu 18.04 using miniconda.
-Set and activate your python environment with the following commands:  
+To execute scripts in this project, first create and activate your python environment with the following commands:  
 ```shell
 conda env create -f environment.yml
 conda activate geo_deep_env
 ```
-> For Windows OS:
-> - Install rasterio, fiona and gdal first, before installing the rest. We've experienced some [installation issues](https://github.com/conda-forge/gdal-feedstock/issues/213), with those libraries.
-> - Mlflow should be installed using pip rather than conda, as mentioned [here](https://github.com/mlflow/mlflow/issues/1951)
-
+> Tested on Ubuntu 20.04 and Windows 10 using miniconda.
 ## **Running GDL**
-This is an example of how to run GDL with hydra in simple steps with the _**massachusetts buildings**_ dataset in the `/data` folder, for segmentation on buildings: 
+This is an example of how to run GDL with hydra in simple steps with the _**massachusetts buildings**_ dataset in the `tests/data/` folder, for segmentation on buildings: 
 
 1. Clone this github repo.
 ```shell
@@ -57,12 +50,7 @@ git clone https://github.com/NRCan/geo-deep-learning.git
 cd geo-deep-learning
 ```
 
-2. Unzip the _**massachusetts buildings**_ dataset.
-```shell
-unzip ./data/massachusetts_buildings.zip -d ./data
-```
-
-3. Run the wanted script (for segmentation).
+2. Run the wanted script (for segmentation).
 ```shell
 # Creating the hdf5 from the raw data
 python GDL.py mode=sampling
@@ -72,15 +60,14 @@ python GDL.py mode=train
 python GDL.py mode=inference
 ```
 
-> This example is running with the default configuration `./config/gdl_config_template.yaml`, for further examples on running options see the [documentation](config/#Examples).
-> You will also fund information on how to change the model or add a new one to GDL.
+> This example runs with a default configuration `./config/gdl_config_template.yaml`. For further examples on configuration options see the [configuration documentation](config/#Examples).
 
 > If you want to introduce a new task like object detection, you only need to add the code in the main folder and name it `object_detection_sampling.py` for example.
-> The principle is to name the code like `task_mode.py` and the `GDL.py` will deal with the rest. 
+> The principle is to name the code like `{task}_{mode}.py` and the `GDL.py` will deal with the rest. 
 > To run it, you will need to add a new parameter in the command line `python GDL.py mode=sampling task=object_detection` or change the parameter inside the `./config/gdl_config_template.yaml`.
 
 ## **Folder Structure**
-We suggest a high level structure to organize the images and the code.
+We suggest the following high level structure to organize the images and the code.
 ```
 ├── {dataset_name}
     └── data
@@ -129,29 +116,9 @@ _**Don't forget to change the path of the dataset in the config yaml.**_
 
 [comment]: <> (  model_name: deeplabv3_resnet101  # <-- must be deeplabv3_resnet101)
 
-[comment]: <> (  bucket_name:)
-
 [comment]: <> (  task: segmentation               # <-- must be a segmentation task)
 
 [comment]: <> (  num_gpus: 2)
-
-[comment]: <> (  BGR_to_RGB: False                # <-- must be already in RGB)
-
-[comment]: <> (  scale_data: [0,1])
-
-[comment]: <> (  aux_vector_file:)
-
-[comment]: <> (  aux_vector_attrib:)
-
-[comment]: <> (  aux_vector_ids:)
-
-[comment]: <> (  aux_vector_dist_maps:)
-
-[comment]: <> (  aux_vector_dist_log:)
-
-[comment]: <> (  aux_vector_scale:)
-
-[comment]: <> (  debug_mode: True)
 
 [comment]: <> (  # Module to include the NIR)
 

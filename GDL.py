@@ -2,8 +2,10 @@ import os
 import time
 import hydra
 import logging
+
+from hydra.utils import get_method
 from omegaconf import DictConfig, OmegaConf, open_dict
-from utils.utils import load_obj, print_config, get_git_hash, getpath
+from utils.utils import print_config, get_git_hash
 
 
 @hydra.main(config_path="config", config_name="gdl_config_template")
@@ -39,13 +41,14 @@ def run_gdl(cfg: DictConfig) -> None:
     # check if the mode is chosen
     if type(cfg.mode) is DictConfig:
         msg = "You need to choose between those modes: {}"
-        raise logging.critical(msg.format(list(cfg.mode.keys())))
+        logging.critical(msg.format(list(cfg.mode.keys())))
+        raise ValueError()
 
     # save all overwritten parameters
     logging.info('\nOverwritten parameters in the config: \n' + cfg.general.config_override_dirname)
 
     # Start -----------------------------------
-    msg = "Let's start {} for {} !!!".format(cfg.mode, cfg.task.task_name)
+    msg = "Let's start {} for {} !!!".format(cfg.mode, cfg.general.task)
     logging.info(
         "\n" + "-" * len(msg) + "\n" + msg +
         "\n" + "-" * len(msg)
@@ -55,7 +58,7 @@ def run_gdl(cfg: DictConfig) -> None:
     # Start the timer
     start_time = time.time()
     # Read the task and execute it
-    task = load_obj(cfg.task.path_task_function)
+    task = get_method(f"{cfg.mode}_{cfg.general.task}.main")
     task(cfg)
 
     # Add git hash from current commit to parameters.
