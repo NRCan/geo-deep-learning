@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Union, Sequence, Any, Callable, Dict, Optional
+from typing import Union, Sequence, Any, Callable, Dict, Optional, List
 
 import numpy as np
 import torch
@@ -10,9 +10,8 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader
 from torchgeo.datasets import stack_samples
 from torchgeo.samplers import Units, GridGeoSampler
-from torchvision.transforms import Compose
+from torchvision.transforms import Compose, Normalize
 
-from inference.GridGeoSamplerPlus import GridGeoSamplerPlus
 from inference.InferenceDataset import InferenceDataset
 
 
@@ -83,6 +82,34 @@ def preprocess(
 
         return sample
     return _preprocess
+
+
+def normalization(
+        band_means: List = None,
+        band_stds: List = None
+) -> Callable[[Dict[str, Tensor]], Dict[str, Tensor]]:
+    """
+    Returns a function to preprocess a single sample.
+    @return:
+    """
+    band_means = torch.tensor(band_means) if band_means else None
+    band_stds = torch.tensor(band_stds) if band_stds else None
+    if band_means is not None and band_stds is not None:
+        norm = Normalize(band_means, band_stds)
+
+    def _normalization(sample: Dict[str, Tensor]) -> Dict[str, Tensor]:
+        """Normalize a single sample.
+        Args:
+            sample: sample dictionary containing image
+        Returns:
+            preprocessed sample
+        """
+        if band_means is None and band_stds is None:
+            return sample
+        sample["image"] = norm(sample["image"])
+
+        return sample
+    return _normalization
 
 
 # adapted from https://github.com/microsoft/torchgeo/blob/3f7e525fbd01dddd25804e7a1b7634269ead1760/torchgeo/datamodules/chesapeake.py
@@ -184,7 +211,7 @@ class InferenceDataModule(LightningDataModule):
             inference data loader
         """
         units = Units.PIXELS if not self.use_projection_units else Units.CRS
-        self.sampler = GridGeoSamplerPlus(
+        self.sampler = GridGeoSampler(
             self.inference_dataset,
             size=self.patch_size,
             stride=self.stride,

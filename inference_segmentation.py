@@ -281,10 +281,19 @@ def main(params):
         logging.warning(f"Setting a large stride (more than 75% of chip size) will interfere with "
                         f"spline window smoothing operations and may result in poor quality extraction.")
     pad_size = get_key_def('pad', params['inference'], default=16, expected_type=int)
-    test_transforms = get_key_def('test_transforms', params['inference'],
+    test_transforms_cfg = get_key_def('test_transforms', params['inference'],
                                   default=Compose([pad(pad_size, mode='reflect'), preprocess]),
                                   expected_type=(dict, DictConfig))
-    test_transforms = instantiate(test_transforms)
+
+    # FIXME: temporary implementation of clahe enhancement applied to entire aoi, not tile by tile
+    ####
+    test_transforms_list = [transform for transform in test_transforms_cfg['transforms'] if 'enhance' not in transform['_target_']]
+    test_transform_clahe_cfg = [transform for transform in test_transforms_cfg['transforms'] if 'enhance' in transform['_target_']]
+    test_transforms_cfg['transforms'] = test_transforms_list
+    test_transform_clahe = instantiate(test_transform_clahe_cfg[0]) if test_transform_clahe_cfg else None
+    ####
+
+    test_transforms = instantiate(test_transforms_cfg)
 
     # TODO: tune TTA with optuna
     tta_transforms = get_key_def('tta_transforms', params['inference'], default=None, expected_type=(dict, DictConfig))
@@ -322,6 +331,30 @@ def main(params):
                              save_heatmap=save_heatmap_bool,
                              )
     dm.setup(test_transforms=test_transforms)
+
+    # FIXME: temporary implementation of clahe enhancement applied to entire aoi, not tile by tile
+    ####
+    if test_transform_clahe is not None:
+        if not dm.inference_dataset.download:
+            raise NotImplementedError(
+                f"Temporary CLAHE enhancement on entire AOI requires data to be downloaded locally\n"
+                f"Got 'inference.download_data' = {dm.inference_dataset.download}"
+            )
+        logging.info(f"Will use CLAHE-enhanced AOI")
+        for cname in dm.inference_dataset.bands:
+            single_band = dm.inference_dataset.bands_dict[cname]['href']
+            single_band_enhced = single_band.parent / f'{single_band.stem}_CLAHE.tif'
+            if single_band_enhced.is_file():
+                logging.info(f"Using existing: {single_band_enhced}")
+            else:
+                logging.info(f"Enhancing {single_band}.\nOutput: {single_band_enhced}")
+                single_band_rio = rasterio.open(single_band)
+                single_band_np = single_band_rio.read()
+                sample = {'image': torch.from_numpy(single_band_np)}
+                sample = test_transform_clahe(sample)
+                create_new_raster_from_base(single_band_rio, single_band_enhced, sample['image'])
+            dm.inference_dataset.bands_dict[cname]['href'] = single_band_enhced
+    ####
 
     h, w = [side for side in dm.inference_dataset.src.shape]
 

@@ -567,16 +567,29 @@ def override_model_params_from_checkpoint(
     # TODO: remove if no old models are used in production.
     single_class_mode = get_key_def('state_dict_single_mode', params['inference'], expected_type=bool)
     clip_limit = get_key_def('enhance_clip_limit', params['inference'], expected_type=float)
+    normalization = get_key_def('normalization', params['augmentation'], expected_type=DictConfig)
+    scale_data = get_key_def('scale_data', params['augmentation'], expected_type=ListConfig)
 
     bands_ckpt = get_key_def('bands', checkpoint_params['dataset'], expected_type=Sequence)
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
+    if "augmentation" in checkpoint_params:
+        normalization_ckpt = get_key_def('normalization', checkpoint_params['augmentation'], expected_type=(dict, DictConfig))
+        # Workaround for "omegaconf.errors.UnsupportedValueType: Value 'CommentedSeq' is not a supported primitive type"
+        if not set(normalization_ckpt.values()) == {None}:
+            normalization_ckpt = {k: [float(val) for val in v] for k, v in normalization_ckpt.items()}
+        scale_data_ckpt = get_key_def('scale_data', checkpoint_params['augmentation'], expected_type=(List, ListConfig))
+        scale_data_ckpt = list(scale_data_ckpt)
+        clip_limit_ckpt = get_key_def('clahe_enhance_clip_limit', checkpoint_params['augmentation'], expected_type=float)
+    else:
+        normalization_ckpt = normalization
+        scale_data_ckpt = scale_data
+        clip_limit_ckpt = clip_limit
+
     if "inference" in checkpoint_params:
         single_class_mode_ckpt = get_key_def('state_dict_single_mode', checkpoint_params['inference'], expected_type=bool)
-        clip_limit_ckpt = get_key_def('enhance_clip_limit', checkpoint_params['inference'], expected_type=float)
     else:
         single_class_mode_ckpt = single_class_mode
-        clip_limit_ckpt = clip_limit
 
     if model_ckpt != params.model or classes_ckpt != classes or bands_ckpt != bands \
             or clip_limit != clip_limit_ckpt:
@@ -585,14 +598,18 @@ def override_model_params_from_checkpoint(
                      f"\nModel:\t\t {params.model} | {model_ckpt}"
                      f"\nInput bands:\t\t{bands} | {bands_ckpt}"
                      f"\nOutput classes:\t\t{classes} | {classes_ckpt}"
+                     f"\nNormalization means and stds:\t\t{normalization} | {normalization_ckpt}"
+                     f"\nScale data range:\t\t{scale_data} | {scale_data_ckpt}"
                      f"\nRaster enhance clip limit:\t\t{clip_limit} | {clip_limit_ckpt}"
                      f"\nSingle class mode:\t\t{single_class_mode} | {single_class_mode_ckpt}")
         with open_dict(params):
+            OmegaConf.update(params, 'model', model_ckpt, merge=False)
             OmegaConf.update(params, 'dataset.bands', bands_ckpt, merge=False)
             OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt, merge=False)
-            OmegaConf.update(params, 'model', model_ckpt, merge=False)
+            OmegaConf.update(params, 'augmentation.normalization', normalization_ckpt, merge=False)
+            OmegaConf.update(params, 'augmentation.scale_data', scale_data_ckpt, merge=False)
+            OmegaConf.update(params, 'augmentation.clahe_enhance_clip_limit', clip_limit_ckpt, merge=False)
             OmegaConf.update(params, 'inference.state_dict_single_mode', single_class_mode_ckpt, merge=False)
-            OmegaConf.update(params, 'inference.enhance_clip_limit', clip_limit_ckpt, merge=False)
     return params
 
 
@@ -646,11 +663,12 @@ def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
         # don't update if already a recent checkpoint
         get_key_def('classes_dict', checkpoint["params"]['dataset'], expected_type=(dict, DictConfig))
         get_key_def('model', checkpoint["params"], expected_type=(dict, DictConfig))
-        bands = get_key_def('bands', checkpoint["params"]['dataset'], expected_type=Sequence)
-        if isinstance(bands, str):
-            mod_old2new = {v: k for k, v in bands.items()}
+        bands_cfg = get_key_def('bands', checkpoint["params"]['dataset'], expected_type=Sequence)
+        # covers version where bands were inputted as str, e.g. "RGB", not ["R", "G", "B"]
+        if isinstance(bands_cfg, str):
+            modalities_old2new = {v: k for k, v in bands.items()}  # invert keys and values
             checkpoint["params"]['dataset'].update(
-                {'bands': [mod_old2new[band] for band in bands]}
+                {'bands': [modalities_old2new[band] for band in bands_cfg]}
             )
         return checkpoint
     except KeyError:
@@ -665,19 +683,37 @@ def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
                              f"\nError {type(e)}: {e}")
             raise e
         # For GDL pre-v2.0.2
+        # Move transformation/augmentations hyperparameters
+        if not "augmentation" in checkpoint["params"].keys():
+            checkpoint["params"]["augmentation"] = {
+                'normalization': {'mean': [], 'std': []},
+                'clahe_enhance_clip_limit': None
+            }
+        checkpoint["params"]["augmentation"]["normalization"]["mean"] = get_key_def('mean', checkpoint['params'][
+            'training']['normalization'], default=None)
+        checkpoint["params"]["augmentation"]["normalization"]["std"] = get_key_def('std', checkpoint['params'][
+            'training']['normalization'], default=None)
+
+        checkpoint["params"]["augmentation"]["scale_data"] = get_key_def('scale_data', checkpoint['params']['global'])
+
+        checkpoint["params"]["augmentation"]["clahe_enhance_clip_limit"] = 0.1 if get_key_def(
+            'clahe_enhance', checkpoint['params']['training']['augmentation']) else None
+
+        checkpoint["params"].update({'model': model_ckpt})
+
+        # Necessary to manually update when using old models in postprocess pipeline
         checkpoint["params"].update({
             'dataset': {
-                # Necessary to manually update when using old in postprocess pipeline
-                # 'bands': ['nir', 'red', 'green'],
-                # "classes_dict": {f"WAER": 1},
                 'bands': [list(bands.keys())[i] for i in range(num_bands_ckpt)],
                 "classes_dict": {f"class{i + 1}": i + 1 for i in range(num_classes_ckpt)},
+                #'bands': ['nir', 'red', 'green'],
+                #"classes_dict": {f"FORE": 1},
             }
         })
-        checkpoint["params"].update({'model': model_ckpt})
+
         # Necessary to manually update when using old in postprocess pipeline
-        # checkpoint["params"]['inference'].update({'enhance_clip_limit': 0.1})
-        #checkpoint["params"].update({'inference': {'state_dict_single_mode': False}})
+        # checkpoint["params"]['augmentation'].update({'clahe_enhance_clip_limit': 0.1})
+        # checkpoint["params"].update({'inference': {'state_dict_single_mode': False}})
         return checkpoint
 
 
@@ -726,7 +762,7 @@ def convert_gdl_checkpoint(checkpoint: dict):
                 single_class_mode = get_key_def('state_dict_single_mode', checkpoint['params']['inference'], default=True)
             # +1 for background(multiclass mode)
             num_classes = class_keys if class_keys == 1 and single_class_mode else class_keys + 1
-            # Store hyper parameters to checkpoint as expected by pytorch lightning
+            # Store hyperparameters to checkpoint as expected by pytorch lightning
             if isinstance(checkpoint["params"]["model"], DictConfig):
                 OmegaConf.set_struct(checkpoint["params"]["model"], False)
             checkpoint["params"]["model"]["in_channels"] = len(checkpoint['params']['dataset']['bands'])
