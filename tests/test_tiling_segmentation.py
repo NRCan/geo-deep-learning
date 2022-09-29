@@ -230,9 +230,9 @@ class TestTiling(object):
         cfg = DictConfig(cfg)
         tiling(cfg)
         out_labels = [
-            (Path(f"{data_dir}/{proj}/tiles32_RGBbands/trn/23322E759967N_clipped_1m_1of2/labels_burned"), (80, 95)),
-            (Path(f"{data_dir}/{proj}/tiles32_RGBbands/val/23322E759967N_clipped_1m_1of2/labels_burned"), (5, 20)),
-            (Path(f"{data_dir}/{proj}/tiles32_RGBbands/tst/23322E759967N_clipped_1m_2of2/labels_burned"), (170, 190)),
+            (Path(f"{data_dir}/{proj}/tiles32_123bands/trn/23322E759967N_clipped_1m_1of2/labels_burned"), (80, 95)),
+            (Path(f"{data_dir}/{proj}/tiles32_123bands/val/23322E759967N_clipped_1m_1of2/labels_burned"), (5, 20)),
+            (Path(f"{data_dir}/{proj}/tiles32_123bands/tst/23322E759967N_clipped_1m_2of2/labels_burned"), (170, 190)),
         ]
         for labels_burned_dir, lbls_nb in out_labels:
             # exact number may vary because of random sort between "trn" and "val"
@@ -260,8 +260,8 @@ class TestTiling(object):
         cfg = DictConfig(cfg)
         tiling(cfg)
         out_tiles = [
-            (Path("data/tiles/test_inference/tiles32_RGBbands/trn/23322E759967N_clipped_1m_1of2/images"), 99),
-            (Path("data/tiles/test_inference/tiles32_RGBbands/inference/23322E759967N_clipped_1m_2of2/images"), 176),
+            (Path("data/tiles/test_inference/tiles32_123bands/trn/23322E759967N_clipped_1m_1of2/images"), 99),
+            (Path("data/tiles/test_inference/tiles32_123bands/inference/23322E759967N_clipped_1m_2of2/images"), 176),
         ]
         for out_images_dir, num_tiles in out_tiles:
             assert out_images_dir.is_dir()
