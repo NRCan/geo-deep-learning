@@ -12,7 +12,7 @@ class TestVerify(object):
     def test_verify_per_aoi(self):
         """Test stats outputs from an AOI"""
         extract_archive(src="tests/data/new_brunswick_aerial.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_multiclass_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_multiclass_ci.csv")
         aoi = AOI(raster=data[0]['tif'], label=data[0]['gpkg'], split=data[0]['split'])
         aoi_dict, error = verify_per_aoi(
             aoi=aoi,
