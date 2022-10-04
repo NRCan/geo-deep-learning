@@ -339,14 +339,14 @@ def main(cfg: DictConfig) -> None:
     # RAW DATA PARAMETERS
     data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
     csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
-    out_path = get_key_def('sample_data_dir', cfg['dataset'], default=data_path, to_path=True, validate_path_exists=True)
 
-    # SAMPLE PARAMETERS
-    samples_size = get_key_def('input_dim', cfg['dataset'], default=256, expected_type=int)
-    overlap = get_key_def('overlap', cfg['dataset'], default=0)
-    min_annot_perc = get_key_def('min_annotated_percent', cfg['dataset'], default=0)
-    val_percent = get_key_def('train_val_percent', cfg['dataset'], default=0.3)['val'] * 100
-    samples_folder_name = f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' \
+    # TILING PARAMETERS
+    out_path = get_key_def('tiling_data_dir', cfg['tiling'], default=data_path, to_path=True, validate_path_exists=True)
+    samples_size = get_key_def('chip_size', cfg['tiling'], default=256, expected_type=int)
+    overlap = get_key_def('overlap_size', cfg['tiling'], default=0)
+    min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], default=0)
+    val_percent = get_key_def('train_val_percent', cfg['tiling'], default={'val': 0.3})['val'] * 100
+    samples_folder_name = f'chips{samples_size}_overlap{overlap}_min-annot{min_annot_perc}' \
                           f'_{num_bands}bands_{cfg.general.project_name}'
     samples_dir = out_path.joinpath(samples_folder_name)
     if samples_dir.is_dir():
@@ -381,12 +381,12 @@ def main(cfg: DictConfig) -> None:
                 raise logging.critical(ValueError(f'\nAttribute value "{item}" is {type(item)}, expected int.'))
 
     # OPTIONAL
-    use_stratification = cfg.dataset.use_stratification if cfg.dataset.use_stratification is not None else False
+    use_stratification = cfg.tiling.use_stratification if cfg.tiling.use_stratification is not None else False
     if use_stratification:
         stratd = {
             'trn': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
             'val': {'total_pixels': 0, 'total_counts': {}, 'total_props': {}},
-            'strat_factor': cfg['dataset']['use_stratification']
+            'strat_factor': cfg['tiling']['use_stratification']
         }
     else:
         stratd = None

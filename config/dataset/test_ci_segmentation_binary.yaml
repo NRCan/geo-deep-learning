@@ -2,10 +2,6 @@
 dataset:
   # dataset-wide
   name:
-  input_dim: 32
-  overlap:
-  use_stratification: False
-  train_val_percent: {'trn':0.7, 'val':0.3, 'tst':0}
   raw_data_csv: ${general.raw_data_csv}
   raw_data_dir: ${general.raw_data_dir}
   download_data: False
@@ -16,12 +12,11 @@ dataset:
   # ground truth
   attribute_field: properties/class
   attribute_values: [1]
-  min_annotated_percent:
   class_name: # will follow in the next version
   classes_dict: {'BUIL':1}
   class_weights:
   ignore_index: -1
 
   # outputs
-  sample_data_dir: ${general.sample_data_dir}
+  tiling_data_dir: ${general.tiling_data_dir}
 

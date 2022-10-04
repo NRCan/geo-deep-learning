@@ -18,7 +18,7 @@ class Test_AOI(object):
     def test_multiband_input(self):
         """Tests reading a multiband raster as input"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         row = data[0]
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
         src_count = rasterio.open(aoi.raster_raw_input).count
@@ -28,7 +28,7 @@ class Test_AOI(object):
     def test_multiband_input_band_selection(self):
         """Tests reading a multiband raster as input with band selection"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         row = data[0]
         bands_request = [2, 1]
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands_request)
@@ -43,7 +43,7 @@ class Test_AOI(object):
     def test_multiband_input_band_selection_from_letters(self):
         """Tests error when selecting bands from a multiband raster using letters, not integers"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         row = data[0]
         bands_request = ["R", "G"]
         with pytest.raises(ValueError):
@@ -53,7 +53,7 @@ class Test_AOI(object):
     def test_multiband_input_band_selection_too_many(self):
         """Tests error when selecting too many bands from a multiband raster"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         row = data[0]
         bands_request = [1, 2, 3, 4, 5]
         with pytest.raises(ValueError):
@@ -62,7 +62,7 @@ class Test_AOI(object):
     def test_singleband_input(self):
         """Tests reading a singleband raster as input with ${dataset.bands} pattern"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-singleband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-singleband_ci.csv")
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'])
             aoi.close_raster()
@@ -70,7 +70,7 @@ class Test_AOI(object):
     def test_stac_input(self):
         """Tests singleband raster referenced by stac item as input"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-stac_ci.csv")
         for row in data:
             aoi = AOI(
                 raster=row['tif'], label=row['gpkg'], split=row['split'],
@@ -80,7 +80,7 @@ class Test_AOI(object):
     def test_stac_url_input(self):
         """Tests download of singleband raster as url path referenced by a stac item"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-singleband-url_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-singleband-url_ci.csv")
         for row in data:
             aoi = AOI(
                 raster=row['tif'], label=row['gpkg'], split=row['split'],
@@ -94,7 +94,7 @@ class Test_AOI(object):
     def test_missing_label(self):
         """Tests error when missing label file"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         for row in data:
             row['gpkg'] = "missing_file.gpkg"
             with pytest.raises(AttributeError):
@@ -131,7 +131,7 @@ class Test_AOI(object):
     def test_corrupt_raster(self) -> None:
         """Tests error when reading a corrupt file"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         for row in data:
             row['tif'] = "tests/data/massachusetts_buildings_kaggle/corrupt_file.tif"
             with pytest.raises(BaseException):
@@ -141,7 +141,7 @@ class Test_AOI(object):
     def test_image_only(self) -> None:
         """Tests AOI creation with image only, ie no label"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         for row in data:
             aoi = AOI(raster=row['tif'], label=None)
             assert aoi.label is None
@@ -150,7 +150,7 @@ class Test_AOI(object):
     def test_missing_raster(self) -> None:
         """Tests error when pointing to missing raster"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         for row in data:
             row['tif'] = "missing_raster.tif"
             with pytest.raises(RasterioIOError):
@@ -160,7 +160,7 @@ class Test_AOI(object):
     def test_wrong_split(self) -> None:
         """Tests error when setting a wrong split, ie not 'trn', 'tst' or 'inference'"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         for row in data:
             row['split'] = "missing_split"
             with pytest.raises(ValueError):
@@ -170,7 +170,7 @@ class Test_AOI(object):
     def test_download_data(self) -> None:
         """Tests download data"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         for row in data:
             row['tif'] = "http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/" \
                          "spacenet-samples/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif"
@@ -183,7 +183,7 @@ class Test_AOI(object):
     def test_stac_input_missing_band(self):
         """Tests error when requestinga non-existing singleband input rasters from stac item"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-stac_ci.csv")
         for row in data:
             with pytest.raises(ValueError):
                 aoi = AOI(
@@ -206,7 +206,7 @@ class Test_AOI(object):
     def test_no_intersection(self) -> None:
         """Tests error testing no intersection between raster and label"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-multiband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         for row in data:
             row['gpkg'] = "tests/data/new_brunswick_aerial/BakerLake_2017_clipped.gpkg"
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
@@ -217,7 +217,7 @@ class Test_AOI(object):
     def test_write_multiband_from_single_band(self) -> None:
         """Tests the 'write_multiband' method"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-singleband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-singleband_ci.csv")
         row = data[0]
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'],
                   write_multiband=True, root_dir="data")
@@ -228,7 +228,7 @@ class Test_AOI(object):
     def test_write_multiband_from_single_band_url(self) -> None:
         """Tests the 'write_multiband' method with singleband raster as URL"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-singleband-url_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-singleband-url_ci.csv")
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'],
                       write_multiband=True, root_dir="data", download_data=True)
@@ -241,7 +241,7 @@ class Test_AOI(object):
     def test_download_true_not_url(self) -> None:
         """Tests AOI creation if download_data set to True, but not necessary (local image)"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-singleband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-singleband_ci.csv")
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], download_data=True,
                       raster_bands_request=['R', 'G', 'B'])
@@ -250,7 +250,7 @@ class Test_AOI(object):
     def test_raster_stats_from_stac(self) -> None:
         """Tests the calculation of statistics of raster data as stac item from an AOI instance"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-stac_ci.csv")
         bands_request = ['red', 'green', 'blue']
         expected_stats = {
             'red': {'statistics': {'minimum': 0, 'maximum': 255, 'mean': 10.133578590682399, 'median': 9.0,
@@ -273,7 +273,7 @@ class Test_AOI(object):
     def test_raster_stats_not_stac(self) -> None:
         """Tests the calculation of statistics of local multiband raster data from an AOI instance"""
         extract_archive(src="tests/data/new_brunswick_aerial.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_multiclass_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_multiclass_ci.csv")
         expected_stats = {
             'band_0': {'statistics': {'minimum': 11, 'maximum': 254, 'mean': 159.36075617930456, 'median': 165.0,
                                       'std': 48.9924913616138}},
@@ -295,7 +295,7 @@ class Test_AOI(object):
     def test_to_dict(self):
         """Test the 'to_dict()' method on an AOI instance"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-stac_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-stac_ci.csv")
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['red', 'green', 'blue'])
             aoi.to_dict()
@@ -304,7 +304,7 @@ class Test_AOI(object):
     def test_for_multiprocessing(self) -> None:
         """Tests multiprocessing on AOI instances"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_multiclass_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_multiclass_ci.csv")
         inputs = []
         for row in data:
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], for_multiprocessing=True)

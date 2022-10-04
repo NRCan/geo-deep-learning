@@ -10,7 +10,7 @@ class TestGeoutils(object):
     def test_multiband_vrt_from_single_band(self) -> None:
         """Tests the 'stack_singlebands_vrt' utility"""
         extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/sampling/sampling_segmentation_binary-singleband_ci.csv")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-singleband_ci.csv")
         row = data[0]
         bands_request = ['R', 'G', 'B']
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'],
