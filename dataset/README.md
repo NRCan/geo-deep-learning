@@ -27,6 +27,16 @@ To support both single-band and multi-band imagery, the path in the first column
 ### 1. Path to a multi-band image file:
 `my_dir/my_multiband_geofile.tif`
 
+A particular order or subset of bands in multi-band file must be used by setting a list of specific indices:
+
+#### Example:
+
+`bands: [3, 2, 1]`
+
+Here, if the original multi-band raster had BGR bands, geo-deep-learning will reorder these bands to RGB order.
+
+The `bands` parameter is set in the [dataset config](../config/dataset/test_ci_segmentation_multiclass.yaml).
+
 ### 2. Path to single-band image files, using only a common string
 A path to a list of single-band rasters can be inserted in the csv, but only a the string common to all single-band files should be considered.
 The "band specific" string in the file name must be in a [hydra-like interpolation format](https://hydra.cc/docs/1.0/advanced/override_grammar/basic/#primitives), with `${...}` notation. The interpolation string completed during execution by a dataset parameter with a list of desired band identifiers to help resolve the single-band filenames.

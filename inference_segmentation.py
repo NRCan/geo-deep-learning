@@ -138,7 +138,6 @@ def segmentation(param,
                  chunk_size: int,
                  device,
                  scale: List,
-                 BGR_to_RGB: bool,
                  tp_mem,
                  debug=False,
                  ):
@@ -152,7 +151,6 @@ def segmentation(param,
         chunk_size: image tile size
         device: cuda/cpu device
         scale: scale range
-        BGR_to_RGB: True/False
         tp_mem: memory temp file for saving numpy array to disk
         debug: True/False
 
@@ -192,7 +190,6 @@ def segmentation(param,
         sample['metadata'] = image_metadata
         totensor_transform = augmentation.compose_transforms(param,
                                                              dataset="tst",
-                                                             input_space=BGR_to_RGB,
                                                              scale=scale,
                                                              aug_type='totensor',
                                                              print_log=print_log)
@@ -341,7 +338,6 @@ def main(params: Union[DictConfig, dict]) -> None:
     # Default input directory based on default output directory
     raw_data_csv = get_key_def('raw_data_csv', params['inference'], default=working_folder,
                                  expected_type=str, to_path=True, validate_path_exists=True)
-    BGR_to_RGB = get_key_def('BGR_to_RGB', params['dataset'], expected_type=bool)
 
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
@@ -403,7 +399,6 @@ def main(params: Union[DictConfig, dict]) -> None:
                             chunk_size=chunk_size,
                             device=device,
                             scale=scale,
-                            BGR_to_RGB=BGR_to_RGB,
                             tp_mem=temp_file,
                             debug=debug)
 

@@ -38,7 +38,7 @@ def verify_per_aoi(
         Returns info on AOI or error raised, if any.
     """
     try:
-        aoi.raster_read()  # in case of multiprocessing
+        aoi.raster_open()  # in case of multiprocessing
 
         # get aoi info
         logging.info(f"\nGetting data info for {aoi.aoi_id}...")
@@ -77,7 +77,7 @@ def verify_per_aoi(
             plt.close()
         return aoi_dict, None
     except Exception as e:
-        logging.error(e)
+        raise e #logging.error(e)
         return None, e
 
 
