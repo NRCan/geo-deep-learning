@@ -1,6 +1,7 @@
 # WARNING: data being augmented may be scaled to (0,1) rather, for example, (0,255).
 #          Therefore, implementing radiometric
 # augmentations (ex.: changing hue, saturation, brightness, contrast) may give undesired results.
+# Scaling process is done in tiling_segmentation.py l.215
 import logging
 import numbers
 from typing import Sequence

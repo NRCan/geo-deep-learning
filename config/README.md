@@ -148,4 +148,3 @@ new:
 $ python GDL.py --config-name=/path/to/new/gdl_config.yaml mode=train
 ```
 
-

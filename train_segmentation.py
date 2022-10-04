@@ -544,13 +544,13 @@ def train(cfg: DictConfig) -> None:
     tracker_uri = get_key_def(['tracker', 'uri'], cfg, default=None, expected_type=str)
     experiment_name = get_key_def('project_name', cfg['general'], default='gdl-training')
 
-    # PARAMETERS FOR TILES
-    samples_size = get_key_def("tile_size", cfg['tiling'], expected_type=int, default=256)
+    # PARAMETERS FOR PATCHES
+    samples_size = get_key_def("patch_size", cfg['tiling'], expected_type=int, default=256)
     min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], expected_type=Number, default=0)
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
 
     data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
-    tiles_root_dir = get_key_def('tiles_data_dir', cfg['dataset'], default=data_path, to_path=True,
+    tiles_root_dir = get_key_def('tiling_data_dir', cfg['dataset'], default=data_path, to_path=True,
                                  validate_path_exists=True)
     logging.info("\nThe tiling directory used '{}'".format(tiles_root_dir))
 

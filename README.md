@@ -52,7 +52,7 @@ cd geo-deep-learning
 
 2. Run the wanted script (for segmentation).
 ```shell
-# Creating the chips from the raw data
+# Creating the patches from the raw data
 python GDL.py mode=tiling
 # Training the neural network
 python GDL.py mode=train
