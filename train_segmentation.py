@@ -518,16 +518,16 @@ def train(cfg: DictConfig) -> None:
 
     # PARAMETERS FOR hdf5 SAMPLES
     # info on the hdf5 name
-    samples_size = get_key_def("input_dim", cfg['dataset'], expected_type=int, default=256)
-    overlap = get_key_def("overlap", cfg['dataset'], expected_type=int, default=0)
-    min_annot_perc = get_key_def('min_annotated_percent', cfg['dataset'], default=0)
+    samples_size = get_key_def('chip_size', cfg['tiling'], default=256, expected_type=int)
+    overlap = get_key_def('overlap_size', cfg['tiling'], default=0)
+    min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], default=0)
     samples_folder_name = (
-        f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{experiment_name}'
+        f'chips{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{experiment_name}'
     )
 
     data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
-    my_hdf5_path = get_key_def('sample_data_dir', cfg['dataset'], default=data_path, to_path=True,
-                                 validate_path_exists=True)
+    my_hdf5_path = get_key_def('tiling_data_dir', cfg['tiling'], default=data_path, to_path=True,
+                               validate_path_exists=True)
     samples_folder = my_hdf5_path.joinpath(samples_folder_name).resolve(strict=True)
     logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
 
