@@ -189,6 +189,9 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
             items = [item for item in val.glob(wildcard)]
             if items:
                 val = items[0]
+            else:
+                logging.critical(f"Couldn't find any item in directory: {val} matching wildcard: {wildcard}")
+                raise FileNotFoundError()
         if not val.exists():
             logging.critical(f"Couldn't locate path: {val}.\nProvided key: {key}")
             raise FileNotFoundError()
