@@ -61,7 +61,7 @@ def create_dataloader(samples_folder: Path,
     :param gpu_devices_dict: (dict) dictionary where each key contains an available GPU with its ram info stored as value
     :param sample_size: (int) size of hdf5 samples (used to evaluate eval batch-size)
     :param dontcare_val: (int) value in label to be ignored during loss calculation
-    :param crop_size: (int) size of one side of the square crop performed on original tile during training
+    :param crop_size: (int) size of one side of the square crop performed on original patch during training
     :param num_bands: (int) number of bands in imagery
     :param min_annot_perc: (int) minimum proportion of ground truth containing non-background information
     :param attr_vals: (Sequence)
@@ -83,7 +83,7 @@ def create_dataloader(samples_folder: Path,
                                                   attr_vals=attr_vals,
                                                   experiment_name=experiment_name)
     if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
-        raise ValueError(f"Number of samples in tiles files is less than batch size")
+        raise ValueError(f"Number of patches is smaller than batch size")
     logging.info(f"Number of samples : {num_samples}\n")
     dataset_constr = create_dataset.SegmentationDataset
     datasets = []
@@ -550,12 +550,12 @@ def train(cfg: DictConfig) -> None:
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
 
     data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
-    tiles_root_dir = get_key_def('tiling_data_dir', cfg['dataset'], default=data_path, to_path=True,
+    tiling_root_dir = get_key_def('tiling_data_dir', cfg['dataset'], default=data_path, to_path=True,
                                  validate_path_exists=True)
-    logging.info("\nThe tiling directory used '{}'".format(tiles_root_dir))
+    logging.info("\nThe tiling directory used '{}'".format(tiling_root_dir))
 
-    tiles_dir_name = Tiler.make_tiles_dir_name(samples_size, out_modalities)
-    tiles_dir = tiles_root_dir / experiment_name / tiles_dir_name
+    tiling_dir_name = Tiler.make_patches_dir_name(samples_size, out_modalities)
+    tiling_dir = tiling_root_dir / experiment_name / tiling_dir_name
 
     # visualization parameters
     vis_at_train = get_key_def('vis_at_train', cfg['visualization'], default=False)
@@ -579,7 +579,7 @@ def train(cfg: DictConfig) -> None:
     for list_path in cfg.general.config_path:
         if list_path['provider'] == 'main':
             config_path = list_path['path']
-    default_output_path = Path(to_absolute_path(f'{tiles_dir}/model/{experiment_name}/{run_name}'))
+    default_output_path = Path(to_absolute_path(f'{tiling_dir}/model/{experiment_name}/{run_name}'))
     output_path = get_key_def('save_weights_dir', cfg['general'], default=default_output_path, to_path=True)
     if output_path.is_dir():
         last_mod_time_suffix = datetime.fromtimestamp(output_path.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
@@ -622,8 +622,8 @@ def train(cfg: DictConfig) -> None:
     logging.info(f'\nInstantiated {cfg.model._target_} model with {num_bands} input channels and {num_classes} output '
                  f'classes.')
 
-    logging.info(f'Creating dataloaders from data in {tiles_dir}...\n')
-    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=tiles_dir,
+    logging.info(f'Creating dataloaders from data in {tiling_dir}...\n')
+    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=tiling_dir,
                                                                        batch_size=batch_size,
                                                                        eval_batch_size=eval_batch_size,
                                                                        gpu_devices_dict=gpu_devices_dict,

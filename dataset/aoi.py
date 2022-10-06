@@ -1,7 +1,6 @@
 import functools
 import json
 from collections import OrderedDict
-from multiprocessing import Value
 from pathlib import Path
 from typing import Union, Sequence, Dict, Tuple, List, Optional
 
@@ -561,34 +560,34 @@ class AOI(object):
 
     @staticmethod
     def filter_gdf_by_attribute(
-            gdf_tile: Union[str, Path, gpd.GeoDataFrame],
+            gdf_patch: Union[str, Path, gpd.GeoDataFrame],
             attr_field: str = None,
             attr_vals: Sequence = None):
         """
         Filter features from a geopandas.GeoDataFrame according to an attribute field and filtering values
-        @param gdf_tile: str, Path or gpd.GeoDataFrame
+        @param gdf_patch: str, Path or gpd.GeoDataFrame
             GeoDataFrame or path to GeoDataFrame to filter feature from
         @return: Subset of source GeoDataFrame with only filtered features (deep copy)
         """
-        gdf_tile = _check_gdf_load(gdf_tile)
-        if gdf_tile.empty or not attr_field or not attr_vals:
-            return gdf_tile
+        gdf_patch = _check_gdf_load(gdf_patch)
+        if gdf_patch.empty or not attr_field or not attr_vals:
+            return gdf_patch
         try:
-            condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
-            condList.extend([gdf_tile[f'{attr_field}'] == str(val) for val in attr_vals])
+            condList = [gdf_patch[f'{attr_field}'] == val for val in attr_vals]
+            condList.extend([gdf_patch[f'{attr_field}'] == str(val) for val in attr_vals])
             allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
-            gdf_filtered = gdf_tile[allcond].copy(deep=True)
+            gdf_filtered = gdf_patch[allcond].copy(deep=True)
             logging.debug(f'Successfully filtered features from GeoDataFrame"\n'
                           f'Filtered features: {len(gdf_filtered)}\n'
-                          f'Total features: {len(gdf_tile)}\n'
+                          f'Total features: {len(gdf_patch)}\n'
                           f'Attribute field: "{attr_field}"\n'
                           f'Filtered values: {attr_vals}')
             return gdf_filtered
         except KeyError as e:
             logging.critical(f'No attribute named {attr_field} in GeoDataFrame. \n'
                              f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'
-                             f'Attributes: {gdf_tile.columns}\n'
-                             f'GeoDataFrame: {gdf_tile.info()}')
+                             f'Attributes: {gdf_patch.columns}\n'
+                             f'GeoDataFrame: {gdf_patch.info()}')
             raise e
 
     def close_raster(self) -> None:
