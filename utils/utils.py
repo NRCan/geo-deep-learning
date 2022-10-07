@@ -318,6 +318,8 @@ def read_csv(csv_file_name: str) -> Dict:
         row_lengths_set = set()
         for row in reader:
             row_lengths_set.update([len(row)])
+            if ";" in row[0]:
+                raise TypeError(f"Elements in rows should be delimited with comma, not semicolon.")
             if not len(row_lengths_set) == 1:
                 raise ValueError(f"Rows in csv should be of same length. Got rows with length: {row_lengths_set}")
             row = [str(i) or None for i in row]  # replace empty strings to None.
