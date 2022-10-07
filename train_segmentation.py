@@ -47,7 +47,6 @@ def create_dataloader(samples_folder: Path,
                       dontcare_val: int,
                       crop_size: int,
                       num_bands: int,
-                      BGR_to_RGB: bool,
                       scale: Sequence,
                       cfg: DictConfig,
                       dontcare2backgr: bool = False,
@@ -61,7 +60,6 @@ def create_dataloader(samples_folder: Path,
     :param sample_size: (int) size of hdf5 samples (used to evaluate eval batch-size)
     :param dontcare_val: (int) value in label to be ignored during loss calculation
     :param num_bands: (int) number of bands in imagery
-    :param BGR_to_RGB: (bool) if True, BGR channels will be flipped to RGB
     :param scale: (List) imagery data will be scaled to this min and max value (ex.: 0 to 1)
     :param cfg: (dict) Parameters found in the yaml config file.
     :param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
@@ -92,7 +90,6 @@ def create_dataloader(samples_folder: Path,
                                                                              crop_size=crop_size),
                                        totensor_transform=aug.compose_transforms(params=cfg,
                                                                                  dataset=subset,
-                                                                                 input_space=BGR_to_RGB,
                                                                                  scale=scale,
                                                                                  dontcare2backgr=dontcare2backgr,
                                                                                  dontcare=dontcare_val,
@@ -473,9 +470,6 @@ def train(cfg: DictConfig) -> None:
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
     num_epochs = get_key_def('max_epochs', cfg['training'], expected_type=int)
-    # TODO need to keep in parameters? see victor stuff
-    # BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
-    BGR_to_RGB = False
 
     # OPTIONAL PARAMETERS
     debug = get_key_def('debug', cfg)
@@ -523,16 +517,16 @@ def train(cfg: DictConfig) -> None:
 
     # PARAMETERS FOR hdf5 SAMPLES
     # info on the hdf5 name
-    samples_size = get_key_def("input_dim", cfg['dataset'], expected_type=int, default=256)
-    overlap = get_key_def("overlap", cfg['dataset'], expected_type=int, default=0)
-    min_annot_perc = get_key_def('min_annotated_percent', cfg['dataset'], default=0)
+    samples_size = get_key_def('chip_size', cfg['tiling'], default=256, expected_type=int)
+    overlap = get_key_def('overlap_size', cfg['tiling'], default=0)
+    min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], default=0)
     samples_folder_name = (
-        f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{experiment_name}'
+        f'chips{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{experiment_name}'
     )
 
     data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
-    my_hdf5_path = get_key_def('sample_data_dir', cfg['dataset'], default=data_path, to_path=True,
-                                 validate_path_exists=True)
+    my_hdf5_path = get_key_def('tiling_data_dir', cfg['tiling'], default=data_path, to_path=True,
+                               validate_path_exists=True)
     samples_folder = my_hdf5_path.joinpath(samples_folder_name).resolve(strict=True)
     logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
 
@@ -610,7 +604,6 @@ def train(cfg: DictConfig) -> None:
                                                                        dontcare_val=dontcare_val,
                                                                        crop_size=crop_size,
                                                                        num_bands=num_bands,
-                                                                       BGR_to_RGB=BGR_to_RGB,
                                                                        scale=scale,
                                                                        cfg=cfg,
                                                                        dontcare2backgr=dontcare2backgr,
