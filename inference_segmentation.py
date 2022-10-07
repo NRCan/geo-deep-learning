@@ -325,7 +325,7 @@ def main(params: Union[DictConfig, dict]) -> None:
     )
 
     # Dataset params
-    bands_requested = get_key_def('bands', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
+    bands_requested = get_key_def('bands', params['dataset'], default=[1, 2, 3], expected_type=Sequence)
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
     num_classes = len(classes_dict)
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background

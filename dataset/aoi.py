@@ -330,7 +330,7 @@ class AOI(object):
         if not {'tif', 'gpkg', 'split'}.issubset(set(aoi_dict.keys())):
             raise ValueError(f"Input data should minimally contain the following keys: \n"
                              f"'tif', 'gpkg', 'split'.")
-        if not aoi_dict['gpkg']:
+        if aoi_dict['gpkg'] is None:
             logging.warning(f"No ground truth data found for {aoi_dict['tif']}.\n"
                             f"Only imagery will be processed from now on")
         if "aoi_id" not in aoi_dict.keys() or not aoi_dict['aoi_id']:

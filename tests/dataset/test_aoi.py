@@ -10,7 +10,7 @@ from rasterio import RasterioIOError
 from shapely.geometry import box
 from torchgeo.datasets.utils import extract_archive
 
-from dataset.aoi import AOI
+from dataset.aoi import AOI, aois_from_csv
 from utils.utils import read_csv
 
 
@@ -92,7 +92,7 @@ class Test_AOI(object):
             os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif")
 
     def test_missing_label(self):
-        """Tests error when missing label file"""
+        """Tests error when provided label file is missing"""
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         for row in data:
@@ -100,6 +100,13 @@ class Test_AOI(object):
             with pytest.raises(AttributeError):
                 aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
                 aoi.close_raster()
+    
+    def test_no_label(self):
+        """Test when no label are provided. Should pass for inference. """
+        extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        csv_path = "tests/inference/inference_segmentation_multiclass_no_label.csv"
+        aois = aois_from_csv(csv_path=csv_path, bands_requested=[1,2,3])
+        assert aois[0].label is None
 
     def test_parse_input_raster(self) -> None:
         """Tests parsing for three accepted patterns to reference input raster data with band selection"""

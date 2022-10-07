@@ -320,13 +320,17 @@ def read_csv(csv_file_name: str) -> Dict:
             row_lengths_set.update([len(row)])
             if not len(row_lengths_set) == 1:
                 raise ValueError(f"Rows in csv should be of same length. Got rows with length: {row_lengths_set}")
+            row = [str(i) or None for i in row]  # replace empty strings to None.
             row.extend([None] * (4 - len(row)))  # fill row with None values to obtain row of length == 5
+ 
             row[0] = to_absolute_path(row[0]) if not is_url(row[0]) else row[0] # Convert relative paths to absolute with hydra's util to_absolute_path()
-            row[1] = to_absolute_path(row[1]) if not is_url(row[1]) else row[1]
-
+            try:
+                row[1] = str(to_absolute_path(row[1]) if not is_url(row[1]) else row[1])
+            except TypeError:
+                row[1] = None
             # save all values
             list_values.append(
-                {'tif': str(row[0]), 'gpkg': str(row[1]), 'split': row[2], 'aoi_id': row[3]})
+                {'tif': str(row[0]), 'gpkg': row[1], 'split': row[2], 'aoi_id': row[3]})
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
         list_values = sorted(list_values, key=lambda k: k['split'])
