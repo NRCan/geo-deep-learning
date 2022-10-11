@@ -16,7 +16,7 @@ class TestUtils(object):
 
     def test_with_header_in_csv(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
-        with pytest.raises(TypeError):
+        with pytest.raises(ValueError):
             data = read_csv("tests/tiling/header.csv")
         ##for row in data:
         ##aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
