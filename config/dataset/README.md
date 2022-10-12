@@ -5,7 +5,7 @@
 ### Input dimensions and overlap
 
 These parameters respectively set the width and length of a single sample and stride from one sample to another as
-outputted by sampling_segmentation.py. Default to 256 and 0, respectively.
+outputted by tiling_segmentation.py. Default to 256 and 0, respectively.
 
 ### Train/validation percentage
 
@@ -31,7 +31,7 @@ For more information on the concept of stratified sampling, see [this Medium art
 
 ### Modalities
 
-Bands to be selected during the sampling process. Order matters (ie "BGR" is not equal to "RGB").
+Bands to be selected during the tiling process. Order matters (ie "BGR" is not equal to "RGB").
 The use of this feature for band selection is a work in progress. It currently serves to indicate how many bands are in
 source imagery.
 

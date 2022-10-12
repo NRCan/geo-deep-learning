@@ -1,12 +1,13 @@
-from ast import Raise
-from xml.dom import ValidationErr
 import numpy as np
+import torch
+import torchmetrics.classification
 from sklearn.metrics import classification_report
-from math import sqrt
 from torch import IntTensor
 from torchmetrics import JaccardIndex
 
 min_val = 1e-6
+
+
 def create_metrics_dict(num_classes, ignore_index=None):
 
     num_classes = num_classes + 1 if num_classes == 1 else num_classes
@@ -93,6 +94,12 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
     return metrics_dict
 
 
+def metric_match_device(metric: torchmetrics.Metric, pred: torch.Tensor, label: torch.Tensor):
+    """Pushes the metric on devices where predictions and labels already are"""
+    if metric.device != pred.device or metric.device != label.device:
+        metric.to(pred.device)
+
+
 def iou(pred, label, batch_size, num_classes, metric_dict, ignore_index=None):
     """Calculate the intersection over union class-wise and mean-iou"""
 
@@ -113,6 +120,7 @@ def iou(pred, label, batch_size, num_classes, metric_dict, ignore_index=None):
                            average='none',
                            ignore_index=ignore_index,
                            absent_score=1)
+    metric_match_device(jaccard, pred, label)
     cls_ious = jaccard(pred, label)
 
     
@@ -128,6 +136,7 @@ def iou(pred, label, batch_size, num_classes, metric_dict, ignore_index=None):
                                 average='macro', 
                                 ignore_index=0, 
                                 absent_score=1)
+    metric_match_device(jaccard_nobg, pred, label)
     iou_nobg = jaccard_nobg(pred, label)
     metric_dict['iou_nonbg'].update(iou_nobg.item(), batch_size)
 
@@ -135,13 +144,16 @@ def iou(pred, label, batch_size, num_classes, metric_dict, ignore_index=None):
                            average='macro', 
                            ignore_index=ignore_index,
                            absent_score=1)
+    metric_match_device(jaccard, pred, label)
     mean_iou = jaccard(pred, label)
 
     metric_dict['iou'].update(mean_iou, batch_size)
     return metric_dict
 
+
 #### Benchmark Metrics ####
 """ Segmentation Metrics from : https://github.com/jeremiahws/dlae/blob/master/metnet_seg_experiment_evaluator.py """
+
 
 class ComputePixelMetrics():
     '''
