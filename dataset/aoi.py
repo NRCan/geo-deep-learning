@@ -213,7 +213,7 @@ class AOI(object):
         if self.raster_src_is_multiband:
             self.raster_name = Path(self.raster.name)
         else:
-            self.raster_name = Path(self.raster_raw_input[0]).name.replace("${dataset.bands}", "")
+            self.raster_name = Path(self.raster_raw_input).name.replace("${dataset.bands}", "band")
 
         if raster_num_bands_expected:
             validate_num_bands(raster_path=self.raster, num_bands=raster_num_bands_expected)
