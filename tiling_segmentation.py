@@ -437,7 +437,7 @@ def main(cfg: DictConfig) -> None:
     )
     for aoi in tqdm(list_data_prep, position=0, leave=False):
         try:
-            logging.info(f"\nReading as array: {aoi.raster.name}")
+            logging.info(f"\nReading as array: {aoi.raster_name}")
             with _check_rasterio_im_load(aoi.raster) as raster:
                 # 1. Read the input raster image
                 np_input_image, raster, dataset_nodata = image_reader_as_array(input_image=raster)
@@ -497,7 +497,7 @@ def main(cfg: DictConfig) -> None:
             # logging.info(f'\nNumber of samples={number_samples}')
             out_file.flush()
         except OSError:
-            logging.exception(f'\nAn error occurred while preparing samples with "{Path(aoi.raster.name).stem}" (tiff) and '
+            logging.exception(f'\nAn error occurred while preparing samples with "{Path(aoi.raster_name).stem}" (tiff) and '
                               f'{Path(aoi.label).stem} (gpkg).')
             continue
 
