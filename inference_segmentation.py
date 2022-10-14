@@ -315,7 +315,9 @@ def main(params: Union[DictConfig, dict]) -> None:
     :param params: (dict) Parameters inputted during execution.
     """
     # SETTING OUTPUT DIRECTORY
-    state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
+    state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
+                             validate_path_exists=True,
+                             wildcard='*pth.tar')
 
     # Override params from checkpoint
     checkpoint = read_checkpoint(state_dict)

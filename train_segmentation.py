@@ -480,6 +480,7 @@ def train(cfg: DictConfig) -> None:
     crop_size = get_key_def('crop_size', cfg['augmentation'], default=None)
 
     # MODEL PARAMETERS
+    checkpoint_stack = [""]
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
     if cfg.loss.is_binary and not num_classes == 1:
         raise ValueError(f"Parameter mismatch: a binary loss was chosen for a {num_classes}-class task")
@@ -624,9 +625,6 @@ def train(cfg: DictConfig) -> None:
     if not progress_log.exists():
         progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))  # Add header
 
-    # create the checkpoint file
-    filename = output_path.joinpath('checkpoint.pth.tar')
-
     # VISUALIZATION: generate pngs of inputs, labels and outputs
     if vis_batch_range is not None:
         # Make sure user-provided range is a tuple with 3 integers (start, finish, increment).
@@ -693,6 +691,15 @@ def train(cfg: DictConfig) -> None:
 
         if val_loss < best_loss:
             logging.info("\nSave checkpoint with a validation loss of {:.4f}".format(val_loss))  # only allow 4 decimals
+            # create the checkpoint file
+            checkpoint_tag = checkpoint_stack.pop()
+            filename = output_path.joinpath(checkpoint_tag)
+            if filename.is_file():
+                filename.unlink()
+            val_loss_string = f'{val_loss:.2f}'.replace('.', '-')
+            checkpoint_tag = f'{experiment_name}_{num_classes}_{"_".join(modalities)}_{val_loss_string}.pth.tar'
+            filename = output_path.joinpath(checkpoint_tag)
+            checkpoint_stack.append(checkpoint_tag)
             best_loss = val_loss
             # More info:
             # https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models

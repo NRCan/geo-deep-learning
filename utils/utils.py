@@ -140,7 +140,7 @@ def set_device(gpu_devices_dict: dict = {}):
 
 
 def get_key_def(key, config, default=None, expected_type=None, to_path: bool = False,
-                validate_path_exists: bool = False):
+                validate_path_exists: bool = False, wildcard=None):
     """Returns a value given a dictionary key, or the default value if it cannot be found.
     :param key: key in dictionary (e.g. generated from .yaml)
     :param config: (dict) dictionary containing keys corresponding to parameters used in script
@@ -148,6 +148,7 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
     :param expected_type: (type) type of the expected variable.
     :param to_path: (bool) if True, parameter will be converted to a pathlib.Path object (warns if cannot be converted)
     :param validate_path_exists: (bool) if True, checks if path exists (is_path must be True)
+    :param wildcard: suffix wildcard string (ex. '*.pth.tar')
     :return:
     """
     val = default
@@ -181,9 +182,20 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
             val = Path(to_absolute_path(val))
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
-    if validate_path_exists and not Path(to_absolute_path(val)).exists():
-        logging.critical(f"Couldn't locate path: {val}.\nProvided key: {key}")
-        raise FileNotFoundError()
+    if validate_path_exists:
+        if not isinstance(val, Path):
+            val = Path(to_absolute_path(val))
+        if val.is_dir() and wildcard: # Globs through directory and picks first item matching wildcard
+            items = [item for item in val.glob(wildcard)]
+            if items:
+                val = items[0]
+            else:
+                logging.critical(f"Couldn't find any item in directory: {val} matching wildcard: {wildcard}")
+                raise FileNotFoundError()
+        if not val.exists():
+            logging.critical(f"Couldn't locate path: {val}.\nProvided key: {key}")
+            raise FileNotFoundError()
+
     return val
 
 
