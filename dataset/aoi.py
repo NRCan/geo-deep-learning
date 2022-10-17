@@ -210,10 +210,7 @@ class AOI(object):
         self.raster_open()
         self.raster_meta = self.raster.meta
         self.raster_meta['name'] = self.raster.name
-        if self.raster_src_is_multiband:
-            self.raster_name = Path(self.raster.name)
-        else:
-            self.raster_name = Path(self.raster_raw_input).name.replace("${dataset.bands}", "band")
+        self.raster_name = Path(self.raster_raw_input).parent / Path(self.raster_raw_input).name.replace("${dataset.bands}", "band")
 
         if raster_num_bands_expected:
             validate_num_bands(raster_path=self.raster, num_bands=raster_num_bands_expected)
@@ -261,10 +258,8 @@ class AOI(object):
         # Check aoi_id string
         if aoi_id and not isinstance(aoi_id, str):
             raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
-        elif not aoi_id and self.raster_src_is_multiband:
-            aoi_id = Path(self.raster.name).stem  # Defaults to name of image without suffix
-        elif not aoi_id and not self.raster_src_is_multiband:
-            aoi_id = Path(self.raster_raw_input).stem  # Defaults to name of first singleband image without suffix
+        elif not aoi_id:
+            aoi_id = self.raster_name.stem  # Defaults to name of image without suffix
         self.aoi_id = aoi_id
 
         # Check collection string
