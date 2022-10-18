@@ -1,13 +1,12 @@
 # @package _global_
 inference:
-  #input_stac_item: https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03
-  input_stac_item: /home/cauthier/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03
-  root_dir: /home/cauthier/
-  checkpoint_dir: /home/cauthier/  # (string, optional): directory in which to save the object
+  input_stac_item: https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03
+  root_dir: /space/partner/nrcan/geobase/work/transfer/work/deep_learning/inference/
+  checkpoint_dir: /space/partner/nrcan/geobase/work/transfer/work/deep_learning/inference/checkpoints  # (string, optional): directory in which to save the object
   # name of final output file without extension to write in root
   # Warning: this name if only used at generalization. Other outputs are based on inference.output_name
   output_name: SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred # defaults to {input_stac_item.stem}_pred
-  state_dict_path: /home/cauthier/pl_smp_unetpp_RGB_BUIL_20220701.ckpt
+  state_dict_path: saved_model/manet_pretrained_bds3_cls1.pth.tar
   download_data: True  # if True, will download local copy of imagery and infer from this copy rather than from web
                         # if network bandwidth is good, no need to download as only windows are downloaded to infer
   save_heatmap: True  # saves a heatmap to root_dir/{output_name}_heatmap.tif
