@@ -12,9 +12,6 @@ config_path = "config"
 config_name = "gdl_config_template"
 
 
-import inference_segmentation
-
-
 @hydra.main(config_path=config_path, config_name=config_name)
 def run_gdl(cfg: DictConfig) -> None:
     """
@@ -70,8 +67,7 @@ def run_gdl(cfg: DictConfig) -> None:
     # Start the timer
     start_time = time.time()
     # Read the task and execute it
-    #task = get_method(f"{cfg.mode}_{cfg.general.task}.main")
-    task = inference_segmentation.main
+    task = get_method(f"{cfg.mode}_{cfg.general.task}.main")
     task(cfg)
 
     # Add git hash from current commit to parameters.
