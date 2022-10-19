@@ -120,7 +120,7 @@ class AOI(object):
                  attr_field_filter: str = None,
                  attr_values_filter: Sequence = None,
                  download_data: bool = False,
-                 root_dir: str = "data",
+                 root_dir: str = "dataset",
                  for_multiprocessing: bool = False,
                  raster_stats: bool = False,
                  write_multiband: bool = False):
