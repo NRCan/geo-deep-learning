@@ -111,7 +111,7 @@ class AOI(object):
     """
 
     def __init__(self, raster: Union[Path, str],
-                 raster_bands_request: List = None,
+                 raster_bands_request: List = [],
                  label: Union[Path, str] = None,
                  split: str = None,
                  aoi_id: str = None,
@@ -209,8 +209,11 @@ class AOI(object):
         self.src_raster_to_dest_multiband(virtual=True)
         self.raster_open()
         self.raster_meta = self.raster.meta
-        self.raster_meta['name'] = self.raster.name
-        self.raster_name = Path(self.raster_raw_input).parent / Path(self.raster_raw_input).name.replace("${dataset.bands}", "band")
+        self.raster_name = self.name_raster(
+            input_path=self.raster_raw_input,
+            bands_list=self.raster_bands_request,
+            root_dir=self.root_dir,
+        )
 
         if raster_num_bands_expected:
             validate_num_bands(raster_path=self.raster, num_bands=raster_num_bands_expected)
@@ -475,27 +478,23 @@ class AOI(object):
         out_dir = self.root_dir
 
         if out_dir is None:
-            logging.error(f"There is no path for the output, root_dir shoudn't be None")
+            logging.error(f"There is no path for the output, root_dir shouldn't be None")
             return
         if not self.raster.driver == 'VRT':
             logging.error(f"To write a multi-band raster from single-band files, a VRT must be provided."
                           f"\nGot {self.raster.meta}")
             return
-        if "${dataset.bands}" in self.raster_raw_input:
-            out_tif_path = out_dir / Path(self.raster_raw_input).name.replace("${dataset.bands}", ''.join(self.raster_bands_request))
-        elif is_stac_item(self.raster_raw_input):
-            out_tif_path = out_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
-        else:
-            logging.error(f"\nTo write multiband raster from single band imagery, "
-                          f"source imagery must be referenced with expected formats.\n"
-                          f"See dataset/README.md")
-            return
-        logging.debug(f"Writing multi-band raster to {out_tif_path}")
+        logging.debug(f"Writing multi-band raster to {self.raster_name}")
         create_new_raster_from_base(
             input_raster=self.raster,
-            output_raster=str(out_tif_path),
+            output_raster=self.raster_name,
             write_array=self.raster.read())
-        return out_tif_path
+        return self.raster_name
+
+    def close_raster(self) -> None:
+        if self.raster_closed is False:
+            self.raster.close()
+            self.raster_closed = True
 
     @staticmethod
     def parse_input_raster(
@@ -585,15 +584,38 @@ class AOI(object):
                              f'GeoDataFrame: {gdf_tile.info()}')
             raise e
 
-    def close_raster(self) -> None:
-        if self.raster_closed is False:
-            self.raster.close()
-            self.raster_closed = True
+    @staticmethod
+    def name_raster(root_dir: Union[str, Path], input_path: Union[str, Path], bands_list: Sequence = []):
+        """
+        Assigns a name to the AOI's raster considering different input types
+        @param root_dir:
+            Root directory where derived raster would be written.
+            E.g. output from self.write_multiband_from_singleband_rasters_as_vrt()
+        @param input_path: path to input raster file as accepted by GDL (see dataset/README.md)
+        @param bands_list: list of requested bands from input raster
+        """
+        if root_dir is None or not Path(root_dir).is_dir():
+            raise NotADirectoryError(f"Please provide a valid directory as root directory.\nGot {root_dir}")
+        raster_name_parent = Path(root_dir)
+
+        bands_list_str = [str(band) for band in bands_list]
+        if len(bands_list_str) <= 4:
+            bands_suffix = f"bands_{'-'.join(bands_list_str)}"
+        else:  # e.g. hyperspectral imagery
+            bands_suffix = f"{len(bands_list)}bands"
+
+        if "${dataset.bands}" in input_path:  # singleband with ${dataset.bands} pattern (implies band selection)
+            raster_name = raster_name_parent / f"{Path(input_path).stem.replace('${dataset.bands}', bands_suffix)}.tif"
+        elif len(bands_list_str) > 0:  # singleband from stac item or multiband with band selection
+            raster_name = raster_name_parent / f"{Path(input_path).stem}_{bands_suffix}.tif"
+        else:  # multiband, no band selection
+            raster_name = Path(input_path).parent / f"{Path(input_path).stem}.tif"
+        return raster_name
 
 
 def aois_from_csv(
         csv_path: Union[str, Path],
-        bands_requested: List = None,
+        bands_requested: List = [],
         attr_field_filter: str = None,
         attr_values_filter: str = None,
         download_data: bool = False,
