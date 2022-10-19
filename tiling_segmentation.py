@@ -330,7 +330,7 @@ def main(cfg: DictConfig) -> None:
     """
     # PARAMETERS
     num_classes = len(cfg.dataset.classes_dict.keys())
-    bands_requested = get_key_def('bands', cfg['dataset'], default=None, expected_type=Sequence)
+    bands_requested = get_key_def('bands', cfg['dataset'], default=[], expected_type=Sequence)
     if not bands_requested:
         raise ValueError(f"")
     num_bands = len(bands_requested)

@@ -27,7 +27,8 @@ class Test_AOI(object):
         assert aoi.aoi_id == 'SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB'
         src_count = rasterio.open(aoi.raster_raw_input).count
         assert src_count == aoi.raster.count
-        assert "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif" in str(aoi.raster_name)
+        assert str(Path("tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif")) in \
+               str(aoi.raster_name)
         assert isinstance(aoi.label_gdf, gpd.GeoDataFrame) and not aoi.label_gdf.empty
         assert not aoi.raster_closed
         aoi.close_raster()
@@ -74,7 +75,6 @@ class Test_AOI(object):
         bands = ['R', 'G', 'B']
         row = next(iter(data))
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands)
-        assert str(aoi.raster_name) == aoi.raster_raw_input.replace("${dataset.bands}", "band")
         assert aoi.raster_name.stem == aoi.aoi_id
         assert aoi.raster_bands_request == bands
         aoi.close_raster()
@@ -88,8 +88,6 @@ class Test_AOI(object):
         aoi = AOI(
             raster=row['tif'], label=row['gpkg'], split=row['split'],
             raster_bands_request=bands)
-        assert str(aoi.raster_name) == aoi.raster_raw_input
-        assert aoi.raster_name.stem == aoi.aoi_id
         assert aoi.raster_bands_request == bands
         for band, actual_raster in zip(["R", "G", "B"], aoi.raster_parsed):
             root_raster = "http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/" \
@@ -249,9 +247,9 @@ class Test_AOI(object):
         row = data[0]
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'],
                   write_multiband=True, root_dir="data")
-        assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif").is_file()
+        assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-bands_R-G-B.tif").is_file()
         aoi.close_raster()
-        os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif")
+        os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-bands_R-G-B.tif")
 
     def test_write_multiband_from_single_band_url(self) -> None:
         """Tests the 'write_multiband' method with singleband raster as URL"""
@@ -260,10 +258,10 @@ class Test_AOI(object):
         row = next(iter(data))
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'],
                   write_multiband=True, root_dir="data", download_data=True)
-        assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif").is_file()
-        assert aoi.download_data == True
+        assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-bands_R-G-B.tif").is_file()
+        assert aoi.download_data is True
         aoi.close_raster()
-        for bands in ["RGB", "R", "G", "B"]:
+        for bands in ["bands_R-G-B", "R", "G", "B"]:
             os.remove(f"data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-{bands}.tif")
 
     def test_download_true_not_url(self) -> None:
@@ -342,6 +340,30 @@ class Test_AOI(object):
         with multiprocessing.get_context('spawn').Pool(None) as pool:
             aoi_meta = pool.map_async(map_wrapper, inputs).get()
         print(aoi_meta)
+
+    def test_name_raster(self) -> None:
+        """Tests naming of raster given multiple input type"""
+        inputs = [
+            ("tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-${dataset.bands}.tif",
+             ["R", "G", "B"]),
+            ("http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/spacenet-samples/"
+             "SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-${dataset.bands}.tif", ["R", "G", "B"]),
+            ("tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json", ["red", "green", "blue"]),
+            ("tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif", [1, 2, 3]),
+            ("tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif", [1, 2, 3, 4, 5, 6, 7]),
+            ("tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif", []),
+        ]
+        expected_list = [
+            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-bands_R-G-B.tif",
+            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-bands_R-G-B.tif",
+            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_bands_red-green-blue.tif",
+            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB_bands_1-2-3.tif",
+            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB_7bands.tif",
+            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif",
+        ]
+        for input, expected in zip(inputs, expected_list):
+            actual = AOI.name_raster(root_dir="tests/data/spacenet/", input_path=input[0], bands_list=input[1])
+            assert Path(expected) == actual
 
 
 def map_wrapper(x):
