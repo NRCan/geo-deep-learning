@@ -598,7 +598,7 @@ class AOI(object):
 
         bands_list_str = [str(band) for band in bands_list]
         if len(bands_list_str) <= 4:
-            bands_suffix = f"bands_{'-'.join(bands_list_str)}"
+            bands_suffix = f"{'-'.join(bands_list_str)}"
         else:  # e.g. hyperspectral imagery
             bands_suffix = f"{len(bands_list)}bands"
 

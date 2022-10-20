@@ -247,9 +247,9 @@ class Test_AOI(object):
         row = data[0]
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'],
                   write_multiband=True, root_dir="data")
-        assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-bands_R-G-B.tif").is_file()
+        assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif").is_file()
         aoi.close_raster()
-        os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-bands_R-G-B.tif")
+        os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif")
 
     def test_write_multiband_from_single_band_url(self) -> None:
         """Tests the 'write_multiband' method with singleband raster as URL"""
@@ -258,10 +258,10 @@ class Test_AOI(object):
         row = next(iter(data))
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'],
                   write_multiband=True, root_dir="data", download_data=True)
-        assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-bands_R-G-B.tif").is_file()
+        assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif").is_file()
         assert aoi.download_data is True
         aoi.close_raster()
-        for bands in ["bands_R-G-B", "R", "G", "B"]:
+        for bands in ["R-G-B", "R", "G", "B"]:
             os.remove(f"data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-{bands}.tif")
 
     def test_download_true_not_url(self) -> None:
@@ -354,10 +354,10 @@ class Test_AOI(object):
             ("tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif", []),
         ]
         expected_list = [
-            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-bands_R-G-B.tif",
-            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-bands_R-G-B.tif",
-            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_bands_red-green-blue.tif",
-            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB_bands_1-2-3.tif",
+            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif",
+            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif",
+            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_red-green-blue.tif",
+            "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB_1-2-3.tif",
             "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB_7bands.tif",
             "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif",
         ]
