@@ -120,7 +120,7 @@ class AOI(object):
                  attr_field_filter: str = None,
                  attr_values_filter: Sequence = None,
                  download_data: bool = False,
-                 root_dir: str = "dataset",
+                 root_dir: str = "data",
                  for_multiprocessing: bool = False,
                  raster_stats: bool = False,
                  write_multiband: bool = False):
@@ -585,7 +585,7 @@ class AOI(object):
             raise e
 
     @staticmethod
-    def name_raster(root_dir: Union[str, Path], input_path: Union[str, Path], bands_list: Sequence = []):
+    def name_raster(input_path: Union[str, Path], bands_list: Sequence = [], root_dir: Union[str, Path] = "data"):
         """
         Assigns a name to the AOI's raster considering different input types
         @param root_dir:
@@ -594,8 +594,6 @@ class AOI(object):
         @param input_path: path to input raster file as accepted by GDL (see dataset/README.md)
         @param bands_list: list of requested bands from input raster
         """
-        if root_dir is None or not Path(root_dir).is_dir():
-            raise NotADirectoryError(f"Please provide a valid directory as root directory.\nGot {root_dir}")
         raster_name_parent = Path(root_dir)
 
         bands_list_str = [str(band) for band in bands_list]
