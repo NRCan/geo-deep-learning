@@ -143,7 +143,7 @@ class GeometricScale(object):
     def __call__(self, sample):
         scale_factor = round(random.uniform(range[0], range[-1]), 1)
         output_width = sample['sat_img'].shape[0] * scale_factor
-        output_height =  sample['sat_img'].shape[1] * scale_factor
+        output_height = sample['sat_img'].shape[1] * scale_factor
         sat_img = transform.resize(sample['sat_img'], output_shape=(output_height, output_width))
         map_img = transform.resize(sample['map_img'], output_shape=(output_height, output_width))
         sample['sat_img'] = sat_img
