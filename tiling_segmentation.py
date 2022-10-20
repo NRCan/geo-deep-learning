@@ -128,10 +128,6 @@ class Tiler(object):
         self.bands_requested = self.src_aoi_list[0].raster_bands_request
         self.bands_num = len(self.bands_requested)
 
-        self.tiling_dir_name = self.make_patches_dir_name(patch_size=self.dest_patch_size, bands=self.bands_requested)
-
-        self.tiling_root_dir = self.tiling_root_dir / self.tiling_dir_name
-
         if val_percent and not isinstance(val_percent, int):
             raise TypeError(f'Validation percentage should be an integer.\n'
                             f'Got {val_percent} of type {type(val_percent)}')
@@ -491,8 +487,7 @@ def main(cfg: DictConfig) -> None:
     logging.info(f"Preparing patches \n\tSamples_size: {patch_size} ")
     for index, aoi in tqdm(enumerate(tiler.src_aoi_list), position=0, leave=False):
         try:
-            tiling_root_name = tiler.make_patches_dir_name(patch_size=patch_size, bands=bands_requested)
-            tiling_dir = exp_dir / tiling_root_name / aoi.split.strip() / aoi.aoi_id.strip()
+            tiling_dir = exp_dir / aoi.split.strip() / aoi.aoi_id.strip()
             tiling_dir_img = tiling_dir / 'images'
             tiling_dir_gt = tiling_dir / 'labels' if not tiler.for_inference else None
 

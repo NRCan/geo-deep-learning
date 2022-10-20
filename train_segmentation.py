@@ -554,8 +554,7 @@ def train(cfg: DictConfig) -> None:
                                  validate_path_exists=True)
     logging.info("\nThe tiling directory used '{}'".format(tiling_root_dir))
 
-    tiling_dir_name = Tiler.make_patches_dir_name(samples_size, out_modalities)
-    tiling_dir = tiling_root_dir / experiment_name / tiling_dir_name
+    tiling_dir = tiling_root_dir / experiment_name
 
     # visualization parameters
     vis_at_train = get_key_def('vis_at_train', cfg['visualization'], default=False)
