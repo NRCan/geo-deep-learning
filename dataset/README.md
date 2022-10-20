@@ -33,7 +33,13 @@ A particular order or subset of bands in multi-band file must be used by setting
 
 `bands: [3, 2, 1]`
 
-Here, if the original multi-band raster had BGR bands, geo-deep-learning will reorder these bands to RGB order.
+Here, if the original multi-band raster had BGR bands, geo-deep-learning will reorder these bands to RGB order. 
+
+> [Following the GDAL convention, bands are indexed from 
+> 1.](https://rasterio.readthedocs.io/en/latest/quickstart.html#reading-raster-data)
+
+> It is the user's responsibility to know which bands correspond to each index. When dealing with multi-band source 
+> imagery, Geo-Deep-Learning doesn't "know" which bands are present in the file and in which order. 
 
 The `bands` parameter is set in the [dataset config](../config/dataset/test_ci_segmentation_multiclass.yaml).
 

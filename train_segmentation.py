@@ -550,7 +550,7 @@ def train(cfg: DictConfig) -> None:
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
 
     data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
-    tiling_root_dir = get_key_def('tiling_data_dir', cfg['dataset'], default=data_path, to_path=True,
+    tiling_root_dir = get_key_def('tiling_data_dir', cfg['tiling'], default=data_path, to_path=True,
                                  validate_path_exists=True)
     logging.info("\nThe tiling directory used '{}'".format(tiling_root_dir))
 
