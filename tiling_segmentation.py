@@ -142,21 +142,30 @@ class Tiler(object):
 
         self.debug = debug
 
-        if self.tiling_root_dir.is_dir():
-            logging.warning(f'\nTiles root directory exists: {self.tiling_root_dir}.')
+        self.datasets_dir = []
+        mod_time = datetime.fromtimestamp(self.tiling_root_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
+        if len(list(self.tiling_root_dir.iterdir())) > 0:
             if debug:
+                move_dir = self.tiling_root_dir / mod_time
+                move_dir.mkdir(exist_ok=True)
                 # Move existing data folder with a timestamp suffix.
-                mod_time_suffix = datetime.fromtimestamp(self.tiling_root_dir.stat().st_mtime).strftime('%Y%m%d-%H%M%S')
-                shutil.move(self.tiling_root_dir, self.tiling_root_dir / f'{str(self.tiling_root_dir)}_{mod_time_suffix}')
+                for item in self.tiling_root_dir.glob('*.csv'):
+                    shutil.move(item, move_dir)
+                for dataset in self.datasets:
+                    if (self.tiling_root_dir / dataset).is_dir():
+                        shutil.move(self.tiling_root_dir / dataset, move_dir)
             else:
-                logging.critical(
-                    f'Data path exists: {self.tiling_root_dir}. Remove it or use a different experiment_name.'
+                raise FileExistsError(
+                    f'Patches directory is empty. Won\'t overwrite existing content unless debug=True.\n'
+                    f'Directory: {self.tiling_root_dir}.'
                 )
-                raise FileExistsError(f'Data path exists: {self.tiling_root_dir}. Remove it or rename experiment_name.')
 
-        Path.mkdir(self.tiling_root_dir, parents=True, exist_ok=True)
-        [Path.mkdir(self.tiling_root_dir / dataset, exist_ok=True) for dataset in self.datasets]
-        logging.info(f'Tiles will be written to {self.tiling_root_dir}\n\n')
+        for dataset in self.datasets:
+            dataset_dir = self.tiling_root_dir / dataset
+            dataset_dir.mkdir()
+            self.datasets_dir.append(dataset_dir)
+
+        logging.info(f'Patches will be written to {self.tiling_root_dir}\n\n')
 
     @staticmethod
     def make_patches_dir_name(patch_size, bands):
@@ -201,7 +210,7 @@ class Tiler(object):
                                                     verbose=True)
         # TODO: fix bug with solaris: add possibility to serve metadata as input to tile()
         aoi.raster.driver = "GTiff" if aoi.raster.driver == 'VRT' else aoi.raster.driver
-        raster_bounds_crs = raster_tiler.tile(aoi.raster)
+        raster_bounds_crs = raster_tiler.tile(aoi.raster, dest_fname_base=aoi.raster_name.stem)
         logging.debug(f'Raster bounds crs: {raster_bounds_crs}\n'
                       f'')
 
@@ -214,7 +223,7 @@ class Tiler(object):
                                                     super_verbose=self.debug)
             vec_tler.tile(src=str(aoi.label),
                           tile_bounds=raster_tiler.tile_bounds,
-                          dest_fname_base=Path(aoi.raster_meta['name']).stem,
+                          dest_fname_base=aoi.raster_name.stem,
                           split_multi_geoms=False)
             vec_tler_patch_paths = vec_tler.tile_paths
 
