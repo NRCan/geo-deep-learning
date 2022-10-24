@@ -19,20 +19,21 @@ class TestTiler(object):
         gt = "tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg"
         my_aoi = AOI(raster=img, raster_bands_request=[1, 2, 3], label=gt, split='trn')
         exp_dir = Path("tests/data/massachusetts_buildings_kaggle")
+        tiling_dir = exp_dir / "patches"
         my_tiler = Tiler(
-            experiment_root_dir=exp_dir,
+            tiling_root_dir=tiling_dir,
             src_aoi_list=[my_aoi],
             patch_size=32,
         )
         aoi, raster_patchs_paths, vect_patchs_paths = my_tiler.tiling_per_aoi(
             aoi=my_aoi,
-            out_img_dir=exp_dir / "patches32_123bands" / "images",
-            out_label_dir=exp_dir / "patches32_123bands" / "labels")
+            out_img_dir=tiling_dir / "images",
+            out_label_dir=tiling_dir / "labels")
         assert len(raster_patchs_paths) == 18
         assert len(vect_patchs_paths) == 18
         assert Path(raster_patchs_paths[0]).is_file()
         assert Path(vect_patchs_paths[0]).is_file()
-        shutil.rmtree(exp_dir / "patches32_123bands")
+        shutil.rmtree(tiling_dir)
 
     def test_passes_min_annot(self):
         """Tests annotated percent calculation"""
@@ -40,8 +41,9 @@ class TestTiler(object):
         gt = "tests/data/spacenet/SN7_global_monthly_2020_01_mosaic_L15-0331E-1257N_1327_3160_13_uint8_clipped.gpkg"
         my_aoi = AOI(raster=img, raster_bands_request=[1, 2, 3], label=gt, split='trn')
         exp_dir = Path("tests/data/spacenet")
+        tiling_dir = exp_dir / "patches"
         my_tiler = Tiler(
-            experiment_root_dir=exp_dir,
+            tiling_root_dir=tiling_dir,
             src_aoi_list=[my_aoi],
         )
         for min_annot in range(10):
@@ -52,7 +54,7 @@ class TestTiler(object):
                 assert passes
             else:
                 assert not passes
-        shutil.rmtree(exp_dir / "patches1024_123bands")
+        shutil.rmtree(tiling_dir)
 
     def test_burn_gt_patch(self):
         """Tests burning a label while using the filter for attribute field and values"""
@@ -67,8 +69,9 @@ class TestTiler(object):
             attr_values_filter=[4],
         )
         exp_dir = Path("tests/data/new_brunswick_aerial")
+        tiling_dir = exp_dir / "patches"
         my_tiler = Tiler(
-            experiment_root_dir=exp_dir,
+            tiling_root_dir=tiling_dir,
             src_aoi_list=[my_aoi],
         )
         gt_filtered = AOI.filter_gdf_by_attribute(
@@ -78,7 +81,7 @@ class TestTiler(object):
         )
         for continous_test, out_vals in zip([True, False], [[0, 1], [0, 4]]):
             out_vals_str = '-'.join([str(item) for item in out_vals])
-            gt_patch_mask = exp_dir / "patches1024_123bands" / f"BakerLake_2017_clipped_mask_{out_vals_str}.tif"
+            gt_patch_mask = tiling_dir / f"BakerLake_2017_clipped_mask_{out_vals_str}.tif"
             my_tiler.burn_gt_patch(
                 aoi=my_aoi,
                 img_patch=img,
@@ -90,7 +93,7 @@ class TestTiler(object):
             assert Path(gt_patch_mask).is_file()
             label_np = rasterio.open(gt_patch_mask).read()
             assert list(np.unique(label_np)) == out_vals
-        shutil.rmtree(exp_dir / "patches1024_123bands")
+        shutil.rmtree(tiling_dir)
 
 
 class TestTiling(object):
@@ -117,9 +120,9 @@ class TestTiling(object):
         tiling(cfg)
         # expected number of patches is constant due to random seed set in tiling script
         out_labels = [
-            (Path(f"{data_dir}/{proj}/patches32_123bands/trn/22978945_15_uint8_clipped/labels_burned"), 16),
-            (Path(f"{data_dir}/{proj}/patches32_123bands/val/22978945_15_uint8_clipped/labels_burned"), 2),
-            (Path(f"{data_dir}/{proj}/patches32_123bands/tst/23429155_15_uint8_clipped/labels_burned"), 9),
+            (Path(f"{data_dir}/{proj}/trn/22978945_15_uint8_clipped/labels_burned"), 16),
+            (Path(f"{data_dir}/{proj}/val/22978945_15_uint8_clipped/labels_burned"), 2),
+            (Path(f"{data_dir}/{proj}/tst/23429155_15_uint8_clipped/labels_burned"), 9),
         ]
         for dataset, out in zip(["trn", "val", "tst"], out_labels):
             number_labels_actual = len(list(out[0].iterdir()))
@@ -163,7 +166,7 @@ class TestTiling(object):
             }
             cfg = DictConfig(cfg)
             tiling(cfg)
-            out_labels_trn = list(Path(f"{data_dir}/{proj_name}/patches32_RGBbands/trn").glob("*/labels_burned"))
+            out_labels_trn = list(Path(f"{data_dir}/{proj_name}/trn").glob("*/labels_burned"))
             for out_lbls_aoi_trn in out_labels_trn:
                 assert out_lbls_aoi_trn.is_dir()
                 aoi_trn_parts = out_lbls_aoi_trn.parts
@@ -211,13 +214,13 @@ class TestTiling(object):
             }
             cfg = DictConfig(cfg)
             tiling(cfg)
-            out_labels = list(Path(f"{data_dir}/{proj_name}/patches32_RGBbands").glob("**/labels_burned/*"))
+            out_labels = list(Path(f"{data_dir}/{proj_name}").glob("*/*/labels_burned/*"))
             for out_lbl in out_labels:
                 assert out_lbl.is_file()
                 out_lbl_rio = rasterio.open(out_lbl)
                 out_lbl_np = out_lbl_rio.read()
                 actual_annot_percent = out_lbl_np[out_lbl_np > 0].sum() / out_lbl_np.size * 100
-                dataset = out_lbl.parts[4]
+                dataset = out_lbl.parts[3]
                 if not dataset == 'tst':
                     assert dataset == 'trn' or dataset == 'val'
                     assert actual_annot_percent >= expected_min_annot * 0.99  # accept some tolerance
@@ -250,9 +253,9 @@ class TestTiling(object):
         cfg = DictConfig(cfg)
         tiling(cfg)
         out_labels = [
-            (Path(f"{data_dir}/{proj}/patches32_123bands/trn/23322E759967N_clipped_1m_1of2/labels_burned"), (80, 95)),
-            (Path(f"{data_dir}/{proj}/patches32_123bands/val/23322E759967N_clipped_1m_1of2/labels_burned"), (5, 20)),
-            (Path(f"{data_dir}/{proj}/patches32_123bands/tst/23322E759967N_clipped_1m_2of2/labels_burned"), (170, 190)),
+            (Path(f"{data_dir}/{proj}/trn/23322E759967N_clipped_1m_1of2/labels_burned"), (80, 95)),
+            (Path(f"{data_dir}/{proj}/val/23322E759967N_clipped_1m_1of2/labels_burned"), (5, 20)),
+            (Path(f"{data_dir}/{proj}/tst/23322E759967N_clipped_1m_2of2/labels_burned"), (170, 190)),
         ]
         for labels_burned_dir, lbls_nb in out_labels:
             # exact number may vary because of random sort between "trn" and "val"
@@ -280,8 +283,8 @@ class TestTiling(object):
         cfg = DictConfig(cfg)
         tiling(cfg)
         out_patches = [
-            (Path("data/patches/test_inference/patches32_123bands/trn/23322E759967N_clipped_1m_1of2/images"), 99),
-            (Path("data/patches/test_inference/patches32_123bands/inference/23322E759967N_clipped_1m_2of2/images"), 176),
+            (Path("data/patches/test_inference/trn/23322E759967N_clipped_1m_1of2/images"), 99),
+            (Path("data/patches/test_inference/inference/23322E759967N_clipped_1m_2of2/images"), 176),
         ]
         for out_images_dir, num_patches in out_patches:
             assert out_images_dir.is_dir()

@@ -56,7 +56,7 @@ def annot_percent(img_patch: Union[str, Path, rasterio.DatasetReader],
 
 class Tiler(object):
     def __init__(self,
-                 experiment_root_dir: Union[Path, str],
+                 tiling_root_dir: Union[Path, str],
                  src_aoi_list: List = None,
                  patch_size: int = 1024,
                  patch_stride: int = None,
@@ -64,7 +64,7 @@ class Tiler(object):
                  val_percent: int = None,
                  debug: bool = False):
         """
-        @param experiment_root_dir: pathlib.Path or str
+        @param tiling_root_dir: pathlib.Path or str
             Root directory under which all patches will be written (in subfolders)
         @param src_aoi_list: list
             List of source data to be patched. Must be instances of AOI class.
@@ -85,12 +85,13 @@ class Tiler(object):
         if src_aoi_list and not isinstance(src_aoi_list, List):
             raise TypeError('Input data should be a List')
         self.src_aoi_list = src_aoi_list
-        if not isinstance(experiment_root_dir, (Path, str)):
+        if not isinstance(tiling_root_dir, (Path, str)):
             raise TypeError(f'Tiles root directory should be a of class pathlib.Path or a string.\n'
-                            f'Got {experiment_root_dir} of type {type(experiment_root_dir)}')
-        if not Path(experiment_root_dir).is_dir():
-            raise FileNotFoundError(f'{experiment_root_dir} is not a valid directory')
-        self.tiling_root_dir = Path(experiment_root_dir)
+                            f'Got {tiling_root_dir} of type {type(tiling_root_dir)}')
+        if not Path(tiling_root_dir).parent.is_dir():
+            raise FileNotFoundError(f'{Path(tiling_root_dir).parent} is not a valid directory')
+        self.tiling_root_dir = Path(tiling_root_dir)
+        self.tiling_root_dir.mkdir(exist_ok=True)
 
         self.for_inference = False
         splits_set = set([aoi.split for aoi in src_aoi_list])
@@ -208,7 +209,8 @@ class Tiler(object):
                                                     src_tile_size=(self.dest_patch_size, self.dest_patch_size),
                                                     alpha=False,
                                                     verbose=True)
-        # TODO: fix bug with solaris: add possibility to serve metadata as input to tile()
+        # FIXME: workaround for successful writing of patches. 'VRT' driver cannot be assigned to written files. Error:
+        # rasterio.errors.RasterioIOError: Read or write failed. Writing through VRTSourcedRasterBand is not supported.
         aoi.raster.driver = "GTiff" if aoi.raster.driver == 'VRT' else aoi.raster.driver
         raster_bounds_crs = raster_tiler.tile(aoi.raster, dest_fname_base=aoi.raster_name.stem)
         logging.debug(f'Raster bounds crs: {raster_bounds_crs}\n'
@@ -483,7 +485,7 @@ def main(cfg: DictConfig) -> None:
         for_multiprocessing=parallel,
     )
 
-    tiler = Tiler(experiment_root_dir=exp_dir,
+    tiler = Tiler(tiling_root_dir=exp_dir,
                   src_aoi_list=src_data_list,
                   patch_size=patch_size,
                   min_annot_perc=min_annot_perc,

@@ -74,9 +74,9 @@ def create_dataloader(samples_folder: Path,
     """
     if not samples_folder.is_dir():
         raise FileNotFoundError(f'Could not locate: {samples_folder}')
-    experiment_name = samples_folder.parent.stem
-    if not len([f for f in samples_folder.glob('**/*.csv')]) >= 1:
-        raise FileNotFoundError(f"Couldn't locate text file containing list of training data in {samples_folder}")
+    experiment_name = samples_folder.stem
+    if not len([f for f in samples_folder.glob('*.csv')]) >= 1:
+        raise FileNotFoundError(f"Couldn't locate csv file(s) containing list of training data in {samples_folder}")
     num_samples, samples_weight = get_num_samples(samples_path=samples_folder,
                                                   params=cfg,
                                                   min_annot_perc=min_annot_perc,
@@ -494,8 +494,8 @@ def train(cfg: DictConfig) -> None:
     # MANDATORY PARAMETERS
     class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
     num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
-    out_modalities = get_key_def('bands', cfg['dataset'], expected_type=Sequence)
-    num_bands = len(out_modalities)
+    modalities = get_key_def('bands', cfg['dataset'], expected_type=Sequence)
+    num_bands = len(modalities)
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
     num_epochs = get_key_def('max_epochs', cfg['training'], expected_type=int)
@@ -724,7 +724,8 @@ def train(cfg: DictConfig) -> None:
             if filename.is_file():
                 filename.unlink()
             val_loss_string = f'{val_loss:.2f}'.replace('.', '-')
-            checkpoint_tag = f'{experiment_name}_{num_classes}_{"_".join(modalities)}_{val_loss_string}.pth.tar'
+            modalities_str = [str(band) for band in modalities]
+            checkpoint_tag = f'{experiment_name}_{num_classes}_{"_".join(modalities_str)}_{val_loss_string}.pth.tar'
             filename = output_path.joinpath(checkpoint_tag)
             checkpoint_stack.append(checkpoint_tag)
             best_loss = val_loss
