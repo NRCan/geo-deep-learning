@@ -697,7 +697,8 @@ def train(cfg: DictConfig) -> None:
             if filename.is_file():
                 filename.unlink()
             val_loss_string = f'{val_loss:.2f}'.replace('.', '-')
-            checkpoint_tag = f'{experiment_name}_{num_classes}_{"_".join(modalities)}_{val_loss_string}.pth.tar'
+            modalities_str = [str(band) for band in modalities]
+            checkpoint_tag = f'{experiment_name}_{num_classes}_{"_".join(modalities_str)}_{val_loss_string}.pth.tar'
             filename = output_path.joinpath(checkpoint_tag)
             checkpoint_stack.append(checkpoint_tag)
             best_loss = val_loss
