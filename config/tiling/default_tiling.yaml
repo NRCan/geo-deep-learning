@@ -6,3 +6,4 @@ tiling:
   overlap_size:
   min_annot_perc: 1
   use_stratification: False
+  clahe_clip_limit: 0.1

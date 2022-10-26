@@ -1,4 +1,5 @@
 import shutil
+from numbers import Number
 from typing import Sequence
 
 import numpy as np
@@ -361,6 +362,8 @@ def main(cfg: DictConfig) -> None:
             raise FileExistsError(f'Data path exists: {samples_dir}. Remove it or use a different experiment_name.')
     Path.mkdir(samples_dir, exist_ok=False)  # TODO: what if we want to append samples to existing hdf5?
 
+    clahe_clip_limit = get_key_def('clahe_clip_limit', cfg['tiling'], expected_type=Number, default=0.)
+
     # LOGGING PARAMETERS  TODO see logging yaml
     experiment_name = cfg.general.project_name
     # mlflow_uri = get_key_def('mlflow_uri', params['global'], default="./mlruns")
@@ -399,7 +402,8 @@ def main(cfg: DictConfig) -> None:
         csv_path=csv_file,
         bands_requested=bands_requested,
         attr_field_filter=attribute_field,
-        attr_values_filter=attr_vals
+        attr_values_filter=attr_vals,
+        equalize_clahe_clip_limit=clahe_clip_limit,
     )
 
     # IF DEBUG IS ACTIVATE

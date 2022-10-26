@@ -365,6 +365,24 @@ class Test_AOI(object):
             actual = AOI.name_raster(root_dir="tests/data/spacenet/", input_path=input[0], bands_list=input[1])
             assert Path(expected) == actual
 
+    def test_equalize_hist_raster(self):
+        """Test equalize input raster with CLAHE transform"""
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
+        row = data[0]
+        aoi = AOI(
+            raster=row['tif'],
+            label=None,
+            split=row['split'],
+            raster_bands_request=[1, 2, 3]
+        )
+        no_equ_arr = aoi.raster.read()
+        equ_fp = aoi.equalize_hist_raster(clip_limit=0.5)
+        equ_arr = rasterio.open(equ_fp).read()
+        assert no_equ_arr.shape == equ_arr.shape
+        assert 50 < equ_arr.mean() < 100
+        assert no_equ_arr.mean() < equ_arr.mean()
+
 
 def map_wrapper(x):
     """For multi-threading"""
