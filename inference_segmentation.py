@@ -257,7 +257,16 @@ def main(params):
     except (KeyError, AssertionError) as e:
         logging.warning(f"\nModel checkpoint is not compatible with pytorch-ligthning's load_from_checkpoint method:\n"
                         f"Key error: {e}\n")
-        raise e
+        try:
+            logging.warning(
+                f"\nTry to convert model checkpoint to be compatible with pytorch-ligthning's load_from_checkpoint method"
+            )
+            checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
+            model = InferenceTask.load_from_checkpoint(checkpoint)
+        except (KeyError, AssertionError) as e:
+            logging.warning(f"\nModel checkpoint fail to be compatible with pytorch-ligthning's load_from_checkpoint method:\n"
+                        f"Key error: {e}\n")
+            raise e
 
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=model.hparams)
 
