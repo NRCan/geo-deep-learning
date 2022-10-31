@@ -4,19 +4,30 @@ from numbers import Number
 from pathlib import Path
 import shutil
 from typing import Union, Sequence, List
+import os
+from os.path import join, split
 
+import shapely.geometry
+from osgeo import gdal, gdalconst
 import geopandas as gpd
 import matplotlib.pyplot
 import numpy as np
 from omegaconf import DictConfig, open_dict, ListConfig
 import rasterio
 from shapely.geometry import box
+from torch.utils.data import DataLoader
+from torchgeo.samplers import GridGeoSampler
+from torchgeo.datasets import stack_samples
+from shapely.geometry import mapping, shape
+import fiona
+
 from solaris import tile, vector
 from solaris.utils.core import _check_gdf_load, _check_rasterio_im_load
-from tqdm import tqdm
 
+from tqdm import tqdm
 from dataset.aoi import aois_from_csv, AOI
 from utils.utils import get_key_def, get_git_hash
+from utils.utils import define_geo_dataset, define_vector_dataset
 from utils.verifications import validate_raster
 # Set the logging file
 from utils import utils
@@ -184,6 +195,113 @@ class Tiler(object):
         dataset_file_name = f'{exp_name}{sampling_str}_{dataset}.csv'
         return dataset_file_name, sampling_str
 
+    @staticmethod
+    def _save_vrt_read(aoi):
+        """
+        Save the rasterio DatasetReader class as a GeoTIFF to the temporary folder
+        :param rasterio_ds: DataserReader object of the rasterio.
+        :return: a path to the temporary saved rasterio DatasetReader class as a GeoTIFF.
+        """
+        os.makedirs('temp', exist_ok=True)
+
+        # Read the geo transformation parameters and crs:
+        geotransform = aoi.raster.transform.to_gdal()
+        crs = aoi.raster.crs.wkt
+        out_filename = os.path.join('temp', aoi.raster_name.stem + '_temp.tif')
+        arr = aoi.raster.read()
+
+        # Save as GeoTIFF:
+        drv = gdal.GetDriverByName("GTiff")
+        gdal_type = gdal.GDT_Byte if arr.dtype == np.uint8 else arr.GDT_UInt16
+        dst_ds = drv.Create(out_filename, arr.shape[2], arr.shape[1], arr.shape[0], gdal_type, options=["COMPRESS=DEFLATE"])
+
+        for band in range(arr.shape[0]):
+            dst_ds.GetRasterBand(band + 1).WriteArray(arr[band, :, :])
+
+        dst_ds.SetGeoTransform(geotransform)
+        dst_ds.SetProjection(crs)
+        dst_ds.FlushCache()
+        dst_ds = None
+
+        return out_filename
+
+    @staticmethod
+    def _save_tile(sample, dst, window, crs):
+        """
+        Save individual patch as a geotiff
+        :param sample: numpy array in format: (h, w, b)
+        :param dst: destination file path
+        :param window: boundingbox coordinates of the patch
+        :param crs: patch's crs
+        """
+        xmin, ymax, xmax, ymin = window
+        n_rows, n_cols, n_bands = sample.shape[0], sample.shape[1], sample.shape[2]
+        xres = (xmax - xmin) / float(n_cols)
+        yres = (ymax - ymin) / float(n_rows)
+        geotransform = (xmin, xres, 0, ymax, 0, -yres)
+
+        drv = gdal.GetDriverByName("GTiff")
+        gdal_type = gdal.GDT_Byte if sample.dtype == np.uint8 else gdal.GDT_UInt16
+        dst_ds = drv.Create(dst, n_cols, n_rows, n_bands, gdal_type, options=["COMPRESS=DEFLATE"])
+
+        for band in range(n_bands):
+            dst_ds.GetRasterBand(band + 1).WriteArray(sample[:, :, band])
+
+        dst_ds.SetGeoTransform(geotransform)
+        dst_ds.SetProjection(crs)
+
+        dst_ds.FlushCache()
+        dst_ds = None
+
+    @staticmethod
+    def _parse_torchgeo_batch(batch):
+        # Parse the batch
+        # Get the image as an array:
+        sample_image = batch['image']
+        sample_image = np.asarray(sample_image).squeeze(0).transpose(1, 2, 0)
+        # sample_label = batch['mask']
+        # sample_label = np.asarray(sample_label).transpose((1, 2, 0))
+
+        # Get the CRS and the bounding box coordinates:
+        sample_crs = batch['crs'][0].wkt
+        window = ([batch['bbox'][0][0], batch['bbox'][0][3], batch['bbox'][0][1], batch['bbox'][0][2]])
+
+        return sample_image, sample_crs, window
+
+    @staticmethod
+    def _define_output_name(aoi, output_folder, window):
+        out_name = aoi.raster_name.stem + "_" + "_".join([str(x).replace(".", "_") for x in window[:2]]) + ".tif"
+        return join(output_folder, out_name)
+
+    def clip_vector_by_bbox(self, aoi, bboxes, out_label_dir):
+        """
+        Clip vector based on the raster's bounding boxes.
+        Args:
+            aoi: AOI object.
+
+        Returns:
+
+        """
+        # Read the vector dataset:
+        fiona_ds = fiona.open(aoi.label)
+        schema = fiona_ds.schema.copy()
+
+        vector_patch_paths = []
+        os.makedirs(out_label_dir, exist_ok=True)
+
+        # Go through all the boxes and clip the input vector:
+        for bbox_ext in bboxes:
+            clip_poly = shapely.geometry.box(*bbox_ext, ccw=True)
+
+
+            clipped = None
+
+            # Generate vector patch name:
+            output_vector_name = self._define_output_name(aoi, out_label_dir, bbox_ext).replace(".tif", ".geojson")
+            clipped.to_file(output_vector_name, schema=schema, driver='GeoJSON')
+
+        return vector_patch_paths
+
     def tiling_per_aoi(
             self,
             aoi: AOI,
@@ -205,34 +323,77 @@ class Tiler(object):
         if not aoi.raster:  # in case of multiprocessing
             aoi.raster_open()
 
-        raster_tiler = tile.raster_tile.RasterTiler(dest_dir=out_img_dir,
-                                                    src_tile_size=(self.dest_patch_size, self.dest_patch_size),
-                                                    alpha=False,
-                                                    verbose=True)
-        # FIXME: workaround for successful writing of patches. 'VRT' driver cannot be assigned to written files. Error:
-        # rasterio.errors.RasterioIOError: Read or write failed. Writing through VRTSourcedRasterBand is not supported.
-        aoi.raster.driver = "GTiff" if aoi.raster.driver == 'VRT' else aoi.raster.driver
-        raster_bounds_crs = raster_tiler.tile(aoi.raster, dest_fname_base=aoi.raster_name.stem)
-        logging.debug(f'Raster bounds crs: {raster_bounds_crs}\n'
-                      f'')
+        # Save raster as a temporary geotiff:
+        saved_geotiff = self._save_vrt_read(aoi)
 
-        vec_tler_patch_paths = [None] * len(raster_tiler.tile_paths)
-        if not self.for_inference:
-            dest_crs = raster_tiler.dest_crs if raster_tiler.dest_crs.is_epsg_code else None
-            vec_tler = tile.vector_tile.VectorTiler(dest_dir=out_label_dir,
-                                                    dest_crs=dest_crs,
-                                                    verbose=True,
-                                                    super_verbose=self.debug)
-            vec_tler.tile(src=str(aoi.label),
-                          tile_bounds=raster_tiler.tile_bounds,
-                          dest_fname_base=aoi.raster_name.stem,
-                          split_multi_geoms=False)
-            vec_tler_patch_paths = vec_tler.tile_paths
+        # # Initialize custom TorchGeo dataset classes:
+        geo_dataset_class = define_geo_dataset(saved_geotiff)
+        geo_dataset = geo_dataset_class(os.path.split(saved_geotiff)[0])
 
-        aoi.close_raster()  # for multiprocessing
-        aoi.raster = None
+        vector_dataset_class = define_vector_dataset(aoi.label)
+        vector_dataset = vector_dataset_class(os.path.split(aoi.label)[0])
 
-        return aoi, raster_tiler.tile_paths, vec_tler_patch_paths
+        # Combine raster and vector datasets with magic TorchGeo operation:
+        resulting_dataset = geo_dataset & vector_dataset
+
+        # Initialize a sampler and a dataloader:
+        # FIXME: Implement overlap:
+        sampler = GridGeoSampler(resulting_dataset, size=self.dest_patch_size, stride=self.dest_patch_size)
+        dataloader = DataLoader(resulting_dataset, sampler=sampler, collate_fn=stack_samples)
+
+        assert len(dataloader) != 0, "The dataloader is empty. Check input image and vector datasets."
+
+        # Iterate over the dataloader and save resulting raster patches:
+        bboxes = []
+        raster_tile_paths = []
+        os.makedirs(out_img_dir, exist_ok=True)
+
+        # Iterate over the dataloader and save resulting raster patches:
+        for batch in dataloader:
+            # Parse the TorchGeo batch:
+            sample_image, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
+            bboxes.append(sample_window)
+
+            # Define the output patch filename:
+            dst_img = self._define_output_name(aoi, out_img_dir, sample_window)
+            raster_tile_paths.append(dst_img)
+
+            # Save the patch as a GeoTIFF:
+            self._save_tile(sample_image, dst_img, sample_window, sample_crs)
+
+        # Clip vector labels having bounding boxes from the rester tiles:
+        vector_tile_paths = self.clip_vector_by_bbox(aoi, bboxes, out_label_dir)
+
+        return aoi, raster_tile_paths, vector_tile_paths
+
+        # raster_tiler = tile.raster_tile.RasterTiler(dest_dir=out_img_dir,
+        #                                             src_tile_size=(self.dest_patch_size, self.dest_patch_size),
+        #                                             alpha=False,
+        #                                             verbose=True)
+        # # FIXME: workaround for successful writing of patches. 'VRT' driver cannot be assigned to written files. Error:
+        # # rasterio.errors.RasterioIOError: Read or write failed. Writing through VRTSourcedRasterBand is not supported.
+        # aoi.raster.driver = "GTiff" if aoi.raster.driver == 'VRT' else aoi.raster.driver
+        # raster_bounds_crs = raster_tiler.tile(aoi.raster, dest_fname_base=aoi.raster_name.stem)
+        # logging.debug(f'Raster bounds crs: {raster_bounds_crs}\n'
+        #               f'')
+        #
+        # vec_tler_patch_paths = [None] * len(raster_tiler.tile_paths)
+        # if not self.for_inference:
+        #     dest_crs = raster_tiler.dest_crs if raster_tiler.dest_crs.is_epsg_code else None
+        #     vec_tler = tile.vector_tile.VectorTiler(dest_dir=out_label_dir,
+        #                                             dest_crs=dest_crs,
+        #                                             verbose=True,
+        #                                             super_verbose=self.debug)
+        #     vec_tler.tile(src=str(aoi.label),
+        #                   tile_bounds=raster_tiler.tile_bounds,
+        #                   dest_fname_base=aoi.raster_name.stem,
+        #                   split_multi_geoms=False)
+        #     vec_tler_patch_paths = vec_tler.tile_paths
+        #
+        # aoi.close_raster()  # for multiprocessing
+        # aoi.raster = None
+        #
+        # return aoi, raster_tiler.tile_paths, vec_tler_patch_paths
 
     def passes_min_annot(self,
                          img_patch: Union[str, Path],
