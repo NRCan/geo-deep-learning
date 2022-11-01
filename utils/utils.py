@@ -15,6 +15,7 @@ import rich.tree
 from omegaconf import DictConfig, OmegaConf, ListConfig, open_dict
 # import torch should be first. Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2575
 import torch
+from ruamel_yaml.comments import CommentedSeq
 from skimage.exposure.exposure import intensity_range
 from torch import Tensor
 from torch.hub import load_state_dict_from_url, get_dir
@@ -566,7 +567,7 @@ def override_model_params_from_checkpoint(
     classes = get_key_def('classes_dict', params['dataset'], expected_type=(dict, DictConfig))
     # TODO: remove if no old models are used in production.
     single_class_mode = get_key_def('state_dict_single_mode', params['inference'], expected_type=bool)
-    clip_limit = get_key_def('enhance_clip_limit', params['inference'], expected_type=float)
+    clip_limit = get_key_def('enhance_clip_limit', params['inference'], expected_type=int)
     normalization = get_key_def('normalization', params['augmentation'], expected_type=DictConfig)
     scale_data = get_key_def('scale_data', params['augmentation'], expected_type=ListConfig)
 
@@ -576,11 +577,11 @@ def override_model_params_from_checkpoint(
     if "augmentation" in checkpoint_params:
         normalization_ckpt = get_key_def('normalization', checkpoint_params['augmentation'], expected_type=(dict, DictConfig))
         # Workaround for "omegaconf.errors.UnsupportedValueType: Value 'CommentedSeq' is not a supported primitive type"
-        if not set(normalization_ckpt.values()) == {None}:
+        if normalization_ckpt is not None and isinstance(list(normalization_ckpt.values())[0], CommentedSeq):
             normalization_ckpt = {k: [float(val) for val in v] for k, v in normalization_ckpt.items()}
         scale_data_ckpt = get_key_def('scale_data', checkpoint_params['augmentation'], expected_type=(List, ListConfig))
         scale_data_ckpt = list(scale_data_ckpt)
-        clip_limit_ckpt = get_key_def('clahe_enhance_clip_limit', checkpoint_params['augmentation'], expected_type=float)
+        clip_limit_ckpt = get_key_def('clahe_enhance_clip_limit', checkpoint_params['augmentation'], expected_type=int)
     else:
         normalization_ckpt = normalization
         scale_data_ckpt = scale_data
