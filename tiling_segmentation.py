@@ -8,7 +8,7 @@ import os
 from os.path import join, split
 
 import shapely.geometry
-from osgeo import gdal, gdalconst
+from osgeo import gdal, gdalconst, ogr
 import geopandas as gpd
 import matplotlib.pyplot
 import numpy as np
@@ -166,6 +166,15 @@ class Tiler(object):
                 for dataset in self.datasets:
                     if (self.tiling_root_dir / dataset).is_dir():
                         shutil.move(self.tiling_root_dir / dataset, move_dir)
+                        # result = 0
+                        # while result == 0:
+                        #     try:
+                        #         shutil.move(self.tiling_root_dir / dataset, move_dir)
+                        #         result = 1
+                        #     except:
+                        #         input(f"{self.tiling_root_dir / dataset} cannot be moved. \n "
+                        #               f"To continue, release the folder and press Enter to continue...")
+
             else:
                 raise FileExistsError(
                     f'Patches directory is empty. Won\'t overwrite existing content unless debug=True.\n'
@@ -235,7 +244,7 @@ class Tiler(object):
         :param crs: patch's crs
         """
         xmin, ymax, xmax, ymin = window
-        n_rows, n_cols, n_bands = sample.shape[0], sample.shape[1], sample.shape[2]
+        n_rows, n_cols, n_bands = sample.shape[1], sample.shape[2], sample.shape[0]
         xres = (xmax - xmin) / float(n_cols)
         yres = (ymax - ymin) / float(n_rows)
         geotransform = (xmin, xres, 0, ymax, 0, -yres)
@@ -245,12 +254,11 @@ class Tiler(object):
         dst_ds = drv.Create(dst, n_cols, n_rows, n_bands, gdal_type, options=["COMPRESS=DEFLATE"])
 
         for band in range(n_bands):
-            dst_ds.GetRasterBand(band + 1).WriteArray(sample[:, :, band])
+            dst_ds.GetRasterBand(band + 1).WriteArray(sample[band, :, :])
 
         dst_ds.SetGeoTransform(geotransform)
         dst_ds.SetProjection(crs)
 
-        dst_ds.FlushCache()
         dst_ds = None
 
     @staticmethod
@@ -258,9 +266,7 @@ class Tiler(object):
         # Parse the batch
         # Get the image as an array:
         sample_image = batch['image']
-        sample_image = np.asarray(sample_image).squeeze(0).transpose(1, 2, 0)
-        # sample_label = batch['mask']
-        # sample_label = np.asarray(sample_label).transpose((1, 2, 0))
+        sample_image = np.asarray(sample_image).squeeze(0)
 
         # Get the CRS and the bounding box coordinates:
         sample_crs = batch['crs'][0].wkt
@@ -273,34 +279,43 @@ class Tiler(object):
         out_name = aoi.raster_name.stem + "_" + "_".join([str(x).replace(".", "_") for x in window[:2]]) + ".tif"
         return join(output_folder, out_name)
 
-    def clip_vector_by_bbox(self, aoi, bboxes, out_label_dir):
-        """
-        Clip vector based on the raster's bounding boxes.
-        Args:
-            aoi: AOI object.
+    def _clip_vector_by_bbox(self, ds_layer, aoi, bbox, out_label_dir):
+        # Create ring
+        poly_box = ogr.Geometry(ogr.wkbLinearRing)
+        poly_box.AddPoint(bbox[0], bbox[1])
+        poly_box.AddPoint(bbox[2], bbox[1])
+        poly_box.AddPoint(bbox[2], bbox[3])
+        poly_box.AddPoint(bbox[0], bbox[3])
+        poly_box.AddPoint(bbox[0], bbox[1])
 
-        Returns:
+        # Create polygon
+        poly = ogr.Geometry(ogr.wkbPolygon)
+        poly.AddGeometry(poly_box)
 
-        """
-        # Read the vector dataset:
-        fiona_ds = fiona.open(aoi.label)
-        schema = fiona_ds.schema.copy()
+        # Create a vector bbox in memory:
+        mem_driver = ogr.GetDriverByName('MEMORY')
+        mem_ds = mem_driver.CreateDataSource('memdata')
+        mem_layer = mem_ds.CreateLayer('0', geom_type=ogr.wkbPolygon)
+        feature_def = mem_layer.GetLayerDefn()
+        out_feature = ogr.Feature(feature_def)
+        # Set new geometry
+        out_feature.SetGeometry(poly)
+        # Add new feature to output Layer
+        mem_layer.CreateFeature(out_feature)
 
-        vector_patch_paths = []
-        os.makedirs(out_label_dir, exist_ok=True)
+        # Clip vector file and save it as a GeoJSON:
+        driver_name = "GeoJSON"
+        output_vector_name = self._define_output_name(aoi, out_label_dir, bbox).replace(".tif", ".geojson")
+        driver = ogr.GetDriverByName(driver_name)
+        out_ds = driver.CreateDataSource(output_vector_name)
+        out_layer = out_ds.CreateLayer('0', ds_layer.GetSpatialRef(), geom_type=ogr.wkbMultiPolygon)
+        ogr.Layer.Clip(ds_layer, mem_layer, out_layer)
 
-        # Go through all the boxes and clip the input vector:
-        for bbox_ext in bboxes:
-            clip_poly = shapely.geometry.box(*bbox_ext, ccw=True)
+        # Save and close datasources:
+        out_ds = None
+        mem_ds = None
 
-
-            clipped = None
-
-            # Generate vector patch name:
-            output_vector_name = self._define_output_name(aoi, out_label_dir, bbox_ext).replace(".tif", ".geojson")
-            clipped.to_file(output_vector_name, schema=schema, driver='GeoJSON')
-
-        return vector_patch_paths
+        return output_vector_name
 
     def tiling_per_aoi(
             self,
@@ -330,11 +345,12 @@ class Tiler(object):
         geo_dataset_class = define_geo_dataset(saved_geotiff)
         geo_dataset = geo_dataset_class(os.path.split(saved_geotiff)[0])
 
-        vector_dataset_class = define_vector_dataset(aoi.label)
-        vector_dataset = vector_dataset_class(os.path.split(aoi.label)[0])
+        # vector_dataset_class = define_vector_dataset(aoi.label)
+        # vector_dataset = vector_dataset_class(os.path.split(aoi.label)[0])
 
         # Combine raster and vector datasets with magic TorchGeo operation:
-        resulting_dataset = geo_dataset & vector_dataset
+        # resulting_dataset = geo_dataset & vector_dataset
+        resulting_dataset = geo_dataset
 
         # Initialize a sampler and a dataloader:
         # FIXME: Implement overlap:
@@ -343,10 +359,18 @@ class Tiler(object):
 
         assert len(dataloader) != 0, "The dataloader is empty. Check input image and vector datasets."
 
+        # Open vector datasource if not in inference mode:
+        if not self.for_inference:
+            ds = ogr.Open(str(aoi.label))
+            assert ds is not None, f"Incorrect vector label file was provided: {aoi.label}"
+            src_layer = ds.GetLayer()
+
         # Iterate over the dataloader and save resulting raster patches:
         bboxes = []
         raster_tile_paths = []
+        vector_tile_paths = []
         os.makedirs(out_img_dir, exist_ok=True)
+        os.makedirs(out_label_dir, exist_ok=True)
 
         # Iterate over the dataloader and save resulting raster patches:
         for batch in dataloader:
@@ -361,8 +385,12 @@ class Tiler(object):
             # Save the patch as a GeoTIFF:
             self._save_tile(sample_image, dst_img, sample_window, sample_crs)
 
-        # Clip vector labels having bounding boxes from the rester tiles:
-        vector_tile_paths = self.clip_vector_by_bbox(aoi, bboxes, out_label_dir)
+            if not self.for_inference:
+                # Clip vector labels having bounding boxes from the rester tiles:
+                vector_tile_path = self._clip_vector_by_bbox(src_layer, aoi, sample_window, out_label_dir)
+                vector_tile_paths.append(vector_tile_path)
+
+        ds = None
 
         return aoi, raster_tile_paths, vector_tile_paths
 
