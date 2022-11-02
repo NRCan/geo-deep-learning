@@ -416,6 +416,8 @@ def main(params):
 
     if outpath.is_file():
         logging.debug(f"\nDeleting temporary .dat file {tempfile}...")
+        fp.flush()
+        del fp
         os.remove(tempfile)
 
     return outpath, pred_img
