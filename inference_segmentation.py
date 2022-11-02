@@ -31,7 +31,7 @@ from models.model_choice import define_model_architecture
 from utils.geoutils import create_new_raster_from_base
 from utils.logger import get_logger
 from utils.utils import _window_2D, get_device_ids, get_key_def, set_device, override_model_params_from_checkpoint, \
-    checkpoint_converter, read_checkpoint, extension_remover, class_from_heatmap, stretch_heatmap, ckpt_is_compatible
+    checkpoint_converter, extension_remover, class_from_heatmap, stretch_heatmap
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -91,7 +91,7 @@ class InferenceTask(LightningModule):
         return self.model(x)
 
 
-def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, max_used_ram: int = 95):
+def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, max_used_ram: int = 95, window_spline_2d=None):
     """
     Auto batch size finder scales batch size to find the largest batch size that fits into memory.
     Pytorch Lightning's alternative (not implemented for inference):
@@ -111,7 +111,6 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
     """
     src_size = datamodule.inference_dataset.src.height * datamodule.inference_dataset.src.width
     bs_min, bs_max, bs_step = 4, 256, 4
-    window_spline_2d = create_spline_window(datamodule.patch_size).to(device)
     for trial in tqdm(range(bs_min, bs_max, bs_step), desc=f"Finding batch size filling GPU to {max_used_ram} % or less"):
         batch_size_trial = trial
         datamodule.batch_size = batch_size_trial
@@ -119,7 +118,7 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
             logging.info(f"Reached maximum batch size for image size. "
                          f"Batch size tuned to {batch_size_trial-bs_step}.")
             datamodule.batch_size = batch_size_trial-bs_step
-            return window_spline_2d
+
         eval_gen2tune = eval_batch_generator(
             model=model,
             dataloader=datamodule.predict_dataloader(),
@@ -134,7 +133,6 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
         free, total = torch.cuda.mem_get_info(device)
         if (total-free)/total > max_used_ram/100:
             logging.info(f"Reached GPU RAM threshold of {int(max_used_ram)}%. Batch size tuned to {batch_size_trial}.")
-            return window_spline_2d
 
 
 def create_spline_window(window_size: int, power=1):
@@ -170,6 +168,7 @@ def eval_batch_generator(
         window_spline_2d: spline window to use for smoothing overlapping predictions
         pad: padding value used in transforms
         verbose: if True, print progress bar. Should be set to False when auto scaling batch size.
+        check_in: if True, it will avoide all the useless permutation, note that the only usecase don't use the output.
     Returns:
         the prediction for a dataloader batch
     """
@@ -181,8 +180,6 @@ def eval_batch_generator(
         with torch.no_grad(), autocast(device_type=device.type):
             outputs = model(inputs)
         if check_in:
-            # This option is activate only when the code check for the pourcentage of Ram available,
-            # avoiding all the useless permutation since we dont use the output data.
             batch_output['data'] = outputs
         else:
             if single_class_mode:
@@ -193,7 +190,6 @@ def eval_batch_generator(
             outputs = torch.mul(outputs, window_spline_2d)
             # keep the variable as float32 reduce the precessing time
             batch_output['data'] = outputs.permute(0, 2, 3, 1).cpu().numpy() 
-            # batch_output['data'] = outputs.permute(0, 2, 3, 1).cpu().numpy().astype('float16')
         yield batch_output
 
 
@@ -245,11 +241,6 @@ def main(params):
     if is_url(checkpoint):
         load_state_dict_from_url(url=checkpoint, map_location='cpu', model_dir=models_dir)
         checkpoint = models_dir / Path(checkpoint).name
-
-    # compatible, checkpoint_dict = ckpt_is_compatible(checkpoint)
-    # if not compatible: # if not compatible, it will overwrite the checkpoint_dict with a compatible one
-    #     checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
-    #     checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=False)
 
     logging.debug(f"\nInstantiating model with pretrained weights from {checkpoint}")
     try:
@@ -346,16 +337,16 @@ def main(params):
 
     h, w = [side for side in dm.inference_dataset.src.shape]
 
-    # window_spline_2d = None 
+    window_spline_2d = create_spline_window(chip_size).to(device)
+
     if auto_batch_size and device.type != "cpu":
-        window_spline_2d = auto_batch_size_finder(datamodule=dm,
-                                            device=device,
-                                            model=model,
-                                            single_class_mode=single_class_mode,
-                                            max_used_ram=auto_bs_threshold,
-                                            )
-        # # Set final batch size from auto found value
-        # dm.batch_size = batch_size
+        auto_batch_size_finder(datamodule=dm,
+                               device=device,
+                               model=model,
+                               single_class_mode=single_class_mode,
+                               max_used_ram=auto_bs_threshold,
+                               window_spline_2d=window_spline_2d
+        )
 
     try: # try to recuperate the window_spline_2d variable use in auto_batch_size_finder
         window_spline_2d
