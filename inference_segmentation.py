@@ -334,7 +334,8 @@ def main(params):
 
     # FIXME: temporary implementation of clahe enhancement applied to entire aoi, not tile by tile
     ####
-    if test_transform_clahe is not None:
+    clip_limit = get_key_def('clahe_enhance_clip_limit', params['augmentation'], default=0, expected_type=int)
+    if test_transform_clahe is not None and clip_limit > 0:
         if not dm.inference_dataset.download:
             raise NotImplementedError(
                 f"Temporary CLAHE enhancement on entire AOI requires data to be downloaded locally\n"
@@ -343,7 +344,7 @@ def main(params):
         logging.info(f"Will use CLAHE-enhanced AOI")
         for cname in dm.inference_dataset.bands:
             single_band = dm.inference_dataset.bands_dict[cname]['href']
-            single_band_enhced = single_band.parent / f'{single_band.stem}_CLAHE.tif'
+            single_band_enhced = single_band.parent / f'{single_band.stem}_clahe{clip_limit}.tif'
             if single_band_enhced.is_file():
                 logging.info(f"Using existing: {single_band_enhced}")
             else:
