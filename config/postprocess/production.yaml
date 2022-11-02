@@ -64,7 +64,7 @@ postprocess:
         qgis_process run /models/FORE.model3
         --inlayer=/home/${inference.output_name}${postprocess.output_suffixes.polygonization}.gpkg
         --inselectattrname=value --inselectattrint=${dataset.classes_dict.FORE}
-        --insimpdiamtol=0.5 --inrmvholesunder=500 --inredbendtol=2 --inminarea=500
+        --insimpdiamtol=0.3 --inrmvholesunder=75 --inredbendtol=2 --inminarea=75
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
         --outlayername=FORE_2"
       WAER:
@@ -74,7 +74,7 @@ postprocess:
         qgis_process run /models/WAER.model3 
         --inlayer=/home/${inference.output_name}${postprocess.output_suffixes.polygonization}.gpkg
         --inselectattrname=value --inselectattrint=${dataset.classes_dict.WAER}
-        --insimpdiamtol=0.5 --inrmvholesunder=150 --inredbendtol=2 --inminarea=150    
+        --insimpdiamtol=0.3 --inrmvholesunder=25 --inredbendtol=2 --inminarea=25
         --outgpkgpath=/home/${postprocess.output_name}${postprocess.output_suffixes.generalization}.gpkg
         --outlayername=WAER_2"
       ROAI:
