@@ -22,6 +22,7 @@ from torchgeo.samplers import GridGeoSampler
 from torchgeo.datasets import stack_samples
 from shapely.geometry import mapping, shape
 import fiona
+ogr.UseExceptions()
 
 from solaris import tile, vector
 from solaris.utils.core import _check_gdf_load, _check_rasterio_im_load
