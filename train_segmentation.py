@@ -118,11 +118,11 @@ def create_dataloader(samples_folder: Path,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
-    # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
-    if not debug:
+    # Number of workers
+    if cfg.training.num_workers:
+        num_workers = cfg.training.num_workers
+    else:  # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
         num_workers = len(gpu_devices_dict.keys()) * 4 if len(gpu_devices_dict.keys()) > 1 else 4
-    else:
-        num_workers = 0
 
     samples_weight = torch.from_numpy(samples_weight)
     sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
@@ -516,7 +516,7 @@ def train(cfg: DictConfig) -> None:
     # MANDATORY PARAMETERS
     class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
     num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
-    modalities = get_key_def('bands', cfg['dataset'], expected_type=Sequence)
+    modalities = get_key_def('bands', cfg['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
     num_bands = len(modalities)
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
