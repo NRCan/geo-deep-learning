@@ -6,9 +6,11 @@ import shutil
 from typing import Union, Sequence, List
 import os
 from os.path import join, split
+from concurrent.futures import ThreadPoolExecutor
+import subprocess
 
 import shapely.geometry
-from osgeo import gdal, gdalconst, ogr
+from osgeo import gdal, ogr
 import geopandas as gpd
 import matplotlib.pyplot
 import numpy as np
@@ -279,7 +281,9 @@ class Tiler(object):
         out_name = aoi.raster_name.stem + "_" + "_".join([str(x).replace(".", "_") for x in window[:2]]) + ".tif"
         return join(output_folder, out_name)
 
-    def _clip_vector_by_bbox(self, ds_layer, aoi, bbox, out_label_dir):
+
+    @staticmethod
+    def _clip_vector_by_bbox(ds_src, srs, bbox, output_vector_name, i):
         # Create ring
         poly_box = ogr.Geometry(ogr.wkbLinearRing)
         poly_box.AddPoint(bbox[0], bbox[1])
@@ -287,15 +291,14 @@ class Tiler(object):
         poly_box.AddPoint(bbox[2], bbox[3])
         poly_box.AddPoint(bbox[0], bbox[3])
         poly_box.AddPoint(bbox[0], bbox[1])
-
         # Create polygon
         poly = ogr.Geometry(ogr.wkbPolygon)
         poly.AddGeometry(poly_box)
 
         # Create a vector bbox in memory:
         mem_driver = ogr.GetDriverByName('MEMORY')
-        mem_ds = mem_driver.CreateDataSource('memdata')
-        mem_layer = mem_ds.CreateLayer('0', geom_type=ogr.wkbPolygon)
+        mem_ds = mem_driver.CreateDataSource('memdata_' + str(i))
+        mem_layer = mem_ds.CreateLayer('0', srs, geom_type=ogr.wkbPolygon)
         feature_def = mem_layer.GetLayerDefn()
         out_feature = ogr.Feature(feature_def)
         # Set new geometry
@@ -305,17 +308,21 @@ class Tiler(object):
 
         # Clip vector file and save it as a GeoJSON:
         driver_name = "GeoJSON"
-        output_vector_name = self._define_output_name(aoi, out_label_dir, bbox).replace(".tif", ".geojson")
         driver = ogr.GetDriverByName(driver_name)
         out_ds = driver.CreateDataSource(output_vector_name)
-        out_layer = out_ds.CreateLayer('0', ds_layer.GetSpatialRef(), geom_type=ogr.wkbMultiPolygon)
-        ogr.Layer.Clip(ds_layer, mem_layer, out_layer)
+
+        out_layer = out_ds.CreateLayer('0', srs, geom_type=ogr.wkbMultiPolygon)
+        ogr.Layer.Clip(ds_src.GetLayer(), mem_layer, out_layer)
 
         # Save and close datasources:
         out_ds = None
         mem_ds = None
 
         return output_vector_name
+
+    @staticmethod
+    def work(cmd: str):
+        subprocess.run(cmd, shell=True)
 
     def tiling_per_aoi(
             self,
@@ -329,7 +336,7 @@ class Tiler(object):
         @param out_img_dir: path to output patched images directory
         @param out_label_dir: optional, path to output patched labels directory
         @return: written patches to output directories as .tif for imagery and .geojson for label.
-        TODO: replace solaris with GDAL and ogr2ogr, generate individual patch bounds with torchgeo's GridGeoSampler.
+
         Implies the implementation of RasterDataset & VectorDataset
         https://gis.stackexchange.com/questions/14712/splitting-raster-into-smaller-chunks-using-gdal
         https://gdal.org/programs/ogr2ogr.html#ogr2ogr
@@ -353,7 +360,6 @@ class Tiler(object):
         resulting_dataset = geo_dataset
 
         # Initialize a sampler and a dataloader:
-        # FIXME: Implement overlap:
         sampler = GridGeoSampler(resulting_dataset, size=self.dest_patch_size, stride=self.dest_patch_size)
         dataloader = DataLoader(resulting_dataset, sampler=sampler, collate_fn=stack_samples)
 
@@ -361,9 +367,13 @@ class Tiler(object):
 
         # Open vector datasource if not in inference mode:
         if not self.for_inference:
-            ds = ogr.Open(str(aoi.label))
-            assert ds is not None, f"Incorrect vector label file was provided: {aoi.label}"
-            src_layer = ds.GetLayer()
+            vec_ds = ogr.Open(str(aoi.label))
+            src_mem_driver = ogr.GetDriverByName('MEMORY')
+            mem_vec_ds = src_mem_driver.CopyDataSource(vec_ds, 'src_mem_ds')
+            assert mem_vec_ds is not None, f"Incorrect vector label file was provided: {aoi.label}"
+            vec_srs = mem_vec_ds.GetLayer().GetSpatialRef()
+
+            # src_layer = vec_ds.GetLayer()
 
         # Iterate over the dataloader and save resulting raster patches:
         bboxes = []
@@ -372,25 +382,48 @@ class Tiler(object):
         os.makedirs(out_img_dir, exist_ok=True)
         os.makedirs(out_label_dir, exist_ok=True)
 
+        raster_tile_data = []
+        vector_tile_data = []
+
         # Iterate over the dataloader and save resulting raster patches:
-        for batch in dataloader:
+        for i, batch in enumerate(dataloader):
             # Parse the TorchGeo batch:
             sample_image, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
             bboxes.append(sample_window)
 
             # Define the output patch filename:
-            dst_img = self._define_output_name(aoi, out_img_dir, sample_window)
-            raster_tile_paths.append(dst_img)
+            dst_raster_name = self._define_output_name(aoi, out_img_dir, sample_window)
+            raster_tile_paths.append(dst_raster_name)
+
+            raster_tile_data.append([sample_image, dst_raster_name, sample_window, sample_crs])
 
             # Save the patch as a GeoTIFF:
-            self._save_tile(sample_image, dst_img, sample_window, sample_crs)
+            # self._save_tile(sample_image, dst_raster_name, sample_window, sample_crs)
 
-            if not self.for_inference:
-                # Clip vector labels having bounding boxes from the rester tiles:
-                vector_tile_path = self._clip_vector_by_bbox(src_layer, aoi, sample_window, out_label_dir)
-                vector_tile_paths.append(vector_tile_path)
+            ############ Vector
+            dst_vector_name = self._define_output_name(aoi, out_label_dir, sample_window).replace(".tif", ".geojson")
+            #
+            # cmd = "ogr2ogr -f GeoJSON " + dst_vector_name + ' ' + str(aoi.label) + " -clipsrc " + \
+            #     str(sample_window[0]) + " " + str(sample_window[1]) + " " + str(sample_window[2]) + " " + str(sample_window[3])
+            # msg = subprocess.run(cmd, shell=True)
+            # if msg.returncode != 0:
+            #     RuntimeError("Vector file couldn't be clipped.")
 
-        ds = None
+            # Clip vector labels having bounding boxes from the rester tiles:
+            self._clip_vector_by_bbox(mem_vec_ds, vec_srs, sample_window, dst_vector_name, i)
+
+            vector_tile_paths.append(dst_vector_name)
+
+            # vector_tile_data.append([vec_ds, vec_srs, bbox_wkt, dst_vector_name, i])
+
+        with ThreadPoolExecutor(100) as exe:
+            # submit tasks to generate files
+            _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
+        #
+        # with ThreadPoolExecutor(1) as exe:
+        #     # submit tasks to generate files
+        #     for i in range(len(vector_tile_data)):
+        #         exe.submit(self._clip_vector_by_bbox, *vector_tile_data[i])
 
         return aoi, raster_tile_paths, vector_tile_paths
 
@@ -398,7 +431,6 @@ class Tiler(object):
         #                                             src_tile_size=(self.dest_patch_size, self.dest_patch_size),
         #                                             alpha=False,
         #                                             verbose=True)
-        # # FIXME: workaround for successful writing of patches. 'VRT' driver cannot be assigned to written files. Error:
         # # rasterio.errors.RasterioIOError: Read or write failed. Writing through VRTSourcedRasterBand is not supported.
         # aoi.raster.driver = "GTiff" if aoi.raster.driver == 'VRT' else aoi.raster.driver
         # raster_bounds_crs = raster_tiler.tile(aoi.raster, dest_fname_base=aoi.raster_name.stem)
