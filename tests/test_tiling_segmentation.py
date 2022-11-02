@@ -9,7 +9,8 @@ from omegaconf import DictConfig
 from torchgeo.datasets.utils import extract_archive
 
 from dataset.aoi import AOI
-from tiling_segmentation import annot_percent, main as tiling, Tiler
+from tiling_segmentation import annot_percent, Tiler
+from tiling_segmentation import main as tiling
 from utils.utils import read_csv
 
 
