@@ -17,17 +17,13 @@ from sklearn.utils import compute_sample_weight
 from utils import augmentation as aug, create_dataset
 from utils.logger import InformationLogger, tsv_line, get_logger, set_tracker
 from utils.metrics import report_classification, create_metrics_dict, iou
-from models.model_choice import define_model, adapt_checkpoint_to_dp_model
+from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_to_dp_model
 from utils.loss import verify_weights, define_loss
-from utils.utils import gpu_stats, get_key_def, get_device_ids, set_device, read_checkpoint
+from utils.utils import gpu_stats, get_key_def, get_device_ids, set_device
 from utils.visualization import vis_from_batch
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
-try:
-    from pynvml import *
-except ModuleNotFoundError:
-    logging.warning(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
 
 def flatten_labels(annotations):
     """Flatten labels"""
@@ -51,7 +47,6 @@ def create_dataloader(samples_folder: Path,
                       dontcare_val: int,
                       crop_size: int,
                       num_bands: int,
-                      BGR_to_RGB: bool,
                       scale: Sequence,
                       cfg: DictConfig,
                       dontcare2backgr: bool = False,
@@ -65,7 +60,6 @@ def create_dataloader(samples_folder: Path,
     :param sample_size: (int) size of hdf5 samples (used to evaluate eval batch-size)
     :param dontcare_val: (int) value in label to be ignored during loss calculation
     :param num_bands: (int) number of bands in imagery
-    :param BGR_to_RGB: (bool) if True, BGR channels will be flipped to RGB
     :param scale: (List) imagery data will be scaled to this min and max value (ex.: 0 to 1)
     :param cfg: (dict) Parameters found in the yaml config file.
     :param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
@@ -96,7 +90,6 @@ def create_dataloader(samples_folder: Path,
                                                                              crop_size=crop_size),
                                        totensor_transform=aug.compose_transforms(params=cfg,
                                                                                  dataset=subset,
-                                                                                 input_space=BGR_to_RGB,
                                                                                  scale=scale,
                                                                                  dontcare2backgr=dontcare2backgr,
                                                                                  dontcare=dontcare_val,
@@ -131,6 +124,7 @@ def create_dataloader(samples_folder: Path,
                          f"\nVal dataloader's length: {len(val_dataloader)}")
 
     return trn_dataloader, val_dataloader, tst_dataloader
+
 
 def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: int, max_pix_per_mb_gpu: int = 280):
     """
@@ -311,9 +305,9 @@ def training(train_loader,
 
         if device.type == 'cuda' and debug:
             res, mem = gpu_stats(device=device.index)
-            logging.debug(OrderedDict(trn_loss=f'{train_metrics["loss"].val:.2f}',
-                                      gpu_perc=f'{res.gpu} %',
-                                      gpu_RAM=f'{mem.used / (1024 ** 2):.0f}/{mem.total / (1024 ** 2):.0f} MiB',
+            logging.debug(OrderedDict(trn_loss=f"{train_metrics['loss'].val:.2f}",
+                                      gpu_perc=f"{res['gpu']} %",
+                                      gpu_RAM=f"{mem['used'] / (1024 ** 2):.0f}/{mem['total'] / (1024 ** 2):.0f} MiB",
                                       lr=optimizer.param_groups[0]['lr'],
                                       img=data['sat_img'].numpy().shape,
                                       smpl=data['map_img'].numpy().shape,
@@ -342,7 +336,8 @@ def evaluation(eval_loader,
                batch_metrics=None,
                dataset='val',
                device=None,
-               debug=False):
+               debug=False,
+               dontcare=-1):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -407,31 +402,31 @@ def evaluation(eval_loader,
                                   f"{len(eval_loader)}. Metrics in validation loop won't be computed")
                 if (batch_index + 1) % batch_metrics == 0:  # +1 to skip val loop at very beginning
                     a, segmentation = torch.max(outputs_flatten, dim=1)
-                    eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
+                    eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics, dontcare)
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                         ignore_index=eval_loader.dataset.dontcare)
-            elif (dataset == 'tst') and (batch_metrics is not None):
+                                                         ignore_index=dontcare)
+            elif (dataset == 'tst'):
                 a, segmentation = torch.max(outputs_flatten, dim=1)
-                eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics)
+                eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics, dontcare)
                 eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                     ignore_index=eval_loader.dataset.dontcare)
+                                                     ignore_index=dontcare)
 
             logging.debug(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
             if debug and device.type == 'cuda':
                 res, mem = gpu_stats(device=device.index)
                 logging.debug(OrderedDict(
-                    device=device, gpu_perc=f'{res.gpu} %',
-                    gpu_RAM=f'{mem.used/(1024**2):.0f}/{mem.total/(1024**2):.0f} MiB'
+                    device=device, gpu_perc=f"{res['gpu']} %",
+                    gpu_RAM=f"{mem['used']/(1024**2):.0f}/{mem['total']/(1024**2):.0f} MiB"
                 ))
 
     if eval_metrics['loss'].avg:
         logging.info(f"\n{dataset} Loss: {eval_metrics['loss'].avg:.4f}")
-    if batch_metrics is not None:
-        logging.info(f"\n{dataset} precision: {eval_metrics['precision'].avg}")
-        logging.info(f"\n{dataset} recall: {eval_metrics['recall'].avg}")
-        logging.info(f"\n{dataset} fscore: {eval_metrics['fscore'].avg}")
-        logging.info(f"\n{dataset} iou: {eval_metrics['iou'].avg}")
+    if batch_metrics is not None or dataset == 'tst':
+        logging.info(f"\n{dataset} precision: {eval_metrics['precision'].avg:.4f}")
+        logging.info(f"\n{dataset} recall: {eval_metrics['recall'].avg:.4f}")
+        logging.info(f"\n{dataset} fscore: {eval_metrics['fscore'].avg:.4f}")
+        logging.info(f"\n{dataset} iou: {eval_metrics['iou'].avg:.4f}")
 
     return eval_metrics
 
@@ -468,16 +463,13 @@ def train(cfg: DictConfig) -> None:
     now = datetime.now().strftime("%Y-%m-%d_%H-%M")
 
     # MANDATORY PARAMETERS
-    attribute_values = len(get_key_def('attribute_values', cfg['dataset']))
-    num_classes = attribute_values if attribute_values == 1 else attribute_values + 1  # +1 for background(multiclass mode)
+    class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
+    num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
     modalities = get_key_def('bands', cfg['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
     num_bands = len(modalities)
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
     num_epochs = get_key_def('max_epochs', cfg['training'], expected_type=int)
-    # TODO need to keep in parameters? see victor stuff
-    # BGR_to_RGB = get_key_def('BGR_to_RGB', params['global'], expected_type=bool)
-    BGR_to_RGB = False
 
     # OPTIONAL PARAMETERS
     debug = get_key_def('debug', cfg)
@@ -488,6 +480,7 @@ def train(cfg: DictConfig) -> None:
     crop_size = get_key_def('crop_size', cfg['augmentation'], default=None)
 
     # MODEL PARAMETERS
+    checkpoint_stack = [""]
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
     if cfg.loss.is_binary and not num_classes == 1:
         raise ValueError(f"Parameter mismatch: a binary loss was chosen for a {num_classes}-class task")
@@ -495,9 +488,10 @@ def train(cfg: DictConfig) -> None:
         raise ValueError(f"Parameter mismatch: a multiclass loss was chosen for a 1-class (binary) task")
     del cfg.loss.is_binary  # prevent exception at instantiation
     optimizer = get_key_def('optimizer_name', cfg['optimizer'], default='adam', expected_type=str)  # TODO change something to call the function
+    pretrained = get_key_def('pretrained', cfg['model'], default=True, expected_type=(bool, str))
     train_state_dict_path = get_key_def('state_dict_path', cfg['training'], default=None, expected_type=str)
     state_dict_strict = get_key_def('state_dict_strict_load', cfg['training'], default=True, expected_type=bool)
-    
+    dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None, expected_type=float)
     # if error
     if train_state_dict_path and not Path(train_state_dict_path).is_file():
         raise logging.critical(
@@ -506,12 +500,9 @@ def train(cfg: DictConfig) -> None:
     if class_weights:
         verify_weights(num_classes, class_weights)
     # Read the concatenation point if requested model is deeplabv3 dualhead
+    conc_point = get_key_def('conc_point', cfg['model'], None)
     step_size = get_key_def('step_size', cfg['scheduler']['params'], default=4, expected_type=int)
     gamma = get_key_def('gamma', cfg['scheduler']['params'], default=0.9, expected_type=float)
-
-    # TODO Review the importance of those unused parameters 
-    #dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None, expected_type=float)
-    #conc_point = get_key_def('conc_point', cfg['model'], None)
 
     # GPU PARAMETERS
     num_devices = get_key_def('num_gpus', cfg['training'], default=0)
@@ -527,16 +518,16 @@ def train(cfg: DictConfig) -> None:
 
     # PARAMETERS FOR hdf5 SAMPLES
     # info on the hdf5 name
-    samples_size = get_key_def("input_dim", cfg['dataset'], expected_type=int, default=256)
-    overlap = get_key_def("overlap", cfg['dataset'], expected_type=int, default=0)
-    min_annot_perc = get_key_def('min_annotated_percent', cfg['dataset'], expected_type=int, default=0)
+    samples_size = get_key_def('chip_size', cfg['tiling'], default=256, expected_type=int)
+    overlap = get_key_def('overlap_size', cfg['tiling'], default=0)
+    min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], default=0)
     samples_folder_name = (
-        f'samples{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{experiment_name}'
+        f'chips{samples_size}_overlap{overlap}_min-annot{min_annot_perc}_{num_bands}bands_{experiment_name}'
     )
 
     data_path = get_key_def('raw_data_dir', cfg['dataset'], to_path=True, validate_path_exists=True)
-    my_hdf5_path = get_key_def('sample_data_dir', cfg['dataset'], default=data_path, to_path=True,
-                                 validate_path_exists=True)
+    my_hdf5_path = get_key_def('tiling_data_dir', cfg['tiling'], default=data_path, to_path=True,
+                               validate_path_exists=True)
     samples_folder = my_hdf5_path.joinpath(samples_folder_name).resolve(strict=True)
     logging.info("\nThe HDF5 directory used '{}'".format(samples_folder))
 
@@ -614,7 +605,6 @@ def train(cfg: DictConfig) -> None:
                                                                        dontcare_val=dontcare_val,
                                                                        crop_size=crop_size,
                                                                        num_bands=num_bands,
-                                                                       BGR_to_RGB=BGR_to_RGB,
                                                                        scale=scale,
                                                                        cfg=cfg,
                                                                        dontcare2backgr=dontcare2backgr,
@@ -634,9 +624,6 @@ def train(cfg: DictConfig) -> None:
     progress_log = output_path / 'progress.log'
     if not progress_log.exists():
         progress_log.open('w', buffering=1).write(tsv_line('ep_idx', 'phase', 'iter', 'i_p_ep', 'time'))  # Add header
-
-    # create the checkpoint file
-    filename = output_path.joinpath('checkpoint.pth.tar')
 
     # VISUALIZATION: generate pngs of inputs, labels and outputs
     if vis_batch_range is not None:
@@ -693,7 +680,8 @@ def train(cfg: DictConfig) -> None:
                                 device=device,
                                 scale=scale,
                                 vis_params=vis_params,
-                                debug=debug)
+                                debug=debug,
+                                dontcare=dontcare_val)
         val_loss = val_report['loss'].avg
         if 'val_log' in locals():  # only save the value if a tracker is setup
             if batch_metrics is not None:
@@ -703,6 +691,16 @@ def train(cfg: DictConfig) -> None:
 
         if val_loss < best_loss:
             logging.info("\nSave checkpoint with a validation loss of {:.4f}".format(val_loss))  # only allow 4 decimals
+            # create the checkpoint file
+            checkpoint_tag = checkpoint_stack.pop()
+            filename = output_path.joinpath(checkpoint_tag)
+            if filename.is_file():
+                filename.unlink()
+            val_loss_string = f'{val_loss:.2f}'.replace('.', '-')
+            modalities_str = [str(band) for band in modalities]
+            checkpoint_tag = f'{experiment_name}_{num_classes}_{"_".join(modalities_str)}_{val_loss_string}.pth.tar'
+            filename = output_path.joinpath(checkpoint_tag)
+            checkpoint_stack.append(checkpoint_tag)
             best_loss = val_loss
             # More info:
             # https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
@@ -733,8 +731,8 @@ def train(cfg: DictConfig) -> None:
         # logging.info(f'\nCurrent elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if int(cfg['training']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
-        checkpoint = read_checkpoint(filename, update=False)
+    if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
+        checkpoint = read_checkpoint(filename)
         checkpoint = adapt_checkpoint_to_dp_model(checkpoint, model)
         model.load_state_dict(state_dict=checkpoint['model_state_dict'])
 
@@ -750,7 +748,8 @@ def train(cfg: DictConfig) -> None:
                                 dataset='tst',
                                 scale=scale,
                                 vis_params=vis_params,
-                                device=device)
+                                device=device,
+                                dontcare=dontcare_val)
         if 'tst_log' in locals():  # only save the value if a tracker is setup
             tst_log.add_values(tst_report, num_epochs)
 

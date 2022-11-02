@@ -1,8 +1,8 @@
+import os
 import csv
 import logging
 import numbers
 import subprocess
-from collections import OrderedDict
 from functools import reduce
 from pathlib import Path
 from typing import Sequence, List, Dict
@@ -32,11 +32,11 @@ from utils.logger import get_logger
 # Set the logging file
 log = get_logger(__name__)  # need to be different from logging in this case
 
-# NVIDIA library
+# AWS module
 try:
-    from pynvml import *
+    import boto3
 except ModuleNotFoundError:
-    logging.warning(f"The python Nvidia management library could not be imported. Ignore if running on CPU only.")
+    logging.warning('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
 
 
 class Interpolate(torch.nn.Module):
@@ -70,22 +70,22 @@ def get_device_ids(
         log.warning(f'\nRequested {number_requested} GPUs, but no CUDA devices found. This process will run on CPU')
         return lst_free_devices
     try:
-        nvmlInit()
+        torch.cuda.init()
         if number_requested > 0:
-            device_count = nvmlDeviceGetCount()
+            device_count = torch.cuda.device_count()
             for i in range(device_count):
                 res, mem = gpu_stats(i)
-                used_ram = mem.used / (1024 ** 2)
-                max_ram = mem.total / (1024 ** 2)
+                used_ram = mem['used'] / (1024 ** 2)
+                max_ram = mem['total'] / (1024 ** 2)
                 used_ram_perc = used_ram / max_ram * 100
-                log.info(f'\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res.gpu}')
+                log.info(f"\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res['gpu']}")
                 if used_ram_perc < max_used_ram_perc:
-                    if res.gpu < max_used_perc:
+                    if res['gpu'] < max_used_perc:
                         lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}
                     else:
-                        log.warning(f'\nGpu #{i} filtered out based on usage % threshold.\n'
-                                    f'Current % usage: {res.gpu}\n'
-                                    f'Max % usage allowed by user: {max_used_perc}.')
+                        log.warning(f"\nGpu #{i} filtered out based on usage % threshold.\n"
+                                    f"Current % usage: {res['gpu']}\n"
+                                    f"Max % usage allowed by user: {max_used_perc}.")
                 else:
                     log.warning(f'\nGpu #{i} filtered out based on RAM threshold.\n'
                                 f'Current RAM usage: {used_ram}/{max_ram}\n'
@@ -101,10 +101,7 @@ def get_device_ids(
         raise log.critical(
             NameError(f"\n{error}. Make sure that the NVIDIA management library (pynvml) is installed and running.")
         )
-    except NVMLError as error:
-        raise log.critical(
-            ValueError(f"\n{error}. Make sure that the latest NVIDIA driver is installed and running.")
-        )
+
     logging.info(f'\nGPUs devices available: {lst_free_devices}')
     return lst_free_devices
 
@@ -114,11 +111,13 @@ def gpu_stats(device=0):
     Provides GPU utilization (%) and RAM usage
     :return: res.gpu, res.memory
     """
-    nvmlInit()
-    handle = nvmlDeviceGetHandleByIndex(device)
-    res = nvmlDeviceGetUtilizationRates(handle)
-    mem = nvmlDeviceGetMemoryInfo(handle)
-
+    torch.cuda.init()
+    res = {'gpu': torch.cuda.utilization(device)}
+    torch_cuda_mem = torch.cuda.mem_get_info(device)
+    mem = {
+        'used': torch_cuda_mem[-1] - torch_cuda_mem[0],
+        'total': torch_cuda_mem[-1]
+    }
     return res, mem
 
 
@@ -143,7 +142,7 @@ def set_device(gpu_devices_dict: dict = {}):
 
 
 def get_key_def(key, config, default=None, expected_type=None, to_path: bool = False,
-                validate_path_exists: bool = False):
+                validate_path_exists: bool = False, wildcard=None):
     """Returns a value given a dictionary key, or the default value if it cannot be found.
     :param key: key in dictionary (e.g. generated from .yaml)
     :param config: (dict) dictionary containing keys corresponding to parameters used in script
@@ -151,6 +150,7 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
     :param expected_type: (type) type of the expected variable.
     :param to_path: (bool) if True, parameter will be converted to a pathlib.Path object (warns if cannot be converted)
     :param validate_path_exists: (bool) if True, checks if path exists (is_path must be True)
+    :param wildcard: suffix wildcard string (ex. '*.pth.tar')
     :return:
     """
     val = default
@@ -184,9 +184,20 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
             val = Path(to_absolute_path(val))
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
-    if validate_path_exists and not Path(to_absolute_path(val)).exists():
-        logging.critical(f"Couldn't locate path: {val}.\nProvided key: {key}")
-        raise FileNotFoundError()
+    if validate_path_exists:
+        if not isinstance(val, Path):
+            val = Path(to_absolute_path(val))
+        if val.is_dir() and wildcard: # Globs through directory and picks first item matching wildcard
+            items = [item for item in val.glob(wildcard)]
+            if items:
+                val = items[0]
+            else:
+                logging.critical(f"Couldn't find any item in directory: {val} matching wildcard: {wildcard}")
+                raise FileNotFoundError()
+        if not val.exists():
+            logging.critical(f"Couldn't locate path: {val}.\nProvided key: {key}")
+            raise FileNotFoundError()
+
     return val
 
 
@@ -284,54 +295,6 @@ def unnormalize(input_img, mean, std):
     return (input_img * std) + mean
 
 
-def BGR_to_RGB(array):
-    assert array.shape[2] >= 3, f"Not enough channels in array of shape {array.shape}"
-    BGR_channels = array[..., :3]
-    RGB_channels = np.ascontiguousarray(BGR_channels[..., ::-1])
-    array[:, :, :3] = RGB_channels
-    return array
-
-
-def list_input_images(img_dir_or_csv: Path,
-                      glob_patterns: List = None):
-    """
-    Create list of images from given directory or csv file.
-
-    :param img_dir_or_csv: (str) directory containing input images or csv with list of images
-    :param glob_patterns: (list of str) if directory is given as input (not csv),
-                           these are the glob patterns that will be used to find desired images
-
-    returns list of dictionaries where keys are "tif" and values are paths to found images. "meta" key is also added
-        if input is csv and second column contains a metadata file. Then, value is path to metadata file.
-    """
-    if img_dir_or_csv.suffix == '.csv':
-        list_img = read_csv(img_dir_or_csv)
-    elif is_url(str(img_dir_or_csv)):
-        list_img = []
-        img = {'tif': img_dir_or_csv}
-        list_img.append(img)
-    else:
-        img_dir = img_dir_or_csv
-        if not img_dir.is_dir():
-            raise NotADirectoryError(f'Could not find directory/file "{img_dir_or_csv}"')
-
-        list_img_paths = set()
-        if img_dir.is_dir():
-            for glob_pattern in glob_patterns:
-                if not isinstance(glob_pattern, str):
-                    raise TypeError(f'Invalid glob pattern: "{glob_pattern}"')
-                list_img_paths.update(sorted(img_dir.glob(glob_pattern)))
-        else:
-            list_img_paths.update([img_dir])
-        list_img = []
-        for img_path in list_img_paths:
-            img = {'tif': img_path}
-            list_img.append(img)
-        if not len(list_img) >= 0:
-            raise ValueError(f'No .tif files found in {img_dir_or_csv}')
-    return list_img
-
-
 def read_csv(csv_file_name: str) -> Dict:
     """
     Open csv file and parse it, returning a list of dictionaries with keys:
@@ -349,15 +312,21 @@ def read_csv(csv_file_name: str) -> Dict:
         row_lengths_set = set()
         for row in reader:
             row_lengths_set.update([len(row)])
+            if ";" in row[0]:
+                raise TypeError(f"Elements in rows should be delimited with comma, not semicolon.")
             if not len(row_lengths_set) == 1:
                 raise ValueError(f"Rows in csv should be of same length. Got rows with length: {row_lengths_set}")
+            row = [str(i) or None for i in row]  # replace empty strings to None.
             row.extend([None] * (4 - len(row)))  # fill row with None values to obtain row of length == 5
-            row[0] = to_absolute_path(row[0]) if not is_url(row[0]) else row[0] # Convert relative paths to absolute with hydra's util to_absolute_path()
-            row[1] = to_absolute_path(row[1]) if not is_url(row[1]) else row[1]
 
+            row[0] = to_absolute_path(row[0]) if not is_url(row[0]) else row[0] # Convert relative paths to absolute with hydra's util to_absolute_path()
+            try:
+                row[1] = str(to_absolute_path(row[1]) if not is_url(row[1]) else row[1])
+            except TypeError:
+                row[1] = None
             # save all values
             list_values.append(
-                {'tif': str(row[0]), 'gpkg': str(row[1]), 'split': row[2], 'aoi_id': row[3]})
+                {'tif': str(row[0]), 'gpkg': row[1], 'split': row[2], 'aoi_id': row[3]})
     try:
         # Try sorting according to dataset name (i.e. group "train", "val" and "test" rows together)
         list_values = sorted(list_values, key=lambda k: k['split'])
@@ -511,11 +480,11 @@ def print_config(
     save_dir = tree.add('Saving directory', style=style, guide_style=style)
     save_dir.add(os.getcwd())
 
-    if config.get('mode') == 'sampling':
+    if config.get('mode') == 'tiling':
         fields += (
             "general.raw_data_dir",
             "general.raw_data_csv",
-            "general.sample_data_dir",
+            "general.tiling_data_dir",
         )
     elif config.get('mode') == 'train':
         fields += (
@@ -525,14 +494,14 @@ def print_config(
             'callbacks',
             'scheduler',
             'augmentation',
-            "general.sample_data_dir",
+            "general.tiling_data_dir",
             "general.save_weights_dir",
         )
     elif config.get('mode') == 'inference':
         fields += (
             "inference",
             "model",
-            "general.sample_data_dir",
+            "general.tiling_data_dir",
         )
 
     if config.get('tracker'):

@@ -1,6 +1,7 @@
 defaults:
   - model: gdl_unet
   - verify: default_verify
+  - tiling: default_tiling
   - training: default_training
   - loss: binary/softbce
   - optimizer: adamw
@@ -32,14 +33,14 @@ general:
   workspace: your_name
   max_epochs: 2 # for train only
   min_epochs: 1 # for train only
-  raw_data_dir: tests/data/spacenet
-  raw_data_csv: tests/sampling/sampling_segmentation_binary_ci.csv
-  sample_data_dir: dataset # where the hdf5 will be saved
-  save_weights_dir: checkpoints/${general.project_name}
+  raw_data_dir: data
+  raw_data_csv: tests/tiling/tiling_segmentation_binary_ci.csv
+  tiling_data_dir: data # where the hdf5 will be saved
+  save_weights_dir: saved_model/${general.project_name}
 
 print_config: True # save the config in the log folder
 # FIXME postprocess: Fallback causing error on github's CI...
 # FIXME evaluate with stac item and label!
-mode: {verify, sampling, train, inference} #, postprocess, evaluate}
+mode: {verify, tiling, train, inference} #, postprocess, evaluate}
 # TODO deactivate rasterio/fiona logs
 debug: True # will print the complete yaml config plus run a validation test

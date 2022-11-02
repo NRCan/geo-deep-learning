@@ -72,25 +72,6 @@ def validate_num_bands(raster_path: Union[str, Path], num_bands: int) -> None:
         raise ValueError()
 
 
-def validate_input_imagery(raster_path: Union[str, Path], num_bands: int, extended: bool = False) -> bool:
-    """
-    Validates raster and checks match between expected and actual number of bands
-    @param raster_path: Path to raster to be validated
-    @param extended: if True, raster data will be entirely read to detect any problem
-    @param num_bands: Number of bands expected
-    @return:
-    """
-    try:
-        validate_raster(raster_path, extended)
-    except Exception as e:  # TODO: address with issue #310
-        return False
-    try:
-        validate_num_bands(raster_path, num_bands)
-    except Exception as e:
-        return False
-    return True
-
-
 def assert_crs_match(
         raster: Union[str, Path, rasterio.DatasetReader],
         label: Union[str, Path, gpd.GeoDataFrame]):

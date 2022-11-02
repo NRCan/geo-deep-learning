@@ -38,7 +38,7 @@ def verify_per_aoi(
         Returns info on AOI or error raised, if any.
     """
     try:
-        aoi.raster_read()  # in case of multiprocessing
+        aoi.raster_open()  # in case of multiprocessing
 
         # get aoi info
         logging.info(f"\nGetting data info for {aoi.aoi_id}...")
@@ -77,7 +77,7 @@ def verify_per_aoi(
             plt.close()
         return aoi_dict, None
     except Exception as e:
-        logging.error(e)
+        raise e #logging.error(e)
         return None, e
 
 
@@ -92,7 +92,7 @@ def main(cfg: DictConfig) -> None:
     """
     # PARAMETERS
     num_classes = len(cfg.dataset.classes_dict.keys())
-    bands_requested = get_key_def('bands', cfg['dataset'], default=None, expected_type=Sequence)
+    bands_requested = get_key_def('bands', cfg['dataset'], default=[], expected_type=Sequence)
     csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
     data_dir = get_key_def('raw_data_dir', cfg['dataset'], default="data", to_path=True, validate_path_exists=True)
     download_data = get_key_def('download_data', cfg['dataset'], default=False, expected_type=bool)
