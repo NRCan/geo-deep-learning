@@ -26,6 +26,7 @@ from torch.hub import load_state_dict_from_url
 from torchvision.transforms import Compose
 from tqdm import tqdm
 
+from dataset.aoi import AOI, aois_from_csv
 from inference.InferenceDataModule import InferenceDataModule, preprocess, pad
 from models.model_choice import define_model_architecture
 from utils.geoutils import create_new_raster_from_base
@@ -109,7 +110,7 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
     @return: int
         largest batch size before max_used_ram threshold is reached for GPU memory
     """
-    src_size = datamodule.inference_dataset.src.height * datamodule.inference_dataset.src.width
+    src_size = datamodule.inference_dataset.aoi.raster.height * datamodule.inference_dataset.aoi.raster.width
     bs_min, bs_max, bs_step = 4, 256, 4
     window_spline_2d = create_spline_window(datamodule.patch_size).to(device)
     _tqdm = tqdm(range(bs_min, bs_max, bs_step), desc=f"Finding batch size filling GPU to {max_used_ram} % or less")
@@ -117,10 +118,10 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
         batch_size_trial = trial
         _tqdm.set_postfix_str(f"Trying: {batch_size_trial}")
         datamodule.batch_size = batch_size_trial
-        if batch_size_trial*datamodule.patch_size**2 > src_size:
+        if batch_size_trial * datamodule.patch_size ** 2 > src_size:
             logging.info(f"Reached maximum batch size for image size. "
-                         f"Batch size tuned to {batch_size_trial-bs_step}.")
-            return batch_size_trial-bs_step
+                         f"Batch size tuned to {batch_size_trial - bs_step}.")
+            return batch_size_trial - bs_step
         eval_gen2tune = eval_batch_generator(
             model=model,
             dataloader=datamodule.predict_dataloader(),
@@ -132,7 +133,7 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
         )
         _ = next(eval_gen2tune)
         free, total = torch.cuda.mem_get_info(device)
-        if (total-free)/total > max_used_ram/100:
+        if (total - free) / total > max_used_ram / 100:
             logging.info(f"Reached GPU RAM threshold of {int(max_used_ram)}%. Batch size tuned to {batch_size_trial}.")
             return batch_size_trial
 
@@ -152,13 +153,13 @@ def create_spline_window(window_size: int, power=1):
 
 
 def eval_batch_generator(
-    model: LightningModule,
-    dataloader: Any,
-    device: torch.device,
-    single_class_mode: bool,
-    window_spline_2d,
-    pad,
-    verbose: bool = True,
+        model: LightningModule,
+        dataloader: Any,
+        device: torch.device,
+        single_class_mode: bool,
+        window_spline_2d,
+        pad,
+        verbose: bool = True,
 ) -> Any:
     """Runs an adapted version of test loop without label data over a dataloader and returns prediction.
     Args:
@@ -214,7 +215,9 @@ def main(params):
     """
     logging.debug(f"\nSetting inference parameters")
     # Main params
-    item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
+    raw_data_csv = get_key_def('raw_data_csv', params['inference'], expected_type=str, default=None,
+                               validate_path_exists=True)
+    item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, validate_path_exists=True)
     root = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
     root.mkdir(exist_ok=True)
     data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
@@ -223,11 +226,13 @@ def main(params):
     outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
     outname = extension_remover(outname)
     outpath = root / f"{outname}.tif"
-    checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
+    checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, to_path=True,
+                             validate_path_exists=True)
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
     save_heatmap_bool = get_key_def('save_heatmap', params['inference'], default=False, expected_type=bool)
     heatmap_threshold = get_key_def('heatmap_threshold', params['inference'], default=50, expected_type=int)
-    heatmap_name = get_key_def('heatmap_name', params['inference'], default=f"{outpath.stem}_heatmap", expected_type=str)
+    heatmap_name = get_key_def('heatmap_name', params['inference'], default=f"{outpath.stem}_heatmap",
+                               expected_type=str)
     outpath_heat = root / f"{heatmap_name}.tif"
 
     # Create yaml to use pytorch lightning model management
@@ -282,13 +287,15 @@ def main(params):
                         f"spline window smoothing operations and may result in poor quality extraction.")
     pad_size = get_key_def('pad', params['inference'], default=16, expected_type=int)
     test_transforms_cfg = get_key_def('test_transforms', params['inference'],
-                                  default=Compose([pad(pad_size, mode='reflect'), preprocess]),
-                                  expected_type=(dict, DictConfig))
+                                      default=Compose([pad(pad_size, mode='reflect'), preprocess]),
+                                      expected_type=(dict, DictConfig))
 
     # FIXME: temporary implementation of clahe enhancement applied to entire aoi, not tile by tile
     ####
-    test_transforms_list = [transform for transform in test_transforms_cfg['transforms'] if 'enhance' not in transform['_target_']]
-    test_transform_clahe_cfg = [transform for transform in test_transforms_cfg['transforms'] if 'enhance' in transform['_target_']]
+    test_transforms_list = [transform for transform in test_transforms_cfg['transforms'] if
+                            'enhance' not in transform['_target_']]
+    test_transform_clahe_cfg = [transform for transform in test_transforms_cfg['transforms'] if
+                                'enhance' in transform['_target_']]
     test_transforms_cfg['transforms'] = test_transforms_list
     test_transform_clahe = instantiate(test_transform_clahe_cfg[0]) if test_transform_clahe_cfg else None
     ####
@@ -300,6 +307,15 @@ def main(params):
 
     seed = 123
     seed_everything(seed)
+
+    # GET LIST OF INPUT IMAGES FOR INFERENCE
+    if raw_data_csv is not None:
+        list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested)
+    else:
+        list_aois = [
+            AOI(raster=str(item_url), raster_bands_request=bands_requested, split='inference', aoi_id=item_url.stem,
+                download_data=download_data, root_dir=data_dir)
+        ]
 
     logging.debug(f"\nInstantiating model with pretrained weights from {checkpoint}")
     try:
@@ -317,111 +333,95 @@ def main(params):
     if tta_transforms:
         model = instantiate(tta_transforms, model=model)
 
-    dm = InferenceDataModule(root_dir=data_dir,
-                             item_path=item_url,
-                             outpath=outpath,
-                             bands=bands_requested,
-                             patch_size=chip_size,
-                             stride=stride,
-                             batch_size=batch_size,
-                             num_workers=num_workers,
-                             download=download_data,
-                             seed=seed,
-                             pad=pad_size,
-                             save_heatmap=save_heatmap_bool,
-                             )
-    dm.setup(test_transforms=test_transforms)
+    # LOOP THROUGH LIST OF INPUT IMAGES
+    for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
+        # FIXME
+        multiband_fp = aoi.write_multiband_from_singleband_rasters_as_vrt()
+        aoi.raster = multiband_fp.open()
 
-    # FIXME: temporary implementation of clahe enhancement applied to entire aoi, not tile by tile
-    ####
-    clip_limit = get_key_def('clahe_enhance_clip_limit', params['augmentation'], default=0, expected_type=int)
-    if test_transform_clahe is not None and clip_limit > 0:
-        if not dm.inference_dataset.download:
-            raise NotImplementedError(
-                f"Temporary CLAHE enhancement on entire AOI requires data to be downloaded locally\n"
-                f"Got 'inference.download_data' = {dm.inference_dataset.download}"
-            )
-        logging.info(f"Will use CLAHE-enhanced AOI")
-        for cname in dm.inference_dataset.bands:
-            single_band = dm.inference_dataset.bands_dict[cname]['href']
-            single_band_enhced = single_band.parent / f'{single_band.stem}_clahe{clip_limit}.tif'
-            if single_band_enhced.is_file():
-                logging.info(f"Using existing: {single_band_enhced}")
-            else:
-                logging.info(f"Enhancing {single_band}.\nOutput: {single_band_enhced}")
-                single_band_rio = rasterio.open(single_band)
-                single_band_np = single_band_rio.read()
-                sample = {'image': torch.from_numpy(single_band_np)}
-                sample = test_transform_clahe(sample)
-                create_new_raster_from_base(single_band_rio, single_band_enhced, sample['image'])
-            dm.inference_dataset.bands_dict[cname]['href'] = single_band_enhced
-    ####
+        dm = InferenceDataModule(aoi=aoi,
+                                 outpath=outpath,
+                                 patch_size=chip_size,
+                                 stride=stride,
+                                 batch_size=batch_size,
+                                 num_workers=num_workers,
+                                 pad=pad_size,
+                                 save_heatmap=save_heatmap_bool,
+                                 )
+        dm.setup(test_transforms=test_transforms)
 
-    h, w = [side for side in dm.inference_dataset.src.shape]
+        # FIXME: temporary implementation of clahe enhancement applied to entire aoi, not tile by tile
+        ####
+        clip_limit = get_key_def('clahe_enhance_clip_limit', params['augmentation'], default=0, expected_type=int)
+        if test_transform_clahe is not None and clip_limit > 0:
+            logging.error(f"MUST BE REIMPLEMENTED ASAP")
+        ####
 
-    if auto_batch_size and device.type != "cpu":
-        batch_size = auto_batch_size_finder(datamodule=dm,
-                                            device=device,
-                                            model=model,
-                                            single_class_mode=single_class_mode,
-                                            max_used_ram=auto_bs_threshold,
-                                            )
-        # Set final batch size from auto found value
-        dm.batch_size = batch_size
+        h, w = [side for side in aoi.raster.shape]
 
-    window_spline_2d = create_spline_window(chip_size).to(device)
-    logging.debug(f"\nInstantiating inference generator for looping over imagery chips")
-    eval_gen = eval_batch_generator(
-        model=model,
-        dataloader=dm.predict_dataloader(),
-        device=device,
-        single_class_mode=single_class_mode,
-        window_spline_2d=window_spline_2d,
-        pad=dm.pad_size,
-    )
+        if auto_batch_size and device.type != "cpu":
+            batch_size = auto_batch_size_finder(datamodule=dm,
+                                                device=device,
+                                                model=model,
+                                                single_class_mode=single_class_mode,
+                                                max_used_ram=auto_bs_threshold,
+                                                )
+            # Set final batch size from auto found value
+            dm.batch_size = batch_size
 
-    # Create a numpy memory map to write results from per-chip inference to full-size prediction
-    tempfile = root / f"{Path(dm.inference_dataset.outpath).stem}.dat"
-    fp = np.memmap(tempfile, dtype='float16', mode='w+', shape=(h, w, num_classes))
-    transform = dm.inference_dataset.src.transform
-    for inference_prediction in eval_gen:
-        # iterate through the batch and paste the predictions where they belong
-        for i in range(len(inference_prediction['bbox'])):
-            bb = inference_prediction["bbox"][i]
-            col_min, row_min = ~transform * (bb.minx, bb.maxy)  # top left
-            col_min, row_min = round(col_min), round(row_min)
-            right = col_min + chip_size if col_min + chip_size <= w else w
-            bottom = row_min + chip_size if row_min + chip_size <= h else h
+        window_spline_2d = create_spline_window(chip_size).to(device)
+        logging.debug(f"\nInstantiating inference generator for looping over imagery chips")
+        eval_gen = eval_batch_generator(
+            model=model,
+            dataloader=dm.predict_dataloader(),
+            device=device,
+            single_class_mode=single_class_mode,
+            window_spline_2d=window_spline_2d,
+            pad=dm.pad_size,
+        )
 
-            pred = inference_prediction['data'][i]
-            # Write prediction on top of existing prediction for smoothing purposes
-            fp[row_min:bottom, col_min:right, :] = \
-                fp[row_min:bottom, col_min:right, :] + pred[:bottom-row_min, :right-col_min]
-    fp.flush()
-    del fp
+        # Create a numpy memory map to write results from per-chip inference to full-size prediction
+        tempfile = root / f"{Path(aoi.raster_name).stem}.dat"
+        fp = np.memmap(tempfile, dtype='float16', mode='w+', shape=(h, w, num_classes))
+        transform = aoi.raster.transform
+        for inference_prediction in eval_gen:
+            # iterate through the batch and paste the predictions where they belong
+            for i in range(len(inference_prediction['bbox'])):
+                bb = inference_prediction["bbox"][i]
+                col_min, row_min = ~transform * (bb.minx, bb.maxy)  # top left
+                col_min, row_min = round(col_min), round(row_min)
+                right = col_min + chip_size if col_min + chip_size <= w else w
+                bottom = row_min + chip_size if row_min + chip_size <= h else h
 
-    logging.debug(f"\nReading full-size prediction memory-map and writing to final raster after argmax operation "
-                  f"(discard confidence info)")
-    fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, num_classes))
-    pred_img = class_from_heatmap(heatmap_arr=fp, heatmap_threshold=heatmap_threshold)
-    pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
-    create_new_raster_from_base(input_raster=dm.inference_dataset.src, output_raster=outpath, write_array=pred_img)
-
-    logging.info(f'\nInference completed on {dm.inference_dataset.item_url}'
-                 f'\nFinal prediction written to {outpath}')
-
-    if dm.save_heatmap:
-        logging.info(f"\nSaving heatmap...")
-        save_heatmap(heatmap=fp, outpath=outpath_heat, src=dm.inference_dataset.src)
-        logging.info(f'\nSaved heatmap to {outpath_heat}')
-
-    if outpath.is_file():
-        logging.debug(f"\nDeleting temporary .dat file {tempfile}...")
+                pred = inference_prediction['data'][i]
+                # Write prediction on top of existing prediction for smoothing purposes
+                fp[row_min:bottom, col_min:right, :] = \
+                    fp[row_min:bottom, col_min:right, :] + pred[:bottom - row_min, :right - col_min]
         fp.flush()
         del fp
-        os.remove(tempfile)
 
-    return outpath, pred_img
+        logging.debug(f"\nReading full-size prediction memory-map and writing to final raster after argmax operation "
+                      f"(discard confidence info)")
+        fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, num_classes))
+        pred_img = class_from_heatmap(heatmap_arr=fp, heatmap_threshold=heatmap_threshold)
+        pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
+        create_new_raster_from_base(input_raster=aoi.raster, output_raster=outpath, write_array=pred_img)
+
+        logging.info(f'\nInference completed on {aoi.raster_name}'
+                     f'\nFinal prediction written to {outpath}')
+
+        if dm.save_heatmap:
+            logging.info(f"\nSaving heatmap...")
+            save_heatmap(heatmap=fp, outpath=outpath_heat, src=aoi.raster)
+            logging.info(f'\nSaved heatmap to {outpath_heat}')
+
+        if outpath.is_file():
+            logging.debug(f"\nDeleting temporary .dat file {tempfile}...")
+            fp.flush()
+            del fp
+            os.remove(tempfile)
+
+        return outpath, pred_img
 
 
 if __name__ == "__main__":  # serves as back up
@@ -445,6 +445,6 @@ if __name__ == "__main__":  # serves as back up
         metavar="DIR")
     args = parser.parse_args()
     params = {"inference": {"input_stac_item": args.input_stac_item, "state_dict_path": args.state_dict_path,
-              "root_dir": args.root_dir},
+                            "root_dir": args.root_dir},
               "dataset": {}}
     main(params)

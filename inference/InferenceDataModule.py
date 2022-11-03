@@ -12,6 +12,7 @@ from torchgeo.datasets import stack_samples
 from torchgeo.samplers import Units, GridGeoSampler
 from torchvision.transforms import Compose, Normalize
 
+from dataset.aoi import AOI
 from inference.InferenceDataset import InferenceDataset
 
 
@@ -118,25 +119,19 @@ class InferenceDataModule(LightningDataModule):
     """
     def __init__(
         self,
-        item_path: Union[str, Path],
-        root_dir: Union[str, Path],
+        aoi: AOI,
         outpath: Union[str, Path],
-        bands: Sequence = ('red', 'green', 'blue'),
         patch_size: int = 256,
         stride: int = 256,
         pad: int = 256,
         batch_size: int = 1,
         num_workers: int = 0,
-        download: bool = False,
         use_projection_units: bool = False,
         save_heatmap: bool = False,
-        **kwargs: Any,
     ) -> None:
         """Initialize a LightningDataModule for InferenceDataset based Dataloader.
-        @param item_path:
-            path to stac item containing imagery assets to infer on
-        @param root_dir:
-            The ``root`` argugment to pass to the InferenceDataset class
+        @param aoi:
+            AOI instance which contains raster for inference
         @param outpath:
             path to desired output
         @param patch_size:
@@ -149,8 +144,6 @@ class InferenceDataModule(LightningDataModule):
             The batch size to use in all created DataLoaders
         @param num_workers:
             The number of workers to use in all created DataLoaders
-        @param download:
-            if True, download dataset and store it in the root directory.
         @param use_projection_units : bool, optional
             Is `patch_size` in pixel units (default) or distance units?
         @param save_heatmap: bool, optional
@@ -160,17 +153,15 @@ class InferenceDataModule(LightningDataModule):
         """
         super().__init__()  # type: ignore[no-untyped-call]
 
-        self.item_path = item_path
-        self.root_dir = root_dir
+        self.inference_dataset = None
+        self.aoi = aoi
         self.outpath = outpath
         self.patch_size = patch_size
         self.stride = stride
         self.pad_size = pad
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.download = download
         self.use_projection_units = use_projection_units
-        self.bands = bands
         self.save_heatmap = save_heatmap
 
     def prepare_data(self) -> None:
@@ -178,12 +169,9 @@ class InferenceDataModule(LightningDataModule):
         This method is called once per node, while :func:`setup` is called once per GPU.
         """
         InferenceDataset(
-            item_path=self.item_path,
-            root=self.root_dir,
+            aoi=self.aoi,
             outpath=self.outpath,
-            bands=self.bands,
             transforms=None,
-            download=self.download,
             pad=self.pad_size,
         )
 
@@ -196,12 +184,9 @@ class InferenceDataModule(LightningDataModule):
         @param stage: stage to set up
         """
         self.inference_dataset = InferenceDataset(
-            item_path=self.item_path,
-            root=self.root_dir,
+            aoi=self.aoi,
             outpath=self.outpath,
-            bands=self.bands,
             transforms=test_transforms,
-            download=self.download,
             pad=self.pad_size,
         )
 
