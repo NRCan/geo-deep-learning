@@ -30,7 +30,7 @@ from solaris.utils.core import _check_gdf_load, _check_rasterio_im_load
 from tqdm import tqdm
 from dataset.aoi import aois_from_csv, AOI
 from utils.utils import get_key_def, get_git_hash
-from utils.utils import define_geo_dataset, define_vector_dataset
+from utils.utils import define_raster_dataset, define_vector_dataset
 from utils.verifications import validate_raster
 # Set the logging file
 from utils import utils
@@ -210,29 +210,39 @@ class Tiler(object):
     @staticmethod
     def _save_vrt_read(aoi):
         """
-        Save the rasterio DatasetReader class as a GeoTIFF to the temporary folder
-        :param rasterio_ds: DataserReader object of the rasterio.
-        :return: a path to the temporary saved rasterio DatasetReader class as a GeoTIFF.
+        Save the rasterio's DatasetReader class as a GeoTIFF to the temporary folder.
+        Args:
+            aoi: given AOI object.
+
+        Returns: saved temporary geotiff path.
         """
+
         os.makedirs('temp', exist_ok=True)
 
-        # Read the geo transformation parameters and crs:
+        # Read the geotransformation parameters and crs:
         geotransform = aoi.raster.transform.to_gdal()
         crs = aoi.raster.crs.wkt
+
+        # Define the putput file name:
         out_filename = os.path.join('temp', aoi.raster_name.stem + '_temp.tif')
+
+        # Read the AOI.raster and an array:
         arr = aoi.raster.read()
 
-        # Save as GeoTIFF:
+        # Create an output raster patch datasource:
         drv = gdal.GetDriverByName("GTiff")
         gdal_type = gdal.GDT_Byte if arr.dtype == np.uint8 else arr.GDT_UInt16
         dst_ds = drv.Create(out_filename, arr.shape[2], arr.shape[1], arr.shape[0], gdal_type, options=["COMPRESS=DEFLATE"])
 
+        # Write every channel of the raster array to the corresponding band of the output datasource:
         for band in range(arr.shape[0]):
             dst_ds.GetRasterBand(band + 1).WriteArray(arr[band, :, :])
 
+        # Set the datasource projection and geotransformations:
         dst_ds.SetGeoTransform(geotransform)
         dst_ds.SetProjection(crs)
-        dst_ds.FlushCache()
+
+        # Close and save the datasource:
         dst_ds = None
 
         return out_filename
@@ -240,33 +250,51 @@ class Tiler(object):
     @staticmethod
     def _save_tile(sample, dst, window, crs):
         """
-        Save individual patch as a geotiff
-        :param sample: numpy array in format: (h, w, b)
-        :param dst: destination file path
-        :param window: boundingbox coordinates of the patch
-        :param crs: patch's crs
+        Save individual raster patch as a geotiff.
+        Args:
+            sample: numpy array with a shape of (h, w, c).
+            dst: destination file path.
+            window: bounding box coordinates of the patch.
+            crs: patch's crs.
+
+        Returns: None
         """
+        # Unpack the bounding box coordinates and the sample's dimensions.
         xmin, ymax, xmax, ymin = window
         n_rows, n_cols, n_bands = sample.shape[1], sample.shape[2], sample.shape[0]
+
+        # Calculate spatial resolution based on the extracted data:
         xres = (xmax - xmin) / float(n_cols)
         yres = (ymax - ymin) / float(n_rows)
+        # Set the geotransformation parameters in the GDAL format:
         geotransform = (xmin, xres, 0, ymax, 0, -yres)
 
+        # Create an output raster patch datasource:
         drv = gdal.GetDriverByName("GTiff")
         gdal_type = gdal.GDT_Byte if sample.dtype == np.uint8 else gdal.GDT_UInt16
         dst_ds = drv.Create(dst, n_cols, n_rows, n_bands, gdal_type, options=["COMPRESS=DEFLATE"])
 
+        # Write every channel of the raster patch array to the corresponding band of the output datasource:
         for band in range(n_bands):
             dst_ds.GetRasterBand(band + 1).WriteArray(sample[band, :, :])
 
+        # Set the datasource projection and geotransformations:
         dst_ds.SetGeoTransform(geotransform)
         dst_ds.SetProjection(crs)
 
+        # Close and save the datasource:
         dst_ds = None
 
     @staticmethod
     def _parse_torchgeo_batch(batch):
-        # Parse the batch
+        """
+        Extract data from the TorchGoe batch.
+        Args:
+            batch: TorchGeo batch.
+
+        Returns: image raster sample as a numpy array, sample CRS, sample bounding box coordinates.
+
+        """
         # Get the image as an array:
         sample_image = batch['image']
         sample_image = np.asarray(sample_image).squeeze(0)
@@ -279,39 +307,63 @@ class Tiler(object):
 
     @staticmethod
     def _define_output_name(aoi, output_folder, window):
-        out_name = aoi.raster_name.stem + "_" + "_".join([str(x).replace(".", "_") for x in window[:2]]) + ".tif"
-        return join(output_folder, out_name)
+        """
+        Generate the output file name without the file extention.
+        Args:
+            aoi: current AOI object.
+            output_folder: output folder name.
+            window: current bounding box coordinates.
 
+        Returns: output file name without the file extention
+
+        """
+        out_name = aoi.raster_name.stem + "_" + "_".join([str(x).replace(".", "_") for x in window[:2]])
+        return join(output_folder, out_name)
 
     @staticmethod
     def _clip_vector_by_bbox(ds_src, srs, bbox, output_vector_name, i):
-        # Create ring
+        """
+        Creates a Geometry instance of the ogr class from the bounding box coordinates, then puts this geometry in
+        to a vector datasource, created in memory.
+        Applies Clip method of the ogr.Layer class to clip the input vector datasource with the given bounding box.
+
+        Args:
+            ds_src: input dataset class of the ogr instance.
+            srs: reference GetSpatialRef instance of the ogr.Layer class, represented a CRS.
+            bbox: target bounding box extents.
+            output_vector_name: output vector ".geojson" patch path.
+            i: current bounding box number, currently is useless, keep for later multithreading purposes.
+
+        Returns: output vector ".geojson" patch path.
+
+        """
+        # Create a LinearRing object (basic geometry constructor):
         poly_box = ogr.Geometry(ogr.wkbLinearRing)
         poly_box.AddPoint(bbox[0], bbox[1])
         poly_box.AddPoint(bbox[2], bbox[1])
         poly_box.AddPoint(bbox[2], bbox[3])
         poly_box.AddPoint(bbox[0], bbox[3])
         poly_box.AddPoint(bbox[0], bbox[1])
-        # Create polygon
+        # Create a Polygon object from the ring.
         poly = ogr.Geometry(ogr.wkbPolygon)
         poly.AddGeometry(poly_box)
 
-        # Create a vector bbox in memory:
+        # Create a vector datasource in memory:
         mem_driver = ogr.GetDriverByName('MEMORY')
         mem_ds = mem_driver.CreateDataSource('memdata_' + str(i))
         mem_layer = mem_ds.CreateLayer('0', srs, geom_type=ogr.wkbPolygon)
         feature_def = mem_layer.GetLayerDefn()
         out_feature = ogr.Feature(feature_def)
-        # Set new geometry
+        # Set new geometry from the Polygon object (bounding box):
         out_feature.SetGeometry(poly)
         # Add new feature to output Layer
         mem_layer.CreateFeature(out_feature)
 
-        # Clip vector file and save it as a GeoJSON:
+        # Crate the output vector patch datasource:
         driver_name = "GeoJSON"
         driver = ogr.GetDriverByName(driver_name)
         out_ds = driver.CreateDataSource(output_vector_name)
-
+        # Clip it with the bounding box:
         out_layer = out_ds.CreateLayer('0', srs, geom_type=ogr.wkbMultiPolygon)
         ogr.Layer.Clip(ds_src.GetLayer(), mem_layer, out_layer)
 
@@ -321,27 +373,24 @@ class Tiler(object):
 
         return output_vector_name
 
-    @staticmethod
-    def work(cmd: str):
-        subprocess.run(cmd, shell=True)
-
     def tiling_per_aoi(
             self,
             aoi: AOI,
             out_img_dir: Union[str, Path],
             out_label_dir: Union[str, Path] = None):
         """
-        Calls solaris_gdl tiling function and outputs patches in output directories
+        Generates grid patches from the AOI.raster using TorchGeo's GeoGridSampler dataloader.
+        Generates grid patches fron the AOI.label using GDAL/OGR.
 
         @param aoi: AOI object to be tiled
         @param out_img_dir: path to output patched images directory
         @param out_label_dir: optional, path to output patched labels directory
         @return: written patches to output directories as .tif for imagery and .geojson for label.
 
-        Implies the implementation of RasterDataset & VectorDataset
-        https://gis.stackexchange.com/questions/14712/splitting-raster-into-smaller-chunks-using-gdal
-        https://gdal.org/programs/ogr2ogr.html#ogr2ogr
-        https://gis.stackexchange.com/questions/303979/clip-all-layers-of-a-geopackage-gpkg-in-one-step
+        https://torchgeo.readthedocs.io/en/stable/tutorials/custom_raster_dataset.html
+        https://torchgeo.readthedocs.io/en/stable/api/samplers.html
+        https://gdal.org/api/python/osgeo.gdal.html
+        https://gdal.org/api/python/osgeo.ogr.html
         """
         if not aoi.raster:  # in case of multiprocessing
             aoi.raster_open()
@@ -349,18 +398,21 @@ class Tiler(object):
         # Save raster as a temporary geotiff:
         saved_geotiff = self._save_vrt_read(aoi)
 
-        # # Initialize custom TorchGeo dataset classes:
-        geo_dataset_class = define_geo_dataset(saved_geotiff)
-        geo_dataset = geo_dataset_class(os.path.split(saved_geotiff)[0])
+        # Initialize custom TorchGeo raster dataset class:
+        raster_dataset_class = define_raster_dataset(saved_geotiff)
+        raster_dataset = raster_dataset_class(os.path.split(saved_geotiff)[0])
 
+        ## We will leave there lines of code for later development:
         # vector_dataset_class = define_vector_dataset(aoi.label)
         # vector_dataset = vector_dataset_class(os.path.split(aoi.label)[0])
-
-        # Combine raster and vector datasets with magic TorchGeo operation:
+        ## Combine raster and vector datasets with magic TorchGeo operation:
         # resulting_dataset = geo_dataset & vector_dataset
-        resulting_dataset = geo_dataset
 
-        # Initialize a sampler and a dataloader:
+        # In the future, resulting dataset can be a union of the raster and vector datasets:
+        resulting_dataset = raster_dataset
+
+        # Initialize a sampler and a dataloader. If we need overlapping, stride must be adjusted accordingly.
+        # For now, having stride parameter equal to the size, we have no overlapping (except for the borders).
         sampler = GridGeoSampler(resulting_dataset, size=self.dest_patch_size, stride=self.dest_patch_size)
         dataloader = DataLoader(resulting_dataset, sampler=sampler, collate_fn=stack_samples)
 
@@ -374,8 +426,6 @@ class Tiler(object):
             assert mem_vec_ds is not None, f"Incorrect vector label file was provided: {aoi.label}"
             vec_srs = mem_vec_ds.GetLayer().GetSpatialRef()
 
-            # src_layer = vec_ds.GetLayer()
-
         # Iterate over the dataloader and save resulting raster patches:
         bboxes = []
         raster_tile_paths = []
@@ -386,45 +436,28 @@ class Tiler(object):
         raster_tile_data = []
         vector_tile_data = []
 
-        # Iterate over the dataloader and save resulting raster patches:
         for i, batch in enumerate(dataloader):
             # Parse the TorchGeo batch:
             sample_image, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
             bboxes.append(sample_window)
 
-            # Define the output patch filename:
-            dst_raster_name = self._define_output_name(aoi, out_img_dir, sample_window)
+            # Define the output raster patch filename:
+            dst_raster_name = self._define_output_name(aoi, out_img_dir, sample_window) + ".tif"
             raster_tile_paths.append(dst_raster_name)
 
+            # Append all the raster patch data for later parallel writing to the disk:
             raster_tile_data.append([sample_image, dst_raster_name, sample_window, sample_crs])
 
-            # Save the patch as a GeoTIFF:
-            # self._save_tile(sample_image, dst_raster_name, sample_window, sample_crs)
+            if not self.for_inference:
+                # Define the output vector patch filename:
+                dst_vector_name = self._define_output_name(aoi, out_label_dir, sample_window) + ".geojson"
+                vector_tile_paths.append(dst_vector_name)
+                # Clip vector labels having bounding boxes from the raster tiles:
+                self._clip_vector_by_bbox(mem_vec_ds, vec_srs, sample_window, dst_vector_name, i)
 
-            ############ Vector
-            dst_vector_name = self._define_output_name(aoi, out_label_dir, sample_window).replace(".tif", ".geojson")
-            #
-            # cmd = "ogr2ogr -f GeoJSON " + dst_vector_name + ' ' + str(aoi.label) + " -clipsrc " + \
-            #     str(sample_window[0]) + " " + str(sample_window[1]) + " " + str(sample_window[2]) + " " + str(sample_window[3])
-            # msg = subprocess.run(cmd, shell=True)
-            # if msg.returncode != 0:
-            #     RuntimeError("Vector file couldn't be clipped.")
-
-            # Clip vector labels having bounding boxes from the rester tiles:
-            self._clip_vector_by_bbox(mem_vec_ds, vec_srs, sample_window, dst_vector_name, i)
-
-            vector_tile_paths.append(dst_vector_name)
-
-            # vector_tile_data.append([vec_ds, vec_srs, bbox_wkt, dst_vector_name, i])
-
+        # Write all raster tiles to the disk in parallel:
         with ThreadPoolExecutor(100) as exe:
-            # submit tasks to generate files
             _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
-        #
-        # with ThreadPoolExecutor(1) as exe:
-        #     # submit tasks to generate files
-        #     for i in range(len(vector_tile_data)):
-        #         exe.submit(self._clip_vector_by_bbox, *vector_tile_data[i])
 
         return aoi, raster_tile_paths, vector_tile_paths
 

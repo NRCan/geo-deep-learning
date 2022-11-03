@@ -659,7 +659,7 @@ def map_wrapper(x):
     return x[0](*(x[1:]))
 
 
-def define_geo_dataset(raster):
+def define_raster_dataset(raster):
     class RDataset(RasterDataset):
         filename_glob = os.path.split(raster)[1]
         is_image = True
