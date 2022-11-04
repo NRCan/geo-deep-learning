@@ -5,11 +5,9 @@ from pathlib import Path
 import shutil
 from typing import Union, Sequence, List
 import os
-from os.path import join, split
+from os.path import join
 from concurrent.futures import ThreadPoolExecutor
-import subprocess
 
-import shapely.geometry
 from osgeo import gdal, ogr
 import geopandas as gpd
 import matplotlib.pyplot
@@ -20,24 +18,20 @@ from shapely.geometry import box
 from torch.utils.data import DataLoader
 from torchgeo.samplers import GridGeoSampler
 from torchgeo.datasets import stack_samples
-from shapely.geometry import mapping, shape
-import fiona
-ogr.UseExceptions()
-
-from solaris import tile, vector
+from solaris import vector
 from solaris.utils.core import _check_gdf_load, _check_rasterio_im_load
-
 from tqdm import tqdm
 from dataset.aoi import aois_from_csv, AOI
 from utils.utils import get_key_def, get_git_hash
 from utils.utils import define_raster_dataset, define_vector_dataset
 from utils.verifications import validate_raster
+
 # Set the logging file
 from utils import utils
 logging = utils.get_logger(__name__)  # import logging
 # Set random seed for reproducibility
 np.random.seed(123)
-
+ogr.UseExceptions()
 
 def annot_percent(img_patch: Union[str, Path, rasterio.DatasetReader],
                   gdf_patch: Union[str, Path, gpd.GeoDataFrame],
@@ -460,34 +454,6 @@ class Tiler(object):
             _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
 
         return aoi, raster_tile_paths, vector_tile_paths
-
-        # raster_tiler = tile.raster_tile.RasterTiler(dest_dir=out_img_dir,
-        #                                             src_tile_size=(self.dest_patch_size, self.dest_patch_size),
-        #                                             alpha=False,
-        #                                             verbose=True)
-        # # rasterio.errors.RasterioIOError: Read or write failed. Writing through VRTSourcedRasterBand is not supported.
-        # aoi.raster.driver = "GTiff" if aoi.raster.driver == 'VRT' else aoi.raster.driver
-        # raster_bounds_crs = raster_tiler.tile(aoi.raster, dest_fname_base=aoi.raster_name.stem)
-        # logging.debug(f'Raster bounds crs: {raster_bounds_crs}\n'
-        #               f'')
-        #
-        # vec_tler_patch_paths = [None] * len(raster_tiler.tile_paths)
-        # if not self.for_inference:
-        #     dest_crs = raster_tiler.dest_crs if raster_tiler.dest_crs.is_epsg_code else None
-        #     vec_tler = tile.vector_tile.VectorTiler(dest_dir=out_label_dir,
-        #                                             dest_crs=dest_crs,
-        #                                             verbose=True,
-        #                                             super_verbose=self.debug)
-        #     vec_tler.tile(src=str(aoi.label),
-        #                   tile_bounds=raster_tiler.tile_bounds,
-        #                   dest_fname_base=aoi.raster_name.stem,
-        #                   split_multi_geoms=False)
-        #     vec_tler_patch_paths = vec_tler.tile_paths
-        #
-        # aoi.close_raster()  # for multiprocessing
-        # aoi.raster = None
-        #
-        # return aoi, raster_tiler.tile_paths, vec_tler_patch_paths
 
     def passes_min_annot(self,
                          img_patch: Union[str, Path],
