@@ -24,7 +24,7 @@ from tqdm import tqdm
 
 from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base, subset_multiband_vrt
 from utils.logger import get_logger
-from utils.utils import read_csv
+from utils.utils import read_csv, minmax_scale
 from utils.verifications import assert_crs_match, validate_raster, \
     validate_num_bands, validate_features_from_gpkg
 
@@ -522,12 +522,7 @@ class AOI(object):
         if self.raster_np is None:
             self.raster_np = self.raster.read()
         raster_torch = image_to_tensor(reshape_as_image(self.raster_np))
-        if raster_torch.max() > 255:
-            raise NotImplementedError(
-                f"Equalization expects array with max value of 255. "
-                f"\nGot {raster_torch.type()} with max value: {raster_torch.max()}"
-            )
-        raster_torch = raster_torch.float() / 255
+        raster_torch = minmax_scale(img=raster_torch, scale_range=(0, 1), orig_range=(0, 255))
         raster_torch = equalize_clahe(raster_torch.float().unsqueeze(0), clip_limit=clip_limit)
         self.raster_np = tensor_to_image((raster_torch*255).long())
         self.raster_np = reshape_as_raster(self.raster_np)

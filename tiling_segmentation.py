@@ -159,7 +159,7 @@ class Tiler(object):
                         shutil.move(self.tiling_root_dir / dataset, move_dir)
             else:
                 raise FileExistsError(
-                    f'Patches directory is empty. Won\'t overwrite existing content unless debug=True.\n'
+                    f'Patches directory is not empty. Won\'t overwrite existing content unless debug=True.\n'
                     f'Directory: {self.tiling_root_dir}.'
                 )
 
