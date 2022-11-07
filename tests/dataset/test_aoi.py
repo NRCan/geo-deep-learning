@@ -173,6 +173,22 @@ class Test_AOI(object):
         assert aoi.label is None
         aoi.close_raster()
 
+    def test_filter_gdf_by_attribute(self):
+        """Tests filtering features from a vector file according to an attribute field and value"""
+        extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        data = read_csv("tests/tiling/tiling_segmentation_multiclass_ci.csv")
+        iterator = iter(data)
+        row = next(iterator)
+        aoi = AOI(
+            raster=row['tif'],
+            label=row['gpkg'],
+            split=row['split'],
+            attr_field_filter="Quatreclasses",
+            attr_values_filter=[4],  # buildings
+        )
+        assert np.array_equal(aoi.label_gdf_filtered, aoi.label_gdf[aoi.label_gdf.Quatreclasses == '4'])
+        aoi.close_raster()
+
     def test_missing_raster(self) -> None:
         """Tests error when pointing to missing raster"""
         extract_archive(src="tests/data/spacenet.zip")
@@ -238,7 +254,6 @@ class Test_AOI(object):
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
         assert aoi.bounds_iou == 0
         aoi.close_raster()
-
 
     def test_write_multiband_from_single_band(self) -> None:
         """Tests the 'write_multiband' method"""
@@ -328,7 +343,7 @@ class Test_AOI(object):
 
     def test_for_multiprocessing(self) -> None:
         """Tests multiprocessing on AOI instances"""
-        extract_archive(src="tests/data/spacenet.zip")
+        extract_archive(src="tests/data/new_brunswick_aerial.zip")
         data = read_csv("tests/tiling/tiling_segmentation_multiclass_ci.csv")
         inputs = []
         row = next(iter(data))

@@ -11,7 +11,7 @@ import torch
 # Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import random
 import numpy as np
-from skimage import transform, exposure
+from skimage import transform
 from torchvision import transforms
 from utils.utils import get_key_def, pad, minmax_scale
 
@@ -184,7 +184,7 @@ class HorizontalFlip(object):
         return sample
 
 
-class RandomCrop(object):  
+class RandomCrop(object):
     # TODO: what to do with overlap in samples_prep (images_to_samples, l.106)?
     #       overlap doesn't need to be larger than, say, 5%
     """Randomly crop image according to a certain dimension.
