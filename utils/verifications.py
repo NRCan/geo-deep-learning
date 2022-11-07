@@ -4,10 +4,10 @@ from typing import Union
 import geopandas as gpd
 import numpy as np
 import rasterio
-from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load, _check_crs
 
 import logging
 
+from utils.geoutils import check_rasterio_im_load, check_gdf_load, check_crs
 from utils.utils import is_url
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: 
     if not raster:
         raise FileNotFoundError(f"No raster provided. Got: {raster}")
     try:
-        raster = _check_rasterio_im_load(raster)
+        raster = check_rasterio_im_load(raster)
     except (TypeError, ValueError) as e:
         logging.critical(f"Invalid raster.\nRaster path: {raster}\n{e}")
         raise e
@@ -57,7 +57,7 @@ def validate_num_bands(raster_path: Union[str, Path], num_bands: int) -> None:
     @param num_bands: Number of bands expected
     @return: if expected and actual number of bands match, returns True, else False (with logging.critical)
     """
-    raster = _check_rasterio_im_load(raster_path)
+    raster = check_rasterio_im_load(raster_path)
     input_band_count = raster.meta['count']
     if not input_band_count == num_bands:
         logging.critical(f"The number of bands expected doesn't match number of bands in input image.\n"
@@ -75,15 +75,15 @@ def assert_crs_match(
     :param raster: (str or Path) path to raster file
     :param label: (str or Path) path to gpkg file
     """
-    raster = _check_rasterio_im_load(raster)
+    raster = check_rasterio_im_load(raster)
     raster_crs = raster.crs
-    gt = _check_gdf_load(label)
+    gt = check_gdf_load(label)
     gt_crs = gt.crs
 
-    epsg_gt = _check_crs(gt_crs.to_epsg())
+    epsg_gt = check_crs(gt_crs.to_epsg())
     try:
         if raster_crs.is_epsg_code:
-            epsg_raster = _check_crs(raster_crs.to_epsg())
+            epsg_raster = check_crs(raster_crs.to_epsg())
         else:
             logging.warning(f"Cannot parse epsg code from raster's crs '{raster.name}'")
             return False, raster_crs, gt_crs
@@ -106,6 +106,6 @@ def validate_features_from_gpkg(label: Union[str, Path, gpd.GeoDataFrame]):
     Validate features in gpkg file
     :param label: (str or Path) path to gpkg file
     """
-    label_gdf = _check_gdf_load(label)
+    label_gdf = check_gdf_load(label)
     invalid_features = list(np.where(label_gdf.is_valid != True)[0])
     return invalid_features

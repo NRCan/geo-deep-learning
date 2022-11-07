@@ -14,11 +14,11 @@ from pandas.io.common import is_url
 from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
 from shapely.geometry import box, Polygon, MultiPolygon
-from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load
 from torchvision.datasets.utils import download_url
 from tqdm import tqdm
 
-from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base, subset_multiband_vrt
+from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base, subset_multiband_vrt, \
+    check_rasterio_im_load, check_gdf_load
 from utils.logger import get_logger
 from utils.utils import read_csv
 from utils.verifications import assert_crs_match, validate_raster, \
@@ -207,7 +207,7 @@ class AOI(object):
 
         # if single band assets, build multiband VRT
         self.src_raster_to_dest_multiband(virtual=True)
-        self.raster_open()
+        self.raster = rasterio.open(self.raster_multiband)
         self.raster_meta = self.raster.meta
         self.raster_name = self.name_raster(
             input_path=self.raster_raw_input,
@@ -224,7 +224,7 @@ class AOI(object):
         # Check label data
         if label:
             self.label = Path(label)
-            self.label_gdf = _check_gdf_load(str(label))
+            self.label_gdf = check_gdf_load(label)
             self.bounds_iou = self.bounds_iou_gdf_riodataset(
                 gdf=self.label_gdf,
                 raster=self.raster)
@@ -380,9 +380,6 @@ class AOI(object):
             self.raster_multiband = subset_multiband_vrt(self.raster_parsed[0], band_request=self.raster_bands_request)
         else:
             self.raster_multiband = self.raster_parsed[0]
-
-    def raster_open(self):
-        self.raster = _check_rasterio_im_load(self.raster_multiband)
 
     def to_dict(self, extended=True):
         """returns a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)"""
@@ -563,7 +560,7 @@ class AOI(object):
             GeoDataFrame or path to GeoDataFrame to filter feature from
         @return: Subset of source GeoDataFrame with only filtered features (deep copy)
         """
-        gdf_patch = _check_gdf_load(gdf_patch)
+        gdf_patch = check_gdf_load(gdf_patch)
         if gdf_patch.empty or not attr_field or not attr_vals:
             return gdf_patch
         try:

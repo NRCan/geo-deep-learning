@@ -11,6 +11,7 @@ from shapely.geometry import box
 from torchgeo.datasets.utils import extract_archive
 
 from dataset.aoi import AOI, aois_from_csv
+from utils.geoutils import check_rasterio_im_load
 from utils.utils import read_csv
 
 
@@ -388,6 +389,6 @@ def map_wrapper(x):
 
 def aoi_read_raster(aoi: AOI):
     """Function to package in multiprocessing"""
-    aoi.raster_open()
+    aoi.raster = check_rasterio_im_load(aoi.raster_multiband)
     return aoi.raster.meta
 
