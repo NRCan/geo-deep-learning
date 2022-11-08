@@ -428,7 +428,6 @@ class Tiler(object):
         os.makedirs(out_label_dir, exist_ok=True)
 
         raster_tile_data = []
-        vector_tile_data = []
 
         for i, batch in enumerate(dataloader):
             # Parse the TorchGeo batch:
