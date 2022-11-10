@@ -197,7 +197,7 @@ class TestTiling(object):
         proj_prefix = "test_annot_percent"
         datasets = {"binary-multiband", "multiclass"}
         results = []
-        for expected_min_annot, dataset in itertools.product([0, 1, 10], datasets):
+        for expected_min_annot, dataset in itertools.product([0, 5, 10], datasets):
             proj_name = f"{proj_prefix}{expected_min_annot}_{dataset}"
             cfg = {
                 "general": {"project_name": proj_name},
@@ -220,7 +220,7 @@ class TestTiling(object):
                 assert out_lbl.is_file()
                 out_lbl_rio = rasterio.open(out_lbl)
                 out_lbl_np = out_lbl_rio.read()
-                actual_annot_percent = out_lbl_np[out_lbl_np > 0].sum() / out_lbl_np.size * 100
+                actual_annot_percent = (out_lbl_np[out_lbl_np > 0].sum() / out_lbl_np.size) * 100
                 dataset = out_lbl.parts[3]
                 if not dataset == 'tst':
                     assert dataset == 'trn' or dataset == 'val'
@@ -237,7 +237,10 @@ class TestTiling(object):
     def test_tiling_segmentation_parallel(self):
         data_dir = "data/patches"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
-        extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        try:
+            extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        except FileNotFoundError:
+            pass
         proj = "test_parallel"
         cfg = {
             "general": {"project_name": proj},
@@ -270,7 +273,10 @@ class TestTiling(object):
         """Tests tiling of imagery only for inference"""
         data_dir = "data/patches"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
-        extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        try:
+            extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        except FileNotFoundError:
+            pass
         project_name = "test_inference"
         cfg = {
             "general": {"project_name": project_name},

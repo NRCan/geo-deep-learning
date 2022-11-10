@@ -23,7 +23,7 @@ from torchgeo.datasets import stack_samples
 
 from utils.utils import define_raster_dataset
 from dataset.aoi import aois_from_csv, AOI
-from utils.geoutils import check_gdf_load, check_rasterio_im_load
+from utils.geoutils import check_gdf_load, check_rasterio_im_load, create_new_raster_from_base
 from utils.utils import get_key_def, get_git_hash
 from utils.verifications import validate_raster
 # Set the logging file
@@ -192,18 +192,15 @@ class Tiler(object):
         Save the rasterio's DatasetReader class as a GeoTIFF to the temporary folder.
         Args:
             aoi: given AOI object.
-
         Returns: saved temporary geotiff path.
         """
-
-        os.makedirs('temp', exist_ok=True)
 
         # Read the geotransformation parameters and crs:
         geotransform = aoi.raster.transform.to_gdal()
         crs = aoi.raster.crs.wkt
 
         # Define the putput file name:
-        out_filename = os.path.join('temp', aoi.raster_name.stem + '_temp.tif')
+        out_filename = str(aoi.raster_name)
 
         # Read the AOI.raster and an array:
         arr = aoi.raster.read()
@@ -372,15 +369,15 @@ class Tiler(object):
         https://gdal.org/api/python/osgeo.gdal.html
         https://gdal.org/api/python/osgeo.ogr.html
         """
-        if not aoi.raster:  # in case of multiprocessing
-            aoi.raster_open()
 
-        # Save raster as a temporary geotiff:
-        saved_geotiff = self._save_vrt_read(aoi)
+        if not aoi.raster:
+            aoi.raster = rasterio.open(aoi.raster_multiband)
+
+        self._save_vrt_read(aoi)
 
         # Initialize custom TorchGeo raster dataset class:
-        raster_dataset_class = define_raster_dataset(saved_geotiff)
-        raster_dataset = raster_dataset_class(os.path.split(saved_geotiff)[0])
+        raster_dataset_class = define_raster_dataset(aoi.raster_name)
+        raster_dataset = raster_dataset_class(os.path.split(aoi.raster_name)[0])
 
         ## We will leave there lines of code for later development:
         # vector_dataset_class = define_vector_dataset(aoi.label)
@@ -405,13 +402,13 @@ class Tiler(object):
             mem_vec_ds = src_mem_driver.CopyDataSource(vec_ds, 'src_mem_ds')
             assert mem_vec_ds is not None, f"Incorrect vector label file was provided: {aoi.label}"
             vec_srs = mem_vec_ds.GetLayer().GetSpatialRef()
+            os.makedirs(out_label_dir, exist_ok=True)
 
         # Iterate over the dataloader and save resulting raster patches:
         bboxes = []
         raster_tile_paths = []
         vector_tile_paths = []
         os.makedirs(out_img_dir, exist_ok=True)
-        os.makedirs(out_label_dir, exist_ok=True)
 
         raster_tile_data = []
         logging.info(f'Cropping vector labels...')
@@ -436,8 +433,11 @@ class Tiler(object):
 
         # Write all raster tiles to the disk in parallel:
         logging.info(f'Cropping raster patches...')
-        with ThreadPoolExecutor(100) as exe:
+        with ThreadPoolExecutor(10) as exe:
             _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
+
+        aoi.close_raster()  # for multiprocessing
+        aoi.raster = None
 
         return aoi, raster_tile_paths, vector_tile_paths
 
