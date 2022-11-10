@@ -414,8 +414,8 @@ class Tiler(object):
         os.makedirs(out_label_dir, exist_ok=True)
 
         raster_tile_data = []
-
-        for i, batch in enumerate(dataloader):
+        logging.info(f'Cropping vector labels...')
+        for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             # Parse the TorchGeo batch:
             sample_image, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
             bboxes.append(sample_window)
@@ -435,6 +435,7 @@ class Tiler(object):
                 self._clip_vector_by_bbox(mem_vec_ds, vec_srs, sample_window, dst_vector_name, i)
 
         # Write all raster tiles to the disk in parallel:
+        logging.info(f'Cropping raster patches...')
         with ThreadPoolExecutor(100) as exe:
             _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
 
