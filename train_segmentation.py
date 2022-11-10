@@ -1,27 +1,29 @@
-import time
-import shutil
-from numbers import Number
-
-import torch
-import numpy as np
-from hydra.utils import to_absolute_path, instantiate
-from torch import optim
-from tqdm import tqdm
-from pathlib import Path
-from datetime import datetime
-from typing import Sequence
 from collections import OrderedDict
-from omegaconf import DictConfig
+from datetime import datetime
+from numbers import Number
+from pathlib import Path
+import shutil
+import time
+from typing import Sequence
 
+from hydra.utils import to_absolute_path, instantiate
+import numpy as np
+from omegaconf import DictConfig
+import rasterio
+from sklearn.utils import compute_sample_weight
+import torch
+from torch import optim
 from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_to_dp_model
+from tiling_segmentation import Tiler
 from utils import augmentation as aug, create_dataset
 from utils.logger import InformationLogger, tsv_line, get_logger, set_tracker
-from utils.metrics import report_classification, create_metrics_dict, iou
-from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_to_dp_model
 from utils.loss import verify_weights, define_loss
+from utils.metrics import report_classification, create_metrics_dict, iou
 from utils.utils import gpu_stats, get_key_def, get_device_ids, set_device
 from utils.visualization import vis_from_batch
-from tiling_segmentation import Tiler
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
@@ -53,23 +55,27 @@ def create_dataloader(samples_folder: Path,
                       cfg: dict,
                       eval_batch_size: int = None,
                       dontcare2backgr: bool = False,
+                      compute_sampler_weights: bool = False,
                       debug: bool = False):
     """
     Function to create dataloader objects for training, validation and test datasets.
-    :param samples_folder: path to folder containting .hdf5 files if task is segmentation
-    :param batch_size: (int) batch size
-    :param gpu_devices_dict: (dict) dictionary where each key contains an available GPU with its ram info stored as value
-    :param sample_size: (int) size of hdf5 samples (used to evaluate eval batch-size)
-    :param dontcare_val: (int) value in label to be ignored during loss calculation
-    :param crop_size: (int) size of one side of the square crop performed on original patch during training
-    :param num_bands: (int) number of bands in imagery
-    :param min_annot_perc: (int) minimum proportion of ground truth containing non-background information
-    :param attr_vals: (Sequence)
-    :param scale: (List) imagery data will be scaled to this min and max value (ex.: 0 to 1)
-    :param cfg: (dict) Parameters found in the yaml config file.
-    :param eval_batch_size: (int) Batch size for evaluation (val and test). Optional, calculated automatically if omitted
-    :param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
+    @param samples_folder: path to folder containting .hdf5 files if task is segmentation
+    @param batch_size: (int) batch size
+    @param gpu_devices_dict: (dict) dictionary where each key contains an available GPU with its ram info stored as value
+    @param sample_size: (int) size of hdf5 samples (used to evaluate eval batch-size)
+    @param dontcare_val: (int) value in label to be ignored during loss calculation
+    @param crop_size: (int) size of one side of the square crop performed on original patch during training
+    @param num_bands: (int) number of bands in imagery
+    @param min_annot_perc: (int) minimum proportion of ground truth containing non-background information
+    @param attr_vals: (Sequence)
+    @param scale: (List) imagery data will be scaled to this min and max value (ex.: 0 to 1)
+    @param cfg: (dict) Parameters found in the yaml config file.
+    @param eval_batch_size: (int) Batch size for evaluation (val and test). Optional, calculated automatically if omitted
+    @param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
                             before training
+    @param compute_sampler_weights: (bool)
+        if True, weights will be computed from dataset patches to oversample the minority class(es) and undersample
+        the majority class(es) during training.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
     if not samples_folder.is_dir():
@@ -81,7 +87,8 @@ def create_dataloader(samples_folder: Path,
                                                   params=cfg,
                                                   min_annot_perc=min_annot_perc,
                                                   attr_vals=attr_vals,
-                                                  experiment_name=experiment_name)
+                                                  experiment_name=experiment_name,
+                                                  compute_sampler_weights=compute_sampler_weights)
     if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
         raise ValueError(f"Number of patches is smaller than batch size")
     logging.info(f"Number of samples : {num_samples}\n")
@@ -111,11 +118,11 @@ def create_dataloader(samples_folder: Path,
                                        debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
-    # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
-    if not debug:
+    # Number of workers
+    if cfg.training.num_workers:
+        num_workers = cfg.training.num_workers
+    else:  # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
         num_workers = len(gpu_devices_dict.keys()) * 4 if len(gpu_devices_dict.keys()) > 1 else 4
-    else:
-        num_workers = 0
 
     samples_weight = torch.from_numpy(samples_weight)
     sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
@@ -166,11 +173,24 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     return eval_batch_size_rd
 
 
-def get_num_samples(samples_path, params, min_annot_perc, attr_vals, experiment_name:str):
+def get_num_samples(
+        samples_path,
+        params,
+        min_annot_perc,
+        attr_vals,
+        experiment_name:str,
+        compute_sampler_weights=False
+):
     """
     Function to retrieve number of samples, either from config file or directly from hdf5 file.
-    :param samples_path: (str) Path to samples folder
-    :param params: (dict) Parameters found in the yaml config file.
+    @param samples_path: (str) Path to samples folder
+    @param params: (dict) Parameters found in the yaml config file.
+    @param min_annot_perc: (int) minimum annotated percentage
+    @param attr_vals: (list) attribute values to keep from source ground truth
+    @param experiment_name: (str) experiment name
+    @param compute_sampler_weights: (bool)
+        if True, weights will be computed from dataset patches to oversample the minority class(es) and undersample
+        the majority class(es) during training.
     :return: (dict) number of samples for trn, val and tst.
     """
     num_samples = {'trn': 0, 'val': 0, 'tst': 0}
@@ -199,16 +219,18 @@ def get_num_samples(samples_path, params, min_annot_perc, attr_vals, experiment_
         with open(dataset_filepath, 'r') as datafile:
             datalist = datafile.readlines()
             if dataset == 'trn':
-                # FIXME: user should decide whether or not this is used (very time consuming)
-                samples_weight = np.ones(num_samples[dataset])
-                # for x in tqdm(range(num_samples[dataset]), desc="Computing sample weights"):
-                #     label_file = datalist[x].split(';')[1]
-                #     with rasterio.open(label_file, 'r') as label_handle:
-                #         label = label_handle.read()
-                #     label = np.where(label == dontcare, 0, label)
-                #     unique_labels = np.unique(label)
-                #     weights.append(''.join([str(int(i)) for i in unique_labels]))
-                #     samples_weight = compute_sample_weight('balanced', weights)
+                if not compute_sampler_weights:
+                    samples_weight = np.ones(num_samples[dataset])
+                else:
+                    dontcare = get_key_def("ignore_index", params['dataset'], default=-1)
+                    for x in tqdm(range(num_samples[dataset]), desc="Computing sample weights"):
+                        label_file = datalist[x].split(';')[1]
+                        with rasterio.open(label_file, 'r') as label_handle:
+                            label = label_handle.read()
+                        label = np.where(label == dontcare, 0, label)
+                        unique_labels = np.unique(label)
+                        weights.append(''.join([str(int(i)) for i in unique_labels]))
+                        samples_weight = compute_sample_weight('balanced', weights)
             logging.debug(samples_weight.shape)
             logging.debug(np.unique(samples_weight))
 
@@ -494,7 +516,7 @@ def train(cfg: DictConfig) -> None:
     # MANDATORY PARAMETERS
     class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
     num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
-    modalities = get_key_def('bands', cfg['dataset'], expected_type=Sequence)
+    modalities = get_key_def('bands', cfg['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
     num_bands = len(modalities)
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
@@ -507,6 +529,7 @@ def train(cfg: DictConfig) -> None:
     scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
     batch_metrics = get_key_def('batch_metrics', cfg['training'], default=None)
     crop_size = get_key_def('crop_size', cfg['augmentation'], default=None)
+    compute_sampler_weights = get_key_def('compute_sampler_weights', cfg['training'], default=False, expected_type=bool)
 
     # MODEL PARAMETERS
     checkpoint_stack = [""]
@@ -636,6 +659,7 @@ def train(cfg: DictConfig) -> None:
                                                                        scale=scale,
                                                                        cfg=cfg,
                                                                        dontcare2backgr=dontcare2backgr,
+                                                                       compute_sampler_weights=compute_sampler_weights,
                                                                        debug=debug)
 
     # Save tracking

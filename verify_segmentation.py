@@ -6,12 +6,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Sequence, Union
 
+import rasterio
 from matplotlib import pyplot as plt
 from omegaconf import open_dict, DictConfig
 from rasterio.plot import show_hist, show
 from tqdm import tqdm
 
 from dataset.aoi import aois_from_csv, AOI
+from utils.geoutils import check_rasterio_im_load
 from utils.utils import get_key_def, get_git_hash, map_wrapper
 
 
@@ -38,7 +40,8 @@ def verify_per_aoi(
         Returns info on AOI or error raised, if any.
     """
     try:
-        aoi.raster_open()  # in case of multiprocessing
+        if not aoi.raster:  # in case of multiprocessing
+            aoi.raster = rasterio.open(aoi.raster_multiband)
 
         # get aoi info
         logging.info(f"\nGetting data info for {aoi.aoi_id}...")

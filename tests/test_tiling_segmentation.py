@@ -9,7 +9,8 @@ from omegaconf import DictConfig
 from torchgeo.datasets.utils import extract_archive
 
 from dataset.aoi import AOI
-from tiling_segmentation import annot_percent, main as tiling, Tiler
+from tiling_segmentation import annot_percent, Tiler
+from tiling_segmentation import main as tiling
 from utils.utils import read_csv
 
 
@@ -49,7 +50,7 @@ class TestTiler(object):
         for min_annot in range(10):
             my_tiler.min_annot_perc = min_annot
             passes, perc = my_tiler.passes_min_annot(img, gt)
-            assert perc == 4.236802450059071
+            assert round(perc, 3) == 4.237
             if min_annot < perc:
                 assert passes
             else:
@@ -228,7 +229,10 @@ class TestTiling(object):
         for result in results:
             print(result)
         for dir in list(Path(data_dir).glob(f"{proj_prefix}*")):
-            shutil.rmtree(dir)
+            try:
+                shutil.rmtree(dir)
+            except PermissionError:
+                pass
 
     def test_tiling_segmentation_parallel(self):
         data_dir = "data/patches"
