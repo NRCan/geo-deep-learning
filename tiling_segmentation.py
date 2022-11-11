@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 from typing import Union, Sequence, List
 from concurrent.futures import ThreadPoolExecutor
+import posixpath
 
 import geopandas as gpd
 import matplotlib.pyplot
@@ -377,10 +378,8 @@ class Tiler(object):
 
         # Initialize custom TorchGeo raster dataset class:
 
-        logging.warning(f'saved raster path: {saved_raster}')
         raster_dataset_class = define_raster_dataset(saved_raster)
-        logging.warning(f'saved raster base folder path: {os.path.split(saved_raster)[0]}')
-        raster_dataset = raster_dataset_class(os.path.split(saved_raster)[0])
+        raster_dataset = raster_dataset_class(os.path.dirname(saved_raster))
 
 
         ## We will leave there lines of code for later development:
@@ -415,7 +414,6 @@ class Tiler(object):
         os.makedirs(out_img_dir, exist_ok=True)
 
         raster_tile_data = []
-        logging.info(f'Cropping vector labels...')
         for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             # Parse the TorchGeo batch:
             sample_image, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
