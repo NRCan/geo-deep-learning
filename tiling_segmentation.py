@@ -373,11 +373,11 @@ class Tiler(object):
         if not aoi.raster:
             aoi.raster = rasterio.open(aoi.raster_multiband)
 
-        self._save_vrt_read(aoi)
+        saved_raster = self._save_vrt_read(aoi)
 
         # Initialize custom TorchGeo raster dataset class:
-        raster_dataset_class = define_raster_dataset(aoi.raster_name)
-        raster_dataset = raster_dataset_class(os.path.split(aoi.raster_name)[0])
+        raster_dataset_class = define_raster_dataset(saved_raster)
+        raster_dataset = raster_dataset_class(os.path.split(saved_raster)[0])
 
         ## We will leave there lines of code for later development:
         # vector_dataset_class = define_vector_dataset(aoi.label)
