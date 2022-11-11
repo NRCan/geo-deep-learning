@@ -415,14 +415,16 @@ class Tiler(object):
         for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             # Parse the TorchGeo batch:
             sample_image, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
-            bboxes.append(sample_window)
+            # bboxes.append(sample_window)
 
             # Define the output raster patch filename:
             dst_raster_name = self._define_output_name(aoi, out_img_dir, sample_window) + ".tif"
             raster_tile_paths.append(dst_raster_name)
 
             # Append all the raster patch data for later parallel writing to the disk:
-            raster_tile_data.append([sample_image, dst_raster_name, sample_window, sample_crs])
+            # raster_tile_data.append([sample_image, dst_raster_name, sample_window, sample_crs])
+
+            self._save_tile(sample_image, dst_raster_name, sample_window, sample_crs)
 
             if not self.for_inference:
                 # Define the output vector patch filename:
@@ -431,10 +433,10 @@ class Tiler(object):
                 # Clip vector labels having bounding boxes from the raster tiles:
                 self._clip_vector_by_bbox(mem_vec_ds, vec_srs, sample_window, dst_vector_name, i)
 
-        # Write all raster tiles to the disk in parallel:
-        logging.info(f'Cropping raster patches...')
-        with ThreadPoolExecutor(10) as exe:
-            _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
+        # # Write all raster tiles to the disk in parallel:
+        # logging.info(f'Cropping raster patches...')
+        # with ThreadPoolExecutor(10) as exe:
+        #     _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
 
         aoi.close_raster()  # for multiprocessing
         aoi.raster = None
