@@ -376,8 +376,12 @@ class Tiler(object):
         saved_raster = self._save_vrt_read(aoi)
 
         # Initialize custom TorchGeo raster dataset class:
+
+        logging.warning(f'saved raster path: {saved_raster}')
         raster_dataset_class = define_raster_dataset(saved_raster)
+        logging.warning(f'saved raster base folder path: {os.path.split(saved_raster)[0]}')
         raster_dataset = raster_dataset_class(os.path.split(saved_raster)[0])
+
 
         ## We will leave there lines of code for later development:
         # vector_dataset_class = define_vector_dataset(aoi.label)
@@ -392,7 +396,7 @@ class Tiler(object):
         # For now, having stride parameter equal to the size, we have no overlapping (except for the borders).
         sampler = GridGeoSampler(resulting_dataset, size=self.dest_patch_size, stride=self.dest_patch_size)
         dataloader = DataLoader(resulting_dataset, sampler=sampler, collate_fn=stack_samples)
-
+        logging.warning(f'dataset length: {len(dataloader)}')
         assert len(dataloader) != 0, "The dataloader is empty. Check input image and vector datasets."
 
         # Open vector datasource if not in inference mode:
