@@ -7,6 +7,7 @@ import rasterio
 from omegaconf import OmegaConf, DictConfig
 from rasterio.plot import reshape_as_image
 from torch.utils.data import Dataset
+from torchgeo.datasets import RasterDataset, VectorDataset
 
 from utils.logger import get_logger
 
@@ -138,3 +139,19 @@ class SegmentationDataset(Dataset):
                                 f"\nIgnore if some augmentations have padded with dontcare value.")
         sample['index'] = index
         return sample
+
+
+def define_raster_dataset(raster):
+    class RDataset(RasterDataset):
+        filename_glob = os.path.split(raster)[1]
+        is_image = True
+        separate_files = False
+
+    return RDataset
+
+
+def define_vector_dataset(vector):
+    class VDataset(VectorDataset):
+        filename_glob = os.path.split(vector)[1]
+
+    return VDataset

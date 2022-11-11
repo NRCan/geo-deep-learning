@@ -20,7 +20,6 @@ import numpy as np
 import scipy.signal
 import requests
 from urllib.parse import urlparse
-from torchgeo.datasets import RasterDataset, VectorDataset
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
@@ -657,19 +656,3 @@ def update_gdl_checkpoint(checkpoint: Union[dict, DictConfig]) -> Dict:
 def map_wrapper(x):
     """For multi-threading"""
     return x[0](*(x[1:]))
-
-
-def define_raster_dataset(raster):
-    class RDataset(RasterDataset):
-        filename_glob = os.path.split(raster)[1]
-        is_image = True
-        separate_files = False
-
-    return RDataset
-
-
-def define_vector_dataset(vector):
-    class VDataset(VectorDataset):
-        filename_glob = os.path.split(vector)[1]
-
-    return VDataset

@@ -6,13 +6,12 @@ from numbers import Number
 from pathlib import Path
 import shutil
 from typing import Union, Sequence, List
-from concurrent.futures import ThreadPoolExecutor
-import posixpath
+# from concurrent.futures import ThreadPoolExecutor
 
 import geopandas as gpd
 import matplotlib.pyplot
 import numpy as np
-from omegaconf import DictConfig, open_dict, ListConfig
+from omegaconf import DictConfig, open_dict
 import rasterio
 from shapely.geometry import box
 from solaris import vector
@@ -22,7 +21,7 @@ from torch.utils.data import DataLoader
 from torchgeo.samplers import GridGeoSampler
 from torchgeo.datasets import stack_samples
 
-from utils.utils import define_raster_dataset
+from utils.create_dataset import define_raster_dataset
 from dataset.aoi import aois_from_csv, AOI
 from utils.geoutils import check_gdf_load, check_rasterio_im_load
 from utils.utils import get_key_def, get_git_hash
