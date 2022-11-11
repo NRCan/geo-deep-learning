@@ -24,7 +24,7 @@ from torchgeo.datasets import stack_samples
 
 from utils.utils import define_raster_dataset
 from dataset.aoi import aois_from_csv, AOI
-from utils.geoutils import check_gdf_load, check_rasterio_im_load, create_new_raster_from_base
+from utils.geoutils import check_gdf_load, check_rasterio_im_load
 from utils.utils import get_key_def, get_git_hash
 from utils.verifications import validate_raster
 # Set the logging file
@@ -200,8 +200,9 @@ class Tiler(object):
         geotransform = aoi.raster.transform.to_gdal()
         crs = aoi.raster.crs.wkt
 
-        # Define the putput file name:
-        out_filename = str(aoi.raster_name)
+        # Define the output file name:
+        out_filename = os.path.join('temp', aoi.raster_name.stem + '_temp.tif')
+        os.makedirs('temp', exist_ok=True)
 
         # Read the AOI.raster and an array:
         arr = aoi.raster.read()
@@ -375,12 +376,11 @@ class Tiler(object):
             aoi.raster = rasterio.open(aoi.raster_multiband)
 
         saved_raster = self._save_vrt_read(aoi)
-
+        saved_raster_base = os.path.dirname(saved_raster)
         # Initialize custom TorchGeo raster dataset class:
 
         raster_dataset_class = define_raster_dataset(saved_raster)
-        raster_dataset = raster_dataset_class(os.path.dirname(saved_raster))
-
+        raster_dataset = raster_dataset_class(saved_raster_base)
 
         ## We will leave there lines of code for later development:
         # vector_dataset_class = define_vector_dataset(aoi.label)
@@ -395,7 +395,7 @@ class Tiler(object):
         # For now, having stride parameter equal to the size, we have no overlapping (except for the borders).
         sampler = GridGeoSampler(resulting_dataset, size=self.dest_patch_size, stride=self.dest_patch_size)
         dataloader = DataLoader(resulting_dataset, sampler=sampler, collate_fn=stack_samples)
-        logging.warning(f'dataset length: {len(dataloader)}')
+
         assert len(dataloader) != 0, "The dataloader is empty. Check input image and vector datasets."
 
         # Open vector datasource if not in inference mode:
@@ -408,12 +408,12 @@ class Tiler(object):
             os.makedirs(out_label_dir, exist_ok=True)
 
         # Iterate over the dataloader and save resulting raster patches:
-        bboxes = []
+        # bboxes = []
         raster_tile_paths = []
         vector_tile_paths = []
         os.makedirs(out_img_dir, exist_ok=True)
 
-        raster_tile_data = []
+        # raster_tile_data = []
         for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             # Parse the TorchGeo batch:
             sample_image, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
