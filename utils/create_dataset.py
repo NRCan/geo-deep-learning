@@ -45,9 +45,9 @@ def create_files_and_datasets(samples_size: int, number_of_bands: int, samples_f
     hdf5_files = []
     for subset in ["trn", "val", "tst"]:
         hdf5_file = h5py.File(os.path.join(samples_folder, f"{subset}_samples.hdf5"), "w")
-        hdf5_file.create_dataset("sat_img", (0, samples_size, samples_size, real_num_bands), np.uint16,
+        hdf5_file.create_dataset("image", (0, samples_size, samples_size, real_num_bands), np.uint16,
                                  maxshape=(None, samples_size, samples_size, real_num_bands))
-        hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
+        hdf5_file.create_dataset("mask", (0, samples_size, samples_size), np.int16,
                                  maxshape=(None, samples_size, samples_size))
         hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
         try:
@@ -118,7 +118,7 @@ class SegmentationDataset(Dataset):
             except TypeError:
                 pass
 
-        sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata, "list_path": self.list_path}
+        sample = {"image": sat_img, "mask": map_img, "metadata": metadata, "list_path": self.list_path}
 
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
             sample = self.radiom_transform(sample)
@@ -130,7 +130,7 @@ class SegmentationDataset(Dataset):
         if self.debug:
             # assert no new class values in map_img
             initial_class_ids = set(np.unique(map_img))
-            final_class_ids = set(np.unique(sample['map_img'].numpy()))
+            final_class_ids = set(np.unique(sample["mask"].numpy()))
             if not final_class_ids.issubset(initial_class_ids):
                 logging.warning(f"\nWARNING: Class values for label before and after augmentations don't match."
                                 f"\nUnique values before: {initial_class_ids}"

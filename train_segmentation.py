@@ -267,8 +267,8 @@ def vis_from_dataloader(vis_params,
         for batch_index, data in enumerate(_tqdm):
             if vis_batch_range is not None and batch_index in range(min_vis_batch, max_vis_batch, increment):
                 with torch.no_grad():
-                    inputs = data['sat_img'].to(device)
-                    labels = data['map_img'].to(device)
+                    inputs = data["image"].to(device)
+                    labels = data["mask"].to(device)
 
                     outputs = model(inputs)
                     if isinstance(outputs, OrderedDict):
@@ -322,8 +322,8 @@ def training(train_loader,
     for batch_index, data in enumerate(tqdm(train_loader, desc=f'Iterating train batches with {device.type}')):
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, 'trn', batch_index, len(train_loader), time.time()))
 
-        inputs = data['sat_img'].to(device)
-        labels = data['map_img'].to(device)
+        inputs = data["image"].to(device)
+        labels = data["mask"].to(device)
 
         # forward
         optimizer.zero_grad()
@@ -360,8 +360,8 @@ def training(train_loader,
                                       gpu_perc=f"{res['gpu']} %",
                                       gpu_RAM=f"{mem['used'] / (1024 ** 2):.0f}/{mem['total'] / (1024 ** 2):.0f} MiB",
                                       lr=optimizer.param_groups[0]['lr'],
-                                      img=data['sat_img'].numpy().shape,
-                                      smpl=data['map_img'].numpy().shape,
+                                      img=data["image"].numpy().shape,
+                                      smpl=data["mask"].numpy().shape,
                                       bs=batch_size,
                                       out_vals=np.unique(outputs[0].argmax(dim=0).detach().cpu().numpy()),
                                       gt_vals=np.unique(labels[0].detach().cpu().numpy())))
@@ -414,8 +414,8 @@ def evaluation(eval_loader,
         progress_log.open('a', buffering=1).write(tsv_line(ep_idx, dataset, batch_index, len(eval_loader), time.time()))
 
         with torch.no_grad():
-            inputs = data['sat_img'].to(device)
-            labels = data['map_img'].to(device)
+            inputs = data["image"].to(device)
+            labels = data["mask"].to(device)
 
             labels_flatten = flatten_labels(labels)
 

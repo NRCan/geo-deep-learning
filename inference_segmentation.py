@@ -159,7 +159,7 @@ def segmentation(param,
     """
     subdiv = 2
     threshold = 0.5
-    sample = {'sat_img': None, 'map_img': None, 'metadata': None}
+    sample = {"image": None, "mask": None, 'metadata': None}
     start_seg = time.time()
     print_log = True if logging.level == 20 else False  # 20 is INFO
     pad = chunk_size * 2
@@ -193,9 +193,9 @@ def segmentation(param,
                                                              scale=scale,
                                                              aug_type='totensor',
                                                              print_log=print_log)
-        sample['sat_img'] = sub_image
+        sample["image"] = sub_image
         sample = totensor_transform(sample)
-        inputs = sample['sat_img'].unsqueeze_(0)
+        inputs = sample["image"].unsqueeze_(0)
         inputs = inputs.to(device)
         if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
             # Init NIR   TODO: make a proper way to read the NIR channel
