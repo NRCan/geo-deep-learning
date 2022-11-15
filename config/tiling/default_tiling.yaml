@@ -7,3 +7,4 @@ tiling:
   continuous_values: True
   save_preview_labels: True
   multiprocessing: False
+  write_dest_raster: False

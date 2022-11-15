@@ -121,13 +121,18 @@ class Tiler(object):
                             f'Got {min_annot_perc} of type {type(min_annot_perc)}')
         self.min_annot_perc = min_annot_perc
 
-        bands_set = set([tuple(aoi.raster_bands_request) for aoi in self.src_aoi_list])
+        try:
+            bands_set = set([tuple(aoi.raster_bands_request) for aoi in self.src_aoi_list])
+            self.bands_requested = self.src_aoi_list[0].raster_bands_request
+        except TypeError:
+            bands_set = set([aoi.raster.count for aoi in self.src_aoi_list])
+            self.bands_requested = list(range(1, self.src_aoi_list[0].raster.count+1))
         if len(bands_set) > 1:
             raise ValueError(f'Bands requested vary among submitted AOIs. \n'
                              f'Check source imagery and define a unique list of bands to keep. \n'
                              f'Set of bands requested: {bands_set}')
-        self.bands_requested = self.src_aoi_list[0].raster_bands_request
         self.bands_num = len(self.bands_requested)
+
 
         if val_percent and not isinstance(val_percent, int):
             raise TypeError(f'Validation percentage should be an integer.\n'
@@ -203,7 +208,7 @@ class Tiler(object):
         https://gis.stackexchange.com/questions/303979/clip-all-layers-of-a-geopackage-gpkg-in-one-step
         """
         if not aoi.raster:  # in case of multiprocessing
-            aoi.raster = rasterio.open(aoi.raster_multiband)
+            aoi.raster = rasterio.open(aoi.raster_dest)
 
         raster_tiler = tile.raster_tile.RasterTiler(dest_dir=out_img_dir,
                                                     src_tile_size=(self.dest_patch_size, self.dest_patch_size),
@@ -346,7 +351,7 @@ class Tiler(object):
         @return:
         """
         if not aoi.raster:  # in case of multiprocessing
-            aoi.raster = rasterio.open(aoi.raster_multiband)
+            aoi.raster = rasterio.open(aoi.raster_dest)
 
         random_val = np.random.randint(1, 101)
         if not {'trn', 'val'}.issubset(set(self.datasets)):
@@ -455,6 +460,7 @@ def main(cfg: DictConfig) -> None:
     continuous_vals = get_key_def('continuous_values', cfg['tiling'], default=True)
     save_prev_labels = get_key_def('save_preview_labels', cfg['tiling'], default=True)
     parallel = get_key_def('multiprocessing', cfg['tiling'], default=False, expected_type=bool)
+    write_dest_raster = get_key_def('write_dest_raster', cfg['tiling'], default=False, expected_type=bool)
     # TODO: why not ask only for a val percentage directly?
     val_percent = int(get_key_def('train_val_percent', cfg['tiling'], default={'val': 0.3})['val'] * 100)
 
@@ -483,6 +489,7 @@ def main(cfg: DictConfig) -> None:
         download_data=download_data,
         data_dir=data_dir,
         for_multiprocessing=parallel,
+        write_dest_raster=write_dest_raster,
     )
 
     tiler = Tiler(tiling_root_dir=exp_dir,
