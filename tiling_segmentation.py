@@ -125,8 +125,8 @@ class Tiler(object):
             bands_set = set([tuple(aoi.raster_bands_request) for aoi in self.src_aoi_list])
             self.bands_requested = self.src_aoi_list[0].raster_bands_request
         except TypeError:
-            bands_set = set([aoi.raster.count for aoi in self.src_aoi_list])
-            self.bands_requested = list(range(1, self.src_aoi_list[0].raster.count+1))
+            bands_set = set([aoi.raster_meta['count'] for aoi in self.src_aoi_list])
+            self.bands_requested = list(range(1, self.src_aoi_list[0].raster_meta['count']+1))
         if len(bands_set) > 1:
             raise ValueError(f'Bands requested vary among submitted AOIs. \n'
                              f'Check source imagery and define a unique list of bands to keep. \n'
