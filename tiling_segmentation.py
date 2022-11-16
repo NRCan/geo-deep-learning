@@ -266,7 +266,7 @@ class Tiler(object):
     @staticmethod
     def _parse_torchgeo_batch(batch):
         """
-        Extract data from the TorchGoe batch.
+        Extract data from the TorchGeo batch.
         Args:
             batch: TorchGeo batch.
 
