@@ -113,7 +113,7 @@ def main(cfg: DictConfig) -> None:
     extended_label_stats = get_key_def('extended_label_stats', cfg['verify'], default=False, expected_type=bool)
     parallel = get_key_def('multiprocessing', cfg['verify'], default=False, expected_type=bool)
 
-    # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to hdf5s).
+    # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to patches).
     with open_dict(cfg):
         cfg.general.git_hash = get_git_hash()
 

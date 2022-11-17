@@ -1,4 +1,3 @@
-import h5py
 import numpy as np
 from pathlib import Path
 from typing import Any, Dict, cast
@@ -7,7 +6,6 @@ import sys
 
 from rasterio.windows import from_bounds
 import rasterio
-from rasterio.crs import CRS
 from rasterio.io import DatasetReader
 from omegaconf import OmegaConf, DictConfig
 from rasterio.plot import reshape_as_image
@@ -20,6 +18,7 @@ import torch
 from utils.logger import get_logger
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
+from rasterio.crs import CRS
 from affine import Affine
 
 # Set the logging file
@@ -39,39 +38,8 @@ def append_to_dataset(dataset, sample):
     return old_size
 
 
-def create_files_and_datasets(samples_size: int, number_of_bands: int, samples_folder: Path, cfg: DictConfig):
-    """
-    Function to create the hdfs files (trn, val and tst).
-    :param samples_size: size of individual hdf5 samples to be created
-    :param number_of_bands: number of bands in imagery
-    :param samples_folder: (str) Path to the output folder.
-    :param cfg: (dict) Parameters found in the yaml config file.
-    :return: (hdf5 datasets) trn, val ant tst datasets.
-    """
-    real_num_bands = number_of_bands
-    assert real_num_bands > 0, "invalid number of bands when accounting for meta layers"
-    hdf5_files = []
-    for subset in ["trn", "val", "tst"]:
-        hdf5_file = h5py.File(os.path.join(samples_folder, f"{subset}_samples.hdf5"), "w")
-        hdf5_file.create_dataset("sat_img", (0, samples_size, samples_size, real_num_bands), np.uint16,
-                                 maxshape=(None, samples_size, samples_size, real_num_bands))
-        hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
-                                 maxshape=(None, samples_size, samples_size))
-        hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
-        try:
-            hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            append_to_dataset(hdf5_file["params"], repr(OmegaConf.create(OmegaConf.to_yaml(cfg, resolve=True))))
-        except AttributeError:
-            logging.exception(f'Update h5py to version 2.10 or higher')
-            raise
-        hdf5_files.append(hdf5_file)
-    return hdf5_files
-
-
 class SegmentationDataset(Dataset):
-    """Semantic segmentation dataset based on HDF5 parsing."""
+    """Semantic segmentation dataset based on input csvs listing pairs of imagery and ground truth patches as .tif."""
 
     def __init__(self,
                  dataset_list_path,
