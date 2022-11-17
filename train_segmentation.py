@@ -42,7 +42,7 @@ def flatten_outputs(predictions, number_of_classes):
     return outputs_flatten
 
 
-def create_dataloader(samples_folder: Path,
+def create_dataloader(patches_folder: Path,
                       batch_size: int,
                       gpu_devices_dict: dict,
                       sample_size: int,
@@ -59,10 +59,10 @@ def create_dataloader(samples_folder: Path,
                       debug: bool = False):
     """
     Function to create dataloader objects for training, validation and test datasets.
-    @param samples_folder: path to folder containting .hdf5 files if task is segmentation
+    @param patches_folder: path to folder containting patches
     @param batch_size: (int) batch size
     @param gpu_devices_dict: (dict) dictionary where each key contains an available GPU with its ram info stored as value
-    @param sample_size: (int) size of hdf5 samples (used to evaluate eval batch-size)
+    @param sample_size: (int) size of patches (used to evaluate eval batch-size)
     @param dontcare_val: (int) value in label to be ignored during loss calculation
     @param crop_size: (int) size of one side of the square crop performed on original patch during training
     @param num_bands: (int) number of bands in imagery
@@ -78,29 +78,29 @@ def create_dataloader(samples_folder: Path,
         the majority class(es) during training.
     :return: trn_dataloader, val_dataloader, tst_dataloader
     """
-    if not samples_folder.is_dir():
-        raise FileNotFoundError(f'Could not locate: {samples_folder}')
-    experiment_name = samples_folder.stem
-    if not len([f for f in samples_folder.glob('*.csv')]) >= 1:
-        raise FileNotFoundError(f"Couldn't locate csv file(s) containing list of training data in {samples_folder}")
-    num_samples, samples_weight = get_num_samples(samples_path=samples_folder,
+    if not patches_folder.is_dir():
+        raise FileNotFoundError(f'Could not locate: {patches_folder}')
+    experiment_name = patches_folder.stem
+    if not len([f for f in patches_folder.glob('*.csv')]) >= 1:
+        raise FileNotFoundError(f"Couldn't locate csv file(s) containing list of training data in {patches_folder}")
+    num_patches, patches_weight = get_num_patches(patches_path=patches_folder,
                                                   params=cfg,
                                                   min_annot_perc=min_annot_perc,
                                                   attr_vals=attr_vals,
                                                   experiment_name=experiment_name,
                                                   compute_sampler_weights=compute_sampler_weights)
-    if not num_samples['trn'] >= batch_size and num_samples['val'] >= batch_size:
+    if not num_patches['trn'] >= batch_size and num_patches['val'] >= batch_size:
         raise ValueError(f"Number of patches is smaller than batch size")
-    logging.info(f"Number of samples : {num_samples}\n")
+    logging.info(f"Number of patches : {num_patches}\n")
     dataset_constr = create_dataset.SegmentationDataset
     datasets = []
 
     for subset in ["trn", "val", "tst"]:
         # TODO: should user point to the paths of these csvs directly?
         dataset_file, _ = Tiler.make_dataset_file_name(experiment_name, min_annot_perc, subset, attr_vals)
-        dataset_filepath = samples_folder / dataset_file
+        dataset_filepath = patches_folder / dataset_file
         datasets.append(dataset_constr(dataset_filepath, subset, num_bands,
-                                       max_sample_count=num_samples[subset],
+                                       max_sample_count=num_patches[subset],
                                        radiom_transform=aug.compose_transforms(params=cfg,
                                                                                dataset=subset,
                                                                                aug_type='radiometric'),
@@ -124,9 +124,9 @@ def create_dataloader(samples_folder: Path,
     else:  # https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5
         num_workers = len(gpu_devices_dict.keys()) * 4 if len(gpu_devices_dict.keys()) > 1 else 4
 
-    samples_weight = torch.from_numpy(samples_weight)
-    sampler = torch.utils.data.sampler.WeightedRandomSampler(samples_weight.type('torch.DoubleTensor'),
-                                                             len(samples_weight))
+    patches_weight = torch.from_numpy(patches_weight)
+    sampler = torch.utils.data.sampler.WeightedRandomSampler(patches_weight.type('torch.DoubleTensor'),
+                                                             len(patches_weight))
 
     if gpu_devices_dict and not eval_batch_size:
         max_pix_per_mb_gpu = 280
@@ -139,7 +139,7 @@ def create_dataloader(samples_folder: Path,
     val_dataloader = DataLoader(val_dataset, batch_size=eval_batch_size, num_workers=num_workers, shuffle=False,
                                 drop_last=True)
     tst_dataloader = DataLoader(tst_dataset, batch_size=eval_batch_size, num_workers=num_workers, shuffle=False,
-                                drop_last=True) if num_samples['tst'] > 0 else None
+                                drop_last=True) if num_patches['tst'] > 0 else None
 
     if len(trn_dataloader) == 0 or len(val_dataloader) == 0:
         raise ValueError(f"\nTrain and validation dataloader should contain at least one data item."
@@ -155,7 +155,7 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     "pixels per MB of GPU RAM" as threshold. The batch size often needs to be smaller if crop is applied during training
     @param gpu_devices_dict: dictionary containing info on GPU devices as returned by lst_device_ids (utils.py)
     @param batch_size: batch size for training
-    @param sample_size: size of hdf5 samples
+    @param sample_size: size of patches
     @return: returns a downgraded evaluation batch size if the original batch size is considered too high compared to
     the GPU's memory
     """
@@ -173,8 +173,8 @@ def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: in
     return eval_batch_size_rd
 
 
-def get_num_samples(
-        samples_path,
+def get_num_patches(
+        patches_path,
         params,
         min_annot_perc,
         attr_vals,
@@ -182,8 +182,8 @@ def get_num_samples(
         compute_sampler_weights=False
 ):
     """
-    Function to retrieve number of samples, either from config file or directly from hdf5 file.
-    @param samples_path: (str) Path to samples folder
+    Function to retrieve number of patches, either from config file or directly from csv listing all created patches.
+    @param patches_path: (str) Path to patches folder
     @param params: (dict) Parameters found in the yaml config file.
     @param min_annot_perc: (int) minimum annotated percentage
     @param attr_vals: (list) attribute values to keep from source ground truth
@@ -191,50 +191,50 @@ def get_num_samples(
     @param compute_sampler_weights: (bool)
         if True, weights will be computed from dataset patches to oversample the minority class(es) and undersample
         the majority class(es) during training.
-    :return: (dict) number of samples for trn, val and tst.
+    :return: (dict) number of patches for trn, val and tst.
     """
-    num_samples = {'trn': 0, 'val': 0, 'tst': 0}
+    num_patches = {'trn': 0, 'val': 0, 'tst': 0}
     weights = []
-    samples_weight = None
+    patches_weight = None
     for dataset in ['trn', 'val', 'tst']:
         dataset_file, _ = Tiler.make_dataset_file_name(experiment_name, min_annot_perc, dataset, attr_vals)
-        dataset_filepath = samples_path / dataset_file
+        dataset_filepath = patches_path / dataset_file
         if not dataset_filepath.is_file() and dataset == 'tst':
-            num_samples[dataset] = 0
+            num_patches[dataset] = 0
             logging.warning(f"No test set. File not found: {dataset_filepath}")
             continue
 
-        if get_key_def(f"num_{dataset}_samples", params['training'], None) is not None:
-            num_samples[dataset] = params['training'][f"num_{dataset}_samples"]
+        if get_key_def(f"num_{dataset}_patches", params['training'], None) is not None:
+            num_patches[dataset] = params['training'][f"num_{dataset}_patches"]
 
             with open(dataset_filepath, 'r') as datafile:
-                file_num_samples = len(datafile.readlines())
-            if num_samples[dataset] > file_num_samples:
-                raise IndexError(f"The number of training samples in the configuration file ({num_samples[dataset]}) "
-                                 f"exceeds the number of samples in the hdf5 training dataset ({file_num_samples}).")
+                file_num_patches = len(datafile.readlines())
+            if num_patches[dataset] > file_num_patches:
+                raise IndexError(f"The number of training patches in the configuration file ({num_patches[dataset]}) "
+                                 f"exceeds the number of patches in the training dataset ({file_num_patches}).")
         else:
             with open(dataset_filepath, 'r') as datafile:
-                num_samples[dataset] = len(datafile.readlines())
+                num_patches[dataset] = len(datafile.readlines())
 
         with open(dataset_filepath, 'r') as datafile:
             datalist = datafile.readlines()
             if dataset == 'trn':
                 if not compute_sampler_weights:
-                    samples_weight = np.ones(num_samples[dataset])
+                    patches_weight = np.ones(num_patches[dataset])
                 else:
                     dontcare = get_key_def("ignore_index", params['dataset'], default=-1)
-                    for x in tqdm(range(num_samples[dataset]), desc="Computing sample weights"):
+                    for x in tqdm(range(num_patches[dataset]), desc="Computing sample weights"):
                         label_file = datalist[x].split(';')[1]
                         with rasterio.open(label_file, 'r') as label_handle:
                             label = label_handle.read()
                         label = np.where(label == dontcare, 0, label)
                         unique_labels = np.unique(label)
                         weights.append(''.join([str(int(i)) for i in unique_labels]))
-                        samples_weight = compute_sample_weight('balanced', weights)
-            logging.debug(samples_weight.shape)
-            logging.debug(np.unique(samples_weight))
+                        patches_weight = compute_sample_weight('balanced', weights)
+            logging.debug(patches_weight.shape)
+            logging.debug(np.unique(patches_weight))
 
-    return num_samples, samples_weight
+    return num_patches, patches_weight
 
 
 def vis_from_dataloader(vis_params,
@@ -254,7 +254,7 @@ def vis_from_dataloader(vis_params,
     :param ep_num: epoch index (for file naming purposes)
     :param dataset: (str) 'val or 'tst'
     :param device: device used by pytorch (cpu ou cuda)
-    :param vis_batch_range: (int) max number of samples to perform visualization on
+    :param vis_batch_range: (int) max number of patches to perform visualization on
 
     :return:
     """
@@ -307,7 +307,7 @@ def training(train_loader,
     :param optimizer: optimizer to use
     :param scheduler: learning rate scheduler
     :param num_classes: number of classes
-    :param batch_size: number of samples to process simultaneously
+    :param batch_size: number of patches to process simultaneously
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
     :param device: device used by pytorch (cpu ou cuda)
@@ -395,7 +395,7 @@ def evaluation(eval_loader,
     :param model: model to evaluate
     :param criterion: loss criterion
     :param num_classes: number of classes
-    :param batch_size: number of samples to process simultaneously
+    :param batch_size: number of patches to process simultaneously
     :param ep_idx: epoch index (for hypertrainer log)
     :param progress_log: progress log file (for hypertrainer log)
     :param scale: Scale to which values in sat img have been redefined. Useful during visualization
@@ -569,7 +569,7 @@ def train(cfg: DictConfig) -> None:
     experiment_name = get_key_def('project_name', cfg['general'], default='gdl-training')
 
     # PARAMETERS FOR PATCHES
-    samples_size = get_key_def("patch_size", cfg['tiling'], expected_type=int, default=256)
+    patches_size = get_key_def("patch_size", cfg['tiling'], expected_type=int, default=256)
     min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], expected_type=Number, default=0)
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
 
@@ -620,7 +620,7 @@ def train(cfg: DictConfig) -> None:
     # overwrite dontcare values in label if loss doens't implement ignore_index
     dontcare2backgr = False if 'ignore_index' in cfg.loss.keys() else True
 
-    # Will check if batch size needs to be a lower value only if cropping samples during training
+    # Will check if batch size needs to be a lower value only if cropping patches during training
     calc_eval_bs = True if crop_size else False
 
     # Set device(s)
@@ -646,11 +646,11 @@ def train(cfg: DictConfig) -> None:
                  f'classes.')
 
     logging.info(f'Creating dataloaders from data in {tiling_dir}...\n')
-    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(samples_folder=tiling_dir,
+    trn_dataloader, val_dataloader, tst_dataloader = create_dataloader(patches_folder=tiling_dir,
                                                                        batch_size=batch_size,
                                                                        eval_batch_size=eval_batch_size,
                                                                        gpu_devices_dict=gpu_devices_dict,
-                                                                       sample_size=samples_size,
+                                                                       sample_size=patches_size,
                                                                        dontcare_val=dontcare_val,
                                                                        crop_size=crop_size,
                                                                        num_bands=num_bands,
@@ -762,10 +762,10 @@ def train(cfg: DictConfig) -> None:
                         'best_loss': best_loss,
                         'optimizer_state_dict': optimizer.state_dict()}, filename)
 
-            # VISUALIZATION: generate pngs of img samples, labels and outputs as alternative to follow training
+            # VISUALIZATION: generate pngs of img patches, labels and outputs as alternative to follow training
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if last_vis_epoch == 0:
-                    logging.info(f'\nVisualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
+                    logging.info(f'\nVisualizing with {vis_at_ckpt_dataset} dataset patches on checkpointed model for'
                                  f'batches in range {vis_batch_range}')
                 vis_from_dataloader(vis_params=vis_params,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
