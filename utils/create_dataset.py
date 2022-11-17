@@ -2,17 +2,29 @@ import os
 import h5py
 import numpy as np
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, cast
+import glob
+import os
+import re
+import sys
+import functools
 
+from rasterio.windows import from_bounds
 import rasterio
+from rasterio.crs import CRS
+from rasterio.io import DatasetReader
 from omegaconf import OmegaConf, DictConfig
 from rasterio.plot import reshape_as_image
 from torch.utils.data import Dataset
-from torchgeo.datasets import RasterDataset, VectorDataset
+from torchgeo.datasets import RasterDataset, VectorDataset, GeoDataset
+from rasterio.vrt import WarpedVRT
+from torchgeo.datasets.utils import BoundingBox, disambiguate_timestamp
+from torch import Tensor
+import torch
 
 from utils.logger import get_logger
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
-from rasterio.crs import CRS
 from affine import Affine
 
 # Set the logging file
@@ -140,18 +152,89 @@ class SegmentationDataset(Dataset):
         sample['index'] = index
         return sample
 
+#
+# def define_raster_dataset(raster):
+#     class RDataset(RasterDataset):
+#         filename_glob = os.path.split(raster)[1]
+#         is_image = True
+#         separate_files = False
+#
+#     return RDataset
+#
+#
+# def define_vector_dataset(vector):
+#     class VDataset(VectorDataset):
+#         filename_glob = os.path.split(vector)[1]
+#
+#     return VDataset
 
-def define_raster_dataset(raster):
-    class RDataset(RasterDataset):
-        filename_glob = os.path.split(raster)[1]
-        is_image = True
-        separate_files = False
 
-    return RDataset
+class VRTDataset(GeoDataset):
+    """Abstract base class for :class:`GeoDataset` stored as DatasetReader."""
+    vrt = "*"
 
+    def __init__(self, vrt_ds: DatasetReader) -> None:
+        """Initialize a new Dataset instance.
 
-def define_vector_dataset(vector):
-    class VDataset(VectorDataset):
-        filename_glob = os.path.split(vector)[1]
+        Args:
+            root: root directory where dataset can be found
+        """
+        super().__init__()
 
-    return VDataset
+        # Populate the dataset index
+        self.vrt_ds = vrt_ds
+        try:
+            self.cmap = vrt_ds.colormap(1)
+        except ValueError:
+            pass
+        crs = vrt_ds.crs
+        res = vrt_ds.res[0]
+
+        with WarpedVRT(vrt_ds, crs=crs) as vrt:
+            minx, miny, maxx, maxy = vrt.bounds
+
+        mint: float = 0
+        maxt: float = sys.maxsize
+
+        coords = (minx, maxx, miny, maxy, mint, maxt)
+        self.index.insert(0, coords, 'vrt')
+
+        self._crs = cast(CRS, crs)
+        self.res = cast(float, res)
+
+    def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:
+        """Retrieve image/mask and metadata indexed by query.
+
+        Args:
+            query: (minx, maxx, miny, maxy, mint, maxt) coordinates to index
+
+        Returns:
+            sample of image/mask and metadata at that index
+
+        Raises:
+            IndexError: if query is not found in the index
+        """
+        data = self._get_tensor(query)
+        key = "image"
+        sample = {key: data, "crs": self.crs, "bbox": query}
+
+        return sample
+
+    def _get_tensor(self, query):
+        bounds = (query.minx, query.miny, query.maxx, query.maxy)
+        out_width = round((query.maxx - query.minx) / self.res)
+        out_height = round((query.maxy - query.miny) / self.res)
+        out_shape = (self.vrt_ds.count, out_height, out_width)
+        dest = self.vrt_ds.read(
+            out_shape=out_shape, window=from_bounds(*bounds, self.vrt_ds.transform)
+        )
+
+        if dest.dtype == np.uint16:
+            dest = dest.astype(np.int32)
+        elif dest.dtype == np.uint32:
+            dest = dest.astype(np.int64)
+
+        tensor = torch.tensor(dest)
+
+        return tensor
+

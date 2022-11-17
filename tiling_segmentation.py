@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 from torchgeo.samplers import GridGeoSampler
 from torchgeo.datasets import stack_samples
 
-from utils.create_dataset import define_raster_dataset
+from utils.create_dataset import VRTDataset
 from dataset.aoi import aois_from_csv, AOI
 from utils.geoutils import check_gdf_load, check_rasterio_im_load
 from utils.utils import get_key_def, get_git_hash
@@ -374,26 +374,16 @@ class Tiler(object):
         if not aoi.raster:
             aoi.raster = rasterio.open(aoi.raster_multiband)
 
-        saved_raster = self._save_vrt_read(aoi)
-        saved_raster_base = os.path.dirname(saved_raster)
+        # saved_raster = self._save_vrt_read(aoi)
+        # saved_raster_base = os.path.dirname(saved_raster)
         # Initialize custom TorchGeo raster dataset class:
 
-        raster_dataset_class = define_raster_dataset(saved_raster)
-        raster_dataset = raster_dataset_class(saved_raster_base)
-
-        ## We will leave there lines of code for later development:
-        # vector_dataset_class = define_vector_dataset(aoi.label)
-        # vector_dataset = vector_dataset_class(os.path.split(aoi.label)[0])
-        ## Combine raster and vector datasets with magic TorchGeo operation:
-        # resulting_dataset = geo_dataset & vector_dataset
-
-        # In the future, resulting dataset can be a union of the raster and vector datasets:
-        resulting_dataset = raster_dataset
+        vrt_dataset = VRTDataset(aoi.raster)
 
         # Initialize a sampler and a dataloader. If we need overlapping, stride must be adjusted accordingly.
         # For now, having stride parameter equal to the size, we have no overlapping (except for the borders).
-        sampler = GridGeoSampler(resulting_dataset, size=self.dest_patch_size, stride=self.dest_patch_size)
-        dataloader = DataLoader(resulting_dataset, sampler=sampler, collate_fn=stack_samples)
+        sampler = GridGeoSampler(vrt_dataset, size=self.dest_patch_size, stride=self.dest_patch_size)
+        dataloader = DataLoader(vrt_dataset, sampler=sampler, collate_fn=stack_samples)
 
         assert len(dataloader) != 0, "The dataloader is empty. Check input image and vector datasets."
 
