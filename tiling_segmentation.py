@@ -358,7 +358,7 @@ class Tiler(object):
             out_label_dir: Union[str, Path] = None):
         """
         Generates grid patches from the AOI.raster using TorchGeo's GeoGridSampler dataloader.
-        Generates grid patches fron the AOI.label using GDAL/OGR.
+        Generates grid patches from the AOI.label using GDAL/OGR.
 
         @param aoi: AOI object to be tiled
         @param out_img_dir: path to output patched images directory
@@ -374,10 +374,7 @@ class Tiler(object):
         if not aoi.raster:
             aoi.raster = rasterio.open(aoi.raster_multiband)
 
-        # saved_raster = self._save_vrt_read(aoi)
-        # saved_raster_base = os.path.dirname(saved_raster)
-        # Initialize custom TorchGeo raster dataset class:
-
+        # Create TorchGeo-based custom VRTDataset dataset:
         vrt_dataset = VRTDataset(aoi.raster)
 
         # Initialize a sampler and a dataloader. If we need overlapping, stride must be adjusted accordingly.
@@ -414,8 +411,6 @@ class Tiler(object):
 
             # Append all the raster patch data for later parallel writing to the disk:
             raster_tile_data.append([sample_image, dst_raster_name, sample_window, sample_crs])
-
-            # self._save_tile(sample_image, dst_raster_name, sample_window, sample_crs)
 
             if not self.for_inference:
                 # Define the output vector patch filename:

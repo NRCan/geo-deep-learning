@@ -1,13 +1,9 @@
-import os
 import h5py
 import numpy as np
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, cast
-import glob
+from typing import Any, Dict, cast
 import os
-import re
 import sys
-import functools
 
 from rasterio.windows import from_bounds
 import rasterio
@@ -16,10 +12,9 @@ from rasterio.io import DatasetReader
 from omegaconf import OmegaConf, DictConfig
 from rasterio.plot import reshape_as_image
 from torch.utils.data import Dataset
-from torchgeo.datasets import RasterDataset, VectorDataset, GeoDataset
+from torchgeo.datasets import GeoDataset
 from rasterio.vrt import WarpedVRT
-from torchgeo.datasets.utils import BoundingBox, disambiguate_timestamp
-from torch import Tensor
+from torchgeo.datasets.utils import BoundingBox
 import torch
 
 from utils.logger import get_logger
@@ -152,41 +147,23 @@ class SegmentationDataset(Dataset):
         sample['index'] = index
         return sample
 
-#
-# def define_raster_dataset(raster):
-#     class RDataset(RasterDataset):
-#         filename_glob = os.path.split(raster)[1]
-#         is_image = True
-#         separate_files = False
-#
-#     return RDataset
-#
-#
-# def define_vector_dataset(vector):
-#     class VDataset(VectorDataset):
-#         filename_glob = os.path.split(vector)[1]
-#
-#     return VDataset
-
 
 class VRTDataset(GeoDataset):
-    """Abstract base class for :class:`GeoDataset` stored as DatasetReader."""
-    vrt = "*"
-
     def __init__(self, vrt_ds: DatasetReader) -> None:
-        """Initialize a new Dataset instance.
+        """Initialize a new VRTDataset instance.
+        The dataset is base on the DataReader class, initiated by rasterio.open().
 
         Args:
-            root: root directory where dataset can be found
+            vrt_ds: DatasetReader object (rasterio)
         """
         super().__init__()
 
-        # Populate the dataset index
         self.vrt_ds = vrt_ds
         try:
             self.cmap = vrt_ds.colormap(1)
         except ValueError:
             pass
+
         crs = vrt_ds.crs
         res = vrt_ds.res[0]
 
@@ -203,16 +180,13 @@ class VRTDataset(GeoDataset):
         self.res = cast(float, res)
 
     def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:
-        """Retrieve image/mask and metadata indexed by query.
+        """Retrieve image and metadata indexed by query.
 
         Args:
             query: (minx, maxx, miny, maxy, mint, maxt) coordinates to index
 
         Returns:
-            sample of image/mask and metadata at that index
-
-        Raises:
-            IndexError: if query is not found in the index
+            sample of image and metadata at that index
         """
         data = self._get_tensor(query)
         key = "image"
@@ -221,10 +195,19 @@ class VRTDataset(GeoDataset):
         return sample
 
     def _get_tensor(self, query):
+        """
+        Get a patch based on the given query (bounding box).
+        Args:
+            query:
+
+        Returns: Torch tensor patch.
+
+        """
         bounds = (query.minx, query.miny, query.maxx, query.maxy)
         out_width = round((query.maxx - query.minx) / self.res)
         out_height = round((query.maxy - query.miny) / self.res)
         out_shape = (self.vrt_ds.count, out_height, out_width)
+
         dest = self.vrt_ds.read(
             out_shape=out_shape, window=from_bounds(*bounds, self.vrt_ds.transform)
         )
