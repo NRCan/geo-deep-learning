@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 from torchgeo.samplers import GridGeoSampler
 from torchgeo.datasets import stack_samples
 
-from utils.create_dataset import VRTDataset
+from utils.create_dataset import VRTDataset, GDLVectorDataset
 from dataset.aoi import aois_from_csv, AOI
 from utils.geoutils import check_gdf_load, check_rasterio_im_load
 from utils.utils import get_key_def, get_git_hash
@@ -187,45 +187,6 @@ class Tiler(object):
         return dataset_file_name, sampling_str
 
     @staticmethod
-    def _save_vrt_read(aoi):
-        """
-        Save the rasterio's DatasetReader class as a GeoTIFF to the temporary folder.
-        Args:
-            aoi: given AOI object.
-        Returns: saved temporary geotiff path.
-        """
-
-        # Read the geotransformation parameters and crs:
-        geotransform = aoi.raster.transform.to_gdal()
-        crs = aoi.raster.crs.wkt
-
-        # Define the output file name:
-        out_filename = os.path.join('temp', aoi.raster_name.stem + '_temp.tif')
-        os.makedirs('temp', exist_ok=True)
-
-        # Read the AOI.raster and an array:
-        arr = aoi.raster.read()
-
-        # Create an output raster patch datasource:
-        drv = gdal.GetDriverByName("GTiff")
-        gdal_type = gdal.GDT_Byte if arr.dtype == np.uint8 else arr.GDT_UInt16
-        dst_ds = drv.Create(out_filename, arr.shape[2], arr.shape[1], arr.shape[0], gdal_type,
-                            options=["COMPRESS=DEFLATE"])
-
-        # Write every channel of the raster array to the corresponding band of the output datasource:
-        for band in range(arr.shape[0]):
-            dst_ds.GetRasterBand(band + 1).WriteArray(arr[band, :, :])
-
-        # Set the datasource projection and geotransformations:
-        dst_ds.SetGeoTransform(geotransform)
-        dst_ds.SetProjection(crs)
-
-        # Close and save the datasource:
-        dst_ds = None
-
-        return out_filename
-
-    @staticmethod
     def _save_tile(sample, dst, window, crs):
         """
         Save individual raster patch as a geotiff.
@@ -263,8 +224,7 @@ class Tiler(object):
         # Close and save the datasource:
         dst_ds = None
 
-    @staticmethod
-    def _parse_torchgeo_batch(batch):
+    def _parse_torchgeo_batch(self, batch):
         """
         Extract data from the TorchGeo batch.
         Args:
@@ -275,13 +235,18 @@ class Tiler(object):
         """
         # Get the image as an array:
         sample_image = batch['image']
+        if not self.for_inference:
+            sample_mask = batch['mask'][0]
+        else:
+            sample_mask = None
+
         sample_image = np.asarray(sample_image).squeeze(0)
 
         # Get the CRS and the bounding box coordinates:
         sample_crs = batch['crs'][0].wkt
         window = ([batch['bbox'][0][0], batch['bbox'][0][3], batch['bbox'][0][1], batch['bbox'][0][2]])
 
-        return sample_image, sample_crs, window
+        return sample_image, sample_mask, sample_crs, window
 
     @staticmethod
     def _define_output_name(aoi, output_folder, window):
@@ -299,57 +264,16 @@ class Tiler(object):
         return join(output_folder, out_name)
 
     @staticmethod
-    def _clip_vector_by_bbox(ds_src, srs, bbox, output_vector_name, i):
-        """
-        Creates a Geometry instance of the ogr class from the bounding box coordinates, then puts this geometry in
-        to a vector datasource, created in memory.
-        Applies Clip method of the ogr.Layer class to clip the input vector datasource with the given bounding box.
-
-        Args:
-            ds_src: input dataset class of the ogr instance.
-            srs: reference GetSpatialRef instance of the ogr.Layer class, represented a CRS.
-            bbox: target bounding box extents.
-            output_vector_name: output vector ".geojson" patch path.
-            i: current bounding box number, currently is useless, keep for later multithreading purposes.
-
-        Returns: output vector ".geojson" patch path.
-
-        """
-        # Create a LinearRing object (basic geometry constructor):
-        poly_box = ogr.Geometry(ogr.wkbLinearRing)
-        poly_box.AddPoint(bbox[0], bbox[1])
-        poly_box.AddPoint(bbox[2], bbox[1])
-        poly_box.AddPoint(bbox[2], bbox[3])
-        poly_box.AddPoint(bbox[0], bbox[3])
-        poly_box.AddPoint(bbox[0], bbox[1])
-        # Create a Polygon object from the ring.
-        poly = ogr.Geometry(ogr.wkbPolygon)
-        poly.AddGeometry(poly_box)
-
-        # Create a vector datasource in memory:
-        mem_driver = ogr.GetDriverByName('MEMORY')
-        mem_ds = mem_driver.CreateDataSource('memdata_' + str(i))
-        mem_layer = mem_ds.CreateLayer('0', srs, geom_type=ogr.wkbPolygon)
-        feature_def = mem_layer.GetLayerDefn()
-        out_feature = ogr.Feature(feature_def)
-        # Set new geometry from the Polygon object (bounding box):
-        out_feature.SetGeometry(poly)
-        # Add new feature to output Layer
-        mem_layer.CreateFeature(out_feature)
-
+    def _save_vec_mem_tile(mem_ds, output_vector_name):
         # Crate the output vector patch datasource:
         driver_name = "GeoJSON"
         driver = ogr.GetDriverByName(driver_name)
         out_ds = driver.CreateDataSource(output_vector_name)
-        # Clip it with the bounding box:
-        out_layer = out_ds.CreateLayer('0', srs, geom_type=ogr.wkbMultiPolygon)
-        ogr.Layer.Clip(ds_src.GetLayer(), mem_layer, out_layer)
+        mem = out_ds.CopyLayer(mem_ds.GetLayer(), '0')
 
         # Save and close datasources:
         out_ds = None
         mem_ds = None
-
-        return output_vector_name
 
     def tiling_per_aoi(
             self,
@@ -377,21 +301,19 @@ class Tiler(object):
         # Create TorchGeo-based custom VRTDataset dataset:
         vrt_dataset = VRTDataset(aoi.raster)
 
+        if not self.for_inference:
+            vec_dataset = GDLVectorDataset(aoi.label)
+            # Combine raster and vector datasets using AND operator (sampling only from the intersection area).
+            resulting_dataset = vrt_dataset & vec_dataset
+            os.makedirs(out_label_dir, exist_ok=True)
+        else:
+            resulting_dataset = vrt_dataset
+
         # Initialize a sampler and a dataloader. If we need overlapping, stride must be adjusted accordingly.
         # For now, having stride parameter equal to the size, we have no overlapping (except for the borders).
-        sampler = GridGeoSampler(vrt_dataset, size=self.dest_patch_size, stride=self.dest_patch_size)
-        dataloader = DataLoader(vrt_dataset, sampler=sampler, collate_fn=stack_samples)
-
+        sampler = GridGeoSampler(resulting_dataset, size=self.dest_patch_size, stride=self.dest_patch_size)
+        dataloader = DataLoader(resulting_dataset, sampler=sampler, collate_fn=stack_samples)
         assert len(dataloader) != 0, "The dataloader is empty. Check input image and vector datasets."
-
-        # Open vector datasource if not in inference mode:
-        if not self.for_inference:
-            vec_ds = ogr.Open(str(aoi.label))
-            src_mem_driver = ogr.GetDriverByName('MEMORY')
-            mem_vec_ds = src_mem_driver.CopyDataSource(vec_ds, 'src_mem_ds')
-            assert mem_vec_ds is not None, f"Incorrect vector label file was provided: {aoi.label}"
-            vec_srs = mem_vec_ds.GetLayer().GetSpatialRef()
-            os.makedirs(out_label_dir, exist_ok=True)
 
         # Iterate over the dataloader and save resulting raster patches:
         bboxes = []
@@ -402,7 +324,7 @@ class Tiler(object):
         raster_tile_data = []
         for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
             # Parse the TorchGeo batch:
-            sample_image, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
+            sample_image, sample_mask, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
             bboxes.append(sample_window)
 
             # Define the output raster patch filename:
@@ -411,13 +333,12 @@ class Tiler(object):
 
             # Append all the raster patch data for later parallel writing to the disk:
             raster_tile_data.append([sample_image, dst_raster_name, sample_window, sample_crs])
-
             if not self.for_inference:
                 # Define the output vector patch filename:
                 dst_vector_name = self._define_output_name(aoi, out_label_dir, sample_window) + ".geojson"
                 vector_tile_paths.append(dst_vector_name)
                 # Clip vector labels having bounding boxes from the raster tiles:
-                self._clip_vector_by_bbox(mem_vec_ds, vec_srs, sample_window, dst_vector_name, i)
+                self._save_vec_mem_tile(sample_mask, dst_vector_name)
 
         # Write all raster tiles to the disk in parallel:
         logging.info(f'Cropping raster patches...')

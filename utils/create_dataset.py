@@ -1,19 +1,19 @@
 import numpy as np
 from pathlib import Path
 from typing import Any, Dict, cast
-import os
 import sys
 
 from rasterio.windows import from_bounds
 import rasterio
 from rasterio.io import DatasetReader
-from omegaconf import OmegaConf, DictConfig
 from rasterio.plot import reshape_as_image
 from torch.utils.data import Dataset
 from torchgeo.datasets import GeoDataset
 from rasterio.vrt import WarpedVRT
 from torchgeo.datasets.utils import BoundingBox
 import torch
+import fiona
+from osgeo import ogr
 
 from utils.logger import get_logger
 
@@ -189,3 +189,80 @@ class VRTDataset(GeoDataset):
 
         return tensor
 
+
+class GDLVectorDataset(GeoDataset):
+    """Abstract base class for :class:`GeoDataset` stored as vector files."""
+    def __init__(self, vec_ds: str = None, res: float = 0.0001) -> None:
+        """Initialize a new Dataset instance.
+
+        Args:
+            vec_ds: vector labels geopackage
+            res: resolution of the dataset in units of CRS
+        Returns:
+            An OGR datasource in memory
+        """
+        super().__init__()
+
+        self.vec_ds = ogr.Open(str(vec_ds))
+        self.res = res
+
+        # Populate the dataset index
+        try:
+            with fiona.open(str(vec_ds)) as src:
+                minx, miny, maxx, maxy = src.bounds
+
+        except fiona.errors.FionaValueError:
+            print('Vector file could not be read.')
+
+        mint = 0
+        maxt = sys.maxsize
+        coords = (minx, maxx, miny, maxy, mint, maxt)
+        self.index.insert(0, coords, 'vec')
+
+        src_mem_driver = ogr.GetDriverByName('MEMORY')
+        self.mem_vec_ds = src_mem_driver.CopyDataSource(self.vec_ds, 'src_mem_ds')
+        self.vec_srs = self.mem_vec_ds.GetLayer().GetSpatialRef()
+        vec_srs_wkt = self.vec_srs.ExportToPrettyWkt()
+
+        self._crs = CRS.from_wkt(vec_srs_wkt)
+
+    def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:
+        """Retrieve image/mask and metadata indexed by query.
+
+        Args:
+            query: (minx, maxx, miny, maxy, mint, maxt) coordinates to index
+
+        Returns:
+            sample as a OGR datasource in memory and metadata at that index
+        """
+        poly_box = ogr.Geometry(ogr.wkbLinearRing)
+        poly_box.AddPoint(query.minx, query.maxy)
+        poly_box.AddPoint(query.maxx, query.maxy)
+        poly_box.AddPoint(query.maxx, query.miny)
+        poly_box.AddPoint(query.minx, query.miny)
+        poly_box.AddPoint(query.minx, query.maxy)
+        # Create a Polygon object from the ring.
+        poly = ogr.Geometry(ogr.wkbPolygon)
+        poly.AddGeometry(poly_box)
+
+        # # Create a vector datasource in memory:
+        mem_driver = ogr.GetDriverByName('MEMORY')
+        mem_ds = mem_driver.CreateDataSource('memdata')
+        mem_layer = mem_ds.CreateLayer('0', self.vec_srs, geom_type=ogr.wkbPolygon)
+        feature_def = mem_layer.GetLayerDefn()
+        out_feature = ogr.Feature(feature_def)
+        # Set new geometry from the Polygon object (bounding box):
+        out_feature.SetGeometry(poly)
+        # Add new feature to output Layer
+        mem_layer.CreateFeature(out_feature)
+
+        # Crate the output vector patch datasource:
+        out_driver = ogr.GetDriverByName('MEMORY')
+        out_mem_ds = out_driver.CreateDataSource('memdata')
+        # Clip it with the bounding box:
+        out_layer = out_mem_ds.CreateLayer('0', self.vec_srs, geom_type=ogr.wkbMultiPolygon)
+        ogr.Layer.Clip(self.mem_vec_ds.GetLayer(), mem_layer, out_layer)
+
+        sample = {"mask": out_mem_ds, "crs": self.crs, "bbox": query}
+
+        return sample
