@@ -1,7 +1,6 @@
 import functools
 import json
 from collections import OrderedDict
-from numbers import Number
 from pathlib import Path
 from typing import Union, Sequence, Dict, Tuple, List, Optional
 
@@ -128,7 +127,7 @@ class AOI(object):
                  for_multiprocessing: bool = False,
                  raster_stats: bool = False,
                  write_multiband: bool = False,
-                 equalize_clahe_clip_limit: float = 0.):
+                 equalize_clahe_clip_limit: int = 0):
         # TODO: dict printer to output report on list of aois
         """
         @param raster: pathlib.Path or str
@@ -154,14 +153,21 @@ class AOI(object):
             if True, download dataset and store it in the root directory.
         @param root_dir:
             root directory where dataset can be found or downloaded
+        @param for_multiprocessing: bool, optional
+            If True, no rasterio.DatasetReader will be generated in __init__. User will have to call open raster later.
+            See: https://github.com/rasterio/rasterio/issues/1731
         @param raster_stats:
             if True, radiometric stats will be read from Stac Item if available or calculated
         @param write_multiband: bool, optional
             If True, a multi-band raster side by side with single-bands rasters as provided in input csv. For debugging purposes.
-        @param for_multiprocessing: bool, optional
-            If True, no rasterio.DatasetReader will be generated in __init__. User will have to call open raster later.
-            See: https://github.com/rasterio/rasterio/issues/1731
+        @param equalize_clahe_clip_limit: int, optional
+            Threshold value for contrast limiting. If 0 clipping is disabled.
+            Geo-deep-learning enforces the use of an integer to avoid confusion with sklearn's CLAHE algorithm, which
+            expects float between 0 and 1. See:
+            https://scikit-image.org/docs/stable/api/skimage.exposure.html#skimage.exposure.equalize_adapthist
+            https://kornia.readthedocs.io/en/latest/enhance.html#kornia.enhance.equalize_clahe
         """
+        self.raster_name_clahe = None
         self.raster_multiband = None
         self.raster_np = None
         self.raster_closed = False
@@ -226,8 +232,9 @@ class AOI(object):
         if self.raster_parsed and write_multiband:
             self.write_multiband_from_singleband_rasters_as_vrt()
 
-        if not isinstance(equalize_clahe_clip_limit, Number):
-            raise ValueError(f"Enhance clip limit should be a float. Got {type(equalize_clahe_clip_limit)}.")
+        if not isinstance(equalize_clahe_clip_limit, int):
+            raise ValueError(f"Enhance clip limit should be an integer. See documentation.\n"
+                             f"Got {type(equalize_clahe_clip_limit)}.")
         self.enhance_clip_limit = equalize_clahe_clip_limit
 
         if self.enhance_clip_limit > 0:
@@ -335,7 +342,7 @@ class AOI(object):
                   download_data: bool = False,
                   root_dir: str = "data",
                   for_multiprocessing: bool = False,
-                  equalize_clahe_clip_limit: float = 0.,
+                  equalize_clahe_clip_limit: int = 0,
                   ):
         """Instanciates an AOI object from an input-data dictionary as expected by geo-deep-learning"""
         if not isinstance(aoi_dict, dict):
@@ -507,7 +514,7 @@ class AOI(object):
             write_array=self.raster.read())
         return self.raster_name
 
-    def equalize_hist_raster(self, clip_limit: float = 0.):
+    def equalize_hist_raster(self, clip_limit: int = 0, per_band: bool = True, overwrite: bool = False):
         """
         Applies clahe equalization on the input raster, then saved a copy of result to disk.
         Note: reading and equalizing large images requires lots of RAM and may cause out-of-memory errors
@@ -516,16 +523,28 @@ class AOI(object):
         """
         if clip_limit == 0:
             return self.raster_name
-        clip_lim_str = str(clip_limit).replace('.', '')
-        self.raster_name_clahe = self.raster_name.parent / f"{self.raster_name.stem}_clahe{clip_lim_str}.tif"
+        self.raster_name_clahe = self.raster_name.parent / f"{self.raster_name.stem}_clahe{clip_limit}.tif"
         self.raster_name_clahe = to_absolute_path(str(self.raster_name_clahe))
-        if self.raster_np is None:
-            self.raster_np = self.raster.read()
-        raster_torch = image_to_tensor(reshape_as_image(self.raster_np))
-        raster_torch = minmax_scale(img=raster_torch, scale_range=(0, 1), orig_range=(0, 255))
-        raster_torch = equalize_clahe(raster_torch.float().unsqueeze(0), clip_limit=clip_limit)
-        self.raster_np = tensor_to_image((raster_torch*255).long())
-        self.raster_np = reshape_as_raster(self.raster_np)
+        if not overwrite and Path(self.raster_name_clahe).is_file():
+            logging.info(f"Enhanced raster exists. Will not overwrite.\nFound: {self.raster_name_clahe}")
+            return self.raster_name_clahe
+        if per_band:
+            self.raster_np = np.empty((self.raster.height, self.raster.width, self.raster.count))
+            for band_idx in range(self.raster.count):
+                raster_band_np = self.raster.read(band_idx+1)
+                raster_torch = image_to_tensor(raster_band_np)
+                raster_torch = minmax_scale(img=raster_torch, scale_range=(0, 1), orig_range=(0, 255))
+                raster_torch = equalize_clahe(raster_torch.float().unsqueeze(0), clip_limit=float(clip_limit))
+                raster_band_np = tensor_to_image((raster_torch * 255).long(), keepdim=True).squeeze()
+                self.raster_np[..., band_idx] = raster_band_np
+        else:
+            if self.raster_np is None:
+                self.raster_np = self.raster.read()
+            raster_torch = image_to_tensor(reshape_as_image(self.raster_np))
+            raster_torch = minmax_scale(img=raster_torch, scale_range=(0, 1), orig_range=(0, 255))
+            raster_torch = equalize_clahe(raster_torch.float().unsqueeze(0), clip_limit=float(clip_limit))
+            self.raster_np = tensor_to_image((raster_torch*255).long())
+            self.raster_np = reshape_as_raster(self.raster_np)
         create_new_raster_from_base(self.raster, self.raster_name_clahe, self.raster_np)
         return self.raster_name_clahe
 
@@ -657,7 +676,7 @@ def aois_from_csv(
         download_data: bool = False,
         data_dir: str = "data",
         for_multiprocessing = False,
-        equalize_clahe_clip_limit: float = 0.,
+        equalize_clahe_clip_limit: int = 0,
 ):
     """
     Creates list of AOIs by parsing a csv file referencing input data
