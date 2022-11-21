@@ -118,6 +118,7 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
             logging.info(f"Reached maximum batch size for image size. "
                          f"Batch size tuned to {batch_size_trial-bs_step}.")
             datamodule.batch_size = batch_size_trial-bs_step
+            break
 
         eval_gen2tune = eval_batch_generator(
             model=model,
@@ -133,6 +134,7 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
         free, total = torch.cuda.mem_get_info(device)
         if (total-free)/total > max_used_ram/100:
             logging.info(f"Reached GPU RAM threshold of {int(max_used_ram)}%. Batch size tuned to {batch_size_trial}.")
+            break
 
 
 def create_spline_window(window_size: int, power=1):
