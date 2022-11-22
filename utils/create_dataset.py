@@ -12,7 +12,6 @@ from torchgeo.datasets import GeoDataset
 from rasterio.vrt import WarpedVRT
 from torchgeo.datasets.utils import BoundingBox
 import torch
-import fiona
 from osgeo import ogr
 
 from utils.logger import get_logger
@@ -116,33 +115,33 @@ class SegmentationDataset(Dataset):
         return sample
 
 
-class VRTDataset(GeoDataset):
-    def __init__(self, vrt_ds: DatasetReader) -> None:
-        """Initialize a new VRTDataset instance.
-        The dataset is base on the DataReader class, initiated by rasterio.open().
+class DRDataset(GeoDataset):
+    def __init__(self, dr_ds: DatasetReader) -> None:
+        """Initialize a new DRDataset instance.
+        The dataset is base on rasterio's DatasetReader class, instanciated by rasterio.open().
 
         Args:
-            vrt_ds: DatasetReader object (rasterio)
+            dr_ds: DatasetReader object (rasterio)
         """
         super().__init__()
 
-        self.vrt_ds = vrt_ds
+        self.dr_ds = dr_ds
         try:
-            self.cmap = vrt_ds.colormap(1)
+            self.cmap = dr_ds.colormap(1)
         except ValueError:
             pass
 
-        crs = vrt_ds.crs
-        res = vrt_ds.res[0]
+        crs = dr_ds.crs
+        res = dr_ds.res[0]
 
-        with WarpedVRT(vrt_ds, crs=crs) as vrt:
-            minx, miny, maxx, maxy = vrt.bounds
+        with WarpedVRT(dr_ds, crs=crs) as dr:
+            minx, miny, maxx, maxy = dr.bounds
 
         mint: float = 0
         maxt: float = sys.maxsize
 
         coords = (minx, maxx, miny, maxy, mint, maxt)
-        self.index.insert(0, coords, 'vrt')
+        self.index.insert(0, coords, 'dr')
 
         self._crs = cast(CRS, crs)
         self.res = cast(float, res)
@@ -174,10 +173,10 @@ class VRTDataset(GeoDataset):
         bounds = (query.minx, query.miny, query.maxx, query.maxy)
         out_width = round((query.maxx - query.minx) / self.res)
         out_height = round((query.maxy - query.miny) / self.res)
-        out_shape = (self.vrt_ds.count, out_height, out_width)
+        out_shape = (self.dr_ds.count, out_height, out_width)
 
-        dest = self.vrt_ds.read(
-            out_shape=out_shape, window=from_bounds(*bounds, self.vrt_ds.transform)
+        dest = self.dr_ds.read(
+            out_shape=out_shape, window=from_bounds(*bounds, self.dr_ds.transform)
         )
 
         if dest.dtype == np.uint16:
@@ -191,7 +190,7 @@ class VRTDataset(GeoDataset):
 
 
 class GDLVectorDataset(GeoDataset):
-    """Abstract base class for :class:`GeoDataset` stored as vector files."""
+    """The dataset is base on rasterio's DatasetReader class, instanciated by vector file."""
     def __init__(self, vec_ds: str = None, res: float = 0.0001) -> None:
         """Initialize a new Dataset instance.
 
@@ -206,13 +205,11 @@ class GDLVectorDataset(GeoDataset):
         self.vec_ds = ogr.Open(str(vec_ds))
         self.res = res
 
-        # Populate the dataset index
-        try:
-            with fiona.open(str(vec_ds)) as src:
-                minx, miny, maxx, maxy = src.bounds
+        assert self.vec_ds is not None, "The vector dataset is empty."
 
-        except fiona.errors.FionaValueError:
-            print('Vector file could not be read.')
+        vec_ds_layer = self.vec_ds.GetLayer()
+        minx, maxx, miny, maxy = vec_ds_layer.GetExtent()
+        del vec_ds_layer
 
         mint = 0
         maxt = sys.maxsize

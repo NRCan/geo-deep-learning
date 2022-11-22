@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 from torchgeo.samplers import GridGeoSampler
 from torchgeo.datasets import stack_samples
 
-from utils.create_dataset import VRTDataset, GDLVectorDataset
+from utils.create_dataset import DRDataset, GDLVectorDataset
 from dataset.aoi import aois_from_csv, AOI
 from utils.geoutils import check_gdf_load, check_rasterio_im_load
 from utils.utils import get_key_def, get_git_hash
@@ -231,6 +231,7 @@ class Tiler(object):
             batch: TorchGeo batch.
 
         Returns: image raster sample as a numpy array, sample CRS, sample bounding box coordinates.
+        If the mode is not "inference", then also returns a vector mask.
 
         """
         # Get the image as an array:
@@ -299,7 +300,7 @@ class Tiler(object):
             aoi.raster = rasterio.open(aoi.raster_multiband)
 
         # Create TorchGeo-based custom VRTDataset dataset:
-        vrt_dataset = VRTDataset(aoi.raster)
+        vrt_dataset = DRDataset(aoi.raster)
 
         if not self.for_inference:
             vec_dataset = GDLVectorDataset(aoi.label)
@@ -313,7 +314,9 @@ class Tiler(object):
         # For now, having stride parameter equal to the size, we have no overlapping (except for the borders).
         sampler = GridGeoSampler(resulting_dataset, size=self.dest_patch_size, stride=self.dest_patch_size)
         dataloader = DataLoader(resulting_dataset, sampler=sampler, collate_fn=stack_samples)
-        assert len(dataloader) != 0, "The dataloader is empty. Check input image and vector datasets."
+
+        if len(dataloader) == 0:
+            raise ValueError("The dataloader is empty. Check input image and vector datasets.")
 
         # Iterate over the dataloader and save resulting raster patches:
         bboxes = []
@@ -337,7 +340,7 @@ class Tiler(object):
                 # Define the output vector patch filename:
                 dst_vector_name = self._define_output_name(aoi, out_label_dir, sample_window) + ".geojson"
                 vector_tile_paths.append(dst_vector_name)
-                # Clip vector labels having bounding boxes from the raster tiles:
+                # Clip vector labels having bounding boxes from the raster patches:
                 self._save_vec_mem_tile(sample_mask, dst_vector_name)
 
         # Write all raster tiles to the disk in parallel:
