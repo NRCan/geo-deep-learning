@@ -151,7 +151,7 @@ class AOI(object):
             root directory where dataset can be found or downloaded
         @param raster_stats:
             if True, radiometric stats will be read from Stac Item if available or calculated
-        @param write_multiband: bool, optional
+        @param write_dest_raster: bool, optional
             If True, a multi-band raster side by side with single-bands rasters as provided in input csv. For debugging purposes.
         @param for_multiprocessing: bool, optional
             If True, no rasterio.DatasetReader will be generated in __init__. User will have to call read raster later.

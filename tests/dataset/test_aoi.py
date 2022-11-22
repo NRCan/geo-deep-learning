@@ -266,6 +266,7 @@ class Test_AOI(object):
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'],
                   write_dest_raster=True, root_dir="data")
         assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif").is_file()
+        assert rasterio.open("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif").count == 3
         aoi.close_raster()
         os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif")
 
