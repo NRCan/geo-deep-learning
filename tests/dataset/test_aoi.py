@@ -392,11 +392,12 @@ class Test_AOI(object):
             raster_bands_request=[1, 2, 3]
         )
         no_equ_arr = aoi.raster.read()
-        equ_fp = aoi.equalize_hist_raster(clip_limit=125)
-        equ_arr = rasterio.open(equ_fp).read()
-        assert no_equ_arr.shape == equ_arr.shape
-        assert 100 < equ_arr.mean() < 150
-        assert no_equ_arr.mean() < equ_arr.mean()
+        for per_band in (True, False):
+            equ_fp = aoi.equalize_hist_raster(clip_limit=125, overwrite=True, per_band=per_band)
+            equ_arr = rasterio.open(equ_fp).read()
+            assert no_equ_arr.shape == equ_arr.shape
+            assert 100 < equ_arr.mean() < 150
+            assert no_equ_arr.mean() < equ_arr.mean()
 
     def test_equalize_hist_raster_per_band(self):
         """Test equalize input raster per band with CLAHE transform"""

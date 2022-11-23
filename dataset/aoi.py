@@ -239,7 +239,7 @@ class AOI(object):
 
         if self.enhance_clip_limit > 0:
             self.raster_multiband = self.equalize_hist_raster(clip_limit=self.enhance_clip_limit)
-            self.raster_open()
+            self.raster = rasterio.open(self.raster_multiband)
 
         # Check label data
         if label:
@@ -541,7 +541,7 @@ class AOI(object):
             raster_torch = minmax_scale(img=raster_torch, scale_range=(0, 1), orig_range=(0, 255))
             raster_torch = equalize_clahe(raster_torch.float().unsqueeze(0), clip_limit=float(clip_limit))
             self.raster_np = tensor_to_image((raster_torch*255).long())
-            self.raster_np = reshape_as_raster(self.raster_np)
+        self.raster_np = reshape_as_raster(self.raster_np)
         create_new_raster_from_base(self.raster, self.raster_name_clahe, self.raster_np)
         return self.raster_name_clahe
 
