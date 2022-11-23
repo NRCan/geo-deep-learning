@@ -424,5 +424,5 @@ def map_wrapper(x):
 
 def aoi_read_raster(aoi: AOI):
     """Function to package in multiprocessing"""
-    aoi.raster_open()
+    aoi.raster = rasterio.open(aoi.raster_multiband)
     return aoi.raster.meta
