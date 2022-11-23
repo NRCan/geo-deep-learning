@@ -300,15 +300,15 @@ class Tiler(object):
             aoi.raster = rasterio.open(aoi.raster_multiband)
 
         # Create TorchGeo-based custom VRTDataset dataset:
-        vrt_dataset = DRDataset(aoi.raster)
+        dr_dataset = DRDataset(aoi.raster)
 
         if not self.for_inference:
             vec_dataset = GDLVectorDataset(aoi.label)
             # Combine raster and vector datasets using AND operator (sampling only from the intersection area).
-            resulting_dataset = vrt_dataset & vec_dataset
+            resulting_dataset = dr_dataset & vec_dataset
             os.makedirs(out_label_dir, exist_ok=True)
         else:
-            resulting_dataset = vrt_dataset
+            resulting_dataset = dr_dataset
 
         # Initialize a sampler and a dataloader. If we need overlapping, stride must be adjusted accordingly.
         # For now, having stride parameter equal to the size, we have no overlapping (except for the borders).

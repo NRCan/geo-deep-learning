@@ -179,10 +179,10 @@ class DRDataset(GeoDataset):
             out_shape=out_shape, window=from_bounds(*bounds, self.dr_ds.transform)
         )
 
-        if dest.dtype == np.uint16:
-            dest = dest.astype(np.int32)
-        elif dest.dtype == np.uint32:
-            dest = dest.astype(np.int64)
+        # if dest.dtype == np.uint16:
+        #     dest = dest.astype(np.int32)
+        # elif dest.dtype == np.uint32:
+        #     dest = dest.astype(np.int64)
 
         tensor = torch.tensor(dest)
 
