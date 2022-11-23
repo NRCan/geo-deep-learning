@@ -94,7 +94,7 @@ class SegmentationDataset(Dataset):
             except TypeError:
                 pass
 
-        sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata, "list_path": self.list_path}
+        sample = {"image": sat_img, "mask": map_img, "metadata": metadata, "list_path": self.list_path}
 
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
             sample = self.radiom_transform(sample)
@@ -106,7 +106,7 @@ class SegmentationDataset(Dataset):
         if self.debug:
             # assert no new class values in map_img
             initial_class_ids = set(np.unique(map_img))
-            final_class_ids = set(np.unique(sample['map_img'].numpy()))
+            final_class_ids = set(np.unique(sample["mask"].numpy()))
             if not final_class_ids.issubset(initial_class_ids):
                 logging.warning(f"\nWARNING: Class values for label before and after augmentations don't match."
                                 f"\nUnique values before: {initial_class_ids}"

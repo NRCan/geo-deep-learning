@@ -2,10 +2,10 @@ import os
 from os.path import join
 from datetime import datetime
 import multiprocessing
-from numbers import Number
 from pathlib import Path
 import shutil
 from typing import Union, Sequence, List
+from numbers import Number
 from concurrent.futures import ThreadPoolExecutor
 
 import geopandas as gpd
