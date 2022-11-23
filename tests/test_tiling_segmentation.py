@@ -1,12 +1,16 @@
 import itertools
+import os
 import shutil
 from pathlib import Path
 
 import numpy as np
 import pytest
 import rasterio
+from rasterio.crs import CRS
 from omegaconf import DictConfig
 from torchgeo.datasets.utils import extract_archive
+from torchgeo.datasets.utils import BoundingBox
+from osgeo import gdal, gdalconst, ogr
 
 from dataset.aoi import AOI
 from tiling_segmentation import annot_percent, Tiler
@@ -98,6 +102,100 @@ class TestTiler(object):
             label_np = rasterio.open(gt_patch_mask).read()
             assert list(np.unique(label_np)) == out_vals
         shutil.rmtree(tiling_dir)
+
+    def test__save_tile(self):
+        """ Test _save_tile method of the Tiler class """
+        sample = np.random.randint(0, 255, size=(4, 64, 32), dtype=np.uint8)
+        dst_name = 'test_save_tile.tif'
+        dst_dir = 'tests/data/test_save_tile'
+        os.makedirs(dst_dir, exist_ok=True)
+        dst = os.path.join(dst_dir, dst_name)
+        window = [230064.02203313413, 894213.4918, 230095.93486791675, 894181.5789652173]
+        crs = 'PROJCS["NAD83 / Massachusetts Mainland",GEOGCS["NAD83",DATUM["North_American_Datum_1983",' \
+              'SPHEROID["GRS 1980",6378137,298.257222101,AUTHORITY["EPSG","7019"]],AUTHORITY["EPSG","6269"]],' \
+              'PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,' \
+              'AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4269"]],PROJECTION["Lambert_Conformal_Conic_2SP"],' \
+              'PARAMETER["latitude_of_origin",41],PARAMETER["central_meridian",-71.5],' \
+              'PARAMETER["standard_parallel_1",42.6833333333333],PARAMETER["standard_parallel_2",41.7166666666667],' \
+              'PARAMETER["false_easting",200000],PARAMETER["false_northing",750000],' \
+              'UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],' \
+              'AUTHORITY["EPSG","26986"]]'
+
+        Tiler._save_tile(sample=sample,
+                         dst=dst,
+                         window=window,
+                         crs=crs
+                         )
+
+        # Calculate initial geotransforms:
+        xmin, ymax, xmax, ymin = window
+        n_rows, n_cols, n_bands = sample.shape[1], sample.shape[2], sample.shape[0]
+        xres = (xmax - xmin) / float(n_cols)
+        yres = (ymax - ymin) / float(n_rows)
+        gt = (xmin, xres, 0, ymax, 0, -yres)
+
+        # Open the saved patch and assert:
+        ds = gdal.Open(dst, gdalconst.GA_ReadOnly)
+        assert ds is not None, "The patch was not saved!"
+        ds_arr = ds.ReadAsArray()
+        assert (ds_arr == sample).all(), "Initial and saved arrays are different!"
+        ds_crs = ds.GetProjection()
+        assert ds_crs == crs, "Initial and saved CRSs are different!"
+        ds_gt = ds.GetGeoTransform()
+        assert ds_gt == gt, "Initial and saved geotransforms are different!"
+        try:
+            shutil.rmtree(dst_dir)
+        except PermissionError:
+            pass
+
+    def test__parse_torchgeo_batch(self):
+        """ Test _parse_torchgeo_batch method of the Tiler class """
+        batch = {
+            'image': np.random.randint(0, 255, size=(1, 3, 32, 32), dtype=np.uint8),
+            'mask': [np.random.randint(0, 255, size=(1, 32, 32), dtype=np.uint8)],
+            'crs': [CRS.from_epsg(26986)],
+            'bbox': [BoundingBox(minx=230004.1545, maxx=230036.06733478262,
+                                 miny=894044.8952545876, maxy=894076.8080893703, mint=0.0, maxt=9.223372036854776e+18)]
+
+
+        }
+        Tiler.for_inference = False
+        sample_image, sample_mask, sample_crs, window = Tiler._parse_torchgeo_batch(Tiler, batch=batch)
+
+        assert (sample_image == batch['image']).all(), "Initial and unpacked samples images are different!"
+        assert (sample_mask == batch['mask'][0]).all(), "Initial and unpacked samples masks are different!"
+        assert CRS.from_wkt(sample_crs) == batch['crs'][0], "Initial and unpacked CRSs are different!"
+        assert window[0] == batch['bbox'][0][0] and window[1] == batch['bbox'][0][3] and \
+               window[2] == batch['bbox'][0][1] and window[3] == batch['bbox'][0][2],\
+               "Initial and unpacked bboxes are different!"
+
+        Tiler.for_inference = True
+        sample_image, sample_mask, sample_crs, window = Tiler._parse_torchgeo_batch(Tiler, batch=batch)
+        assert (sample_image == batch['image']).all(), "Initial and unpacked samples images are different!"
+        assert sample_mask is None, "The unpacked sample masks is not None! (Tiler.for_inference = True)"
+        assert CRS.from_wkt(sample_crs) == batch['crs'][0], "Initial and unpacked CRSs are different!"
+        assert window[0] == batch['bbox'][0][0] and window[1] == batch['bbox'][0][3] and \
+               window[2] == batch['bbox'][0][1] and window[3] == batch['bbox'][0][2],\
+               "Initial and unpacked bboxes are different!"
+
+    def test__define_output_name(self):
+        """ Test _define_output_name method of the Tiler class """
+        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        img = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
+        gt = "tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg"
+        my_aoi = AOI(raster=img, raster_bands_request=[1, 2, 3], label=gt, split='trn')
+        dst_dir = "tests/data"
+
+        window = [1.1, 2.2, 3.3, 4.4]
+
+        dst = Tiler._define_output_name(
+            aoi=my_aoi,
+            output_folder=dst_dir,
+            window=window
+        )
+
+        assert dst == os.path.join(dst_dir, "22978945_15_uint8_clipped_1-2-3_1_1_2_2"), "Output file name does not " \
+                                                                                        "match the input parameters!"
 
 
 class TestTiling(object):
