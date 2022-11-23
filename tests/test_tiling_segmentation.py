@@ -199,7 +199,13 @@ class TestTiler(object):
 
     def test__save_vec_mem_tile(self):
         """ Test _save_vec_mem_tile method of the Tiler class """
-        gt = "tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg"
+        """ Test _define_output_name method of the Tiler class """
+        try:
+            extract_archive(src="tests/data/massachusetts_buildings_kaggle_patch.zip")
+        except FileNotFoundError:
+            pass
+        gt = "tests/data/massachusetts_buildings_kaggle_patch/massachusetts_buildings_kaggle_patch.gpkg"
+
         gt_ds = ogr.Open(gt)
         mem_driver = ogr.GetDriverByName('MEMORY')
         mem_gt_ds = mem_driver.CopyDataSource(gt_ds, 'mem_ds')
@@ -257,38 +263,38 @@ class TestTiler(object):
 
 
 class TestTiling(object):
-    # def test_outputted_chips(self):
-    #     """Tests the tiling process to ensure all expected tiles are created"""
-    #     data_dir = f"data/patches"
-    #     proj = f"tiling_output_test"
-    #     Path(data_dir).mkdir(exist_ok=True, parents=True)
-    #     extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
-    #     cfg = {
-    #         "general": {"project_name": proj},
-    #         "debug": True,
-    #         "dataset": {
-    #             "bands": [1, 2, 3],
-    #             "raw_data_dir": data_dir,
-    #             "raw_data_csv": f"tests/tiling/tiling_segmentation_binary_ci.csv",
-    #         },
-    #         "tiling": {
-    #             "patch_size": 32,
-    #             "train_val_percent": {'val': 0.3},
-    #         },
-    #     }
-    #     cfg = DictConfig(cfg)
-    #     tiling(cfg)
-    #     # expected number of patches is constant due to random seed set in tiling script
-    #     out_labels = [
-    #         (Path(f"{data_dir}/{proj}/trn/22978945_15_uint8_clipped/labels_burned"), 16),
-    #         (Path(f"{data_dir}/{proj}/val/22978945_15_uint8_clipped/labels_burned"), 2),
-    #         (Path(f"{data_dir}/{proj}/tst/23429155_15_uint8_clipped/labels_burned"), 9),
-    #     ]
-    #     for dataset, out in zip(["trn", "val", "tst"], out_labels):
-    #         number_labels_actual = len(list(out[0].iterdir()))
-    #         number_labels_expected = out[-1]
-    #         assert number_labels_actual == number_labels_expected
-    #     shutil.rmtree(Path(data_dir) / proj)
+    def test_outputted_chips(self):
+        """Tests the tiling process to ensure all expected tiles are created"""
+        data_dir = f"data/patches"
+        proj = f"tiling_output_test"
+        Path(data_dir).mkdir(exist_ok=True, parents=True)
+        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        cfg = {
+            "general": {"project_name": proj},
+            "debug": True,
+            "dataset": {
+                "bands": [1, 2, 3],
+                "raw_data_dir": data_dir,
+                "raw_data_csv": f"tests/tiling/tiling_segmentation_binary_ci.csv",
+            },
+            "tiling": {
+                "patch_size": 32,
+                "train_val_percent": {'val': 0.3},
+            },
+        }
+        cfg = DictConfig(cfg)
+        tiling(cfg)
+        # expected number of patches is constant due to random seed set in tiling script
+        out_labels = [
+            (Path(f"{data_dir}/{proj}/trn/22978945_15_uint8_clipped/labels_burned"), 16),
+            (Path(f"{data_dir}/{proj}/val/22978945_15_uint8_clipped/labels_burned"), 2),
+            (Path(f"{data_dir}/{proj}/tst/23429155_15_uint8_clipped/labels_burned"), 9),
+        ]
+        for dataset, out in zip(["trn", "val", "tst"], out_labels):
+            number_labels_actual = len(list(out[0].iterdir()))
+            number_labels_expected = out[-1]
+            assert number_labels_actual == number_labels_expected
+        shutil.rmtree(Path(data_dir) / proj)
 
     def test_min_annotated_percent_filter(self):
         """Tests the minimum annotated percent filter"""
