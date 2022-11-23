@@ -239,7 +239,7 @@ class AOI(object):
 
         if self.enhance_clip_limit > 0:
             self.raster_multiband = self.equalize_hist_raster(clip_limit=self.enhance_clip_limit)
-            self.raster_open()
+            self.raster = rasterio.open(self.raster_multiband)
 
         # Check label data
         if label:
