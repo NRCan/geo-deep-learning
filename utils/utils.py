@@ -30,12 +30,6 @@ from utils.logger import get_logger
 # Set the logging file
 log = get_logger(__name__)  # need to be different from logging in this case
 
-# AWS module
-try:
-    import boto3
-except ModuleNotFoundError:
-    logging.warning('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
-
 
 class Interpolate(torch.nn.Module):
     def __init__(self, mode, scale_factor):

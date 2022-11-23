@@ -1,8 +1,13 @@
 import collections
 import logging
+from distutils.version import LooseVersion
 from pathlib import Path
 from typing import List, Union, Sequence
 
+import pyproj
+from fiona._err import CPLE_OpenFailedError
+from fiona.errors import DriverError
+import geopandas as gpd
 import numpy as np
 import pystac
 import rasterio
@@ -10,8 +15,6 @@ from rasterio import MemoryFile
 from rasterio.plot import reshape_as_raster
 from rasterio.shutil import copy as riocopy
 import xml.etree.ElementTree as ET
-
-from solaris.utils.core import _check_rasterio_im_load
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,7 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     Return:
         none
     """
-    src = _check_rasterio_im_load(input_raster)
+    src = check_rasterio_im_load(input_raster)
     if len(write_array.shape) == 2:  # 2D array
         count = 1
     elif len(write_array.shape) == 3:  # 3D array
@@ -139,3 +142,60 @@ def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
         vrt_dataset.append(vrt_band)
 
     return ET.tostring(vrt_dataset).decode('UTF-8')
+
+
+def check_rasterio_im_load(im):
+    """
+    Check if `im` is already loaded in; if not, load it in.
+    Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L17
+    """
+    if isinstance(im, (str, Path)):
+        return rasterio.open(im)
+    elif isinstance(im, rasterio.DatasetReader):
+        return im
+    else:
+        raise ValueError("{} is not an accepted image format for rasterio.".format(im))
+
+
+def check_gdf_load(gdf):
+    """
+    Check if `gdf` is already loaded in, if not, load from geojson.
+    Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L52
+    """
+    if isinstance(gdf, (str, Path)):
+        # as of geopandas 0.6.2, using the OGR CSV driver requires some add'nal
+        # kwargs to create a valid geodataframe with a geometry column. see
+        # https://github.com/geopandas/geopandas/issues/1234
+        if str(gdf).lower().endswith("csv"):
+            return gpd.read_file(
+                gdf, GEOM_POSSIBLE_NAMES="geometry", KEEP_GEOM_COLUMNS="NO"
+            )
+        try:
+            return gpd.read_file(gdf)
+        except (DriverError, CPLE_OpenFailedError):
+            logging.warning(
+                f"GeoDataFrame couldn't be loaded: either {gdf} isn't a valid"
+                " path or it isn't a valid vector file. Returning an empty"
+                " GeoDataFrame."
+            )
+            return gpd.GeoDataFrame()
+    elif isinstance(gdf, gpd.GeoDataFrame):
+        return gdf
+    else:
+        raise ValueError(f"{gdf} is not an accepted GeoDataFrame format.")
+
+
+def check_crs(input_crs, return_rasterio=False):
+    """Convert CRS to the ``pyproj.CRS`` object passed by ``solaris``."""
+    if not isinstance(input_crs, pyproj.CRS) and input_crs is not None:
+        out_crs = pyproj.CRS(input_crs)
+    else:
+        out_crs = input_crs
+
+    if return_rasterio:
+        if LooseVersion(rasterio.__gdal_version__) >= LooseVersion("3.0.0"):
+            out_crs = rasterio.crs.CRS.from_wkt(out_crs.to_wkt())
+        else:
+            out_crs = rasterio.crs.CRS.from_wkt(out_crs.to_wkt("WKT1_GDAL"))
+
+    return out_crs

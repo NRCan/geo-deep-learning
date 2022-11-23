@@ -129,8 +129,8 @@ class Scale(object):
             ndarray: Scaled image.
         """
         out_dtype = sample['metadata']['dtype']
-        orig_range = self.range_values_raster(sample['sat_img'], out_dtype)
-        sample['sat_img'] = minmax_scale(img=sample['sat_img'], orig_range=orig_range, scale_range=(self.sc_min, self.sc_max))
+        orig_range = self.range_values_raster(sample["image"], out_dtype)
+        sample["image"] = minmax_scale(img=sample["image"], orig_range=orig_range, scale_range=(self.sc_min, self.sc_max))
 
         return sample
 
@@ -142,12 +142,12 @@ class GeometricScale(object):
 
     def __call__(self, sample):
         scale_factor = round(random.uniform(range[0], range[-1]), 1)
-        output_width = sample['sat_img'].shape[0] * scale_factor
-        output_height = sample['sat_img'].shape[1] * scale_factor
-        sat_img = transform.resize(sample['sat_img'], output_shape=(output_height, output_width))
-        map_img = transform.resize(sample['map_img'], output_shape=(output_height, output_width))
-        sample['sat_img'] = sat_img
-        sample['map_img'] = map_img
+        output_width = sample["image"].shape[0] * scale_factor
+        output_height = sample["image"].shape[1] * scale_factor
+        sat_img = transform.resize(sample["image"], output_shape=(output_height, output_width))
+        map_img = transform.resize(sample["mask"], output_shape=(output_height, output_width))
+        sample["image"] = sat_img
+        sample["mask"] = map_img
         return sample
 
 
@@ -161,10 +161,10 @@ class RandomRotationTarget(object):
     def __call__(self, sample):
         if random.random() < self.prob:
             angle = np.random.uniform(-self.limit, self.limit)
-            sat_img = transform.rotate(sample['sat_img'], angle, preserve_range=True, cval=np.nan)
-            map_img = transform.rotate(sample['map_img'], angle, preserve_range=True, order=0, cval=self.ignore_index)
-            sample['sat_img'] = sat_img
-            sample['map_img'] = map_img
+            sat_img = transform.rotate(sample["image"], angle, preserve_range=True, cval=np.nan)
+            map_img = transform.rotate(sample["mask"], angle, preserve_range=True, order=0, cval=self.ignore_index)
+            sample["image"] = sat_img
+            sample["mask"] = map_img
             return sample
         else:
             return sample
@@ -177,10 +177,10 @@ class HorizontalFlip(object):
 
     def __call__(self, sample):
         if random.random() < self.prob:
-            sat_img = np.ascontiguousarray(sample['sat_img'][:, ::-1, ...])
-            map_img = np.ascontiguousarray(sample['map_img'][:, ::-1, ...])
-            sample['sat_img'] = sat_img
-            sample['map_img'] = map_img
+            sat_img = np.ascontiguousarray(sample["image"][:, ::-1, ...])
+            map_img = np.ascontiguousarray(sample["mask"][:, ::-1, ...])
+            sample["image"] = sat_img
+            sample["mask"] = map_img
         return sample
 
 
@@ -227,8 +227,8 @@ class RandomCrop(object):
         Returns:
             ndarray: Cropped image.
         """
-        sat_img = sample['sat_img']
-        map_img = sample['map_img']
+        sat_img = sample["image"]
+        map_img = sample["mask"]
 
         if self.padding is not None:
             sat_img = pad(sat_img, self.padding, np.nan)  # Pad with nan values for sat_img
@@ -253,8 +253,8 @@ class RandomCrop(object):
         sat_img = sat_img[i:i + h, j:j + w]
         map_img = map_img[i:i + h, j:j + w]
 
-        sample['sat_img'] = sat_img
-        sample['map_img'] = map_img
+        sample["image"] = sat_img
+        sample["mask"] = map_img
         return sample
 
     def __repr__(self):
@@ -269,8 +269,8 @@ class Normalize(object):
 
     def __call__(self, sample):
         if self.mean or self.std != []:
-            sat_img = (sample['sat_img'] - self.mean) / self.std
-            sample['sat_img'] = sat_img
+            sat_img = (sample["image"] - self.mean) / self.std
+            sample["image"] = sat_img
             return sample
         else:
             return sample
@@ -287,18 +287,18 @@ class ToTensorTarget(object):
         self.dontcare_val = dontcare_val
 
     def __call__(self, sample):
-        sat_img = np.nan_to_num(sample['sat_img'], copy=False)
+        sat_img = np.nan_to_num(sample["image"], copy=False)
         sat_img = np.float32(np.transpose(sat_img, (2, 0, 1)))
         sat_img = torch.from_numpy(sat_img)
 
         map_img = None
-        if 'map_img' in sample.keys():
-            if sample['map_img'] is not None:  # This can also be used in inference.
-                map_img = np.int64(sample['map_img'])
+        if "mask" in sample.keys():
+            if sample["mask"] is not None:  # This can also be used in inference.
+                map_img = np.int64(sample["mask"])
                 if self.dontcare2backgr:
                     map_img[map_img == self.dontcare_val] = 0
                 map_img = torch.from_numpy(map_img)
-        return {'sat_img': sat_img, 'map_img': map_img}
+        return {"image": sat_img, "mask": map_img}
 
 
 class AddGaussianNoise(object):
@@ -309,7 +309,7 @@ class AddGaussianNoise(object):
         self.mean = mean
 
     def __call__(self, sample):
-        sample['sat_img'] = sample['sat_img'] + np.random.randn(*sample['sat_img'].shape) * self.std + self.mean
+        sample["image"] = sample["image"] + np.random.randn(*sample["image"].shape) * self.std + self.mean
         return sample
 
     def __repr__(self):

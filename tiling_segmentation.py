@@ -1,9 +1,8 @@
 from datetime import datetime
 import multiprocessing
-from numbers import Number
 from pathlib import Path
 import shutil
-from typing import Union, Sequence, List
+from typing import Union, List
 from numbers import Number
 from typing import Sequence
 
@@ -14,10 +13,10 @@ from omegaconf import DictConfig, open_dict, ListConfig
 import rasterio
 from shapely.geometry import box
 from solaris import tile, vector
-from solaris.utils.core import _check_gdf_load, _check_rasterio_im_load
 from tqdm import tqdm
 
 from dataset.aoi import aois_from_csv, AOI
+from utils.geoutils import check_gdf_load, check_rasterio_im_load
 from utils.utils import get_key_def, get_git_hash
 from utils.verifications import validate_raster
 # Set the logging file
@@ -36,10 +35,10 @@ def annot_percent(img_patch: Union[str, Path, rasterio.DatasetReader],
     @param gdf_patch: str, Path or gpd.GeoDataFrame
     @return: (int) Annotated percent
     """
-    gdf_patch = _check_gdf_load(gdf_patch)
+    gdf_patch = check_gdf_load(gdf_patch)
     if gdf_patch.empty:
         return 0
-    img_patch_dataset = _check_rasterio_im_load(str(img_patch))
+    img_patch_dataset = check_rasterio_im_load(img_patch)
 
     bounds_iou = AOI.bounds_iou_gdf_riodataset(gdf_patch, img_patch_dataset)
 
@@ -212,9 +211,9 @@ class Tiler(object):
                 clip_limit=equalize_clahe_clip_limit,
                 per_band=True,
                 overwrite=False)  # TODO: Softcode these parameters
-            aoi.raster_open()
+            aoi.raster = rasterio.open(aoi.raster_multiband)
         elif not aoi.raster:  # in case of multiprocessing
-            aoi.raster_open()
+            aoi.raster = rasterio.open(aoi.raster_multiband)
 
         raster_tiler = tile.raster_tile.RasterTiler(dest_dir=out_img_dir,
                                                     src_tile_size=(self.dest_patch_size, self.dest_patch_size),
@@ -253,7 +252,7 @@ class Tiler(object):
         Decides whether a patch pair should be kept based on minimum annotated percent threshold (i.e. maximum background
         proportion). This filter applies to trn and val datasets only, i.e. all patches from tst dataset are included
         """
-        map_img_gdf = _check_gdf_load(gt_patch)
+        map_img_gdf = check_gdf_load(gt_patch)
         annot_perc = annot_percent(
             img_patch=img_patch,
             gdf_patch=map_img_gdf,
@@ -295,7 +294,7 @@ class Tiler(object):
         @return:
         """
         out_px_mask = Path(out_px_mask)
-        gt_patch_gdf = _check_gdf_load(gt_patch)
+        gt_patch_gdf = check_gdf_load(gt_patch)
         if out_px_mask.is_file():
             logging.info(f'Burned ground truth patch exists: {out_px_mask}')
             return
@@ -357,7 +356,7 @@ class Tiler(object):
         @return:
         """
         if not aoi.raster:  # in case of multiprocessing
-            aoi.raster_open()
+            aoi.raster = rasterio.open(aoi.raster_multiband)
 
         random_val = np.random.randint(1, 101)
         if not {'trn', 'val'}.issubset(set(self.datasets)):
@@ -580,7 +579,7 @@ def main(cfg: DictConfig) -> None:
                     logging.error(f'\nInvalid imagery patch: {img_patch}'
                                   f'\n{e}')
                 try:
-                    _check_gdf_load(gt_patch)  # validates ground truth patch
+                    check_gdf_load(gt_patch)  # validates ground truth patch
                 except Exception as e:
                     logging.error(f'\nInvalid ground truth patch: {img_patch}. '
                                   f'\n{e}')
