@@ -260,6 +260,9 @@ class TestTiler(object):
         except PermissionError:
             pass
 
+        del gt_ds
+        del saved_ds
+
 
 class TestTiling(object):
     def test_outputted_chips(self):
