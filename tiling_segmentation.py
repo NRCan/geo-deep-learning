@@ -299,7 +299,7 @@ class Tiler(object):
         if not aoi.raster:
             aoi.raster = rasterio.open(aoi.raster_multiband)
 
-        # Create TorchGeo-based custom VRTDataset dataset:
+        # Create TorchGeo-based custom DRDataset dataset:
         dr_dataset = DRDataset(aoi.raster)
 
         if not self.for_inference:
