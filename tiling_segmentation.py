@@ -165,7 +165,7 @@ class Tiler(object):
                         shutil.move(self.tiling_root_dir / dataset, move_dir)
             else:
                 raise FileExistsError(
-                    f'Patches directory is empty. Won\'t overwrite existing content unless debug=True.\n'
+                    f'Patches directory is not empty. Won\'t overwrite existing content unless debug=True.\n'
                     f'Directory: {self.tiling_root_dir}.'
                 )
 
@@ -279,7 +279,9 @@ class Tiler(object):
             self,
             aoi: AOI,
             out_img_dir: Union[str, Path],
-            out_label_dir: Union[str, Path] = None):
+            out_label_dir: Union[str, Path] = None,
+            equalize_clahe_clip_limit: int = 0,
+    ):
         """
         Generates grid patches from the AOI.raster using TorchGeo's GeoGridSampler dataloader.
         Generates grid patches from the AOI.label using GDAL/OGR.
@@ -294,8 +296,14 @@ class Tiler(object):
         https://gdal.org/api/python/osgeo.gdal.html
         https://gdal.org/api/python/osgeo.ogr.html
         """
-
-        if not aoi.raster:
+        if equalize_clahe_clip_limit:
+            aoi.enhance_clip_limit = equalize_clahe_clip_limit
+            aoi.raster_multiband = aoi.equalize_hist_raster(
+                clip_limit=equalize_clahe_clip_limit,
+                per_band=True,
+                overwrite=False)  # TODO: Softcode these parameters
+            aoi.raster = rasterio.open(aoi.raster_multiband)
+        elif not aoi.raster:  # in case of multiprocessing
             aoi.raster = rasterio.open(aoi.raster_multiband)
 
         # Create TorchGeo-based custom VRTDataset dataset:
@@ -571,8 +579,11 @@ def main(cfg: DictConfig) -> None:
     continuous_vals = get_key_def('continuous_values', cfg['tiling'], default=True)
     save_prev_labels = get_key_def('save_preview_labels', cfg['tiling'], default=True)
     parallel = get_key_def('multiprocessing', cfg['tiling'], default=False, expected_type=bool)
+    parallel_num_proc = get_key_def('multiprocessing_processes', cfg['tiling'], default=multiprocessing.cpu_count(),
+                                    expected_type=int)
     # TODO: why not ask only for a val percentage directly?
     val_percent = int(get_key_def('train_val_percent', cfg['tiling'], default={'val': 0.3})['val'] * 100)
+    clahe_clip_limit = get_key_def('clahe_clip_limit', cfg['tiling'], expected_type=Number, default=0.)
 
     attr_field = get_key_def('attribute_field', cfg['dataset'], None, expected_type=str)
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
@@ -619,10 +630,15 @@ def main(cfg: DictConfig) -> None:
             tiling_dir_gt = tiling_dir / 'labels' if not tiler.for_inference else None
 
             if parallel:
-                input_args.append([tiler.tiling_per_aoi, aoi, tiling_dir_img, tiling_dir_gt])
+                input_args.append([tiler.tiling_per_aoi, aoi, tiling_dir_img, tiling_dir_gt, clahe_clip_limit])
             else:
                 try:
-                    tiler_pair = tiler.tiling_per_aoi(aoi, out_img_dir=tiling_dir_img, out_label_dir=tiling_dir_gt)
+                    tiler_pair = tiler.tiling_per_aoi(
+                        aoi,
+                        out_img_dir=tiling_dir_img,
+                        out_label_dir=tiling_dir_gt,
+                        equalize_clahe_clip_limit=clahe_clip_limit,
+                    )
                     tilers.append(tiler_pair)
                 except ValueError as e:
                     logging.debug(f'Failed to tile\n'
@@ -638,7 +654,7 @@ def main(cfg: DictConfig) -> None:
 
     if parallel:
         logging.info(f'Will proceed to tiling of {len(input_args)} images and labels...')
-        with multiprocessing.get_context('spawn').Pool(None) as pool:
+        with multiprocessing.get_context('spawn').Pool(processes=parallel_num_proc) as pool:
             tilers = pool.map_async(map_wrapper, input_args).get()
 
     # temporary workaround to support multiprocessing (aois cannot be modified in separate processes)
@@ -704,8 +720,7 @@ def main(cfg: DictConfig) -> None:
 
     if parallel:
         logging.info(f'Parallelizing burning of {len(input_args)} filtered ground truth patches...')
-        proc = multiprocessing.cpu_count()
-        with multiprocessing.get_context('spawn').Pool(processes=proc) as pool:
+        with multiprocessing.get_context('spawn').Pool(processes=parallel_num_proc) as pool:
             lines = pool.map_async(map_wrapper, input_args).get()
         dataset_lines.extend(lines)
 

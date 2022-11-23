@@ -195,31 +195,23 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
 
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     """
-    scale data values from original range to specified range
+    Scale data values from original range to specified range
     :param img: (numpy array) Image to be scaled
     :param scale_range: Desired range of transformed data (0, 1) or (-1, 1).
     :param orig_range: Original range of input data.
     :return: (numpy array) Scaled image
     """
-    assert scale_range == (0, 1) or scale_range == (-1, 1), 'expects scale_range as (0, 1) or (-1, 1)'
-    if scale_range == (0, 1):
-        scale_img = (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0])
+    if img.min() < orig_range[0] or img.max() > orig_range[1]:
+        raise ValueError(f"Actual original range exceeds expected original range.\n"
+                         f"Expected: {orig_range}\n"
+                         f"Actual: ({img.min()}, {img.max()})")
+    o_r = (orig_range[1] - orig_range[0])
+    s_r = (scale_range[1] - scale_range[0])
+    if isinstance(img, (np.ndarray, torch.Tensor)):
+        scale_img = (s_r * (img - orig_range[0]) / o_r) + scale_range[0]
     else:
-        scale_img = 2.0 * (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0]) - 1.0
+        raise TypeError(f"Expected a numpy array or torch tensor, got {type(img)}")
     return scale_img
-
-
-def unscale(img, float_range=(0, 1), orig_range=(0, 255)):
-    """
-    unscale data values from float range (0, 1) or (-1, 1) to original range (0, 255)
-    :param img: (numpy array) Image to be scaled
-    :param float_range: (0, 1) or (-1, 1).
-    :param orig_range: (0, 255) or (0, 65535).
-    :return: (numpy array) Unscaled image
-    """
-    f_r = float_range[1] - float_range[0]
-    o_r = orig_range[1] - orig_range[0]
-    return (o_r * (img - float_range[0]) / f_r) + orig_range[0]
 
 
 def pad(img, padding, fill=0):

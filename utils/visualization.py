@@ -10,7 +10,7 @@ from PIL import Image
 from matplotlib import pyplot as plt, gridspec, cm, colors
 import csv
 
-from utils.utils import unscale, unnormalize, get_key_def
+from utils.utils import unnormalize, minmax_scale
 from utils.geoutils import create_new_raster_from_base
 
 import matplotlib
@@ -141,8 +141,8 @@ def vis(vis_params,
 
     if vis_params['mean'] and vis_params['std']:
         input_ = unnormalize(input_img=input_, mean=vis_params['mean'], std=vis_params['std'])
-    input_ = unscale(img=input_, float_range=(scale[0], scale[1]), orig_range=(0, 255)) if scale else input_
-    mode = 'RGB' # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
+    input_ = minmax_scale(img=input_, scale_range=(scale[0], scale[1]), orig_range=(0, 255)) if scale else input_
+    mode = 'RGB'  # https://pillow.readthedocs.io/en/3.1.x/handbook/concepts.html#concept-modes
     if 1 <= input_.shape[2] <= 2:
         input_ = np.squeeze(input_[:, :, :1], axis=2)  # take first band (will become grayscale image)
         mode = 'L'

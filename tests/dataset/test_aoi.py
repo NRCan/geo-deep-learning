@@ -103,7 +103,7 @@ class Test_AOI(object):
         row = next(iter(data))
         aoi = AOI(
             raster=row['tif'], label=row['gpkg'], split=row['split'],
-           raster_bands_request=['R'], download_data=True, root_dir="data"
+            raster_bands_request=['R'], download_data=True, root_dir="data"
         )
         assert aoi.download_data is True
         assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif").is_file()
@@ -119,12 +119,12 @@ class Test_AOI(object):
         with pytest.raises(AttributeError):
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
             aoi.close_raster()
-    
+
     def test_no_label(self):
         """Test when no label are provided. Should pass for inference. """
         extract_archive(src="tests/data/new_brunswick_aerial.zip")
         csv_path = "tests/inference/inference_segmentation_multiclass_no_label.csv"
-        aois = aois_from_csv(csv_path=csv_path, bands_requested=[1,2,3])
+        aois = aois_from_csv(csv_path=csv_path, bands_requested=[1, 2, 3])
         assert aois[0].label is None
 
     def test_parse_input_raster(self) -> None:
@@ -379,6 +379,42 @@ class Test_AOI(object):
         for input, expected in zip(inputs, expected_list):
             actual = AOI.name_raster(root_dir="tests/data/spacenet/", input_path=input[0], bands_list=input[1])
             assert Path(expected) == actual
+
+    def test_equalize_hist_raster(self):
+        """Test equalize input raster with CLAHE transform"""
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
+        row = data[0]
+        aoi = AOI(
+            raster=row['tif'],
+            label=None,
+            split=row['split'],
+            raster_bands_request=[1, 2, 3]
+        )
+        no_equ_arr = aoi.raster.read()
+        equ_fp = aoi.equalize_hist_raster(clip_limit=125)
+        equ_arr = rasterio.open(equ_fp).read()
+        assert no_equ_arr.shape == equ_arr.shape
+        assert 100 < equ_arr.mean() < 150
+        assert no_equ_arr.mean() < equ_arr.mean()
+
+    def test_equalize_hist_raster_per_band(self):
+        """Test equalize input raster per band with CLAHE transform"""
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
+        row = data[0]
+        aoi = AOI(
+            raster=row['tif'],
+            label=None,
+            split=row['split'],
+            raster_bands_request=[1, 2, 3]
+        )
+        no_equ_arr = aoi.raster.read()
+        equ_fp = aoi.equalize_hist_raster(clip_limit=125, per_band=True)
+        equ_arr = rasterio.open(equ_fp).read()
+        assert no_equ_arr.shape == equ_arr.shape
+        assert 100 < equ_arr.mean() < 150
+        assert no_equ_arr.mean() < equ_arr.mean()
 
 
 def map_wrapper(x):
