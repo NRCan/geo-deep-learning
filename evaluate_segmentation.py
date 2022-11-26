@@ -9,11 +9,11 @@ import pandas as pd
 import rasterio
 from mlflow import log_metrics
 from shapely.geometry import Polygon
+from solaris import vector
 from tqdm import tqdm
 import geopandas as gpd
 
 from dataset.aoi import aois_from_csv
-from utils.geoutils import vector_to_raster
 from utils.metrics import ComputePixelMetrics
 from utils.utils import get_key_def
 from utils.logger import get_logger
@@ -78,7 +78,7 @@ def main(params):
     """
     start_seg = time.time()
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
-    bands_requested = get_key_def('bands', params['dataset'], default=None, expected_type=Sequence)
+    bands_requested = get_key_def('bands', params['dataset'], default=[], expected_type=Sequence)
     num_bands = len(bands_requested)
     working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     raw_data_csv = get_key_def('raw_data_csv', params['inference'], default=working_folder,
@@ -128,12 +128,20 @@ def main(params):
         logging.info(f'\nReading image: {raster.name}')
         inf_meta = raster.meta
 
-        label = vector_to_raster(vector_file=aoi.label,
-                                 input_image=raster,
-                                 out_shape=(inf_meta['height'], inf_meta['width']),
-                                 attribute_name=attribute_field,
-                                 fill=0,  # background value in rasterized vector.
-                                 attribute_values=attr_vals)
+        # TODO: temporary replacement until merge from 222 is complete
+        logging.info(f"Burning ground truth to raster")
+        if num_classes == 1 or (not aoi.attr_field_filter and not aoi.attr_values_filter):
+            burn_val = 1
+            burn_field = None
+        else:
+            burn_val = None
+            burn_field = aoi.attr_field_filter
+        label = vector.mask.footprint_mask(
+            df=aoi.label_gdf_filtered,
+            reference_im=aoi.raster,
+            burn_field=burn_field,
+            burn_value=burn_val)
+
         if debug:
             logging.debug(f'\nUnique values in loaded label as raster: {np.unique(label)}\n'
                           f'Shape of label as raster: {label.shape}')

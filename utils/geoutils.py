@@ -1,100 +1,22 @@
 import collections
 import logging
+from distutils.version import LooseVersion
 from pathlib import Path
 from typing import List, Union, Sequence
 
+import pyproj
+from fiona._err import CPLE_OpenFailedError
+from fiona.errors import DriverError
+import geopandas as gpd
 import numpy as np
-
-import fiona
-
 import pystac
 import rasterio
 from rasterio import MemoryFile
-from rasterio.features import is_valid_geom
 from rasterio.plot import reshape_as_raster
 from rasterio.shutil import copy as riocopy
 import xml.etree.ElementTree as ET
 
-from solaris.utils.core import _check_rasterio_im_load
-
 logger = logging.getLogger(__name__)
-
-
-def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
-    '''
-    Generates a dictionary from a list of vectors where keys are class numbers and values are corresponding features in a list.
-    :param list_vector: list of vectors as returned by fiona.open
-    :param attr_name: Attribute containing the identifier for a vector (may contain slashes if recursive)
-    :param target_ids: list of identifiers to burn from the vector file (None = use all)
-    :param merge_all: defines whether all vectors should be burned with their identifiers in a
-            single layer or in individual layers (in the order provided by 'target_ids')
-    :return: list of tuples in format (vector, class_id).
-    '''
-    lst_vector_tuple = {}
-    for vector in list_vector:
-        att_val = int(get_key_recursive(attr_name, vector)) if attr_name is not None else None
-        if target_ids is None or att_val in target_ids:
-            if att_val not in lst_vector_tuple:
-                lst_vector_tuple[att_val] = []
-            if merge_all:
-                # here, we assume that the id can be cast to int!
-                lst_vector_tuple[att_val].append((vector['geometry'], int(att_val) if att_val is not None else 0))
-            else:
-                # if not merging layers, just use '1' as the value for each target
-                lst_vector_tuple[att_val].append((vector['geometry'], 1))
-    return lst_vector_tuple
-
-
-def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0, attribute_values=None, merge_all=True):
-    """Function to rasterize vector data.
-    Args:
-        vector_file: Path and name of reference GeoPackage
-        input_image: Rasterio file handle holding the (already opened) input raster
-        attribute_name: Attribute containing the identifier for a vector (may contain slashes if recursive)
-        fill: default background value to use when filling non-contiguous regions
-        attribute_values: list of identifiers to burn from the vector file (None = use all)
-        merge_all: defines whether all vectors should be burned with their identifiers in a
-            single layer or in individual layers (in the order provided by 'target_ids')
-
-    Return:
-        numpy array of the burned image
-    """
-    # Extract vector features to burn in the raster image
-    with fiona.open(vector_file, 'r') as src:
-        lst_vector = [vector for vector in src]
-
-    # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
-    if attribute_name is not None:
-        lst_vector.sort(key=lambda vector: get_key_recursive(attribute_name, vector))
-
-    lst_vector_tuple = lst_ids(list_vector=lst_vector, attr_name=attribute_name, target_ids=attribute_values,
-                               merge_all=merge_all)
-
-    if not lst_vector_tuple:
-        raise ValueError("No vector features found")
-    elif merge_all:
-        np_label_raster = rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
-                                           fill=fill,
-                                           out_shape=out_shape,
-                                           transform=input_image.transform,
-                                           dtype=np.int16)
-    else:
-        burned_rasters = [rasterio.features.rasterize(lst_vector_tuple[id],
-                                                      fill=fill,
-                                                      out_shape=out_shape,
-                                                      transform=input_image.transform,
-                                                      dtype=np.int16) for id in lst_vector_tuple]
-        np_label_raster = np.stack(burned_rasters, axis=-1)
-
-    # overwritte label values to make sure they are continuous
-    if attribute_values:
-        for index, target_id in enumerate(attribute_values):
-            if index+1 == target_id:
-                continue
-            else:
-                np_label_raster[np_label_raster == target_id] = (index + 1)
-
-    return np_label_raster
 
 
 def create_new_raster_from_base(input_raster, output_raster, write_array):
@@ -107,7 +29,7 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     Return:
         none
     """
-    src = _check_rasterio_im_load(input_raster)
+    src = check_rasterio_im_load(input_raster)
     if len(write_array.shape) == 2:  # 2D array
         count = 1
     elif len(write_array.shape) == 3:  # 3D array
@@ -220,3 +142,60 @@ def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
         vrt_dataset.append(vrt_band)
 
     return ET.tostring(vrt_dataset).decode('UTF-8')
+
+
+def check_rasterio_im_load(im):
+    """
+    Check if `im` is already loaded in; if not, load it in.
+    Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L17
+    """
+    if isinstance(im, (str, Path)):
+        return rasterio.open(im)
+    elif isinstance(im, rasterio.DatasetReader):
+        return im
+    else:
+        raise ValueError("{} is not an accepted image format for rasterio.".format(im))
+
+
+def check_gdf_load(gdf):
+    """
+    Check if `gdf` is already loaded in, if not, load from geojson.
+    Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L52
+    """
+    if isinstance(gdf, (str, Path)):
+        # as of geopandas 0.6.2, using the OGR CSV driver requires some add'nal
+        # kwargs to create a valid geodataframe with a geometry column. see
+        # https://github.com/geopandas/geopandas/issues/1234
+        if str(gdf).lower().endswith("csv"):
+            return gpd.read_file(
+                gdf, GEOM_POSSIBLE_NAMES="geometry", KEEP_GEOM_COLUMNS="NO"
+            )
+        try:
+            return gpd.read_file(gdf)
+        except (DriverError, CPLE_OpenFailedError):
+            logging.warning(
+                f"GeoDataFrame couldn't be loaded: either {gdf} isn't a valid"
+                " path or it isn't a valid vector file. Returning an empty"
+                " GeoDataFrame."
+            )
+            return gpd.GeoDataFrame()
+    elif isinstance(gdf, gpd.GeoDataFrame):
+        return gdf
+    else:
+        raise ValueError(f"{gdf} is not an accepted GeoDataFrame format.")
+
+
+def check_crs(input_crs, return_rasterio=False):
+    """Convert CRS to the ``pyproj.CRS`` object passed by ``solaris``."""
+    if not isinstance(input_crs, pyproj.CRS) and input_crs is not None:
+        out_crs = pyproj.CRS(input_crs)
+    else:
+        out_crs = input_crs
+
+    if return_rasterio:
+        if LooseVersion(rasterio.__gdal_version__) >= LooseVersion("3.0.0"):
+            out_crs = rasterio.crs.CRS.from_wkt(out_crs.to_wkt())
+        else:
+            out_crs = rasterio.crs.CRS.from_wkt(out_crs.to_wkt("WKT1_GDAL"))
+
+    return out_crs

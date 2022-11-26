@@ -14,11 +14,11 @@ from pandas.io.common import is_url
 from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
 from shapely.geometry import box, Polygon, MultiPolygon
-from solaris.utils.core import _check_rasterio_im_load, _check_gdf_load
 from torchvision.datasets.utils import download_url
 from tqdm import tqdm
 
-from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base, subset_multiband_vrt
+from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base, subset_multiband_vrt, \
+    check_rasterio_im_load, check_gdf_load
 from utils.logger import get_logger
 from utils.utils import read_csv
 from utils.verifications import assert_crs_match, validate_raster, \
@@ -111,7 +111,7 @@ class AOI(object):
     """
 
     def __init__(self, raster: Union[Path, str],
-                 raster_bands_request: List = None,
+                 raster_bands_request: List = [],
                  label: Union[Path, str] = None,
                  split: str = None,
                  aoi_id: str = None,
@@ -207,13 +207,13 @@ class AOI(object):
 
         # if single band assets, build multiband VRT
         self.src_raster_to_dest_multiband(virtual=True)
-        self.raster_open()
+        self.raster = rasterio.open(self.raster_multiband)
         self.raster_meta = self.raster.meta
-        self.raster_meta['name'] = self.raster.name
-        if self.raster_src_is_multiband:
-            self.raster_name = Path(self.raster.name)
-        else:
-            self.raster_name = Path(self.raster_raw_input[0]).name.replace("${dataset.bands}", "")
+        self.raster_name = self.name_raster(
+            input_path=self.raster_raw_input,
+            bands_list=self.raster_bands_request,
+            root_dir=self.root_dir,
+        )
 
         if raster_num_bands_expected:
             validate_num_bands(raster_path=self.raster, num_bands=raster_num_bands_expected)
@@ -224,7 +224,7 @@ class AOI(object):
         # Check label data
         if label:
             self.label = Path(label)
-            self.label_gdf = _check_gdf_load(str(label))
+            self.label_gdf = check_gdf_load(label)
             self.bounds_iou = self.bounds_iou_gdf_riodataset(
                 gdf=self.label_gdf,
                 raster=self.raster)
@@ -232,8 +232,7 @@ class AOI(object):
                 logging.error(
                     f"Features in label file {label} do not intersect with bounds of raster file "
                     f"{self.raster.name}")
-            # TODO generate report first time, then, skip if exists
-            self.label_invalid_features = validate_features_from_gpkg(label, attr_field_filter)
+            self.label_invalid_features = validate_features_from_gpkg(label)
 
             # TODO: unit test for failed CRS match
             try:
@@ -261,10 +260,8 @@ class AOI(object):
         # Check aoi_id string
         if aoi_id and not isinstance(aoi_id, str):
             raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
-        elif not aoi_id and self.raster_src_is_multiband:
-            aoi_id = Path(self.raster.name).stem  # Defaults to name of image without suffix
-        elif not aoi_id and not self.raster_src_is_multiband:
-            aoi_id = Path(self.raster_raw_input).stem  # Defaults to name of first singleband image without suffix
+        elif not aoi_id:
+            aoi_id = self.raster_name.stem  # Defaults to name of image without suffix
         self.aoi_id = aoi_id
 
         # Check collection string
@@ -313,6 +310,7 @@ class AOI(object):
         if self.for_multiprocessing:
             self.close_raster()
             self.raster = None
+
         logging.debug(self)
 
     @classmethod
@@ -382,9 +380,6 @@ class AOI(object):
             self.raster_multiband = subset_multiband_vrt(self.raster_parsed[0], band_request=self.raster_bands_request)
         else:
             self.raster_multiband = self.raster_parsed[0]
-
-    def raster_open(self):
-        self.raster = _check_rasterio_im_load(self.raster_multiband)
 
     def to_dict(self, extended=True):
         """returns a dictionary containing all important attributes of AOI (ex.: to print a report or output csv)"""
@@ -480,27 +475,23 @@ class AOI(object):
         out_dir = self.root_dir
 
         if out_dir is None:
-            logging.error(f"There is no path for the output, root_dir shoudn't be None")
+            logging.error(f"There is no path for the output, root_dir shouldn't be None")
             return
         if not self.raster.driver == 'VRT':
             logging.error(f"To write a multi-band raster from single-band files, a VRT must be provided."
                           f"\nGot {self.raster.meta}")
             return
-        if "${dataset.bands}" in self.raster_raw_input:
-            out_tif_path = out_dir / Path(self.raster_raw_input).name.replace("${dataset.bands}", ''.join(self.raster_bands_request))
-        elif is_stac_item(self.raster_raw_input):
-            out_tif_path = out_dir / f"{Path(self.raster_raw_input).stem}_{'-'.join(self.raster_bands_request)}.tif"
-        else:
-            logging.error(f"\nTo write multiband raster from single band imagery, "
-                          f"source imagery must be referenced with expected formats.\n"
-                          f"See dataset/README.md")
-            return
-        logging.debug(f"Writing multi-band raster to {out_tif_path}")
+        logging.debug(f"Writing multi-band raster to {self.raster_name}")
         create_new_raster_from_base(
             input_raster=self.raster,
-            output_raster=str(out_tif_path),
+            output_raster=self.raster_name,
             write_array=self.raster.read())
-        return out_tif_path
+        return self.raster_name
+
+    def close_raster(self) -> None:
+        if self.raster_closed is False:
+            self.raster.close()
+            self.raster_closed = True
 
     @staticmethod
     def parse_input_raster(
@@ -560,45 +551,66 @@ class AOI(object):
 
     @staticmethod
     def filter_gdf_by_attribute(
-            gdf_tile: Union[str, Path, gpd.GeoDataFrame],
+            gdf_patch: Union[str, Path, gpd.GeoDataFrame],
             attr_field: str = None,
             attr_vals: Sequence = None):
         """
         Filter features from a geopandas.GeoDataFrame according to an attribute field and filtering values
-        @param gdf_tile: str, Path or gpd.GeoDataFrame
+        @param gdf_patch: str, Path or gpd.GeoDataFrame
             GeoDataFrame or path to GeoDataFrame to filter feature from
         @return: Subset of source GeoDataFrame with only filtered features (deep copy)
         """
-        gdf_tile = _check_gdf_load(gdf_tile)
-        if gdf_tile.empty or not attr_field or not attr_vals:
-            return gdf_tile
+        gdf_patch = check_gdf_load(gdf_patch)
+        if gdf_patch.empty or not attr_field or not attr_vals:
+            return gdf_patch
         try:
-            condList = [gdf_tile[f'{attr_field}'] == val for val in attr_vals]
-            condList.extend([gdf_tile[f'{attr_field}'] == str(val) for val in attr_vals])
+            condList = [gdf_patch[f'{attr_field}'] == val for val in attr_vals]
+            condList.extend([gdf_patch[f'{attr_field}'] == str(val) for val in attr_vals])
             allcond = functools.reduce(lambda x, y: x | y, condList)  # combine all conditions with OR
-            gdf_filtered = gdf_tile[allcond].copy(deep=True)
+            gdf_filtered = gdf_patch[allcond].copy(deep=True)
             logging.debug(f'Successfully filtered features from GeoDataFrame"\n'
                           f'Filtered features: {len(gdf_filtered)}\n'
-                          f'Total features: {len(gdf_tile)}\n'
+                          f'Total features: {len(gdf_patch)}\n'
                           f'Attribute field: "{attr_field}"\n'
                           f'Filtered values: {attr_vals}')
             return gdf_filtered
         except KeyError as e:
             logging.critical(f'No attribute named {attr_field} in GeoDataFrame. \n'
                              f'If all geometries should be kept, leave "attr_field" and "attr_vals" blank.\n'
-                             f'Attributes: {gdf_tile.columns}\n'
-                             f'GeoDataFrame: {gdf_tile.info()}')
+                             f'Attributes: {gdf_patch.columns}\n'
+                             f'GeoDataFrame: {gdf_patch.info()}')
             raise e
 
-    def close_raster(self) -> None:
-        if self.raster_closed is False:
-            self.raster.close()
-            self.raster_closed = True
+    @staticmethod
+    def name_raster(input_path: Union[str, Path], bands_list: Sequence = [], root_dir: Union[str, Path] = "data"):
+        """
+        Assigns a name to the AOI's raster considering different input types
+        @param root_dir:
+            Root directory where derived raster would be written.
+            E.g. output from self.write_multiband_from_singleband_rasters_as_vrt()
+        @param input_path: path to input raster file as accepted by GDL (see dataset/README.md)
+        @param bands_list: list of requested bands from input raster
+        """
+        raster_name_parent = Path(root_dir)
+
+        bands_list_str = [str(band) for band in bands_list]
+        if len(bands_list_str) <= 4:
+            bands_suffix = f"{'-'.join(bands_list_str)}"
+        else:  # e.g. hyperspectral imagery
+            bands_suffix = f"{len(bands_list)}bands"
+
+        if "${dataset.bands}" in input_path:  # singleband with ${dataset.bands} pattern (implies band selection)
+            raster_name = raster_name_parent / f"{Path(input_path).stem.replace('${dataset.bands}', bands_suffix)}.tif"
+        elif len(bands_list_str) > 0:  # singleband from stac item or multiband with band selection
+            raster_name = raster_name_parent / f"{Path(input_path).stem}_{bands_suffix}.tif"
+        else:  # multiband, no band selection
+            raster_name = Path(input_path).parent / f"{Path(input_path).stem}.tif"
+        return raster_name
 
 
 def aois_from_csv(
         csv_path: Union[str, Path],
-        bands_requested: List = None,
+        bands_requested: List = [],
         attr_field_filter: str = None,
         attr_values_filter: str = None,
         download_data: bool = False,
