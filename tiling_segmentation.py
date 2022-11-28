@@ -300,8 +300,7 @@ class Tiler(object):
         https://gdal.org/api/python/osgeo.gdal.html
         https://gdal.org/api/python/osgeo.ogr.html
         """
-
-        if not aoi.raster:
+        if not aoi.raster:  # in case of multiprocessing
             aoi.raster = rasterio.open(aoi.raster_dest)
 
         # Create TorchGeo-based custom DRDataset dataset:
