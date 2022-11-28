@@ -347,8 +347,8 @@ class Tiler(object):
                         for patch in out_label_dir_val.iterdir():
                             patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
                             shutil.move(patch, patch_dest)
-            raster_tile_paths = list(out_img_dir.iterdir())
-            vector_tile_paths = list(out_label_dir.iterdir()) if not self.for_inference and out_label_dir.is_dir() else []
+            raster_tile_paths = sorted(list(out_img_dir.iterdir()))
+            vector_tile_paths = sorted(list(out_label_dir.iterdir())) if not self.for_inference and out_label_dir.is_dir() else []
             logging.info(f"[no overwrite mode]\nPatches found for AOI {aoi.aoi_id}:\n"
                          f"Imagery: {len(raster_tile_paths)} / {expect_patch_len}\n"
                          f"Ground truth: {len(vector_tile_paths)} / {expect_patch_len}")
