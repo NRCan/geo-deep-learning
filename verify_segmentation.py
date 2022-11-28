@@ -114,7 +114,7 @@ def main(cfg: DictConfig) -> None:
     parallel = get_key_def('multiprocessing', cfg['verify'], default=False, expected_type=bool)
     write_dest_raster = get_key_def('write_dest_raster', cfg['verify'], default=False, expected_type=bool)
 
-    # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to hdf5s).
+    # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to patches).
     with open_dict(cfg):
         cfg.general.git_hash = get_git_hash()
 

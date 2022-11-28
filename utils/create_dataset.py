@@ -1,12 +1,18 @@
-import os
-import h5py
 import numpy as np
 from pathlib import Path
+from typing import Any, Dict, cast
+import sys
 
+from rasterio.windows import from_bounds
 import rasterio
-from omegaconf import OmegaConf, DictConfig
+from rasterio.io import DatasetReader
 from rasterio.plot import reshape_as_image
 from torch.utils.data import Dataset
+from torchgeo.datasets import GeoDataset
+from rasterio.vrt import WarpedVRT
+from torchgeo.datasets.utils import BoundingBox
+import torch
+from osgeo import ogr
 
 from utils.logger import get_logger
 
@@ -31,39 +37,8 @@ def append_to_dataset(dataset, sample):
     return old_size
 
 
-def create_files_and_datasets(samples_size: int, number_of_bands: int, samples_folder: Path, cfg: DictConfig):
-    """
-    Function to create the hdfs files (trn, val and tst).
-    :param samples_size: size of individual hdf5 samples to be created
-    :param number_of_bands: number of bands in imagery
-    :param samples_folder: (str) Path to the output folder.
-    :param cfg: (dict) Parameters found in the yaml config file.
-    :return: (hdf5 datasets) trn, val ant tst datasets.
-    """
-    real_num_bands = number_of_bands
-    assert real_num_bands > 0, "invalid number of bands when accounting for meta layers"
-    hdf5_files = []
-    for subset in ["trn", "val", "tst"]:
-        hdf5_file = h5py.File(os.path.join(samples_folder, f"{subset}_samples.hdf5"), "w")
-        hdf5_file.create_dataset("sat_img", (0, samples_size, samples_size, real_num_bands), np.uint16,
-                                 maxshape=(None, samples_size, samples_size, real_num_bands))
-        hdf5_file.create_dataset("map_img", (0, samples_size, samples_size), np.int16,
-                                 maxshape=(None, samples_size, samples_size))
-        hdf5_file.create_dataset("meta_idx", (0, 1), dtype=np.int16, maxshape=(None, 1))
-        try:
-            hdf5_file.create_dataset("metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            hdf5_file.create_dataset("sample_metadata", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            hdf5_file.create_dataset("params", (0, 1), dtype=h5py.string_dtype(), maxshape=(None, 1))
-            append_to_dataset(hdf5_file["params"], repr(OmegaConf.create(OmegaConf.to_yaml(cfg, resolve=True))))
-        except AttributeError:
-            logging.exception(f'Update h5py to version 2.10 or higher')
-            raise
-        hdf5_files.append(hdf5_file)
-    return hdf5_files
-
-
 class SegmentationDataset(Dataset):
-    """Semantic segmentation dataset based on HDF5 parsing."""
+    """Semantic segmentation dataset based on input csvs listing pairs of imagery and ground truth patches as .tif."""
 
     def __init__(self,
                  dataset_list_path,
@@ -118,7 +93,7 @@ class SegmentationDataset(Dataset):
             except TypeError:
                 pass
 
-        sample = {"sat_img": sat_img, "map_img": map_img, "metadata": metadata, "list_path": self.list_path}
+        sample = {"image": sat_img, "mask": map_img, "metadata": metadata, "list_path": self.list_path}
 
         if self.radiom_transform:  # radiometric transforms should always precede geometric ones
             sample = self.radiom_transform(sample)
@@ -130,11 +105,156 @@ class SegmentationDataset(Dataset):
         if self.debug:
             # assert no new class values in map_img
             initial_class_ids = set(np.unique(map_img))
-            final_class_ids = set(np.unique(sample['map_img'].numpy()))
+            final_class_ids = set(np.unique(sample["mask"].numpy()))
             if not final_class_ids.issubset(initial_class_ids):
                 logging.warning(f"\nWARNING: Class values for label before and after augmentations don't match."
                                 f"\nUnique values before: {initial_class_ids}"
                                 f"\nUnique values after: {final_class_ids}"
                                 f"\nIgnore if some augmentations have padded with dontcare value.")
         sample['index'] = index
+        return sample
+
+
+class DRDataset(GeoDataset):
+    def __init__(self, dr_ds: DatasetReader) -> None:
+        """Initialize a new DRDataset instance.
+        The dataset is base on rasterio's DatasetReader class, instanciated by rasterio.open().
+
+        Args:
+            dr_ds: DatasetReader object (rasterio)
+        """
+        super().__init__()
+
+        self.dr_ds = dr_ds
+        try:
+            self.cmap = dr_ds.colormap(1)
+        except ValueError:
+            pass
+
+        crs = dr_ds.crs
+        res = dr_ds.res[0]
+
+        with WarpedVRT(dr_ds, crs=crs) as dr:
+            minx, miny, maxx, maxy = dr.bounds
+
+        mint: float = 0
+        maxt: float = sys.maxsize
+
+        coords = (minx, maxx, miny, maxy, mint, maxt)
+        self.index.insert(0, coords, 'dr')
+
+        self._crs = cast(CRS, crs)
+        self.res = cast(float, res)
+
+    def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:
+        """Retrieve image and metadata indexed by query.
+
+        Args:
+            query: (minx, maxx, miny, maxy, mint, maxt) coordinates to index
+
+        Returns:
+            sample of image and metadata at that index
+        """
+        data = self._get_tensor(query)
+        key = "image"
+        sample = {key: data, "crs": self.crs, "bbox": query}
+
+        return sample
+
+    def _get_tensor(self, query):
+        """
+        Get a patch based on the given query (bounding box).
+        Args:
+            query:
+
+        Returns: Torch tensor patch.
+
+        """
+        bounds = (query.minx, query.miny, query.maxx, query.maxy)
+        out_width = round((query.maxx - query.minx) / self.res)
+        out_height = round((query.maxy - query.miny) / self.res)
+        out_shape = (self.dr_ds.count, out_height, out_width)
+
+        dest = self.dr_ds.read(
+            out_shape=out_shape, window=from_bounds(*bounds, self.dr_ds.transform)
+        )
+
+        tensor = torch.tensor(dest)
+
+        return tensor
+
+
+class GDLVectorDataset(GeoDataset):
+    """The dataset is base on rasterio's DatasetReader class, instanciated by vector file."""
+    def __init__(self, vec_ds: str = None, res: float = 0.0001) -> None:
+        """Initialize a new Dataset instance.
+
+        Args:
+            vec_ds: vector labels geopackage
+            res: resolution of the dataset in units of CRS
+        Returns:
+            An OGR datasource in memory
+        """
+        super().__init__()
+
+        self.vec_ds = ogr.Open(str(vec_ds))
+        self.res = res
+
+        assert self.vec_ds is not None, "The vector dataset is empty."
+
+        vec_ds_layer = self.vec_ds.GetLayer()
+        minx, maxx, miny, maxy = vec_ds_layer.GetExtent()
+        del vec_ds_layer
+
+        mint = 0
+        maxt = sys.maxsize
+        coords = (minx, maxx, miny, maxy, mint, maxt)
+        self.index.insert(0, coords, 'vec')
+
+        src_mem_driver = ogr.GetDriverByName('MEMORY')
+        self.mem_vec_ds = src_mem_driver.CopyDataSource(self.vec_ds, 'src_mem_ds')
+        self.vec_srs = self.mem_vec_ds.GetLayer().GetSpatialRef()
+        vec_srs_wkt = self.vec_srs.ExportToPrettyWkt()
+
+        self._crs = CRS.from_wkt(vec_srs_wkt)
+
+    def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:
+        """Retrieve image/mask and metadata indexed by query.
+
+        Args:
+            query: (minx, maxx, miny, maxy, mint, maxt) coordinates to index
+
+        Returns:
+            sample as a OGR datasource in memory and metadata at that index
+        """
+        poly_box = ogr.Geometry(ogr.wkbLinearRing)
+        poly_box.AddPoint(query.minx, query.maxy)
+        poly_box.AddPoint(query.maxx, query.maxy)
+        poly_box.AddPoint(query.maxx, query.miny)
+        poly_box.AddPoint(query.minx, query.miny)
+        poly_box.AddPoint(query.minx, query.maxy)
+        # Create a Polygon object from the ring.
+        poly = ogr.Geometry(ogr.wkbPolygon)
+        poly.AddGeometry(poly_box)
+
+        # # Create a vector datasource in memory:
+        mem_driver = ogr.GetDriverByName('MEMORY')
+        mem_ds = mem_driver.CreateDataSource('memdata')
+        mem_layer = mem_ds.CreateLayer('0', self.vec_srs, geom_type=ogr.wkbPolygon)
+        feature_def = mem_layer.GetLayerDefn()
+        out_feature = ogr.Feature(feature_def)
+        # Set new geometry from the Polygon object (bounding box):
+        out_feature.SetGeometry(poly)
+        # Add new feature to output Layer
+        mem_layer.CreateFeature(out_feature)
+
+        # Crate the output vector patch datasource:
+        out_driver = ogr.GetDriverByName('MEMORY')
+        out_mem_ds = out_driver.CreateDataSource('memdata')
+        # Clip it with the bounding box:
+        out_layer = out_mem_ds.CreateLayer('0', self.vec_srs, geom_type=ogr.wkbMultiPolygon)
+        ogr.Layer.Clip(self.mem_vec_ds.GetLayer(), mem_layer, out_layer)
+
+        sample = {"mask": out_mem_ds, "crs": self.crs, "bbox": query}
+
         return sample
