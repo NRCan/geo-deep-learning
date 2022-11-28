@@ -84,8 +84,7 @@ general:
   min_epochs: 1 # for train only
   raw_data_dir: data
   raw_data_csv: tests/tiling/tiling_segmentation_binary_ci.csv
-  sample_data_dir: data # where the hdf5 will be saved
-  state_dict_path:
+  tiling_data_dir: data # where the patches will be saved
   save_weights_dir: saved_model/${general.project_name}
 ```
 This section contains general information that will be read by the code. Other `yaml` files read information from here.
