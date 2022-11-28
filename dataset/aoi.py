@@ -679,16 +679,7 @@ def aois_from_csv(
     Creates list of AOIs by parsing a csv file referencing input data
     @param csv_path:
         path to csv file containing list of input data. See README for details on expected structure of csv.
-    @param bands_requested:
-        List of bands to select from inputted imagery
-    @param attr_values_filter:
-        Attribute filed to filter features from
-    @param attr_field_filter:
-        Attribute values (for given attribute field) for features to keep
-    @param download_data:
-        if True, download dataset and store it in the root directory.
-    @param data_dir:
-        root directory where data can be found or downloaded
+    N.B.: See AOI docstring for information on other parameters.
     Returns: a list of AOIs objects
     """
     aois = []
