@@ -190,7 +190,6 @@ class Tiler(object):
             aoi: AOI,
             out_img_dir: Union[str, Path],
             out_label_dir: Union[str, Path] = None,
-            equalize_clahe_clip_limit: int = 0,
     ):
         """
         Calls solaris_gdl tiling function and outputs patches in output directories
@@ -462,7 +461,7 @@ def main(cfg: DictConfig) -> None:
                                     expected_type=int)
     # TODO: why not ask only for a val percentage directly?
     val_percent = int(get_key_def('train_val_percent', cfg['tiling'], default={'val': 0.3})['val'] * 100)
-    clahe_clip_limit = get_key_def('clahe_clip_limit', cfg['tiling'], expected_type=Number, default=0.)
+    clahe_clip_limit = get_key_def('clahe_clip_limit', cfg['tiling'], expected_type=Number, default=0)
 
     attr_field = get_key_def('attribute_field', cfg['dataset'], None, expected_type=str)
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
