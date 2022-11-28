@@ -337,14 +337,16 @@ class Tiler(object):
             if aoi.split == "trn":
                 # move all val patches back to trn
                 out_img_dir_val = Path(str(out_img_dir).replace("/trn/", "/val/").replace("\\trn\\", "\\val\\"))
-                for patch in out_img_dir_val.iterdir():
-                    patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
-                    shutil.move(patch, patch_dest)
-                if not self.for_inference:
-                    out_label_dir_val = Path(str(out_label_dir).replace("/trn/", "/val/").replace("\\trn\\", "\\val\\"))
-                    for patch in out_label_dir_val.iterdir():
+                if out_img_dir_val.is_dir():
+                    for patch in out_img_dir_val.iterdir():
                         patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
                         shutil.move(patch, patch_dest)
+                if not self.for_inference:
+                    out_label_dir_val = Path(str(out_label_dir).replace("/trn/", "/val/").replace("\\trn\\", "\\val\\"))
+                    if out_label_dir_val.is_dir():
+                        for patch in out_label_dir_val.iterdir():
+                            patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
+                            shutil.move(patch, patch_dest)
             raster_tile_paths = list(out_img_dir.iterdir())
             vector_tile_paths = list(out_label_dir.iterdir()) if not self.for_inference and out_label_dir.is_dir() else []
             logging.info(f"[no overwrite mode]\nPatches found for AOI {aoi.aoi_id}:\n"
