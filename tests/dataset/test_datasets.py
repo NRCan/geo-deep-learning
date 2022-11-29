@@ -10,7 +10,7 @@ from osgeo import ogr
 from _pytest.fixtures import SubRequest
 import torch
 
-from utils.create_dataset import DRDataset, GDLVectorDataset
+from dataset.create_dataset import DRDataset, GDLVectorDataset
 
 
 class TestDRDataset:
