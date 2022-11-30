@@ -284,7 +284,6 @@ class Tiler(object):
             aoi: AOI,
             out_img_dir: Union[str, Path],
             out_label_dir: Union[str, Path] = None,
-            equalize_clahe_clip_limit: int = 0,
             overwrite: bool = True,
     ):
         """
@@ -301,14 +300,7 @@ class Tiler(object):
         https://gdal.org/api/python/osgeo.gdal.html
         https://gdal.org/api/python/osgeo.ogr.html
         """
-        if equalize_clahe_clip_limit:
-            aoi.enhance_clip_limit = equalize_clahe_clip_limit
-            aoi.raster_multiband = aoi.equalize_hist_raster(
-                clip_limit=equalize_clahe_clip_limit,
-                per_band=True,
-                overwrite=False)  # TODO: Softcode these parameters
-            aoi.raster = rasterio.open(aoi.raster_multiband)
-        elif not aoi.raster:  # in case of multiprocessing
+        if not aoi.raster:  # in case of multiprocessing
             aoi.raster = rasterio.open(aoi.raster_multiband)
 
         # Create TorchGeo-based custom VRTDataset dataset:
@@ -647,6 +639,7 @@ def main(cfg: DictConfig) -> None:
         download_data=download_data,
         data_dir=data_dir,
         for_multiprocessing=parallel,
+        equalize_clahe_clip_limit=clahe_clip_limit,
     )
 
     tiler = Tiler(tiling_root_dir=exp_dir,
@@ -669,14 +662,13 @@ def main(cfg: DictConfig) -> None:
             tiling_dir_gt = tiling_dir / 'labels' if not tiler.for_inference else None
 
             if parallel:
-                input_args.append([tiler.tiling_per_aoi, aoi, tiling_dir_img, tiling_dir_gt, clahe_clip_limit, overwr])
+                input_args.append([tiler.tiling_per_aoi, aoi, tiling_dir_img, tiling_dir_gt, overwr])
             else:
                 try:
                     tiler_pair = tiler.tiling_per_aoi(
                         aoi,
                         out_img_dir=tiling_dir_img,
                         out_label_dir=tiling_dir_gt,
-                        equalize_clahe_clip_limit=clahe_clip_limit,
                         overwrite=overwr,
                     )
                     tilers.append(tiler_pair)
