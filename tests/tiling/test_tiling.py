@@ -189,8 +189,8 @@ class TestTiler(object):
             window=window
         )
 
-        assert dst == os.path.join(dst_dir, "22978945_15_uint8_clipped_1-2-3_1_1_2_2"), "Output file name does not " \
-                                                                                        "match the input parameters!"
+        assert dst == os.path.join(dst_dir, "22978945_15_uint8_clipped_1_1_2_2"), "Output file name does not " \
+                                                                                  "match the input parameters!"
 
     def test__save_vec_mem_tile(self):
         """ Test _save_vec_mem_tile method of the Tiler class """

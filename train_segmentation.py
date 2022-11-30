@@ -18,7 +18,8 @@ from tqdm import tqdm
 
 from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_to_dp_model
 from tiling_segmentation import Tiler
-from utils import augmentation as aug, create_dataset
+from utils import augmentation as aug
+from dataset import create_dataset
 from utils.logger import InformationLogger, tsv_line, get_logger, set_tracker
 from utils.loss import verify_weights, define_loss
 from utils.metrics import report_classification, create_metrics_dict, iou

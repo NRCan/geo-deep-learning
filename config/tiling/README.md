@@ -53,3 +53,16 @@ particular patch, it is recommended to open the .geotiff version of ground truth
 If True, the tiling script uses Python's multiprocessing capability to process each AOI in parallel. This greatly 
 accelerates the tiling process. For testing or debugging purposes or for small dataset, we'd recommend keeping the 
 default `multiprocessing == False`.
+
+## Write destination raster
+
+If True, the destination raster (built as [VRT](../../dataset/README.md#under-the-hood)) will be written in the AOI's 
+root directory (see AOI's class docstrings).
+
+Defaults to `write_dest_raster=False`<sup>1</sup> <sup>2</sup>
+
+1. When bands requested don't require a VRT to be created, no destination raster is written even if 
+`write_dest_raster=True` since the destination raster would be identical to the source raster.
+2. if a VRT is required, but `write_dest_raster=False`, no destination raster is written to disk.
+
+> This feature is currently implemented mostly for debugging and demoing purposes. 

@@ -5,3 +5,4 @@ verify:
   output_raster_plots: True
   extended_label_stats: True
   multiprocessing: False
+  write_dest_raster: ${tiling.write_dest_raster}

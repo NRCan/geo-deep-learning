@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 from torchgeo.samplers import GridGeoSampler
 from torchgeo.datasets import stack_samples
 
-from utils.create_dataset import DRDataset, GDLVectorDataset
+from dataset.create_dataset import DRDataset, GDLVectorDataset
 from dataset.aoi import aois_from_csv, AOI
 from utils.geoutils import check_gdf_load, check_rasterio_im_load
 from utils.utils import get_key_def, get_git_hash
@@ -129,13 +129,18 @@ class Tiler(object):
                             f'Got {min_annot_perc} of type {type(min_annot_perc)}')
         self.min_annot_perc = min_annot_perc
 
-        bands_set = set([tuple(aoi.raster_bands_request) for aoi in self.src_aoi_list])
+        try:
+            bands_set = set([tuple(aoi.raster_bands_request) for aoi in self.src_aoi_list])
+            self.bands_requested = self.src_aoi_list[0].raster_bands_request
+        except TypeError:
+            bands_set = set([aoi.raster_meta['count'] for aoi in self.src_aoi_list])
+            self.bands_requested = list(range(1, self.src_aoi_list[0].raster_meta['count']+1))
         if len(bands_set) > 1:
             raise ValueError(f'Bands requested vary among submitted AOIs. \n'
                              f'Check source imagery and define a unique list of bands to keep. \n'
                              f'Set of bands requested: {bands_set}')
-        self.bands_requested = self.src_aoi_list[0].raster_bands_request
         self.bands_num = len(self.bands_requested)
+
 
         if val_percent and not isinstance(val_percent, int):
             raise TypeError(f'Validation percentage should be an integer.\n'
@@ -296,9 +301,8 @@ class Tiler(object):
         https://gdal.org/api/python/osgeo.gdal.html
         https://gdal.org/api/python/osgeo.ogr.html
         """
-
-        if not aoi.raster:
-            aoi.raster = rasterio.open(aoi.raster_multiband)
+        if not aoi.raster:  # in case of multiprocessing
+            aoi.raster = rasterio.open(aoi.raster_dest)
 
         # Create TorchGeo-based custom DRDataset dataset:
         dr_dataset = DRDataset(aoi.raster)
@@ -466,7 +470,7 @@ class Tiler(object):
         @return:
         """
         if not aoi.raster:  # in case of multiprocessing
-            aoi.raster = rasterio.open(aoi.raster_multiband)
+            aoi.raster = rasterio.open(aoi.raster_dest)
 
         random_val = np.random.randint(1, 101)
         if not {'trn', 'val'}.issubset(set(self.datasets)):
@@ -577,6 +581,7 @@ def main(cfg: DictConfig) -> None:
     parallel = get_key_def('multiprocessing', cfg['tiling'], default=False, expected_type=bool)
     parallel_num_proc = get_key_def('multiprocessing_processes', cfg['tiling'], default=multiprocessing.cpu_count(),
                                     expected_type=int)
+    write_dest_raster = get_key_def('write_dest_raster', cfg['tiling'], default=False, expected_type=bool)
     # TODO: why not ask only for a val percentage directly?
     val_percent = int(get_key_def('train_val_percent', cfg['tiling'], default={'val': 0.3})['val'] * 100)
     clahe_clip_limit = get_key_def('clahe_clip_limit', cfg['tiling'], expected_type=Number, default=0)
@@ -606,6 +611,7 @@ def main(cfg: DictConfig) -> None:
         download_data=download_data,
         data_dir=data_dir,
         for_multiprocessing=parallel,
+        write_dest_raster=write_dest_raster,
         equalize_clahe_clip_limit=clahe_clip_limit,
     )
 
