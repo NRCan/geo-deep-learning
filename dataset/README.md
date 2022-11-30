@@ -57,7 +57,7 @@ following formats:
 ### Use cases #2 and #3: Multi-band raster files with more bands or different order than needed 
 
 Same as above, but the expected order or subset of bands must be set in the 
-["bands" parameter of dataset config](../config/dataset#bands). For example:
+["bands" parameter of dataset config](../config/dataset/README.md#bands). For example:
 
 ```
 dataset:
@@ -83,7 +83,7 @@ A single line in the csv can refer to multiple single-band rasters, by using a s
 The "band specific" string in the file name must be in a 
 [hydra-like interpolation format](https://hydra.cc/docs/1.0/advanced/override_grammar/basic/#primitives), with `${...}` 
 notation. Geo-deep-learning will locate a list of single-band rasters during execution using two informations:
-1. the ["bands" parameter of dataset config](../config/dataset#bands)
+1. the ["bands" parameter of dataset config](../config/dataset/README.md#bands)
 2. the input csv's path, if it contains the `${dataset.bands}` string.
 
 For example:
