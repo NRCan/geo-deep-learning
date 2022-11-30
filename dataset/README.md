@@ -130,4 +130,5 @@ dataset:
 
 ### Under the hood
 
-To simplify the use of both single-band and multi-band rasters through a unique input pipeline, single-band files are artificially merged as a [virtual raster](https://gdal.org/drivers/raster/vrt.html).
+For use cases 2 to 5, geo-deep-learning creates a [virtual raster](https://gdal.org/drivers/raster/vrt.html) to bring 
+the variable source raster data to a common destination format without rewriting existing data to disk.
