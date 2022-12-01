@@ -2,9 +2,9 @@ import os
 from os.path import join
 from datetime import datetime
 import multiprocessing
-from numbers import Number
 from pathlib import Path
 import shutil
+from numbers import Number
 from typing import Union, Sequence, List
 from concurrent.futures import ThreadPoolExecutor
 
@@ -170,7 +170,7 @@ class Tiler(object):
                         shutil.move(self.tiling_root_dir / dataset, move_dir)
             else:
                 raise FileExistsError(
-                    f'Patches directory is empty. Won\'t overwrite existing content unless debug=True.\n'
+                    f'Patches directory is not empty. Won\'t overwrite existing content unless debug=True.\n'
                     f'Directory: {self.tiling_root_dir}.'
                 )
 
@@ -285,7 +285,8 @@ class Tiler(object):
             self,
             aoi: AOI,
             out_img_dir: Union[str, Path],
-            out_label_dir: Union[str, Path] = None):
+            out_label_dir: Union[str, Path] = None,
+    ):
         """
         Generates grid patches from the AOI.raster using TorchGeo's GeoGridSampler dataloader.
         Generates grid patches from the AOI.label using GDAL/OGR.
@@ -578,9 +579,12 @@ def main(cfg: DictConfig) -> None:
     continuous_vals = get_key_def('continuous_values', cfg['tiling'], default=True)
     save_prev_labels = get_key_def('save_preview_labels', cfg['tiling'], default=True)
     parallel = get_key_def('multiprocessing', cfg['tiling'], default=False, expected_type=bool)
+    parallel_num_proc = get_key_def('multiprocessing_processes', cfg['tiling'], default=multiprocessing.cpu_count(),
+                                    expected_type=int)
     write_dest_raster = get_key_def('write_dest_raster', cfg['tiling'], default=False, expected_type=bool)
     # TODO: why not ask only for a val percentage directly?
     val_percent = int(get_key_def('train_val_percent', cfg['tiling'], default={'val': 0.3})['val'] * 100)
+    clahe_clip_limit = get_key_def('clahe_clip_limit', cfg['tiling'], expected_type=Number, default=0)
 
     attr_field = get_key_def('attribute_field', cfg['dataset'], None, expected_type=str)
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
@@ -608,6 +612,7 @@ def main(cfg: DictConfig) -> None:
         data_dir=data_dir,
         for_multiprocessing=parallel,
         write_dest_raster=write_dest_raster,
+        equalize_clahe_clip_limit=clahe_clip_limit,
     )
 
     tiler = Tiler(tiling_root_dir=exp_dir,
@@ -647,7 +652,7 @@ def main(cfg: DictConfig) -> None:
 
     if parallel:
         logging.info(f'Will proceed to tiling of {len(input_args)} images and labels...')
-        with multiprocessing.get_context('spawn').Pool(None) as pool:
+        with multiprocessing.get_context('spawn').Pool(processes=parallel_num_proc) as pool:
             tilers = pool.map_async(map_wrapper, input_args).get()
 
     # temporary workaround to support multiprocessing (aois cannot be modified in separate processes)
@@ -713,8 +718,7 @@ def main(cfg: DictConfig) -> None:
 
     if parallel:
         logging.info(f'Parallelizing burning of {len(input_args)} filtered ground truth patches...')
-        proc = multiprocessing.cpu_count()
-        with multiprocessing.get_context('spawn').Pool(processes=proc) as pool:
+        with multiprocessing.get_context('spawn').Pool(processes=parallel_num_proc) as pool:
             lines = pool.map_async(map_wrapper, input_args).get()
         dataset_lines.extend(lines)
 
