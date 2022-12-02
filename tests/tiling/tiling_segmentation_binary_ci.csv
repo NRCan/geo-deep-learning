@@ -1,1 +1,2 @@
-tests/data/victor_issue/Moncton2-011447328010_01_P002-WV02_red-green-blue_clahe10.tif,tests/data/victor_issue/hydro_Moncton2-WV02-20180709-1 .gpkg,trn
+tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif,tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg,trn
+tests/data/massachusetts_buildings_kaggle/23429155_15_uint8_clipped.tif,tests/data/massachusetts_buildings_kaggle/23429155_15.gpkg,tst
