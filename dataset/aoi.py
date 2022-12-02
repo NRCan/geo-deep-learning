@@ -412,6 +412,8 @@ class AOI(object):
                 if not all([isinstance(band, int) for band in self.raster_bands_request]):
                     raise ValueError(f"Use only a list of integers to select bands from a multiband raster.\n"
                                      f"Got {self.raster_bands_request}")
+                # TODO: open the raw raster only once when initialize the AOI. Otherwise, we open it all the time here,
+                #       thus, slowing down the tiling process:
                 if len(self.raster_bands_request) > rasterio.open(self.raster_raw_input).count:
                     raise ValueError(f"Trying to subset more bands than actual number in source raster.\n"
                                      f"Requested: {self.raster_bands_request}\n"

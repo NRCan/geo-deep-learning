@@ -2,13 +2,14 @@ import logging
 import math
 import re
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Union
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
 from matplotlib import pyplot as plt, gridspec, cm, colors
+from matplotlib.colors import ListedColormap
 import csv
 
 from utils.utils import unnormalize, minmax_scale
@@ -58,17 +59,17 @@ def grid_vis(input_, output, heatmaps_dict, label=None, heatmaps=True):
     return plt
 
 
-def vis_from_batch(vis_params,
-                   inputs,
-                   outputs,
+def vis_from_batch(vis_params: Dict,
+                   inputs: torch.Tensor,
+                   outputs: torch.Tensor,
                    batch_index: int,
-                   vis_path: str,
-                   labels=None,
+                   vis_path: Union[str, Path],
+                   labels: torch.Tensor = None,
                    dataset: str = '',
                    ep_num: int = 0,
-                   scale=None,
-                   debug=False):
-    """ Provide indiviual input, output and label from batch to visualization function
+                   scale: List = None,
+                   debug: bool = False):
+    """ Provide individual input, output and label from batch to visualization function
     :param vis_params: (Dict) parameters useful during visualization
     :param inputs: (tensor) inputs as pytorch tensors with dimensions (batch_size, channels, width, height)
     :param outputs: (tensor) outputs as pytorch tensors with dimensions (batch_size, channels, width, height)
@@ -77,6 +78,7 @@ def vis_from_batch(vis_params,
     :param labels: (tensor) labels as pytorch tensors with dimensions (batch_size, channels, width, height)
     :param dataset: name of dataset for file naming purposes (ex. 'tst')
     :param ep_num: (int) number of epoch for file naming purposes
+    :param scale: scale range
     :param debug: (bool) if True, some debug features will be activated
     :return:
     """
@@ -103,17 +105,17 @@ def vis(vis_params: Dict,
         image: torch.Tensor,
         output: torch.Tensor,
         label: torch.Tensor,
-        vis_path: str,
+        vis_path: Union[str, Path],
         sample_num: int = 0,
         dataset: str = '',
         ep_num: int = 0,
-        inference_input_path: str = None,
-        scale: List = [0, 1],
+        inference_input_path: Union[str, Path] = None,
+        scale: List = None,
         debug: bool = False) -> None:
     """
     Saves input, output and label (if given) as .png in a grid or as individual pngs
     :param vis_params: (dict) visualization parameters
-    :param image: (tensor) input array as pytorch tensor, e.g. as returned by dataloader
+    :param image: (tensor) W/122input array as pytorch tensor, e.g. as returned by dataloader
     :param output: (tensor) output array as pytorch tensor before argmax, e.g. as returned by dataloader
     :param vis_path: path where visualization images will be saved
     :param sample_num: index of sample if function is from for loop iterating through a batch or list of images.
@@ -130,7 +132,7 @@ def vis(vis_params: Dict,
     image = image.cpu().permute(1, 2, 0).numpy()
     n_classes = output.shape[0]
 
-    assert vis_path.parent.is_dir()
+    assert vis_path.parent.is_dir(), "The parent folder for the visualization outputs does not exist."
     vis_path.mkdir(exist_ok=True)
 
     if n_classes == 1:
@@ -153,6 +155,7 @@ def vis(vis_params: Dict,
     # Unnormalize and unscale the input image:
     if vis_params['mean'] and vis_params['std']:
         image = unnormalize(input_img=image, mean=vis_params['mean'], std=vis_params['std'])
+    scale = (0, 1) if scale is None else scale
     image = minmax_scale(img=image, scale_range=(0, 255), orig_range=(scale[0], scale[1])) if scale else image
 
     # Create a PIL object for the input image:
@@ -218,31 +221,43 @@ def vis(vis_params: Dict,
                 heatmap.save(vis_path.joinpath(f"{dataset}_{sample_num:03d}_output_ep{ep_num:03d}_heatmap_{class_name}.png"))  # save heatmap
 
 
-def heatmaps_to_dict(output, classes: list, inference=False, debug=False):
+def heatmaps_to_dict(output: np.ndarray,
+                     classes: list,
+                     inference: str = None,
+                     debug: bool = False
+                     ) -> Dict:
     """
     Store heatmap into a dictionary
-    :param output: softmax tensor
+    :param output: softmax numpy array
+    :param classes: list of segmentation classes
+    :param inference: target path for inferences
+    :param debug: False or True for debugging
     :return: dictionary where key is value of class and value is numpy array
     """
     heatmaps_dict = {}
     classes = range(output.shape[2]) if len(classes) == 0 else classes
     for i in range(output.shape[2]):  # for each channel (i.e. class) in output
         perclass_output = output[:, :, i]
-        if inference:  # Don't color heatmap if in inference
+        if inference is not None:  # Don't color heatmap if in inference
             if debug:
                 logging.info(f'Heatmap class: {classes[i]}\n')
                 logging.info(f'List of unique values in heatmap: {np.unique(np.uint8(perclass_output * 255))}\n')
-            perclass_output_PIL = Image.fromarray(np.uint8(perclass_output*255))
-        else:  # https://stackoverflow.com/questions/10965417/how-to-convert-numpy-array-to-pil-image-applying-matplotlib-colormap
-            perclass_output_PIL = Image.fromarray(np.uint8(cm.get_cmap('inferno')(perclass_output) * 255))
-        heatmaps_dict[i] = {'class_name': classes[i], 'heatmap_PIL': perclass_output_PIL}
+            perclass_output_pil = Image.fromarray(np.uint8(perclass_output*255))
+        else:
+            perclass_output_pil = Image.fromarray(np.uint8(cm.get_cmap('inferno')(perclass_output) * 255))
+        heatmaps_dict[i] = {'class_name': classes[i], 'heatmap_PIL': perclass_output_pil}
 
     return heatmaps_dict
 
 
-def colormap_reader(n_classes, colormap_path=None, default_colormap='Set1'):
+def colormap_reader(n_classes: int,
+                    colormap_path: str = None,
+                    default_colormap: str = 'Set1'
+                    ) -> tuple[List, ListedColormap]:
     """
+    :param n_classes: number of target classes
     :param colormap_path: csv file (with header) containing 3 columns (input grayscale value, classes, html colors (#RRGGBB))
+    :param default_colormap: default color scheme from the available in matplotlib
     :return: list of classes and list of html colors to map to grayscale values associated with classes
     """
     if colormap_path is not None:
