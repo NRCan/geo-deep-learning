@@ -142,7 +142,7 @@ def vis(vis_params: Dict,
 
     else:
         output = F.softmax(output, dim=0)
-        output_labels = np.argmax(output.cpu(), axis=0).astype(np.uint8)
+        output_labels = np.array(np.argmax(output.cpu(), axis=0)).astype(np.uint8)
     output = output.detach().cpu().permute(1, 2, 0).numpy()
 
     if label is not None:
