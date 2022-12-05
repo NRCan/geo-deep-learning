@@ -162,7 +162,7 @@ def segmentation(param,
 
     """
     dummy_datamodule = SegmentationDatamodule(dontcare2backgr=True)
-    transforms = compose_transforms(params=param, dataset=None)
+    transforms = compose_transforms(params=param, dataset='inference')
 
     subdiv = 2
     threshold = 0.5
@@ -199,7 +199,8 @@ def segmentation(param,
         sample["image"] = rearrange(sample["image"], 'h w c -> c h w')
         sample["image"] = torch.from_numpy(sample["image"])
         sample = dummy_datamodule.preprocess(sample)
-        sample = transforms(sample)
+        if transforms is not None:
+            sample = transforms(sample)
         inputs = sample['image'].unsqueeze_(0)
         inputs = inputs.to(device)
         if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):

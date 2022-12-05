@@ -20,6 +20,7 @@ def compose_transforms(params,
     :return: (obj) PyTorch's compose object of the transformations to be applied.
     """
     lst_trans = []
+    keys = ["image", "mask"] if dataset != 'inference' else ["image"]
     norm_mean = get_key_def('mean', params['augmentation']['normalization'])
     norm_std = get_key_def('std', params['augmentation']['normalization'])
 
@@ -28,8 +29,8 @@ def compose_transforms(params,
             logging.error(f"Means and stds should be calculated over raster data scaled between 0 and 1."
                           f"Provided values (means: {norm_mean}, stds: {norm_std}) indicate these may be "
                           f"calculated over original range (ex.: 0-255)")
-        lst_trans.append(K.Normalize(mean=params['augmentation']['normalization']['mean'],
-                                     std=params['augmentation']['normalization']['std'],
+        lst_trans.append(K.Normalize(mean=list(params['augmentation']['normalization']['mean']),
+                                     std=list(params['augmentation']['normalization']['std']),
                                      keepdim=True))
 
     if dataset == 'trn':
@@ -47,4 +48,7 @@ def compose_transforms(params,
         if crop_size:
             lst_trans.append(K.RandomCrop(size=(crop_size, crop_size), fill=dontcare, keepdim=True))
 
-    return torchgeo.transforms.AugmentationSequential(*lst_trans, data_keys=["image", "mask"])
+    if lst_trans:
+        return torchgeo.transforms.AugmentationSequential(*lst_trans, data_keys=keys)
+    else:
+        return None
