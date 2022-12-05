@@ -1,6 +1,7 @@
 import multiprocessing
 import os.path
 from pathlib import Path
+from typing import List
 
 import geopandas as gpd
 import numpy as np
@@ -38,12 +39,14 @@ class Test_AOI(object):
     @pytest.fixture(
         params=[[2, 1], [1], [2], [3], [1, 3]]
     )
-    def test_multiband_input_band_selection(self, request: SubRequest) -> None:
+    def bands_request(self, request: SubRequest) -> List:
+        return request.param
+
+    def test_multiband_input_band_selection(self, bands_request: List) -> None:
         """Tests reading a multiband raster as input with band selection"""
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         row = data[0]
-        bands_request = request.param
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands_request)
         src_raster_subset = rasterio.open(aoi.raster_raw_input)
         src_np_subset = src_raster_subset.read(bands_request)
