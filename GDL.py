@@ -17,7 +17,7 @@ def run_gdl(cfg: DictConfig) -> None:
     Process
     -------
     1. Read and convert the `gdl_config.yaml` to a dictionary.
-    2. Verify if the code and other information need to be save.
+    2. Verify if the code and other information need to be saved.
     3. If the debug option is activate, the entire config yaml will be printed
        and save in a log. In addition of that, if the mode is `train`, a
        validation run will precede the training to assure the well functioning

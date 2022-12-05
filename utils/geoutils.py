@@ -122,7 +122,6 @@ def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
     @return:
         RasterDataset object containing VRT
     """
-    vrt_bands = []
     if not isinstance(src, (str, Path)) and not Path(src).is_file():
         raise ValueError(f"Invalid source multiband raster.\n"
                          f"Got {src}")
@@ -131,15 +130,13 @@ def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
         vrt_xml = mem.read().decode('utf-8')
         vrt_dataset = ET.fromstring(vrt_xml)
         vrt_dataset_dict = {int(band.get('band')): band for band in vrt_dataset.iter("VRTRasterBand")}
+        for band in vrt_dataset_dict.values():
+            vrt_dataset.remove(band)
+
         for dest_band_idx, src_band_idx in enumerate(band_request, start=1):
             vrt_band = vrt_dataset_dict[src_band_idx]
             vrt_band.set('band', str(dest_band_idx))
-            vrt_bands.append(vrt_band)
-            vrt_dataset.remove(vrt_band)
-        for leftover_band in vrt_dataset.iter("VRTRasterBand"):
-            vrt_dataset.remove(leftover_band)
-    for vrt_band in vrt_bands:
-        vrt_dataset.append(vrt_band)
+            vrt_dataset.append(vrt_band)
 
     return ET.tostring(vrt_dataset).decode('UTF-8')
 
