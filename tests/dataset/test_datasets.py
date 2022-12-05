@@ -13,6 +13,11 @@ import torch
 from dataset.create_dataset import DRDataset, GDLVectorDataset
 
 
+class TestSegmentationDataset:
+    # TODO
+    pass
+
+
 class TestDRDataset:
     @pytest.fixture(params=["tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif",
                             "tests/data/massachusetts_buildings_kaggle/23429155_15_uint8_clipped.tif"]

@@ -1,24 +1,22 @@
 import numpy as np
 from pathlib import Path
-from typing import Any, Dict, cast
 import sys
+from typing import Any, Dict, cast
 
-from rasterio.windows import from_bounds
+from einops import rearrange
+from osgeo import ogr
 import rasterio
+from rasterio.crs import CRS
 from rasterio.io import DatasetReader
 from rasterio.plot import reshape_as_image
+from rasterio.windows import from_bounds
+from rasterio.vrt import WarpedVRT
+import torch
 from torch.utils.data import Dataset
 from torchgeo.datasets import GeoDataset
-from rasterio.vrt import WarpedVRT
 from torchgeo.datasets.utils import BoundingBox
-import torch
-from osgeo import ogr
 
 from utils.logger import get_logger
-
-# These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
-from rasterio.crs import CRS
-from affine import Affine
 
 # Set the logging file
 logging = get_logger(__name__)  # import logging
@@ -45,17 +43,14 @@ class SegmentationDataset(Dataset):
                  dataset_type,
                  num_bands,
                  max_sample_count=None,
-                 radiom_transform=None,
-                 geom_transform=None,
-                 totensor_transform=None,
+                 transforms=None,
+                 augmentations=None,
                  debug=False):
-        # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.max_sample_count = max_sample_count
         self.dataset_type = dataset_type
         self.num_bands = num_bands
-        self.radiom_transform = radiom_transform
-        self.geom_transform = geom_transform
-        self.totensor_transform = totensor_transform
+        self.transforms = transforms
+        self.augmentations = augmentations
         self.debug = debug
         self.list_path = dataset_list_path
         if not Path(self.list_path).is_file():
@@ -84,28 +79,28 @@ class SegmentationDataset(Dataset):
 
             assert self.num_bands <= sat_img.shape[-1]
 
-            if isinstance(metadata, np.ndarray) and len(metadata) == 1:
-                metadata = metadata[0]
-            elif isinstance(metadata, bytes):
-                metadata = metadata.decode('UTF-8')
-            try:
-                metadata = eval(metadata)
-            except TypeError:
-                pass
-
         sample = {"image": sat_img, "mask": map_img, "metadata": metadata, "list_path": self.list_path}
 
-        if self.radiom_transform:  # radiometric transforms should always precede geometric ones
-            sample = self.radiom_transform(sample)
-        if self.geom_transform:  # rotation, geometric scaling, flip and crop. Will also put channels first and convert to torch tensor from numpy.
-            sample = self.geom_transform(sample)
+        sample["image"] = rearrange(sample["image"], 'h w c -> c h w')
 
-        sample = self.totensor_transform(sample)
+        # Comply to torchgeo's datasets standard: convert to torch tensor in Dataset's __getitem__
+        # https://github.com/microsoft/torchgeo/blob/044d901dcae3badab1b22822180bab15e8dc2198/torchgeo/datasets/chesapeake.py#L640
+        sample["image"] = torch.from_numpy(sample["image"])
+        sample["mask"] = torch.from_numpy(sample["mask"]).float().unsqueeze(0)
+
+        if self.transforms is not None:
+            sample = self.transforms(sample)
+
+        if self.augmentations is not None:
+            sample = self.augmentations(sample)
+
+        # torchmetrics expects masks to be longs without a channel dimension
+        sample["mask"] = sample["mask"].squeeze(0).long()
 
         if self.debug:
-            # assert no new class values in map_img
+            # assert no new class values in mask
             initial_class_ids = set(np.unique(map_img))
-            final_class_ids = set(np.unique(sample["mask"].numpy()))
+            final_class_ids = set(np.unique(sample['mask'].numpy()))
             if not final_class_ids.issubset(initial_class_ids):
                 logging.warning(f"\nWARNING: Class values for label before and after augmentations don't match."
                                 f"\nUnique values before: {initial_class_ids}"

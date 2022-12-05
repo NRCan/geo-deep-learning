@@ -11,16 +11,20 @@ import fiona  # keep this import. it sets GDAL_DATA to right value
 import rasterio
 import ttach as tta
 from collections import OrderedDict
+
+from einops import rearrange
 from fiona.crs import to_string
-from tqdm import tqdm
-from rasterio import features
-from rasterio.windows import Window
-from rasterio.plot import reshape_as_image
-from pathlib import Path
 from omegaconf import OmegaConf, DictConfig, open_dict
 from omegaconf.listconfig import ListConfig
+from pathlib import Path
+from rasterio import features
+from rasterio.plot import reshape_as_image
+from rasterio.windows import Window
+from tqdm import tqdm
 
 from dataset.aoi import aois_from_csv
+from datamodule.segmentation_datamodule import SegmentationDatamodule
+from utils.augmentation import compose_transforms
 from utils.logger import get_logger, set_tracker
 from models.model_choice import define_model, read_checkpoint
 from utils import augmentation
@@ -157,6 +161,9 @@ def segmentation(param,
     Returns:
 
     """
+    dummy_datamodule = SegmentationDatamodule(dontcare2backgr=True)
+    transforms = compose_transforms(params=param, dataset=None)
+
     subdiv = 2
     threshold = 0.5
     sample = {"image": None, "mask": None, 'metadata': None}
@@ -169,7 +176,7 @@ def segmentation(param,
     model.eval()  # switch to evaluate mode
 
     # initialize test time augmentation
-    transforms = tta.Compose([tta.HorizontalFlip(), ])
+    tta_transforms = tta.Compose([tta.HorizontalFlip(), ])
     # construct window for smoothing
     WINDOW_SPLINE_2D = _window_2D(window_size=pad, power=2.0)
     WINDOW_SPLINE_2D = torch.as_tensor(np.moveaxis(WINDOW_SPLINE_2D, 2, 0), ).type(torch.float)
@@ -188,14 +195,12 @@ def segmentation(param,
                                                             raster_info={})
 
         sample['metadata'] = image_metadata
-        totensor_transform = augmentation.compose_transforms(param,
-                                                             dataset="tst",
-                                                             scale=scale,
-                                                             aug_type='totensor',
-                                                             print_log=print_log)
-        sample["image"] = sub_image
-        sample = totensor_transform(sample)
-        inputs = sample["image"].unsqueeze_(0)
+        sample['image'] = sub_image
+        sample["image"] = rearrange(sample["image"], 'h w c -> c h w')
+        sample["image"] = torch.from_numpy(sample["image"])
+        sample = dummy_datamodule.preprocess(sample)
+        sample = transforms(sample)
+        inputs = sample['image'].unsqueeze_(0)
         inputs = inputs.to(device)
         if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
             # Init NIR   TODO: make a proper way to read the NIR channel
@@ -205,7 +210,7 @@ def segmentation(param,
             inputs = inputs[:, :-1, ...]  # take out the NIR channel and take only the RGB for the inputs
             inputs = [inputs, inputs_NIR]
         output_lst = []
-        for transformer in transforms:
+        for transformer in tta_transforms:
             # augment inputs
             augmented_input = transformer.augment_image(inputs)
             with torch.cuda.amp.autocast():

@@ -13,13 +13,17 @@ import rasterio
 from sklearn.utils import compute_sample_weight
 import torch
 from torch import optim
+from torchgeo.datasets import stack_samples
 from torch.utils.data import DataLoader
+from torchvision.transforms import Compose
 from tqdm import tqdm
 
+from datamodule.segmentation_datamodule import SegmentationDatamodule
+from dataset import create_dataset
+from dataset.create_dataset import SegmentationDataset
 from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_to_dp_model
 from tiling_segmentation import Tiler
 from utils import augmentation as aug
-from dataset import create_dataset
 from utils.logger import InformationLogger, tsv_line, get_logger, set_tracker
 from utils.loss import verify_weights, define_loss
 from utils.metrics import report_classification, create_metrics_dict, iou
@@ -48,14 +52,11 @@ def create_dataloader(patches_folder: Path,
                       gpu_devices_dict: dict,
                       sample_size: int,
                       dontcare_val: int,
-                      crop_size: int,
                       num_bands: int,
                       min_annot_perc: int,
                       attr_vals: Sequence,
-                      scale: Sequence,
-                      cfg: dict,
+                      cfg: DictConfig,
                       eval_batch_size: int = None,
-                      dontcare2backgr: bool = False,
                       compute_sampler_weights: bool = False,
                       debug: bool = False):
     """
@@ -65,15 +66,11 @@ def create_dataloader(patches_folder: Path,
     @param gpu_devices_dict: (dict) dictionary where each key contains an available GPU with its ram info stored as value
     @param sample_size: (int) size of patches (used to evaluate eval batch-size)
     @param dontcare_val: (int) value in label to be ignored during loss calculation
-    @param crop_size: (int) size of one side of the square crop performed on original patch during training
     @param num_bands: (int) number of bands in imagery
     @param min_annot_perc: (int) minimum proportion of ground truth containing non-background information
     @param attr_vals: (Sequence)
-    @param scale: (List) imagery data will be scaled to this min and max value (ex.: 0 to 1)
     @param cfg: (dict) Parameters found in the yaml config file.
     @param eval_batch_size: (int) Batch size for evaluation (val and test). Optional, calculated automatically if omitted
-    @param dontcare2backgr: (bool) if True, all dontcare values in label will be replaced with 0 (background value)
-                            before training
     @param compute_sampler_weights: (bool)
         if True, weights will be computed from dataset patches to oversample the minority class(es) and undersample
         the majority class(es) during training.
@@ -95,28 +92,20 @@ def create_dataloader(patches_folder: Path,
     logging.info(f"Number of patches : {num_patches}\n")
     dataset_constr = create_dataset.SegmentationDataset
     datasets = []
+    dummy_datamodule = SegmentationDatamodule(dontcare2backgr=True, dontcare_val=dontcare_val)
 
     for subset in ["trn", "val", "tst"]:
         # TODO: should user point to the paths of these csvs directly?
         dataset_file, _ = Tiler.make_dataset_file_name(experiment_name, min_annot_perc, subset, attr_vals)
         dataset_filepath = patches_folder / dataset_file
-        datasets.append(dataset_constr(dataset_filepath, subset, num_bands,
-                                       max_sample_count=num_patches[subset],
-                                       radiom_transform=aug.compose_transforms(params=cfg,
-                                                                               dataset=subset,
-                                                                               aug_type='radiometric'),
-                                       geom_transform=aug.compose_transforms(params=cfg,
-                                                                             dataset=subset,
-                                                                             aug_type='geometric',
-                                                                             dontcare=dontcare_val,
-                                                                             crop_size=crop_size),
-                                       totensor_transform=aug.compose_transforms(params=cfg,
-                                                                                 dataset=subset,
-                                                                                 scale=scale,
-                                                                                 dontcare2backgr=dontcare2backgr,
-                                                                                 dontcare=dontcare_val,
-                                                                                 aug_type='totensor'),
-                                       debug=debug))
+        datasets.append(SegmentationDataset(dataset_filepath, subset, num_bands,
+                                            max_sample_count=num_patches[subset],
+                                            transforms=Compose([dummy_datamodule.preprocess]),
+                                            augmentations=aug.compose_transforms(
+                                                params=cfg,
+                                                dataset=subset,
+                                            ),
+                                            debug=debug))
     trn_dataset, val_dataset, tst_dataset = datasets
 
     # Number of workers
@@ -135,12 +124,30 @@ def create_dataloader(patches_folder: Path,
     elif not eval_batch_size:
         eval_batch_size = batch_size
 
-    trn_dataloader = DataLoader(trn_dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler,
-                                drop_last=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=eval_batch_size, num_workers=num_workers, shuffle=False,
-                                drop_last=True)
-    tst_dataloader = DataLoader(tst_dataset, batch_size=eval_batch_size, num_workers=num_workers, shuffle=False,
-                                drop_last=True) if num_patches['tst'] > 0 else None
+    trn_dataloader = DataLoader(
+        trn_dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        sampler=sampler,
+        drop_last=True,
+        collate_fn=stack_samples
+    )
+    val_dataloader = DataLoader(
+        val_dataset,
+        batch_size=eval_batch_size,
+        num_workers=num_workers,
+        shuffle=False,
+        drop_last=True,
+        collate_fn=stack_samples
+    )
+    tst_dataloader = DataLoader(
+        tst_dataset,
+        batch_size=eval_batch_size,
+        num_workers=num_workers,
+        shuffle=False,
+        drop_last=True,
+        collate_fn=stack_samples
+    ) if num_patches['tst'] > 0 else None
 
     if len(trn_dataloader) == 0 or len(val_dataloader) == 0:
         raise ValueError(f"\nTrain and validation dataloader should contain at least one data item."
@@ -286,19 +293,19 @@ def vis_from_dataloader(vis_params,
 
 
 def training(train_loader,
-          model,
-          criterion,
-          optimizer,
-          scheduler,
-          num_classes,
-          batch_size,
-          ep_idx,
-          progress_log,
-          device,
-          scale,
-          vis_params,
-          debug=False
-          ):
+             model,
+             criterion,
+             optimizer,
+             scheduler,
+             num_classes,
+             batch_size,
+             ep_idx,
+             progress_log,
+             device,
+             scale,
+             vis_params,
+             debug=False
+             ):
     """
     Train the model and return the metrics of the training epoch
 
@@ -525,7 +532,7 @@ def train(cfg: DictConfig) -> None:
 
     # OPTIONAL PARAMETERS
     debug = get_key_def('debug', cfg)
-    task = get_key_def('task',  cfg['general'], default='segmentation')
+    task = get_key_def('task', cfg['general'], default='segmentation')
     dontcare_val = get_key_def("ignore_index", cfg['dataset'], default=-1)
     scale = get_key_def('scale_data', cfg['augmentation'], default=[0, 1])
     batch_metrics = get_key_def('batch_metrics', cfg['training'], default=None)
@@ -653,13 +660,10 @@ def train(cfg: DictConfig) -> None:
                                                                        gpu_devices_dict=gpu_devices_dict,
                                                                        sample_size=patches_size,
                                                                        dontcare_val=dontcare_val,
-                                                                       crop_size=crop_size,
                                                                        num_bands=num_bands,
                                                                        min_annot_perc=min_annot_perc,
                                                                        attr_vals=attr_vals,
-                                                                       scale=scale,
                                                                        cfg=cfg,
-                                                                       dontcare2backgr=dontcare2backgr,
                                                                        compute_sampler_weights=compute_sampler_weights,
                                                                        debug=debug)
 
@@ -763,15 +767,15 @@ def train(cfg: DictConfig) -> None:
                         'best_loss': best_loss,
                         'optimizer_state_dict': optimizer.state_dict()}, filename)
 
-            # VISUALIZATION: generate pngs of img patches, labels and outputs as alternative to follow training
+            # VISUALIZATION: generate pngs of img samples, labels and outputs as alternative to follow training
             if vis_batch_range is not None and vis_at_checkpoint and epoch - last_vis_epoch >= ep_vis_min_thresh:
                 if last_vis_epoch == 0:
-                    logging.info(f'\nVisualizing with {vis_at_ckpt_dataset} dataset patches on checkpointed model for'
+                    logging.info(f'\nVisualizing with {vis_at_ckpt_dataset} dataset samples on checkpointed model for'
                                  f'batches in range {vis_batch_range}')
                 vis_from_dataloader(vis_params=vis_params,
                                     eval_loader=val_dataloader if vis_at_ckpt_dataset == 'val' else tst_dataloader,
                                     model=model,
-                                    ep_num=epoch+1,
+                                    ep_num=epoch + 1,
                                     output_path=output_path,
                                     dataset=vis_at_ckpt_dataset,
                                     scale=scale,
@@ -783,7 +787,7 @@ def train(cfg: DictConfig) -> None:
         # logging.info(f'\nCurrent elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
 
     # load checkpoint model and evaluate it on test dataset.
-    if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
+    if int(cfg['general']['max_epochs']) > 0:  # if num_epochs is set to 0, model is loaded to evaluate on test set
         checkpoint = read_checkpoint(filename)
         checkpoint = adapt_checkpoint_to_dp_model(checkpoint, model)
         model.load_state_dict(state_dict=checkpoint['model_state_dict'])
