@@ -612,7 +612,12 @@ class AOI(object):
 
     @staticmethod
     def bounds_iou_gdf_riodataset(gdf: gpd.GeoDataFrame, raster: rasterio.DatasetReader) -> float:
-        """Calculates intersection over union of the total bounds of a GeoDataFrame and bounds of a rasterio Dataset"""
+        """
+        Calculates intersection over union of the total bounds of a GeoDataFrame and bounds of a rasterio Dataset.
+        If the input geopackage is empty, then returns 0.0.
+        """
+        if gdf.empty:
+            return 0.0
         label_bounds = gdf.total_bounds
         label_bounds_box = box(*label_bounds.tolist())
         raster_bounds_box = box(*list(raster.bounds))
