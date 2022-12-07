@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import List
 
@@ -43,3 +44,4 @@ class TestGeoutils(object):
         out_raster = ref_raster.parent / f"{ref_raster.stem}_copy.tif"
         out_array = rasterio.open(ref_raster).read(bands_request)
         create_new_raster_from_base(input_raster=ref_raster, output_raster=out_raster, write_array=out_array)
+        os.remove(out_raster)
