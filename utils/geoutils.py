@@ -54,8 +54,7 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
                        count=count,
                        crs=src.crs,
                        dtype=np.uint8,
-                       transform=src.transform,
-                       compress='lzw') as dst:
+                       transform=src.transform) as dst:
         if count == 1:
             dst.write(write_array[:, :], 1)
         else:
