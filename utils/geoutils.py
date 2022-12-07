@@ -52,10 +52,7 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
                        crs=src.crs,
                        dtype=np.uint8,
                        transform=src.transform) as dst:
-        if count == 1:
-            dst.write(write_array[:, :], 1)
-        else:
-            dst.write(write_array)
+        dst.write(write_array)
 
 
 def get_key_recursive(key, config):
