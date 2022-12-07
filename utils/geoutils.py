@@ -30,9 +30,6 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
         none
     """
     src = check_rasterio_im_load(input_raster)
-    if write_array.shape[1:] != (src.height, src.width):
-        raise ValueError(f"Output array's width and height should be identical to dimensions of input reference raster")
-
     if len(write_array.shape) == 2:  # 2D array
         count = 1
     elif len(write_array.shape) == 3:  # 3D array
@@ -44,6 +41,9 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     else:
         raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
 
+    if write_array.shape[1:] != (src.height, src.width):
+        raise ValueError(f"Output array's width and height should be identical to dimensions of input reference raster")
+
     # Cannot write to 'VRT' driver
     driver = 'GTiff' if src.driver == 'VRT' else src.driver
 
@@ -54,7 +54,8 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
                        count=count,
                        crs=src.crs,
                        dtype=np.uint8,
-                       transform=src.transform) as dst:
+                       transform=src.transform,
+                       compress='lzw') as dst:
         if count == 1:
             dst.write(write_array[:, :], 1)
         else:
