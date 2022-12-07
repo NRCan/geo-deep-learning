@@ -1,2 +1,3 @@
-tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif,tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg,trn
-tests/data/massachusetts_buildings_kaggle/23429155_15_uint8_clipped.tif,tests/data/massachusetts_buildings_kaggle/23429155_15.gpkg,tst
+tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif,tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg,trn,
+tests/data/massachusetts_buildings_kaggle/23429155_15_uint8_clipped.tif,tests/data/massachusetts_buildings_kaggle/23429155_15.gpkg,tst,
+tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif,tests/tiling/empty/buil_AB11-WV02-20100926-1/buil_AB11-WV02-20100926-1.gpkg,tst,AB11-052497779030_01_P001-WV02

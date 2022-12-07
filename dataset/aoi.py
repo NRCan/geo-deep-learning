@@ -265,7 +265,7 @@ class AOI(object):
             self.bounds_iou = self.bounds_iou_gdf_riodataset(
                 gdf=self.label_gdf,
                 raster=self.raster)
-            if self.bounds_iou == 0:
+            if self.bounds_iou == 0.0:
                 logging.error(
                     f"Features in label file {label} do not intersect with bounds of raster file "
                     f"{self.raster.name}")
