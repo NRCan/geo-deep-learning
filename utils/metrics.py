@@ -4,6 +4,7 @@ import torchmetrics.classification
 from sklearn.metrics import classification_report
 from torch import IntTensor
 from torchmetrics import JaccardIndex
+import torch.nn.functional as F
 
 min_val = 1e-6
 
@@ -62,6 +63,28 @@ class AverageMeter(object):
 
     def average(self):
         return self.avg
+
+
+class AverageMeterFix(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.total_metrics_sum = 0
+        self.total_batches = 0
+        self.avg = self.average()
+
+    def update(self, val, weight=1):
+        self.total_metrics_sum += val
+        self.total_batches += 1
+
+    def average(self):
+        if self.total_batches != 0:
+            return self.total_metrics_sum / self.total_batches
+        return 0
+
+    def reset(self):
+        self.total_metrics_sum = 0
+        self.total_batches = 0
 
 
 def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1):
@@ -123,7 +146,6 @@ def iou(pred, label, batch_size, num_classes, metric_dict, ignore_index=None):
     metric_match_device(jaccard, pred, label)
     cls_ious = jaccard(pred, label)
 
-    
     if len(cls_ious) > 1:
         for i in range(len(cls_lst)):
             metric_dict['iou_' + str(cls_lst[i])].update(cls_ious[i], batch_size)
@@ -158,8 +180,8 @@ def iou(pred, label, batch_size, num_classes, metric_dict, ignore_index=None):
 class ComputePixelMetrics():
     '''
     Compute pixel-based metrics between two segmentation masks.
-    :param label: (numpy array) reference segmentaton mask
-    :param pred: (numpy array) predicted segmentaton mask
+    :param label: (numpy array) reference segmentation mask
+    :param pred: (numpy array) predicted segmentation mask
     '''
     __slots__ = 'label', 'pred', 'num_classes'
 
@@ -202,3 +224,48 @@ class ComputePixelMetrics():
         dice = (2 * intersection) / ((label.sum()) + (pred.sum()))
 
         return dice
+
+
+def calculate_batch_iou(predictions, gts, n_classes, metric_dict):
+    batch_size = predictions.shape[0]
+
+    def _fast_hist(label_pred, label_true, n_classes):
+        n_classes = n_classes + 1 if n_classes == 1 else n_classes
+
+        mask = (label_true >= 0) & (label_true < n_classes)
+        hist = np.bincount(
+            n_classes * label_true[mask].astype(int) +
+            label_pred[mask], minlength=n_classes ** 2).reshape(n_classes, n_classes)
+        return hist
+
+    batch_hist = np.zeros((n_classes, n_classes)) if n_classes > 1 else np.zeros((n_classes+1, n_classes+1))
+    label_true = gts.clone().cpu().detach().numpy().copy()
+
+    if n_classes == 1:
+        label_pred = torch.sigmoid(predictions).clone().cpu().detach().numpy()
+        ones_array = np.ones(shape=label_pred.shape, dtype=np.uint8)
+        bg_pred = ones_array - label_pred
+        label_pred = np.concatenate([bg_pred, label_pred], axis=1)
+        cls_list = [str(cls) for cls in range(2)]
+    elif n_classes > 1:
+        label_pred = F.softmax(predictions.clone().cpu().detach().numpy(), dim=1)
+        cls_list = [str(cls) for cls in range(n_classes)]
+    else:
+        raise ValueError(f'Number of classes is less than 1 == {n_classes}')
+    label_pred = np.array(np.argmax(label_pred, axis=1)).astype(np.uint8)
+
+    for lp, lt in zip(label_pred, label_true):
+        batch_hist += _fast_hist(lp.flatten(), lt.flatten(), n_classes)
+    # acc = np.diag(batch_hist).sum() / batch_hist.sum()
+    iu = np.diag(batch_hist) / (batch_hist.sum(axis=1) + batch_hist.sum(axis=0) - np.diag(batch_hist))
+    mean_iu = np.nanmean(iu)
+    mean_iu_nobg = np.nanmean(iu[1:])
+
+    metric_dict['iou'].update(mean_iu, batch_size)
+    metric_dict['iou_nonbg'].update(mean_iu_nobg, batch_size)
+
+    for i, cls_lbl in enumerate(cls_list):
+        metric_dict['iou_' + cls_lbl].update(iu[i], batch_size)
+
+    return metric_dict
+

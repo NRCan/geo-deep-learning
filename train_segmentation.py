@@ -22,7 +22,7 @@ from utils import augmentation as aug
 from dataset import create_dataset
 from utils.logger import InformationLogger, tsv_line, get_logger, set_tracker
 from utils.loss import verify_weights, define_loss
-from utils.metrics import report_classification, create_metrics_dict, iou
+from utils.metrics import report_classification, create_metrics_dict, iou, calculate_batch_iou
 from utils.utils import gpu_stats, get_key_def, get_device_ids, set_device
 from utils.visualization import vis_from_batch
 # Set the logging file
@@ -448,13 +448,19 @@ def evaluation(eval_loader,
             eval_metrics['loss'].update(loss.item(), batch_size)
 
             if (dataset == 'val') and (batch_metrics is not None):
-                # Compute metrics every n batches. Time consuming.
+                # Compute metrics every n batches. Time-consuming.
                 if not batch_metrics <= len(eval_loader):
                     logging.error(f"\nBatch_metrics ({batch_metrics}) is smaller than batch size "
                                   f"{len(eval_loader)}. Metrics in validation loop won't be computed")
                 if (batch_index + 1) % batch_metrics == 0:  # +1 to skip val loop at very beginning
                     a, segmentation = torch.max(outputs_flatten, dim=1)
-                    eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics, dontcare)
+                    # eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics, dontcare)
+                    eval_metrics = calculate_batch_iou(
+                        outputs,
+                        labels,
+                        num_classes,
+                        eval_metrics
+                    )
                     eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
                                                          ignore_index=dontcare)
             elif (dataset == 'tst'):
@@ -478,7 +484,7 @@ def evaluation(eval_loader,
         logging.info(f"\n{dataset} precision: {eval_metrics['precision'].avg:.4f}")
         logging.info(f"\n{dataset} recall: {eval_metrics['recall'].avg:.4f}")
         logging.info(f"\n{dataset} fscore: {eval_metrics['fscore'].avg:.4f}")
-        logging.info(f"\n{dataset} iou: {eval_metrics['iou'].avg:.4f}")
+        logging.info(f"\n{dataset} iou: {eval_metrics['iou'].average():.4f}")
 
     return eval_metrics
 

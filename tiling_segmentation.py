@@ -626,6 +626,7 @@ def main(cfg: DictConfig) -> None:
     input_args = []
     tilers = []
     logging.info(f"Preparing patches \n\tSamples_size: {patch_size} ")
+
     for index, aoi in tqdm(enumerate(tiler.src_aoi_list), position=0, leave=False):
         try:
             tiling_dir = exp_dir / aoi.split.strip() / aoi.aoi_id.strip()
