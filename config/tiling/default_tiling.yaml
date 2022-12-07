@@ -7,5 +7,5 @@ tiling:
   continuous_values: True
   save_preview_labels: True
   multiprocessing: False
-  clahe_clip_limit: 25
+  clahe_clip_limit: 0
   write_dest_raster: False
