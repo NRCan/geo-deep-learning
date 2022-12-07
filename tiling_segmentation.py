@@ -627,6 +627,11 @@ def main(cfg: DictConfig) -> None:
     tilers = []
     logging.info(f"Preparing patches \n\tSamples_size: {patch_size} ")
     for index, aoi in tqdm(enumerate(tiler.src_aoi_list), position=0, leave=False):
+        if aoi.bounds_iou == 0.0:
+            logging.error(
+                f"Features in label file {aoi.label} do not intersect with bounds of raster file "
+                f"{aoi.raster.name}, thus this AOI will be skipped.")
+            continue
         try:
             tiling_dir = exp_dir / aoi.split.strip() / aoi.aoi_id.strip()
             tiling_dir_img = tiling_dir / 'images'

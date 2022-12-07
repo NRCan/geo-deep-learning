@@ -164,6 +164,15 @@ class Test_AOI(object):
         expected_iou = 0.013904645827033404
         assert iou == expected_iou
 
+    def test_empty_geopackage_iou(self):
+        """ Tests calculation of IOU between raster and an empty geopackage """
+        extract_archive(src="tests/dataset/buil_AB11-WV02-20100926-1.zip")
+        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
+        raster = rasterio.open(raster_file)
+        label_gdf = gpd.read_file('tests/dataset/buil_AB11-WV02-20100926-1.gpkg')
+        assert AOI.bounds_iou_gdf_riodataset(label_gdf, raster) == 0.0
+
     def test_corrupt_raster(self) -> None:
         """Tests error when reading a corrupt file"""
         extract_archive(src="tests/data/spacenet.zip")
