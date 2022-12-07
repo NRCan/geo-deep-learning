@@ -30,6 +30,9 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
         none
     """
     src = check_rasterio_im_load(input_raster)
+    if write_array.shape[1:] != (src.height, src.width):
+        raise ValueError(f"Output array's width and height should be identical to dimensions of input reference raster")
+
     if len(write_array.shape) == 2:  # 2D array
         count = 1
     elif len(write_array.shape) == 3:  # 3D array
