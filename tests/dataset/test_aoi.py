@@ -9,7 +9,6 @@ import pytest
 from _pytest.fixtures import SubRequest
 import rasterio
 from rasterio import RasterioIOError
-from shapely.geometry import box
 from torchgeo.datasets.utils import extract_archive
 
 from dataset.aoi import AOI, aois_from_csv
@@ -150,19 +149,6 @@ class Test_AOI(object):
         for raster_raw, bands_requested in raster_raw.items():
             raster_parsed = AOI.parse_input_raster(csv_raster_str=raster_raw, raster_bands_requested=bands_requested)
             print(raster_parsed)
-
-    def test_bounds_iou(self) -> None:
-        """Tests calculation of IOU between raster and label bounds"""
-        raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
-        raster = rasterio.open(raster_file)
-        label_gdf = gpd.read_file('tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg')
-
-        label_bounds = label_gdf.total_bounds
-        label_bounds_box = box(*label_bounds.tolist())
-        raster_bounds_box = box(*list(raster.bounds))
-        iou = AOI.bounds_iou(label_bounds_box, raster_bounds_box)
-        expected_iou = 0.013904645827033404
-        assert iou == expected_iou
 
     def test_empty_geopackage_iou(self):
         """ Tests calculation of IOU between raster and an empty geopackage """
