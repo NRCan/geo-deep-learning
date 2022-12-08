@@ -31,6 +31,19 @@ class TestGeoutils(object):
         assert np.all(src_red_np == dest_red_np)
         aoi.close_raster()
 
+    def test_create_new_raster_from_base_shape(self) -> None:
+        """
+        Tests error in 'create_new_raster_from_base' geo-utility if output array dimensions is not consistant with input
+        raster
+        """
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
+        ref_raster = Path(data[0]['tif'])
+        out_raster = ref_raster.parent / f"{ref_raster.stem}_copy.tif"
+        out_array = rasterio.open(ref_raster).read()[..., :20]  # read only part of the original width
+        with pytest.raises(ValueError):
+            create_new_raster_from_base(input_raster=ref_raster, output_raster=out_raster, write_array=out_array)
+
     @pytest.fixture(
         params=[[1], [1, 2], [1, 2, 3]]
     )

@@ -43,6 +43,9 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     else:
         raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
 
+    if write_array.shape[1:] != (src.height, src.width):
+        raise ValueError(f"Output array's width and height should be identical to dimensions of input reference raster")
+
     # Cannot write to 'VRT' driver
     driver = 'GTiff' if src.driver == 'VRT' else src.driver
 
