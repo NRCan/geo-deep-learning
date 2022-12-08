@@ -215,4 +215,4 @@ def bounds_gdf(gdf: gpd.GeoDataFrame) -> box:
 def overlap_poly1_rto_poly2(polygon1: Polygon, polygon2: Polygon) -> float:
     """Calculate intersection of extents from polygon 1 and 2 over extent of a polygon 2"""
     intersection = polygon1.intersection(polygon2).area
-    return intersection / polygon2.area
+    return intersection / (polygon2.area + 1e-30)

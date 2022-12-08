@@ -125,7 +125,7 @@ class Test_AOI(object):
         data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         row = next(iter(data))
         row['gpkg'] = "missing_file.gpkg"
-        with pytest.raises(ValueError):
+        with pytest.raises(AttributeError):
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
             aoi.close_raster()
 

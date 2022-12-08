@@ -268,25 +268,23 @@ class AOI(object):
         if label:
             self.label = Path(label)
             self.label_gdf = check_gdf_load(label)
-            if self.label_gdf.empty:
-                logging.error(f"Label file {label} is empty")
-            else:
-                self.label_bounds = bounds_gdf(self.label_gdf)
-                if not self.raster_bounds.intersects(self.label_bounds):
-                    logging.error(
-                        f"Features in label file {label} do not intersect with bounds of raster file "
-                        f"{self.raster.name}")
-                self.overlap_label_rto_raster = overlap_poly1_rto_poly2(self.label_bounds, self.raster_bounds)
-                self.overlap_raster_rto_label = overlap_poly1_rto_poly2(self.raster_bounds, self.label_bounds)
-                self.label_invalid_features = validate_features_from_gpkg(label)
+            self.label_invalid_features = validate_features_from_gpkg(label)
 
-                # TODO: unit test for failed CRS match
-                try:
-                    # TODO: check if this creates overhead. Skip if report exists?
-                    self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(self.raster, self.label_gdf)
-                except pyproj.exceptions.CRSError as e:
-                    logging.warning(f"\nError while checking CRS match between raster and label."
-                                    f"\n{e}")
+            self.label_bounds = bounds_gdf(self.label_gdf)
+            if not self.raster_bounds.intersects(self.label_bounds):
+                logging.error(
+                    f"Features in label file {label} do not intersect with bounds of raster file "
+                    f"{self.raster.name}")
+            self.overlap_label_rto_raster = overlap_poly1_rto_poly2(self.label_bounds, self.raster_bounds)
+            self.overlap_raster_rto_label = overlap_poly1_rto_poly2(self.raster_bounds, self.label_bounds)
+
+            # TODO: unit test for failed CRS match
+            try:
+                # TODO: check if this creates overhead. Skip if report exists?
+                self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(self.raster, self.label_gdf)
+            except pyproj.exceptions.CRSError as e:
+                logging.warning(f"\nError while checking CRS match between raster and label."
+                                f"\n{e}")
 
         # Check split string
         if split and not isinstance(split, str):
