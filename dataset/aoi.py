@@ -709,23 +709,23 @@ def aois_from_csv(
     logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
                  f'\tNumber of rows: {len(data_list)}\n'
                  f'\tCopying first row:\n{data_list[0]}\n')
-    for i, aoi_dict in tqdm(enumerate(data_list), desc="Creating AOI's"):
-        try:
-            new_aoi = AOI.from_dict(
-                aoi_dict=aoi_dict,
-                bands_requested=bands_requested,
-                attr_field_filter=attr_field_filter,
-                attr_values_filter=attr_values_filter,
-                download_data=download_data,
-                root_dir=data_dir,
-                for_multiprocessing=for_multiprocessing,
-                write_dest_raster=write_dest_raster,
-                equalize_clahe_clip_limit=equalize_clahe_clip_limit,
-            )
-            logging.debug(new_aoi)
-            aois.append(new_aoi)
-        except FileNotFoundError as e:
-            logging.critical(f"{e}\nGround truth file may not exist or is empty.\n"
-                             f"Failed to create AOI:\n{aoi_dict}\n"
-                             f"Index: {i}")
+    with tqdm(enumerate(data_list), desc="Creating AOI's", total=len(data_list)) as _tqdm:
+        for i, aoi_dict in _tqdm:
+            _tqdm.set_postfix_str(f"Image: {Path(aoi_dict['tif']).stem}")
+            try:
+                new_aoi = AOI.from_dict(
+                    aoi_dict=aoi_dict,
+                    bands_requested=bands_requested,
+                    attr_field_filter=attr_field_filter,
+                    attr_values_filter=attr_values_filter,
+                    download_data=download_data,
+                    root_dir=data_dir,
+                    for_multiprocessing=for_multiprocessing,
+                )
+                logging.debug(new_aoi)
+                aois.append(new_aoi)
+            except FileNotFoundError as e:
+                logging.error(f"{e}\nGround truth file may not exist or is empty.\n"
+                                f"Failed to create AOI:\n{aoi_dict}\n"
+                                f"Index: {i}")
     return aois
