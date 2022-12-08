@@ -448,7 +448,7 @@ class AOI(object):
             'id': self.aoi_id,
             'raster_parsed': self.raster_parsed,
             'raster_area': raster_area,
-            'raster_meta': self.raster_meta,
+            'raster_meta': repr(self.raster_meta).replace("\n", "").replace(" ", " ").replace(",", ";"),
             'label_features_nb': len(self.label_gdf),
             'label_features_filtered_nb': len(self.label_gdf_filtered),
             'raster_label_bounds_iou': self.bounds_iou,

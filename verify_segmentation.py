@@ -163,7 +163,7 @@ def main(cfg: DictConfig) -> None:
 
     logging.info(f"\nWriting to csv: {outpath_csv}...")
     with open(outpath_csv, 'w', newline='') as output_file:
-        dict_writer = csv.DictWriter(output_file, report_list[0].keys(), delimiter=';')
+        dict_writer = csv.DictWriter(output_file, report_list[0].keys())
         dict_writer.writeheader()
         dict_writer.writerows(report_list)
 
