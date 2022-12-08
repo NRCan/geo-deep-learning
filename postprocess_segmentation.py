@@ -400,6 +400,15 @@ def main(params):
     gen_cont_image = get_key_def('cont_image', params['postprocess']['gen_cont'], expected_type=str)
     gen_commands = dict(get_key_def('command', params['postprocess']['gen_cont'], expected_type=DictConfig))
 
+    # fetch the footprint
+    item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
+    data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
+    # TODO: MAybe add the download from the stac item if not there, but supposed since downloaded in inference
+    footprint = os.path.join(data_dir, f'{os.path.basename(item_url)}-FOOTPRINT.geojson')
+    if not os.path.isfile(footprint):
+        logging.critical(f"\nFOOTPRINT not found! {footprint} is not a file.")
+        footprint = None
+
     logging.debug('\nCreate "hparams" yaml to use pytorch lightning model management')
     logging.info(f"\nConverting geo-deep-learning checkpoint to pytorch lightning...")
     if is_url(checkpoint):
@@ -485,6 +494,22 @@ def main(params):
         add_confidence_from_heatmap(in_heatmap=in_heatmap, in_vect=out_poly, heatmap_threshold=heatmap_threshold)
     elif confidence_values:
         logging.error(f"Cannot add confidence levels to polygons. A heatmap must be generated at inference")
+
+    # Clip the predicted polygon(s) if given one
+    if footprint:
+        logging.info(f'\nClipping predicted polygon(s). Footprint: {footprint}')
+        
+        gdf_poly = geopandas.read_file(returned_vector_pred)
+        if gdf_poly.empty:
+            logging.critical(f'\nThe raw prediction contain no polygon.')
+        else:
+            gdf_footprint = geopandas.read_file(footprint)
+            gdf_footprint = gdf_footprint.to_crs(str(gdf_poly.crs))
+            
+            gdf_clipped = geopandas.clip(gdf_poly, gdf_footprint)
+            gdf_clipped.to_file(returned_vector_pred, driver="GPKG")
+        
+        logging.info(f'\nClipping completed. Clipped prediction: {returned_vector_pred}')
 
     if generalization:
         logging.info(f"Generalizing prediction to {out_gen}")
