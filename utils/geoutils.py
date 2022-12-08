@@ -205,6 +205,8 @@ def bounds_riodataset(raster: DatasetReader) -> box:
 
 def bounds_gdf(gdf: gpd.GeoDataFrame) -> box:
     """Returns bounds of a GeoDataFrame as shapely box instance"""
+    if gdf.empty:
+        return Polygon()
     gdf_bounds = gdf.total_bounds
     gdf_bounds_box = box(*gdf_bounds.tolist())
     return gdf_bounds_box

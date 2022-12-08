@@ -125,7 +125,7 @@ class Test_AOI(object):
         data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         row = next(iter(data))
         row['gpkg'] = "missing_file.gpkg"
-        with pytest.raises(AttributeError):
+        with pytest.raises(ValueError):
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
             aoi.close_raster()
 
@@ -149,15 +149,6 @@ class Test_AOI(object):
         for raster_raw, bands_requested in raster_raw.items():
             raster_parsed = AOI.parse_input_raster(csv_raster_str=raster_raw, raster_bands_requested=bands_requested)
             print(raster_parsed)
-
-    def test_empty_geopackage_iou(self):
-        """ Tests calculation of IOU between raster and an empty geopackage """
-        extract_archive(src="tests/dataset/buil_AB11-WV02-20100926-1.zip")
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
-        raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
-        raster = rasterio.open(raster_file)
-        label_gdf = gpd.read_file('tests/dataset/buil_AB11-WV02-20100926-1.gpkg')
-        assert AOI.bounds_iou_gdf_riodataset(label_gdf, raster) == 0.0
 
     def test_corrupt_raster(self) -> None:
         """Tests error when reading a corrupt file"""
@@ -257,7 +248,7 @@ class Test_AOI(object):
         row = next(iter(data))
         row['gpkg'] = "tests/data/new_brunswick_aerial/BakerLake_2017_clipped.gpkg"
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
-        assert aoi.bounds_iou == 0
+        assert aoi.overlap_label_rto_raster == 0
         aoi.close_raster()
 
     def test_write_multiband_from_single_band(self) -> None:

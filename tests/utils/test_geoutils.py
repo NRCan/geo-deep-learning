@@ -61,3 +61,14 @@ class TestGeoutils(object):
         expected_overlap_ras_rto_lab = 0.014
         assert round(overlap_label_rto_raster, 3) == expected_overlap_lab_rto_ras
         assert round(overlap_raster_rto_label, 3) == expected_overlap_ras_rto_lab
+
+    def test_empty_geopackage_overlap(self):
+        """ Tests calculation of overlap of raster relative to an empty geopackage """
+        extract_archive(src="tests/data/buil_AB11-WV02-20100926-1.zip")
+        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
+        raster = rasterio.open(raster_file)
+        label_gdf = gpd.read_file('tests/data/buil_AB11-WV02-20100926-1.gpkg')
+        label_bounds_box = bounds_gdf(label_gdf)
+        raster_bounds_box = bounds_riodataset(raster)
+        assert overlap_poly1_rto_poly2(label_bounds_box, raster_bounds_box) == 0.0
