@@ -88,8 +88,6 @@ class TestMetrics:
                 assert key in val_dict
                 assert isinstance(value, AverageMeter)
 
-        del metrics_dict
-
     @pytest.fixture(scope="class")
     def binary_samples(self) -> List:
         logits = []
