@@ -335,6 +335,7 @@ class Tiler(object):
         raster_tile_paths = []
         vector_tile_paths = []
 
+        skip_aoi = False
         if self.write_mode == "append" and out_img_dir.is_dir():
             expect_patch_len = len(dataloader)
             if aoi.split == "trn":  # Need to move val patches back to trn. Trn/val sorting will restart from scratch.
@@ -347,35 +348,36 @@ class Tiler(object):
             if len(raster_tile_paths) == expect_patch_len and \
                     (len(vector_tile_paths) == expect_patch_len or not vector_tile_paths):
                 logging.info(f"Skipping tiling for {aoi.aoi_id}")
-                return aoi, sorted(raster_tile_paths), sorted(vector_tile_paths)
+                skip_aoi = True
 
-        # Iterate over the dataloader and save resulting raster patches:
-        bboxes = []
-        os.makedirs(out_img_dir, exist_ok=True)
+        if not skip_aoi:
+            # Iterate over the dataloader and save resulting raster patches:
+            bboxes = []
+            os.makedirs(out_img_dir, exist_ok=True)
 
-        raster_tile_data = []
-        for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-            # Parse the TorchGeo batch:
-            sample_image, sample_mask, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
-            bboxes.append(sample_window)
+            raster_tile_data = []
+            for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
+                # Parse the TorchGeo batch:
+                sample_image, sample_mask, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
+                bboxes.append(sample_window)
 
-            # Define the output raster patch filename:
-            dst_raster_name = self._define_output_name(aoi, out_img_dir, sample_window) + ".tif"
-            raster_tile_paths.append(dst_raster_name)
+                # Define the output raster patch filename:
+                dst_raster_name = self._define_output_name(aoi, out_img_dir, sample_window) + ".tif"
+                raster_tile_paths.append(dst_raster_name)
 
-            # Append all the raster patch data for later parallel writing to the disk:
-            raster_tile_data.append([sample_image, dst_raster_name, sample_window, sample_crs])
-            if not self.for_inference:
-                # Define the output vector patch filename:
-                dst_vector_name = self._define_output_name(aoi, out_label_dir, sample_window) + ".geojson"
-                vector_tile_paths.append(dst_vector_name)
-                # Clip vector labels having bounding boxes from the raster patches:
-                self._save_vec_mem_tile(sample_mask, dst_vector_name)
+                # Append all the raster patch data for later parallel writing to the disk:
+                raster_tile_data.append([sample_image, dst_raster_name, sample_window, sample_crs])
+                if not self.for_inference:
+                    # Define the output vector patch filename:
+                    dst_vector_name = self._define_output_name(aoi, out_label_dir, sample_window) + ".geojson"
+                    vector_tile_paths.append(dst_vector_name)
+                    # Clip vector labels having bounding boxes from the raster patches:
+                    self._save_vec_mem_tile(sample_mask, dst_vector_name)
 
-        # Write all raster tiles to the disk in parallel:
-        logging.info(f'Cropping raster patches...')
-        with ThreadPoolExecutor(32) as exe:
-            _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
+            # Write all raster tiles to the disk in parallel:
+            logging.info(f'Cropping raster patches...')
+            with ThreadPoolExecutor(32) as exe:
+                _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
 
         aoi.close_raster()  # for multiprocessing
         aoi.raster = None
