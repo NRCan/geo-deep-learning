@@ -158,6 +158,8 @@ class Tiler(object):
                                  f'Set of attribute values requested: {attr_vals_set}')
         self.attr_vals_exp = self.src_aoi_list[0].attr_values_filter
 
+        if not isinstance(write_mode, str) and write_mode not in ["raise_exists", "append"]:
+            raise ValueError(f"Tiler's write mode should be \"raise_exists\" or \"append\". See docs.")
         self.write_mode = write_mode
         self.debug = debug
 
@@ -334,33 +336,18 @@ class Tiler(object):
         vector_tile_paths = []
 
         if self.write_mode == "append" and out_img_dir.is_dir():
-            # TODO: refactor this cleanly
             expect_patch_len = len(dataloader)
-            if aoi.split == "trn":
-                # move all val patches back to trn
-                out_img_dir_val = Path(str(out_img_dir).replace("/trn/", "/val/").replace("\\trn\\", "\\val\\"))
-                if out_img_dir_val.is_dir():
-                    for patch in out_img_dir_val.iterdir():
-                        patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
-                        shutil.move(patch, patch_dest)
-                if not self.for_inference:
-                    out_label_dir_val = Path(str(out_label_dir).replace("/trn/", "/val/").replace("\\trn\\", "\\val\\"))
-                    if out_label_dir_val.is_dir():
-                        for patch in out_label_dir_val.iterdir():
-                            patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
-                            shutil.move(patch, patch_dest)
-            raster_tile_paths = sorted(list(out_img_dir.iterdir()))
-            vector_tile_paths = sorted(list(out_label_dir.iterdir())) if not self.for_inference and out_label_dir.is_dir() else []
+            if aoi.split == "trn":  # Need to move val patches back to trn. Trn/val sorting will restart from scratch.
+                self.move_existing_val_to_trn(out_img_dir_trn=out_img_dir, out_lbl_dir_trn=out_label_dir)
+            raster_tile_paths = list(out_img_dir.iterdir())
+            vector_tile_paths = list(out_label_dir.iterdir()) if out_label_dir is not None else []
             logging.info(f"[no overwrite mode]\nPatches found for AOI {aoi.aoi_id}:\n"
                          f"Imagery: {len(raster_tile_paths)} / {expect_patch_len}\n"
                          f"Ground truth: {len(vector_tile_paths)} / {expect_patch_len}")
-            if len(raster_tile_paths) == expect_patch_len:
-                if self.for_inference:
-                    logging.info(f"Skipping tiling for {aoi.aoi_id}")
-                    return aoi, raster_tile_paths, []
-                elif len(raster_tile_paths) == len(vector_tile_paths) == expect_patch_len:
-                    logging.info(f"Skipping tiling for {aoi.aoi_id}")
-                    return aoi, raster_tile_paths, vector_tile_paths
+            if len(raster_tile_paths) == expect_patch_len and \
+                    (len(vector_tile_paths) == expect_patch_len or not vector_tile_paths):
+                logging.info(f"Skipping tiling for {aoi.aoi_id}")
+                return aoi, sorted(raster_tile_paths), sorted(vector_tile_paths)
 
         # Iterate over the dataloader and save resulting raster patches:
         bboxes = []
@@ -393,7 +380,7 @@ class Tiler(object):
         aoi.close_raster()  # for multiprocessing
         aoi.raster = None
 
-        return aoi, raster_tile_paths, vector_tile_paths
+        return aoi, sorted(raster_tile_paths), sorted(vector_tile_paths)
 
     def passes_min_annot(self,
                          img_patch: Union[str, Path],
@@ -541,6 +528,25 @@ class Tiler(object):
             return dataset, dataset_line
         else:
             return dataset, None
+
+    @staticmethod
+    def move_existing_val_to_trn(out_img_dir_trn: Union[str, Path], out_lbl_dir_trn: Union[str, Path] = None) -> None:
+        """Moves all existing patches from val folder to trn folder"""
+        if not Path(out_img_dir_trn).is_dir():
+            raise NotADirectoryError(f"Trn directory for imagery doesn't exist.\nGot: {out_img_dir_trn}")
+        if not Path(out_lbl_dir_trn).is_dir():
+            raise NotADirectoryError(f"Trn directory for ground truth doesn't exist.\nGot: {out_lbl_dir_trn}")
+        out_img_dir_val = Path(str(out_img_dir_trn).replace("/trn/", "/val/").replace("\\trn\\", "\\val\\"))
+        if out_img_dir_val.is_dir():
+            for patch in out_img_dir_val.iterdir():
+                patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
+                shutil.move(patch, patch_dest)
+        if out_lbl_dir_trn:
+            out_label_dir_val = Path(str(out_lbl_dir_trn).replace("/trn/", "/val/").replace("\\trn\\", "\\val\\"))
+            if out_label_dir_val.is_dir():
+                for patch in out_label_dir_val.iterdir():
+                    patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
+                    shutil.move(patch, patch_dest)
 
 
 def move_patch_trn_to_val(patch: str, src_split: str = "trn", dest_split: str = "val"):
