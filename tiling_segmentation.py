@@ -685,15 +685,10 @@ def main(cfg: DictConfig) -> None:
             tiling_dir_gt = tiling_dir / 'labels' if not tiler.for_inference else None
 
             if parallel:
-                input_args.append([tiler.tiling_per_aoi, aoi, tiling_dir_img, tiling_dir_gt, overwr])
+                input_args.append([tiler.tiling_per_aoi, aoi, tiling_dir_img, tiling_dir_gt])
             else:
                 try:
-                    tiler_pair = tiler.tiling_per_aoi(
-                        aoi,
-                        out_img_dir=tiling_dir_img,
-                        out_label_dir=tiling_dir_gt,
-                        overwrite=overwr,
-                    )
+                    tiler_pair = tiler.tiling_per_aoi(aoi, out_img_dir=tiling_dir_img, out_label_dir=tiling_dir_gt)
                     tilers.append(tiler_pair)
                 except ValueError as e:
                     logging.debug(f'Failed to tile\n'
