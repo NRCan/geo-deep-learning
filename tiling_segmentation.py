@@ -70,7 +70,8 @@ class Tiler(object):
                  patch_stride: int = None,
                  min_annot_perc: Number = 0,
                  val_percent: int = None,
-                 debug: bool = False):
+                 debug: bool = False,
+                 write_mode: str = "raise_exists"):
         """
         @param tiling_root_dir: pathlib.Path or str
             Root directory under which all patches will be written (in subfolders)
@@ -89,6 +90,9 @@ class Tiler(object):
             Percentage of training patches that should be written to validation set
         @param debug: boolean, optional
             If True, activate debug functionality
+        @param write_mode: str, optional
+            If "raise_exists" (default), tiling will raise error if patches already exist.
+            if "append", tiling will skip AOIs for which all patches already exist.
         """
         if src_aoi_list and not isinstance(src_aoi_list, List):
             raise TypeError('Input data should be a List')
@@ -154,6 +158,7 @@ class Tiler(object):
                                  f'Set of attribute values requested: {attr_vals_set}')
         self.attr_vals_exp = self.src_aoi_list[0].attr_values_filter
 
+        self.write_mode = write_mode
         self.debug = debug
 
         self.datasets_dir = []
@@ -168,15 +173,17 @@ class Tiler(object):
                 for dataset in self.datasets:
                     if (self.tiling_root_dir / dataset).is_dir():
                         shutil.move(self.tiling_root_dir / dataset, move_dir)
-            else:
+            elif self.write_mode == "raise_exists":
                 raise FileExistsError(
                     f'Patches directory is not empty. Won\'t overwrite existing content unless debug=True.\n'
                     f'Directory: {self.tiling_root_dir}.'
                 )
+            elif self.write_mode == "append":
+                logging.info(f"Append mode: Will skip AOIs where tiling is complete.")
 
         for dataset in self.datasets:
             dataset_dir = self.tiling_root_dir / dataset
-            dataset_dir.mkdir()
+            dataset_dir.mkdir(exist_ok=True)
             self.datasets_dir.append(dataset_dir)
 
         logging.info(f'Patches will be written to {self.tiling_root_dir}\n\n')
@@ -323,10 +330,40 @@ class Tiler(object):
         if len(dataloader) == 0:
             raise ValueError("The dataloader is empty. Check input image and vector datasets.")
 
-        # Iterate over the dataloader and save resulting raster patches:
-        bboxes = []
         raster_tile_paths = []
         vector_tile_paths = []
+
+        if self.write_mode == "append" and out_img_dir.is_dir():
+            # TODO: refactor this cleanly
+            expect_patch_len = len(dataloader)
+            if aoi.split == "trn":
+                # move all val patches back to trn
+                out_img_dir_val = Path(str(out_img_dir).replace("/trn/", "/val/").replace("\\trn\\", "\\val\\"))
+                if out_img_dir_val.is_dir():
+                    for patch in out_img_dir_val.iterdir():
+                        patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
+                        shutil.move(patch, patch_dest)
+                if not self.for_inference:
+                    out_label_dir_val = Path(str(out_label_dir).replace("/trn/", "/val/").replace("\\trn\\", "\\val\\"))
+                    if out_label_dir_val.is_dir():
+                        for patch in out_label_dir_val.iterdir():
+                            patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
+                            shutil.move(patch, patch_dest)
+            raster_tile_paths = sorted(list(out_img_dir.iterdir()))
+            vector_tile_paths = sorted(list(out_label_dir.iterdir())) if not self.for_inference and out_label_dir.is_dir() else []
+            logging.info(f"[no overwrite mode]\nPatches found for AOI {aoi.aoi_id}:\n"
+                         f"Imagery: {len(raster_tile_paths)} / {expect_patch_len}\n"
+                         f"Ground truth: {len(vector_tile_paths)} / {expect_patch_len}")
+            if len(raster_tile_paths) == expect_patch_len:
+                if self.for_inference:
+                    logging.info(f"Skipping tiling for {aoi.aoi_id}")
+                    return aoi, raster_tile_paths, []
+                elif len(raster_tile_paths) == len(vector_tile_paths) == expect_patch_len:
+                    logging.info(f"Skipping tiling for {aoi.aoi_id}")
+                    return aoi, raster_tile_paths, vector_tile_paths
+
+        # Iterate over the dataloader and save resulting raster patches:
+        bboxes = []
         os.makedirs(out_img_dir, exist_ok=True)
 
         raster_tile_data = []
@@ -578,6 +615,8 @@ def main(cfg: DictConfig) -> None:
     min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], expected_type=Number, default=0)
     continuous_vals = get_key_def('continuous_values', cfg['tiling'], default=True)
     save_prev_labels = get_key_def('save_preview_labels', cfg['tiling'], default=True)
+    write_mode = get_key_def('write_mode', cfg['tiling'], default="raise_exists", expected_type=str)
+    overwr = False if write_mode == "append" else True
     parallel = get_key_def('multiprocessing', cfg['tiling'], default=False, expected_type=bool)
     parallel_num_proc = get_key_def('multiprocessing_processes', cfg['tiling'], default=multiprocessing.cpu_count(),
                                     expected_type=int)
@@ -620,7 +659,9 @@ def main(cfg: DictConfig) -> None:
                   patch_size=patch_size,
                   min_annot_perc=min_annot_perc,
                   val_percent=val_percent,
-                  debug=debug)
+                  write_mode=write_mode,
+                  debug=debug,
+                  )
 
     # For each row in csv: (1) tiling imagery and labels
     input_args = []
@@ -638,10 +679,15 @@ def main(cfg: DictConfig) -> None:
             tiling_dir_gt = tiling_dir / 'labels' if not tiler.for_inference else None
 
             if parallel:
-                input_args.append([tiler.tiling_per_aoi, aoi, tiling_dir_img, tiling_dir_gt])
+                input_args.append([tiler.tiling_per_aoi, aoi, tiling_dir_img, tiling_dir_gt, overwr])
             else:
                 try:
-                    tiler_pair = tiler.tiling_per_aoi(aoi, out_img_dir=tiling_dir_img, out_label_dir=tiling_dir_gt)
+                    tiler_pair = tiler.tiling_per_aoi(
+                        aoi,
+                        out_img_dir=tiling_dir_img,
+                        out_label_dir=tiling_dir_gt,
+                        overwrite=overwr,
+                    )
                     tilers.append(tiler_pair)
                 except ValueError as e:
                     logging.debug(f'Failed to tile\n'
