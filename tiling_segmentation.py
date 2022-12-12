@@ -4,8 +4,8 @@ from datetime import datetime
 import multiprocessing
 from pathlib import Path
 import shutil
-from typing import Union, Sequence, List
 from numbers import Number
+from typing import Union, Sequence, List
 from concurrent.futures import ThreadPoolExecutor
 
 import geopandas as gpd
@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 from torchgeo.samplers import GridGeoSampler
 from torchgeo.datasets import stack_samples
 
-from utils.create_dataset import VRTDataset, GDLVectorDataset
+from dataset.create_dataset import DRDataset, GDLVectorDataset
 from dataset.aoi import aois_from_csv, AOI
 from utils.geoutils import check_gdf_load, check_rasterio_im_load
 from utils.utils import get_key_def, get_git_hash
@@ -90,6 +90,9 @@ class Tiler(object):
             Percentage of training patches that should be written to validation set
         @param debug: boolean, optional
             If True, activate debug functionality
+        @param write_mode: str, optional
+            If "raise_exists" (default), tiling will raise error if patches already exist.
+            if "append", tiling will skip AOIs for which all patches already exist.
         """
         if src_aoi_list and not isinstance(src_aoi_list, List):
             raise TypeError('Input data should be a List')
@@ -130,13 +133,18 @@ class Tiler(object):
                             f'Got {min_annot_perc} of type {type(min_annot_perc)}')
         self.min_annot_perc = min_annot_perc
 
-        bands_set = set([tuple(aoi.raster_bands_request) for aoi in self.src_aoi_list])
+        try:
+            bands_set = set([tuple(aoi.raster_bands_request) for aoi in self.src_aoi_list])
+            self.bands_requested = self.src_aoi_list[0].raster_bands_request
+        except TypeError:
+            bands_set = set([aoi.raster_meta['count'] for aoi in self.src_aoi_list])
+            self.bands_requested = list(range(1, self.src_aoi_list[0].raster_meta['count']+1))
         if len(bands_set) > 1:
             raise ValueError(f'Bands requested vary among submitted AOIs. \n'
                              f'Check source imagery and define a unique list of bands to keep. \n'
                              f'Set of bands requested: {bands_set}')
-        self.bands_requested = self.src_aoi_list[0].raster_bands_request
         self.bands_num = len(self.bands_requested)
+
 
         if val_percent and not isinstance(val_percent, int):
             raise TypeError(f'Validation percentage should be an integer.\n'
@@ -235,6 +243,7 @@ class Tiler(object):
             batch: TorchGeo batch.
 
         Returns: image raster sample as a numpy array, sample CRS, sample bounding box coordinates.
+        If the mode is not "inference", then also returns a vector mask.
 
         """
         # Get the image as an array:
@@ -293,6 +302,7 @@ class Tiler(object):
         @param aoi: AOI object to be tiled
         @param out_img_dir: path to output patched images directory
         @param out_label_dir: optional, path to output patched labels directory
+        @param overwrite: if True, all existing patches will be overwritten
         @return: written patches to output directories as .tif for imagery and .geojson for label.
 
         https://torchgeo.readthedocs.io/en/stable/tutorials/custom_raster_dataset.html
@@ -301,24 +311,26 @@ class Tiler(object):
         https://gdal.org/api/python/osgeo.ogr.html
         """
         if not aoi.raster:  # in case of multiprocessing
-            aoi.raster = rasterio.open(aoi.raster_multiband)
+            aoi.raster = rasterio.open(aoi.raster_dest)
 
-        # Create TorchGeo-based custom VRTDataset dataset:
-        vrt_dataset = VRTDataset(aoi.raster)
+        # Create TorchGeo-based custom DRDataset dataset:
+        dr_dataset = DRDataset(aoi.raster)
 
         if not self.for_inference:
             vec_dataset = GDLVectorDataset(aoi.label)
             # Combine raster and vector datasets using AND operator (sampling only from the intersection area).
-            resulting_dataset = vrt_dataset & vec_dataset
+            resulting_dataset = dr_dataset & vec_dataset
             os.makedirs(out_label_dir, exist_ok=True)
         else:
-            resulting_dataset = vrt_dataset
+            resulting_dataset = dr_dataset
 
         # Initialize a sampler and a dataloader. If we need overlapping, stride must be adjusted accordingly.
         # For now, having stride parameter equal to the size, we have no overlapping (except for the borders).
         sampler = GridGeoSampler(resulting_dataset, size=self.dest_patch_size, stride=self.dest_patch_size)
         dataloader = DataLoader(resulting_dataset, sampler=sampler, collate_fn=stack_samples)
-        assert len(dataloader) != 0, "The dataloader is empty. Check input image and vector datasets."
+
+        if len(dataloader) == 0:
+            raise ValueError("The dataloader is empty. Check input image and vector datasets.")
 
         raster_tile_paths = []
         vector_tile_paths = []
@@ -372,7 +384,7 @@ class Tiler(object):
                 # Define the output vector patch filename:
                 dst_vector_name = self._define_output_name(aoi, out_label_dir, sample_window) + ".geojson"
                 vector_tile_paths.append(dst_vector_name)
-                # Clip vector labels having bounding boxes from the raster tiles:
+                # Clip vector labels having bounding boxes from the raster patches:
                 self._save_vec_mem_tile(sample_mask, dst_vector_name)
 
         # Write all raster tiles to the disk in parallel:
@@ -497,7 +509,7 @@ class Tiler(object):
         @return:
         """
         if not aoi.raster:  # in case of multiprocessing
-            aoi.raster = rasterio.open(aoi.raster_multiband)
+            aoi.raster = rasterio.open(aoi.raster_dest)
 
         random_val = np.random.randint(1, 101)
         if not {'trn', 'val'}.issubset(set(self.datasets)):
@@ -610,6 +622,7 @@ def main(cfg: DictConfig) -> None:
     parallel = get_key_def('multiprocessing', cfg['tiling'], default=False, expected_type=bool)
     parallel_num_proc = get_key_def('multiprocessing_processes', cfg['tiling'], default=multiprocessing.cpu_count(),
                                     expected_type=int)
+    write_dest_raster = get_key_def('write_dest_raster', cfg['tiling'], default=False, expected_type=bool)
     # TODO: why not ask only for a val percentage directly?
     val_percent = int(get_key_def('train_val_percent', cfg['tiling'], default={'val': 0.3})['val'] * 100)
     clahe_clip_limit = get_key_def('clahe_clip_limit', cfg['tiling'], expected_type=Number, default=0)
@@ -639,6 +652,7 @@ def main(cfg: DictConfig) -> None:
         download_data=download_data,
         data_dir=data_dir,
         for_multiprocessing=parallel,
+        write_dest_raster=write_dest_raster,
         equalize_clahe_clip_limit=clahe_clip_limit,
     )
 
@@ -656,6 +670,11 @@ def main(cfg: DictConfig) -> None:
     tilers = []
     logging.info(f"Preparing patches \n\tSamples_size: {patch_size} ")
     for index, aoi in tqdm(enumerate(tiler.src_aoi_list), position=0, leave=False):
+        if aoi.bounds_iou == 0.0:
+            logging.error(
+                f"Features in label file {aoi.label} do not intersect with bounds of raster file "
+                f"{aoi.raster.name}, thus this AOI will be skipped.")
+            continue
         try:
             tiling_dir = exp_dir / aoi.split.strip() / aoi.aoi_id.strip()
             tiling_dir_img = tiling_dir / 'images'

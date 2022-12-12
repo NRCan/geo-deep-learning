@@ -8,4 +8,5 @@ tiling:
   save_preview_labels: True
   multiprocessing: False
   clahe_clip_limit: 0
+  write_dest_raster: False
   write_mode: "raise_exists"
