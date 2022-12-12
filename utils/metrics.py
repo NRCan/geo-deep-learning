@@ -9,7 +9,7 @@ from sklearn.metrics import classification_report
 
 from solaris.eval.base import Evaluator
 from solaris.utils.core import _check_gdf_load
-from torchmetrics import MetricCollection, JaccardIndex
+from torchmetrics import MetricCollection, JaccardIndex, Metric
 
 min_val = 1e-6
 
@@ -100,7 +100,7 @@ def report_classification(pred, label, batch_size, metrics_dict, ignore_index=-1
     return metrics_dict
 
 
-def metric_match_device(metric: torchmetrics.Metric, pred: torch.Tensor, label: torch.Tensor):
+def metric_match_device(metric: Metric, pred: torch.Tensor, label: torch.Tensor):
     """Pushes the metric on devices where predictions and labels already are"""
     if metric.device != pred.device or metric.device != label.device:
         metric.to(pred.device)
