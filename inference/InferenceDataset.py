@@ -40,6 +40,8 @@ class InferenceDataset(RasterDataset):
         self.pad = pad
         self.outpath = outpath
 
+        self.aoi.raster_open()
+
         # Create an R-tree to index the dataset
         self.index = Index(interleaved=False, properties=Property(dimension=3))
 
@@ -65,8 +67,6 @@ class InferenceDataset(RasterDataset):
         self.aoi.raster = None
 
         self.index.insert(0, coords, self.aoi)
-
-        self.aoi.raster_open()
 
     def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:
         """Retrieve image/mask and metadata indexed by query.
@@ -105,6 +105,9 @@ class InferenceDataset(RasterDataset):
         )
         data = torch.tensor(dest)
         data = data.float()
+
+        self.aoi.close_raster()
+        self.aoi.raster = None
 
         key = "image" if self.is_image else "mask"
         sample = {key: data, "crs": self.crs, "bbox": query}

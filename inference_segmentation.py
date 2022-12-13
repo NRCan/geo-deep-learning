@@ -226,8 +226,8 @@ def main(params):
     outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
     outname = extension_remover(outname)
     outpath = root / f"{outname}.tif"
-    checkpoint = get_key_def('state_dict_path', params['inference'], expected_type=str, to_path=True,
-                             validate_path_exists=True)
+    checkpoint = get_key_def('state_dict_path', params['inference'], to_path=True,
+                             validate_path_exists=True, wildcard='*pth.tar')
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
     save_heatmap_bool = get_key_def('save_heatmap', params['inference'], default=False, expected_type=bool)
     heatmap_threshold = get_key_def('heatmap_threshold', params['inference'], default=50, expected_type=int)
@@ -249,6 +249,12 @@ def main(params):
     single_class_mode = get_key_def('state_dict_single_mode', params['inference'], default=True, expected_type=bool)
     # Dataset params
     bands_requested = get_key_def('bands', params['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
+    if item_url and [bands for bands in bands_requested if isinstance(bands, int)]:
+        # TODO: rethink this patch
+        bands = ['red', 'green', 'blue', 'nir']
+        bands_requested = [bands[i-1] for i in bands_requested]
+        logging.warning(f"Got stac item as input imagery for inference, but model's requested bands are integers."
+                        f"\nWill request: {bands_requested}")
     classes_dict = get_key_def('classes_dict', params['dataset'], expected_type=DictConfig)
     classes_dict = {k: v for k, v in classes_dict.items() if v}  # Discard keys where value is None
     # +1 for background if multiclass mode
@@ -309,13 +315,19 @@ def main(params):
     seed_everything(seed)
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
+    if raw_data_csv and item_url:
+        raise ValueError(f"Input imagery should be a csv of stac item. Got inputs from both \"raw_data_csv\" and "
+                         f"\"input stac item\"")
     if raw_data_csv is not None:
-        list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested)
-    else:
+        list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested, download_data=download_data,
+                                  data_dir=data_dir, for_multiprocessing=True)
+    elif item_url:
         list_aois = [
-            AOI(raster=str(item_url), raster_bands_request=bands_requested, split='inference', aoi_id=item_url.stem,
-                download_data=download_data, root_dir=data_dir)
+            AOI(raster=str(item_url), raster_bands_request=bands_requested, split='inference',
+                aoi_id=Path(item_url).stem, download_data=download_data, root_dir=data_dir, for_multiprocessing=True)
         ]
+    else:
+        raise NotImplementedError(f"No valid input provided. Set input with \"raw_data_csv\" or \"input stac item\"")
 
     logging.debug(f"\nInstantiating model with pretrained weights from {checkpoint}")
     try:
@@ -335,10 +347,6 @@ def main(params):
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
-        # FIXME
-        multiband_fp = aoi.write_multiband_from_singleband_rasters_as_vrt()
-        aoi.raster = multiband_fp.open()
-
         dm = InferenceDataModule(aoi=aoi,
                                  outpath=outpath,
                                  patch_size=chip_size,
@@ -357,7 +365,7 @@ def main(params):
             logging.error(f"MUST BE REIMPLEMENTED ASAP")
         ####
 
-        h, w = [side for side in aoi.raster.shape]
+        height, width = aoi.raster_meta['height'], aoi.raster_meta['width']
 
         if auto_batch_size and device.type != "cpu":
             batch_size = auto_batch_size_finder(datamodule=dm,
@@ -382,16 +390,16 @@ def main(params):
 
         # Create a numpy memory map to write results from per-chip inference to full-size prediction
         tempfile = root / f"{Path(aoi.raster_name).stem}.dat"
-        fp = np.memmap(tempfile, dtype='float16', mode='w+', shape=(h, w, num_classes))
-        transform = aoi.raster.transform
+        fp = np.memmap(tempfile, dtype='float16', mode='w+', shape=(height, width, num_classes))
+        transform = aoi.raster_meta['transform']
         for inference_prediction in eval_gen:
             # iterate through the batch and paste the predictions where they belong
             for i in range(len(inference_prediction['bbox'])):
                 bb = inference_prediction["bbox"][i]
                 col_min, row_min = ~transform * (bb.minx, bb.maxy)  # top left
                 col_min, row_min = round(col_min), round(row_min)
-                right = col_min + chip_size if col_min + chip_size <= w else w
-                bottom = row_min + chip_size if row_min + chip_size <= h else h
+                right = col_min + chip_size if col_min + chip_size <= width else width
+                bottom = row_min + chip_size if row_min + chip_size <= height else height
 
                 pred = inference_prediction['data'][i]
                 # Write prediction on top of existing prediction for smoothing purposes
@@ -402,9 +410,11 @@ def main(params):
 
         logging.debug(f"\nReading full-size prediction memory-map and writing to final raster after argmax operation "
                       f"(discard confidence info)")
-        fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, num_classes))
+        fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(height, width, num_classes))
         pred_img = class_from_heatmap(heatmap_arr=fp, heatmap_threshold=heatmap_threshold)
         pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
+
+        aoi.raster_open()
         create_new_raster_from_base(input_raster=aoi.raster, output_raster=outpath, write_array=pred_img)
 
         logging.info(f'\nInference completed on {aoi.raster_name}'

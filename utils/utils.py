@@ -5,7 +5,7 @@ import numbers
 import subprocess
 from functools import reduce
 from pathlib import Path
-from typing import Sequence, List, Dict
+from typing import Sequence, List, Dict, Union
 
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
@@ -31,12 +31,6 @@ from utils.logger import get_logger
 
 # Set the logging file
 log = get_logger(__name__)  # need to be different from logging in this case
-
-# AWS module
-try:
-    import boto3
-except ModuleNotFoundError:
-    logging.warning('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
 
 
 class Interpolate(torch.nn.Module):
@@ -78,7 +72,8 @@ def get_device_ids(
                 used_ram = mem['used'] / (1024 ** 2)
                 max_ram = mem['total'] / (1024 ** 2)
                 used_ram_perc = used_ram / max_ram * 100
-                log.info(f"\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res['gpu']}")
+                log.info(
+                    f"\nGPU RAM used: {used_ram_perc} ({used_ram:.0f}/{max_ram:.0f} MiB)\nGPU % used: {res['gpu']}")
                 if used_ram_perc < max_used_ram_perc:
                     if res['gpu'] < max_used_perc:
                         lst_free_devices[i] = {'used_ram_at_init': used_ram, 'max_ram': max_ram}
@@ -94,7 +89,7 @@ def get_device_ids(
                     break
             if len(lst_free_devices.keys()) < number_requested:
                 log.warning(f"\nYou requested {number_requested} devices. {device_count} devices are available and "
-                            f"other processes are using {device_count-len(lst_free_devices.keys())} device(s).")
+                            f"other processes are using {device_count - len(lst_free_devices.keys())} device(s).")
         else:
             return lst_free_devices
     except NameError as error:
@@ -177,7 +172,7 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
         return val
     if is_url(val):
         logging.info(f"\nProvided path is url. Cannot validate it's existence nor convert to Path object. Got:"
-                        f"\n{val}")
+                     f"\n{val}")
         validate_path_exists = False
     elif to_path:
         try:
@@ -187,7 +182,7 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
     if validate_path_exists:
         if not isinstance(val, Path):
             val = Path(to_absolute_path(val))
-        if val.is_dir() and wildcard: # Globs through directory and picks first item matching wildcard
+        if val.is_dir() and wildcard:  # Globs through directory and picks first item matching wildcard
             items = [item for item in val.glob(wildcard)]
             if items:
                 val = items[0]
@@ -203,31 +198,23 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
 
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     """
-    scale data values from original range to specified range
+    Scale data values from original range to specified range
     :param img: (numpy array) Image to be scaled
     :param scale_range: Desired range of transformed data (0, 1) or (-1, 1).
     :param orig_range: Original range of input data.
     :return: (numpy array) Scaled image
     """
-    assert scale_range == (0, 1) or scale_range == (-1, 1), 'expects scale_range as (0, 1) or (-1, 1)'
-    if scale_range == (0, 1):
-        scale_img = (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0])
+    if img.min() < orig_range[0] or img.max() > orig_range[1]:
+        raise ValueError(f"Actual original range exceeds expected original range.\n"
+                         f"Expected: {orig_range}\n"
+                         f"Actual: ({img.min()}, {img.max()})")
+    o_r = (orig_range[1] - orig_range[0])
+    s_r = (scale_range[1] - scale_range[0])
+    if isinstance(img, (np.ndarray, torch.Tensor)):
+        scale_img = (s_r * (img - orig_range[0]) / o_r) + scale_range[0]
     else:
-        scale_img = 2.0 * (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0]) - 1.0
+        raise TypeError(f"Expected a numpy array or torch tensor, got {type(img)}")
     return scale_img
-
-
-def unscale(img, float_range=(0, 1), orig_range=(0, 255)):
-    """
-    unscale data values from float range (0, 1) or (-1, 1) to original range (0, 255)
-    :param img: (numpy array) Image to be scaled
-    :param float_range: (0, 1) or (-1, 1).
-    :param orig_range: (0, 255) or (0, 65535).
-    :return: (numpy array) Unscaled image
-    """
-    f_r = float_range[1] - float_range[0]
-    o_r = orig_range[1] - orig_range[0]
-    return (o_r * (img - float_range[0]) / f_r) + orig_range[0]
 
 
 def pad(img, padding, fill=0):
@@ -285,7 +272,6 @@ def pad_diff(actual_height, actual_width, desired_height, desired_width):
 
 
 def unnormalize(input_img, mean, std):
-
     """
     :param input_img: (numpy array) Image to be "unnormalized"
     :param mean: (list of mean values) for each channel
@@ -319,7 +305,8 @@ def read_csv(csv_file_name: str) -> Dict:
             row = [str(i) or None for i in row]  # replace empty strings to None.
             row.extend([None] * (4 - len(row)))  # fill row with None values to obtain row of length == 5
 
-            row[0] = to_absolute_path(row[0]) if not is_url(row[0]) else row[0] # Convert relative paths to absolute with hydra's util to_absolute_path()
+            # Convert relative paths to absolute with hydra's util to_absolute_path()
+            row[0] = to_absolute_path(row[0]) if not is_url(row[0]) else row[0]
             try:
                 row[1] = str(to_absolute_path(row[1]) if not is_url(row[1]) else row[1])
             except TypeError:
@@ -364,6 +351,7 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
         metadata_dict['source_raster_bincount'][f'band{band_index}'] = {count for count in np.bincount(band.flatten())}
     return metadata_dict
 
+
 #### Image Patches Smoothing Functions ####
 """ Adapted from : https://github.com/Vooban/Smoothly-Blend-Image-Patches  """
 
@@ -373,7 +361,7 @@ def _spline_window(window_size: int, power=2) -> np.ndarray:
     Squared spline (power=2) window function:
     https://www.wolframalpha.com/input/?i=y%3Dx**2,+y%3D-(x-2)**2+%2B2,+y%3D(x-4)**2,+from+y+%3D+0+to+2
     """
-    intersection = int(window_size/4)
+    intersection = int(window_size / 4)
     wind_outer = (abs(2 * (scipy.signal.windows.triang(window_size))) ** power) / 2
     wind_outer[intersection:-intersection] = 0
 
@@ -387,7 +375,9 @@ def _spline_window(window_size: int, power=2) -> np.ndarray:
 
 
 cached_2d_windows = dict()
-def _window_2D(window_size: int, power=2) -> np.ndarray:
+
+
+def _window_2D(window_size, power=2):
     """
     Make a 1D window function, then infer and return a 2D window function.
     Done with an augmentation, and self multiplication with its transpose.
@@ -523,6 +513,24 @@ def print_config(
         rich.print(tree, file=fp)
 
 
+def is_inference_compatible(cfg: Union[dict, DictConfig]):
+    """Checks whether a configuration dictionary contains a config structure compatible with current inference script"""
+    try:
+        # don't update if already a recent checkpoint
+        # checks if major keys for current config exist, especially those that have changed over time
+        cfg['params']['augmentation']
+        cfg['params']['dataset']['classes_dict']
+        cfg['params']['dataset']['bands']
+        cfg['params']['model']['_target_']
+
+        # model state dicts
+        cfg['model_state_dict']
+        return True
+    except KeyError as e:
+        logging.debug(e)
+        return False
+
+
 def override_model_params_from_checkpoint(
         params: DictConfig,
         checkpoint_params) -> DictConfig:
@@ -586,7 +594,7 @@ def override_model_params_from_checkpoint(
 def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
     """
     Updates old geo-deep-learning checkpoint to the most recent version
-    @param checkpoint_params:
+    @param checkpoint:
         Checkpoint as dictionary containing training parameters, model weights, etc.
     @return: updated checkpoint
     """
@@ -689,7 +697,8 @@ def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
 
 def ckpt_is_compatible(in_ckpt_path: str, download_dir: str = None):
     """
-    Checks if model checkpoint is compatible with GDL's inference pipeline
+    TODO: replace with is_inference_compatible()
+    Checks if model checkpoint is compatible with GDL's inference pipeline (222 branch)
     @param in_ckpt_path:
         Path to checkpoint to validate
     @param download_dir:
