@@ -349,6 +349,10 @@ class Tiler(object):
                     (len(vector_tile_paths) == expect_patch_len or not vector_tile_paths):
                 logging.info(f"Skipping tiling for {aoi.aoi_id}")
                 skip_aoi = True
+            else:
+                [os.remove(ras_patch) for ras_patch in raster_tile_paths]
+                [os.remove(vec_patch) for vec_patch in vector_tile_paths]
+                raster_tile_paths = vector_tile_paths = []
 
         if not skip_aoi:
             # Iterate over the dataloader and save resulting raster patches:
