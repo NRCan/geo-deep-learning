@@ -16,12 +16,12 @@ from pandas.io.common import is_url
 from pystac.extensions.eo import ItemEOExtension, Band
 from omegaconf import listconfig, ListConfig
 from rasterio.plot import reshape_as_image, reshape_as_raster
-from shapely.geometry import box, Polygon, MultiPolygon
+from shapely.geometry import Polygon, MultiPolygon
 from torchvision.datasets.utils import download_url
 from tqdm import tqdm
 
 from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base, subset_multiband_vrt, \
-    check_rasterio_im_load, check_gdf_load
+    check_rasterio_im_load, check_gdf_load, bounds_gdf, bounds_riodataset, overlap_poly1_rto_poly2
 from utils.logger import get_logger
 from utils.utils import read_csv, minmax_scale
 from utils.verifications import assert_crs_match, validate_raster, \
@@ -167,10 +167,15 @@ class AOI(object):
             https://scikit-image.org/docs/stable/api/skimage.exposure.html#skimage.exposure.equalize_adapthist
             https://kornia.readthedocs.io/en/latest/enhance.html#kornia.enhance.equalize_clahe
         """
-        self.raster_name_clahe = None
-        self.raster_dest = None
-        self.raster_np = None
+        self.raster = self.raster_dest = self.raster_np = self.raster_meta = self.raster_parsed = None
+        self.raster_bounds = self.raster_name_clahe = None
+        self.download_data = self.root_dir = None
         self.raster_closed = False
+        self.raster_name = Path(raster)  # default name, may be overwritten later
+
+        self.label = self.label_gdf = self.label_invalid_features = self.label_bounds = None
+        self.overlap_label_rto_raster = self.overlap_raster_rto_label = None
+        self.crs_match = self.epsg_raster = self.epsg_label = None
 
         # Check and parse raster data
         if not isinstance(raster, str):
@@ -233,6 +238,7 @@ class AOI(object):
 
         self.raster = check_rasterio_im_load(self.raster_dest)
         self.raster_meta = self.raster.meta
+        self.raster_bounds = bounds_riodataset(self.raster)
 
         if write_dest_raster and self.raster_is_vrt:
             self.raster_np = self.raster_read()
@@ -262,14 +268,15 @@ class AOI(object):
         if label:
             self.label = Path(label)
             self.label_gdf = check_gdf_load(label)
-            self.bounds_iou = self.bounds_iou_gdf_riodataset(
-                gdf=self.label_gdf,
-                raster=self.raster)
-            if self.bounds_iou == 0.0:
+            self.label_invalid_features = validate_features_from_gpkg(label)
+
+            self.label_bounds = bounds_gdf(self.label_gdf)
+            if not self.raster_bounds.intersects(self.label_bounds):
                 logging.error(
                     f"Features in label file {label} do not intersect with bounds of raster file "
                     f"{self.raster.name}")
-            self.label_invalid_features = validate_features_from_gpkg(label)
+            self.overlap_label_rto_raster = overlap_poly1_rto_poly2(self.label_bounds, self.raster_bounds)
+            self.overlap_raster_rto_label = overlap_poly1_rto_poly2(self.raster_bounds, self.label_bounds)
 
             # TODO: unit test for failed CRS match
             try:
@@ -278,8 +285,6 @@ class AOI(object):
             except pyproj.exceptions.CRSError as e:
                 logging.warning(f"\nError while checking CRS match between raster and label."
                                 f"\n{e}")
-        else:
-            self.label = self.label_gdf = self.crs_match = self.epsg_raster = self.epsg_label = None
 
         # Check split string
         if split and not isinstance(split, str):
@@ -451,7 +456,8 @@ class AOI(object):
             'raster_meta': repr(self.raster_meta).replace("\n", "").replace(" ", " ").replace(",", ";"),
             'label_features_nb': len(self.label_gdf),
             'label_features_filtered_nb': len(self.label_gdf_filtered),
-            'raster_label_bounds_iou': self.bounds_iou,
+            'overlap_label_rto_raster': self.overlap_label_rto_raster,
+            'overlap_raster_rto_label': self.overlap_raster_rto_label,
             'crs_raster': self.epsg_raster,
             'crs_label': self.epsg_label,
             'crs_match': self.crs_match
@@ -599,30 +605,6 @@ class AOI(object):
             except (FileNotFoundError, rasterio.RasterioIOError, TypeError) as e:
                 logging.critical(f"Couldn't parse input raster. Got {csv_raster_str}")
                 raise e
-
-    @staticmethod
-    def bounds_iou(polygon1: Polygon, polygon2: Polygon) -> float:
-        """Calculate intersection over union of areas between two shapely polygons"""
-        if not polygon1.intersects(polygon2):
-            return 0
-        else:
-            intersection = polygon1.intersection(polygon2).area
-            union = polygon1.area + polygon2.area - intersection
-            return intersection / union
-
-    @staticmethod
-    def bounds_iou_gdf_riodataset(gdf: gpd.GeoDataFrame, raster: rasterio.DatasetReader) -> float:
-        """
-        Calculates intersection over union of the total bounds of a GeoDataFrame and bounds of a rasterio Dataset.
-        If the input geopackage is empty, then returns 0.0.
-        """
-        if gdf.empty:
-            return 0.0
-        label_bounds = gdf.total_bounds
-        label_bounds_box = box(*label_bounds.tolist())
-        raster_bounds_box = box(*list(raster.bounds))
-        bounds_iou = AOI.bounds_iou(polygon1=label_bounds_box, polygon2=raster_bounds_box)
-        return bounds_iou
 
     @staticmethod
     def filter_gdf_by_attribute(
