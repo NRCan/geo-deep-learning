@@ -72,7 +72,8 @@ def regularize_buildings(in_pred: Union[str, Path],
         run_from_container(image=container_image, command=container_command,
                            binds={f"{str(in_pred.parent.absolute())}": "/home",
                                   f"{code_dir}": "/media"},
-                           container_type=container_type)
+                           container_type=container_type,
+                           use_gpu=True)
         logging.info(f'\nRegularization completed')
     except Exception as e:
         logging.error(f"\nError regularizing using {container_type} container with image {container_image}."
@@ -157,7 +158,14 @@ def polygonize(in_raster: Union[str, Path],
             os.remove(out_vect_no_crs)
 
 
-def run_from_container(image: str, command: str, binds: Dict = {}, container_type='docker', verbose: bool = True):
+def run_from_container(
+        image: str,
+        command: str,
+        binds: Dict = {},
+        container_type='docker',
+        use_gpu: bool = False,
+        verbose: bool = True,
+):
     """
     Runs a command inside a docker or singularity container and returns when container has exited (on success or fail)
     @param image: str
@@ -170,6 +178,8 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
         Currently hardcoded to mount the volumes read/write
     @param container_type: str
         Specifies whether to use "docker" or "singularity"
+    @param use_gpu: bool
+        if True, will add parameter to use gpu if available
     @param verbose: bool
         if True, will print logs as container if executed
     @return:
@@ -178,15 +188,14 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
     logging.debug(command)
     if container_type == 'docker':
         binds = {k: {'bind': v, 'mode': 'rw'} for k, v in binds.items()}
+        gpu_device = [docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])] if use_gpu else []
         client = docker.from_env()
         qgis_pp_docker_img = client.images.get(image)
         container = client.containers.run(
             image=qgis_pp_docker_img,
             command=command,
             volumes=binds,
-            device_requests=[
-                docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])
-            ],
+            device_requests=gpu_device,
             detach=True)
         logs = container.logs(stream=stream)
         if stream:
@@ -212,7 +221,8 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
         binds = [f"--bind {k}:{v} " for k, v in binds.items()]
         binds_str = " "
         binds_str = binds_str.join(binds)
-        command = f"singularity exec --nv --cleanenv {binds_str}{to_absolute_path(str(image))} {command}"
+        gpu_device = "--nv" if use_gpu else ""
+        command = f"singularity exec --cleanenv {gpu_device} {binds_str}{to_absolute_path(str(image))} {command}"
         logging.debug(command.split())
         subproc = subprocess.run(command.split())
         subproc = subproc.returncode
