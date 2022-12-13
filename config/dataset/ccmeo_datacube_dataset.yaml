@@ -26,5 +26,5 @@ dataset:
   ignore_index: -1
 
   # outputs
-  sample_data_dir: ${general.sample_data_dir}
+  tiling_data_dir: ${general.tiling_data_dir}
 

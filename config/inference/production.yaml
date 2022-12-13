@@ -20,14 +20,12 @@ inference:
   batch_size: # if empty, will be calculated automatically to fill "auto_batch_size_threshold" % of GPU Ram
   chunk_size: # Defaults to 512
   auto_batch_size_threshold: 90
-  enhance_clip_limit: ${augmentation.clahe_enhance_clip_limit}  # if empty, will skip enhancement transform
   norm_means: ${augmentation.normalization.mean}  # if empty, will skip normalization transform
   norm_stds: ${augmentation.normalization.std}  # if empty, will skip normalization transform
   test_transforms:
     _target_: torchvision.transforms.Compose
     transforms:
       [{'_target_': inference.InferenceDataModule.pad, size: 16, mode: 'reflect'},
-      {'_target_': inference.InferenceDataModule.enhance, clip_limit: '${inference.enhance_clip_limit}'},
       {'_target_': inference.InferenceDataModule.preprocess},
       {'_target_': inference.InferenceDataModule.normalization, band_means: '${inference.norm_means}', band_stds: '${inference.norm_stds}'}]
 

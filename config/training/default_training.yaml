@@ -13,6 +13,7 @@ training:
   max_used_perc:
   state_dict_path:
   state_dict_strict_load: True
+  compute_sampler_weights: False
 
 #  precision: 16
 #  step_size: 4

@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Union, Optional, Callable, Dict, Any, cast
 
+import rasterio
 import torch
 from rasterio.crs import CRS
 from rasterio.windows import from_bounds
@@ -40,7 +41,8 @@ class InferenceDataset(RasterDataset):
         self.pad = pad
         self.outpath = outpath
 
-        self.aoi.raster_open()
+        if not self.aoi.raster:  # in case of multiprocessing
+            self.aoi.raster = rasterio.open(self.aoi.raster_multiband)
 
         # Create an R-tree to index the dataset
         self.index = Index(interleaved=False, properties=Property(dimension=3))
@@ -92,7 +94,8 @@ class InferenceDataset(RasterDataset):
 
         aoi = aoi[0]
 
-        aoi.raster_open()
+        if not aoi.raster:  # in case of multiprocessing
+            aoi.raster = rasterio.open(aoi.raster_multiband)
 
         # TODO: turn off external logs (ex.: rasterio._env)
         # https://stackoverflow.com/questions/35325042/python-logging-disable-logging-from-imported-modules
@@ -106,8 +109,8 @@ class InferenceDataset(RasterDataset):
         data = torch.tensor(dest)
         data = data.float()
 
-        self.aoi.close_raster()
-        self.aoi.raster = None
+        aoi.close_raster()
+        aoi.raster = None
 
         key = "image" if self.is_image else "mask"
         sample = {key: data, "crs": self.crs, "bbox": query}

@@ -9,6 +9,7 @@
 """CCMEO model inference script."""
 import argparse
 import os
+from numbers import Number
 from pathlib import Path
 from typing import Dict, Any, Sequence, Union
 
@@ -110,7 +111,8 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
     @return: int
         largest batch size before max_used_ram threshold is reached for GPU memory
     """
-    src_size = datamodule.inference_dataset.aoi.raster.height * datamodule.inference_dataset.aoi.raster.width
+    src_size = datamodule.inference_dataset.aoi.raster_meta['height'] \
+               * datamodule.inference_dataset.aoi.raster_meta['width']
     bs_min, bs_max, bs_step = 4, 256, 4
     window_spline_2d = create_spline_window(datamodule.patch_size).to(device)
     _tqdm = tqdm(range(bs_min, bs_max, bs_step), desc=f"Finding batch size filling GPU to {max_used_ram} % or less")
@@ -292,19 +294,10 @@ def main(params):
         logging.warning(f"Setting a large stride (more than 75% of chip size) will interfere with "
                         f"spline window smoothing operations and may result in poor quality extraction.")
     pad_size = get_key_def('pad', params['inference'], default=16, expected_type=int)
+    clahe_clip_limit = get_key_def('clahe_enhance_clip_limit', params['augmentation'], expected_type=Number, default=0)
     test_transforms_cfg = get_key_def('test_transforms', params['inference'],
                                       default=Compose([pad(pad_size, mode='reflect'), preprocess]),
                                       expected_type=(dict, DictConfig))
-
-    # FIXME: temporary implementation of clahe enhancement applied to entire aoi, not tile by tile
-    ####
-    test_transforms_list = [transform for transform in test_transforms_cfg['transforms'] if
-                            'enhance' not in transform['_target_']]
-    test_transform_clahe_cfg = [transform for transform in test_transforms_cfg['transforms'] if
-                                'enhance' in transform['_target_']]
-    test_transforms_cfg['transforms'] = test_transforms_list
-    test_transform_clahe = instantiate(test_transform_clahe_cfg[0]) if test_transform_clahe_cfg else None
-    ####
 
     test_transforms = instantiate(test_transforms_cfg)
 
@@ -320,11 +313,13 @@ def main(params):
                          f"\"input stac item\"")
     if raw_data_csv is not None:
         list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested, download_data=download_data,
-                                  data_dir=data_dir, for_multiprocessing=True)
+                                  data_dir=data_dir, for_multiprocessing=True,
+                                  equalize_clahe_clip_limit=clahe_clip_limit)
     elif item_url:
         list_aois = [
             AOI(raster=str(item_url), raster_bands_request=bands_requested, split='inference',
-                aoi_id=Path(item_url).stem, download_data=download_data, root_dir=data_dir, for_multiprocessing=True)
+                aoi_id=Path(item_url).stem, download_data=download_data, root_dir=data_dir, for_multiprocessing=True,
+                equalize_clahe_clip_limit=clahe_clip_limit)
         ]
     else:
         raise NotImplementedError(f"No valid input provided. Set input with \"raw_data_csv\" or \"input stac item\"")
@@ -357,13 +352,6 @@ def main(params):
                                  save_heatmap=save_heatmap_bool,
                                  )
         dm.setup(test_transforms=test_transforms)
-
-        # FIXME: temporary implementation of clahe enhancement applied to entire aoi, not tile by tile
-        ####
-        clip_limit = get_key_def('clahe_enhance_clip_limit', params['augmentation'], default=0, expected_type=int)
-        if test_transform_clahe is not None and clip_limit > 0:
-            logging.error(f"MUST BE REIMPLEMENTED ASAP")
-        ####
 
         height, width = aoi.raster_meta['height'], aoi.raster_meta['width']
 
@@ -414,7 +402,8 @@ def main(params):
         pred_img = class_from_heatmap(heatmap_arr=fp, heatmap_threshold=heatmap_threshold)
         pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
 
-        aoi.raster_open()
+        if not aoi.raster:  # in case of multiprocessing
+            aoi.raster = rasterio.open(aoi.raster_multiband)
         create_new_raster_from_base(input_raster=aoi.raster, output_raster=outpath, write_array=pred_img)
 
         logging.info(f'\nInference completed on {aoi.raster_name}'
