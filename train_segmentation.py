@@ -22,7 +22,7 @@ from utils import augmentation as aug
 from dataset import create_dataset
 from utils.logger import InformationLogger, tsv_line, get_logger, set_tracker
 from utils.loss import verify_weights, define_loss
-from utils.metrics import report_classification, create_metrics_dict, iou
+from utils.metrics import create_metrics_dict, calculate_batch_metrics
 from utils.utils import gpu_stats, get_key_def, get_device_ids, set_device
 from utils.visualization import vis_from_batch
 # Set the logging file
@@ -297,8 +297,7 @@ def training(train_loader,
           device,
           scale,
           vis_params,
-          debug=False
-          ):
+          debug=False):
     """
     Train the model and return the metrics of the training epoch
 
@@ -357,7 +356,7 @@ def training(train_loader,
 
         if device.type == 'cuda' and debug:
             res, mem = gpu_stats(device=device.index)
-            logging.debug(OrderedDict(trn_loss=f"{train_metrics['loss'].val:.2f}",
+            logging.debug(OrderedDict(trn_loss=f"{train_metrics['loss'].average():.2f}",
                                       gpu_perc=f"{res['gpu']} %",
                                       gpu_RAM=f"{mem['used'] / (1024 ** 2):.0f}/{mem['total'] / (1024 ** 2):.0f} MiB",
                                       lr=optimizer.param_groups[0]['lr'],
@@ -388,8 +387,8 @@ def evaluation(eval_loader,
                batch_metrics=None,
                dataset='val',
                device=None,
-               debug=False,
-               dontcare=-1):
+               debug=False
+               ):
     """
     Evaluate the model and return the updated metrics
     :param eval_loader: data loader
@@ -417,10 +416,8 @@ def evaluation(eval_loader,
         with torch.no_grad():
             inputs = data["image"].to(device)
             labels = data["mask"].to(device)
-
-            labels_flatten = flatten_labels(labels)
-
             outputs = model(inputs)
+
             if isinstance(outputs, OrderedDict):
                 outputs = outputs['out']
 
@@ -441,27 +438,30 @@ def evaluation(eval_loader,
                                    ep_num=ep_idx + 1,
                                    scale=scale)
 
-            outputs_flatten = flatten_outputs(outputs, num_classes)
-
             loss = criterion(outputs, labels.unsqueeze(1).float())
 
             eval_metrics['loss'].update(loss.item(), batch_size)
 
             if (dataset == 'val') and (batch_metrics is not None):
-                # Compute metrics every n batches. Time consuming.
+                # Compute metrics every n batches. Time-consuming.
                 if not batch_metrics <= len(eval_loader):
                     logging.error(f"\nBatch_metrics ({batch_metrics}) is smaller than batch size "
                                   f"{len(eval_loader)}. Metrics in validation loop won't be computed")
                 if (batch_index + 1) % batch_metrics == 0:  # +1 to skip val loop at very beginning
-                    a, segmentation = torch.max(outputs_flatten, dim=1)
-                    eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics, dontcare)
-                    eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                         ignore_index=dontcare)
-            elif (dataset == 'tst'):
-                a, segmentation = torch.max(outputs_flatten, dim=1)
-                eval_metrics = iou(segmentation, labels_flatten, batch_size, num_classes, eval_metrics, dontcare)
-                eval_metrics = report_classification(segmentation, labels_flatten, batch_size, eval_metrics,
-                                                     ignore_index=dontcare)
+                    eval_metrics = calculate_batch_metrics(
+                        predictions=outputs,
+                        gts=labels,
+                        n_classes=num_classes,
+                        metric_dict=eval_metrics
+                    )
+
+            elif dataset == 'tst':
+                eval_metrics = calculate_batch_metrics(
+                    predictions=outputs,
+                    gts=labels,
+                    n_classes=num_classes,
+                    metric_dict=eval_metrics
+                )
 
             logging.debug(OrderedDict(dataset=dataset, loss=f'{eval_metrics["loss"].avg:.4f}'))
 
@@ -472,13 +472,13 @@ def evaluation(eval_loader,
                     gpu_RAM=f"{mem['used']/(1024**2):.0f}/{mem['total']/(1024**2):.0f} MiB"
                 ))
 
-    if eval_metrics['loss'].avg:
-        logging.info(f"\n{dataset} Loss: {eval_metrics['loss'].avg:.4f}")
+    if eval_metrics['loss'].average():
+        logging.info(f"\n{dataset} Loss: {eval_metrics['loss'].average():.4f}")
     if batch_metrics is not None or dataset == 'tst':
-        logging.info(f"\n{dataset} precision: {eval_metrics['precision'].avg:.4f}")
-        logging.info(f"\n{dataset} recall: {eval_metrics['recall'].avg:.4f}")
-        logging.info(f"\n{dataset} fscore: {eval_metrics['fscore'].avg:.4f}")
-        logging.info(f"\n{dataset} iou: {eval_metrics['iou'].avg:.4f}")
+        logging.info(f"\n{dataset} precision: {eval_metrics['precision'].average():.4f}")
+        logging.info(f"\n{dataset} recall: {eval_metrics['recall'].average():.4f}")
+        logging.info(f"\n{dataset} fscore: {eval_metrics['fscore'].average():.4f}")
+        logging.info(f"\n{dataset} iou: {eval_metrics['iou'].average():.4f}")
 
     return eval_metrics
 
@@ -732,9 +732,8 @@ def train(cfg: DictConfig) -> None:
                                 device=device,
                                 scale=scale,
                                 vis_params=vis_params,
-                                debug=debug,
-                                dontcare=dontcare_val)
-        val_loss = val_report['loss'].avg
+                                debug=debug)
+        val_loss = val_report['loss'].average()
         if 'val_log' in locals():  # only save the value if a tracker is setup
             if batch_metrics is not None:
                 val_log.add_values(val_report, epoch)
@@ -800,9 +799,8 @@ def train(cfg: DictConfig) -> None:
                                 dataset='tst',
                                 scale=scale,
                                 vis_params=vis_params,
-                                device=device,
-                                dontcare=dontcare_val)
-        if 'tst_log' in locals():  # only save the value if a tracker is setup
+                                device=device)
+        if 'tst_log' in locals():  # only save the value if a tracker is set                                     up
             tst_log.add_values(tst_report, num_epochs)
 
 
