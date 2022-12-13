@@ -1,8 +1,14 @@
-from typing import Dict
+from collections import OrderedDict
+from pathlib import Path
+from typing import Dict, Union
 
 import numpy as np
+from solaris.eval.base import Evaluator
 import torch
 import torch.nn.functional as F
+from torchmetrics import MetricCollection, JaccardIndex
+
+from utils.geoutils import check_gdf_load
 
 
 def create_metrics_dict(num_classes: int) -> Dict:
@@ -159,3 +165,52 @@ def calculate_batch_metrics(
 
     return metric_dict
 
+
+def iou_torchmetrics(pred: torch.Tensor, label: torch.Tensor, num_classes: int, device: torch.device = 'cpu'):  # FIXME: merge with iou() above
+    metrics = MetricCollection(
+        [JaccardIndex(num_classes=num_classes, ignore_index=False, multilabel=True)], prefix="evaluate_"
+    )
+    metrics.to(device)
+    metrics(pred.to(device), label.to(device))
+    results = metrics.compute()
+    metrics.reset()
+    iou = results["evaluate_JaccardIndex"].item()
+    return iou
+
+
+def iou_per_obj(
+        pred: Union[str, Path],
+        gt:Union[str, Path],
+        outfile: Union[str, Path] = None,
+        min_iou: float = 0.5):
+    """
+    Calculate iou per object by comparing vector ground truth and vectorized prediction
+    @param pred:
+        Path to vector prediction
+    @param gt:
+        Path to vector ground truth
+    @param outfile:
+        Path to output vector file where classified features will be written
+    @param aoi_id:
+    @return:
+    """
+    if not outfile:
+        outfile = pred
+    gt_gdf = check_gdf_load(gt)
+    evaluator = Evaluator(ground_truth_vector_file=gt_gdf)
+
+    evaluator.load_proposal(pred, conf_field_list=None)
+    scoring_dict_list, TP_gdf, FN_gdf, FP_gdf = evaluator.eval_iou_return_GDFs(
+        calculate_class_scores=False,
+        miniou=min_iou
+    )
+
+    if TP_gdf is not None:
+        TP_gdf.to_file(outfile, layer='True_Pos', driver="GPKG")
+    if FN_gdf is not None:
+        FN_gdf.to_file(outfile, layer='False_Neg', driver="GPKG")
+    if FP_gdf is not None:
+        FP_gdf.to_file(outfile, layer='False_Pos', driver="GPKG")
+
+    scoring_dict_list[0] = OrderedDict(scoring_dict_list[0])
+    return scoring_dict_list[0]
