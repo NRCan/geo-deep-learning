@@ -9,7 +9,6 @@ import pytest
 from _pytest.fixtures import SubRequest
 import rasterio
 from rasterio import RasterioIOError
-from shapely.geometry import box
 from torchgeo.datasets.utils import extract_archive
 
 from dataset.aoi import AOI, aois_from_csv
@@ -151,28 +150,6 @@ class Test_AOI(object):
             raster_parsed = AOI.parse_input_raster(csv_raster_str=raster_raw, raster_bands_requested=bands_requested)
             print(raster_parsed)
 
-    def test_bounds_iou(self) -> None:
-        """Tests calculation of IOU between raster and label bounds"""
-        raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
-        raster = rasterio.open(raster_file)
-        label_gdf = gpd.read_file('tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg')
-
-        label_bounds = label_gdf.total_bounds
-        label_bounds_box = box(*label_bounds.tolist())
-        raster_bounds_box = box(*list(raster.bounds))
-        iou = AOI.bounds_iou(label_bounds_box, raster_bounds_box)
-        expected_iou = 0.013904645827033404
-        assert iou == expected_iou
-
-    def test_empty_geopackage_iou(self):
-        """ Tests calculation of IOU between raster and an empty geopackage """
-        extract_archive(src="tests/dataset/buil_AB11-WV02-20100926-1.zip")
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
-        raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
-        raster = rasterio.open(raster_file)
-        label_gdf = gpd.read_file('tests/dataset/buil_AB11-WV02-20100926-1.gpkg')
-        assert AOI.bounds_iou_gdf_riodataset(label_gdf, raster) == 0.0
-
     def test_corrupt_raster(self) -> None:
         """Tests error when reading a corrupt file"""
         extract_archive(src="tests/data/spacenet.zip")
@@ -271,7 +248,7 @@ class Test_AOI(object):
         row = next(iter(data))
         row['gpkg'] = "tests/data/new_brunswick_aerial/BakerLake_2017_clipped.gpkg"
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
-        assert aoi.bounds_iou == 0
+        assert aoi.overlap_label_rto_raster == 0
         aoi.close_raster()
 
     def test_write_multiband_from_single_band(self) -> None:

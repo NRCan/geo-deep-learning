@@ -23,7 +23,7 @@ from torchgeo.datasets import stack_samples
 
 from dataset.create_dataset import DRDataset, GDLVectorDataset
 from dataset.aoi import aois_from_csv, AOI
-from utils.geoutils import check_gdf_load, check_rasterio_im_load
+from utils.geoutils import check_gdf_load, check_rasterio_im_load, bounds_gdf, bounds_riodataset
 from utils.utils import get_key_def, get_git_hash
 from utils.verifications import validate_raster
 # Set the logging file
@@ -47,9 +47,9 @@ def annot_percent(img_patch: Union[str, Path, rasterio.DatasetReader],
         return 0
     img_patch_dataset = check_rasterio_im_load(img_patch)
 
-    bounds_iou = AOI.bounds_iou_gdf_riodataset(gdf_patch, img_patch_dataset)
+    gdf_patch_bounds, img_patch_bounds = bounds_gdf(gdf_patch), bounds_riodataset(img_patch_dataset)
 
-    if bounds_iou == 0:
+    if not gdf_patch_bounds.intersects(img_patch_bounds):
         raise rasterio.errors.CRSError(
             f"Features in label file {gdf_patch.info} do not intersect with bounds of raster file "
             f"{img_patch_dataset.files}")
@@ -627,7 +627,7 @@ def main(cfg: DictConfig) -> None:
     tilers = []
     logging.info(f"Preparing patches \n\tSamples_size: {patch_size} ")
     for index, aoi in tqdm(enumerate(tiler.src_aoi_list), position=0, leave=False):
-        if aoi.bounds_iou == 0.0:
+        if aoi.overlap_label_rto_raster == 0.0:
             logging.error(
                 f"Features in label file {aoi.label} do not intersect with bounds of raster file "
                 f"{aoi.raster.name}, thus this AOI will be skipped.")
