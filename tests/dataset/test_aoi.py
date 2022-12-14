@@ -348,6 +348,7 @@ class Test_AOI(object):
         aoi.to_dict()
         aoi.close_raster()
 
+    # FIXME: see issue 433
     # def test_for_multiprocessing(self) -> None:
     #     """Tests multiprocessing on AOI instances"""
     #     extract_archive(src="tests/data/new_brunswick_aerial.zip")
