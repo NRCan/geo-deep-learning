@@ -11,10 +11,12 @@ import geopandas as gpd
 import numpy as np
 import pystac
 import rasterio
-from rasterio import MemoryFile
+from rasterio import MemoryFile, DatasetReader
 from rasterio.plot import reshape_as_raster
 from rasterio.shutil import copy as riocopy
 import xml.etree.ElementTree as ET
+
+from shapely.geometry import box, Polygon
 
 logger = logging.getLogger(__name__)
 
@@ -197,3 +199,23 @@ def check_crs(input_crs, return_rasterio=False):
             out_crs = rasterio.crs.CRS.from_wkt(out_crs.to_wkt("WKT1_GDAL"))
 
     return out_crs
+
+
+def bounds_riodataset(raster: DatasetReader) -> box:
+    """Returns bounds of a rasterio DatasetReader as shapely box instance"""
+    return box(*list(raster.bounds))
+
+
+def bounds_gdf(gdf: gpd.GeoDataFrame) -> box:
+    """Returns bounds of a GeoDataFrame as shapely box instance"""
+    if gdf.empty:
+        return Polygon()
+    gdf_bounds = gdf.total_bounds
+    gdf_bounds_box = box(*gdf_bounds.tolist())
+    return gdf_bounds_box
+
+
+def overlap_poly1_rto_poly2(polygon1: Polygon, polygon2: Polygon) -> float:
+    """Calculate intersection of extents from polygon 1 and 2 over extent of a polygon 2"""
+    intersection = polygon1.intersection(polygon2).area
+    return intersection / (polygon2.area + 1e-30)
