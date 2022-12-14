@@ -216,23 +216,6 @@ class GDLVectorDataset(GeoDataset):
         self.vec_srs = self.mem_vec_ds.GetLayer().GetSpatialRef()
         vec_srs_wkt = self.vec_srs.ExportToPrettyWkt()
 
-        # Convert all non-linear geometry to the linear:
-        layer = self.mem_vec_ds.GetLayer()
-        feature_defn = layer.GetLayerDefn()
-        layer.ResetReading()
-        feature = layer.GetNextFeature()
-        while feature is not None:
-            geom = feature.GetGeometryRef()
-            name = geom.GetGeometryName()
-            if name != "POLYGON":
-                linear_geom = geom.GetLinearGeometry()
-                new_feature = ogr.Feature(feature_defn)
-                new_feature.SetGeometryDirectly(linear_geom)
-                layer.CreateFeature(new_feature)
-                layer.DeleteFeature(feature.GetFID())
-
-            feature = layer.GetNextFeature()
-
         self._crs = CRS.from_wkt(vec_srs_wkt)
 
     def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:
@@ -271,6 +254,24 @@ class GDLVectorDataset(GeoDataset):
         # Clip it with the bounding box:
         out_layer = out_mem_ds.CreateLayer('0', self.vec_srs, geom_type=ogr.wkbMultiPolygon)
         ogr.Layer.Clip(self.mem_vec_ds.GetLayer(), mem_layer, out_layer)
+
+        # Check if the feature geometry is polygonal:
+        feature_defn = out_layer.GetLayerDefn()
+        out_layer.ResetReading()
+        feature = out_layer.GetNextFeature()
+        while feature is not None:
+            geom = feature.GetGeometryRef()
+            name = geom.GetGeometryName()
+
+            # Approximate a curvature by a polygon geometry:
+            if name != "POLYGON" and name != "MULTIPOLYGON":
+                linear_geom = geom.GetLinearGeometry()
+                new_feature = ogr.Feature(feature_defn)
+                new_feature.SetGeometryDirectly(linear_geom)
+                out_layer.CreateFeature(new_feature)
+                out_layer.DeleteFeature(feature.GetFID())
+
+            feature = out_layer.GetNextFeature()
 
         sample = {"mask": out_mem_ds, "crs": self.crs, "bbox": query}
 
