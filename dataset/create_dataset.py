@@ -216,6 +216,23 @@ class GDLVectorDataset(GeoDataset):
         self.vec_srs = self.mem_vec_ds.GetLayer().GetSpatialRef()
         vec_srs_wkt = self.vec_srs.ExportToPrettyWkt()
 
+        # Convert all non-linear geometry to the linear:
+        layer = self.mem_vec_ds.GetLayer()
+        feature_defn = layer.GetLayerDefn()
+        layer.ResetReading()
+        feature = layer.GetNextFeature()
+        while feature is not None:
+            geom = feature.GetGeometryRef()
+            name = geom.GetGeometryName()
+            if name != "POLYGON":
+                linear_geom = geom.GetLinearGeometry()
+                new_feature = ogr.Feature(feature_defn)
+                new_feature.SetGeometryDirectly(linear_geom)
+                layer.CreateFeature(new_feature)
+                layer.DeleteFeature(feature.GetFID())
+
+            feature = layer.GetNextFeature()
+
         self._crs = CRS.from_wkt(vec_srs_wkt)
 
     def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:
