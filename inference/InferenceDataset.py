@@ -42,7 +42,7 @@ class InferenceDataset(RasterDataset):
         self.outpath = outpath
 
         if not self.aoi.raster:  # in case of multiprocessing
-            self.aoi.raster = rasterio.open(self.aoi.raster_multiband)
+            self.aoi.raster = rasterio.open(self.aoi.raster_dest)
 
         # Create an R-tree to index the dataset
         self.index = Index(interleaved=False, properties=Property(dimension=3))
@@ -95,7 +95,7 @@ class InferenceDataset(RasterDataset):
         aoi = aoi[0]
 
         if not aoi.raster:  # in case of multiprocessing
-            aoi.raster = rasterio.open(aoi.raster_multiband)
+            aoi.raster = rasterio.open(aoi.raster_dest)
 
         # TODO: turn off external logs (ex.: rasterio._env)
         # https://stackoverflow.com/questions/35325042/python-logging-disable-logging-from-imported-modules

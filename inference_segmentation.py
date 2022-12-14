@@ -29,11 +29,11 @@ from tqdm import tqdm
 
 from dataset.aoi import AOI, aois_from_csv
 from inference.InferenceDataModule import InferenceDataModule, preprocess, pad
-from models.model_choice import define_model_architecture
+from models.model_choice import define_model_architecture, read_checkpoint
 from utils.geoutils import create_new_raster_from_base
 from utils.logger import get_logger
 from utils.utils import _window_2D, get_device_ids, get_key_def, set_device, override_model_params_from_checkpoint, \
-    checkpoint_converter, read_checkpoint, extension_remover, class_from_heatmap, stretch_heatmap, ckpt_is_compatible
+    extension_remover, class_from_heatmap, stretch_heatmap, ckpt_is_compatible
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -242,7 +242,7 @@ def main(params):
         load_state_dict_from_url(url=checkpoint, map_location='cpu', model_dir=models_dir)
         checkpoint = models_dir / Path(checkpoint).name
     if not ckpt_is_compatible(checkpoint):
-        checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
+        raise KeyError(f"\nCheckpoint is incompatible with inference pipeline.")
     checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=False)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict["hyper_parameters"])
 
@@ -403,7 +403,7 @@ def main(params):
         pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
 
         if not aoi.raster:  # in case of multiprocessing
-            aoi.raster = rasterio.open(aoi.raster_multiband)
+            aoi.raster = rasterio.open(aoi.raster_dest)
         create_new_raster_from_base(input_raster=aoi.raster, output_raster=outpath, write_array=pred_img)
 
         logging.info(f'\nInference completed on {aoi.raster_name}'

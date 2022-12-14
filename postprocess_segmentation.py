@@ -26,9 +26,10 @@ from rasterio.windows import Window
 from torch.hub import load_state_dict_from_url, get_dir
 from tqdm import tqdm
 
+from models.model_choice import read_checkpoint
 from utils.logger import get_logger
-from utils.utils import get_key_def, override_model_params_from_checkpoint, checkpoint_converter, read_checkpoint, \
-    extension_remover, class_from_heatmap, ckpt_is_compatible
+from utils.utils import get_key_def, override_model_params_from_checkpoint, extension_remover, class_from_heatmap, \
+    ckpt_is_compatible
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -416,7 +417,7 @@ def main(params):
         load_state_dict_from_url(url=checkpoint, map_location='cpu', model_dir=models_dir)
         checkpoint = models_dir / Path(checkpoint).name
     if not ckpt_is_compatible(checkpoint):
-        checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
+        raise KeyError(f"\nCheckpoint is incompatible with inference pipeline.")
     checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=False)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict["hyper_parameters"])
 

@@ -14,9 +14,9 @@ import numpy as np
 import rasterio
 from omegaconf import DictConfig
 
+from models.model_choice import read_checkpoint
 from utils.logger import get_logger
-from utils.utils import get_key_def, override_model_params_from_checkpoint, checkpoint_converter, read_checkpoint, \
-    extension_remover
+from utils.utils import get_key_def, override_model_params_from_checkpoint, extension_remover, ckpt_is_compatible
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -50,10 +50,8 @@ def main(params):
     # output suffixes
     out_gen_suffix = get_key_def('generalization', params['postprocess']['output_suffixes'], default='_post',
                                   expected_type=str)
-
-    # Create yaml to use pytorch lightning model management
-    logging.info(f"Converting geo-deep-learning checkpoint to pytorch lightning...")
-    checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
+    if not ckpt_is_compatible(checkpoint):
+        raise KeyError(f"\nCheckpoint is incompatible with inference pipeline.")
     checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict['params'])
 

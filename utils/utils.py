@@ -18,7 +18,7 @@ import torch
 from ruamel_yaml.comments import CommentedSeq
 from skimage.exposure.exposure import intensity_range
 from torch import Tensor
-from torch.hub import load_state_dict_from_url, get_dir
+from torch.hub import load_state_dict_from_url
 from torchvision import models
 import numpy as np
 import scipy.signal
@@ -598,15 +598,6 @@ def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
         Checkpoint as dictionary containing training parameters, model weights, etc.
     @return: updated checkpoint
     """
-    # covers gdl checkpoints from version <= 2.0.1
-    # TODO test this
-    if 'model' in checkpoint.keys() and isinstance(list(checkpoint['model'].values())[0], Tensor):
-        checkpoint['model_state_dict'] = checkpoint['model']
-        del checkpoint['model']
-    if 'optimizer' in checkpoint.keys() and 'state' in checkpoint["optimizer"].keys():
-        checkpoint['optimizer_state_dict'] = checkpoint['optimizer']
-        del checkpoint['optimizer']
-
     # covers gdl checkpoints pre-hydra (<=2.0.0)
     bands = {'red': 'R', 'green': 'G', 'blue': 'B', 'nir': 'N'}
     old2new = {
@@ -726,110 +717,6 @@ def ckpt_is_compatible(in_ckpt_path: str, download_dir: str = None):
     except (KeyError, AttributeError) as e:
         logging.warning(f"\nCheckpoint is incompatible with inference pipeline.\n{e}")
         return False
-
-
-def convert_gdl_checkpoint(checkpoint: dict):
-    """
-    Converts a checkpoint produced by latest version of geo-deep-learning to the inference pipeline.
-    """
-    try:
-        model_params = get_key_def('model', checkpoint["params"], default=None)
-        if model_params and (not "in_channels" in model_params.keys() or not "classes" in model_params.keys()):
-            class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
-            single_class_mode = True  # TODO: remove if no old models are used in production.
-            if 'inference' in checkpoint['params'].keys():
-                single_class_mode = get_key_def('state_dict_single_mode', checkpoint['params']['inference'], default=True)
-            # +1 for background(multiclass mode)
-            num_classes = class_keys if class_keys == 1 and single_class_mode else class_keys + 1
-            # Store hyperparameters to checkpoint as expected by pytorch lightning
-            if isinstance(checkpoint["params"]["model"], DictConfig):
-                OmegaConf.set_struct(checkpoint["params"]["model"], False)
-            checkpoint["params"]["model"]["in_channels"] = len(checkpoint['params']['dataset']['bands'])
-            checkpoint["params"]["model"]["classes"] = num_classes
-
-        # adapt to what pytorch lightning expects: add "model" prefix to model keys
-        if not list(checkpoint['model_state_dict'].keys())[0].startswith('model'):
-            new_state_dict = {}
-            new_state_dict['model_state_dict'] = checkpoint['model_state_dict'].copy()
-            new_state_dict['model_state_dict'] = {'model.'+k: v for k, v in checkpoint['model_state_dict'].items()}
-            checkpoint['model_state_dict'] = new_state_dict['model_state_dict']
-
-        # keep all keys and copy model weights to new state_dict key
-        pl_checkpoint = checkpoint.copy()
-        if not "state_dict" in pl_checkpoint.keys() or not isinstance(pl_checkpoint["state_dict"], dict):
-            pl_checkpoint['state_dict'] = checkpoint['model_state_dict']
-            del pl_checkpoint['model_state_dict']
-        if not "hyper_parameters" in pl_checkpoint.keys():
-            pl_checkpoint['hyper_parameters'] = checkpoint["params"]
-            del pl_checkpoint["params"]
-        return pl_checkpoint
-    except KeyError as e:
-        raise KeyError(f"Cannot convert provided checkpoint. Missing key: {e}")
-
-
-def convert_pl_checkpoint(checkpoint: dict):
-    """
-    Convert a pytorch lightning checkpoint trained with https://github.com/remtav/torchgeo/tree/ccmeo-dataset.
-    Will fallback to try
-    @param checkpoint:
-    @return:
-    """
-    if 'state_dict' in checkpoint.keys() and 'hyper_parameters' in checkpoint.keys():
-        naive_bands = ["red", "green", "blue", "nir"]
-        ckpt_bands_nb = checkpoint["hyper_parameters"]["model"]["in_channels"]
-        classes_dict = {f"class_{index}": index+1 for index in
-                        range(checkpoint["hyper_parameters"]["model"]["classes"])}
-
-        checkpoint["hyper_parameters"]['dataset'] = {
-            "classes_dict": classes_dict,
-            "bands": [naive_bands[index] for index in range(ckpt_bands_nb)]
-        }
-        single_class_mode = True if checkpoint["hyper_parameters"]["model"]["classes"] == 1 else False
-        checkpoint["hyper_parameters"]["inference"] = {'state_dict_single_mode': single_class_mode}
-        return checkpoint
-    else:
-        raise KeyError(f"Cannot convert provided checkpoint.")
-
-
-def checkpoint_converter(in_pth_path: str, out_dir: str = None) -> str:
-    """
-    Converts a geo-deep-learning/pytorch checkpoint (from v2.0.0+) to checkpoint as expected by inference pipeline,
-    i.e. pytorch lightning state dict with config saved under "params" key as done by GDL.
-    The outputted model should remain compatible with geo-deep-learning's checkpoint loading.
-    @param in_pth_path:
-        path or url to input checkpoint
-    @param out_dir:
-        path where pytorch-lightning adapted checkpoint should be written. Default directory defined by
-        torch.hub's get_dir() function, under 'checkpoint'.
-        Default output name adds "pl_" prefix in front of input name
-    @return:
-        path to outputted checkpoint and path to outputted yaml to use when loading with pytorch lightning
-    """
-    if Path(in_pth_path).name.startswith('pl_'):
-        logging.info(f"Already a pytorch lightning checkpoint!")
-        return in_pth_path
-    logging.info(f"Trying to make checkpoint compatible with this inference pipeline...")
-    if not out_dir:
-        out_dir = get_dir() / 'checkpoint'
-    if not out_dir.is_dir():
-        out_dir.mkdir(exist_ok=True, parents=True)
-    out_path = out_dir / f'pl_{Path(in_pth_path).name}'
-    if Path(out_path).is_file():
-        logging.info(f"Found an existing pre-converted checkpoint!")
-        return out_path
-    # load with geo-deep-learning method
-    checkpoint = read_checkpoint(in_pth_path, update=False)
-    if str(in_pth_path).endswith(".ckpt"):
-        pl_checkpoint = convert_pl_checkpoint(checkpoint=checkpoint)
-    elif str(in_pth_path).endswith(".pth.tar"):
-        checkpoint = update_gdl_checkpoint(checkpoint)
-        pl_checkpoint = convert_gdl_checkpoint(checkpoint)
-    else:
-        raise KeyError(f"Cannot convert provided checkpoint: {in_pth_path}")
-
-    torch.save(pl_checkpoint, out_path)
-
-    return out_path
 
 
 def read_checkpoint(filename, out_dir: str = 'checkpoints', update=True) -> DictConfig:
