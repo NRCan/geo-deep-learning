@@ -215,6 +215,8 @@ class GDLVectorDataset(GeoDataset):
         self.mem_vec_ds = src_mem_driver.CopyDataSource(self.vec_ds, 'src_mem_ds')
         self.vec_srs = self.mem_vec_ds.GetLayer().GetSpatialRef()
         vec_srs_wkt = self.vec_srs.ExportToPrettyWkt()
+        self.geometry_type = self.mem_vec_ds.GetLayer().GetNextFeature().GetGeometryRef()
+        name = self.geometry_type.GetGeometryName()
 
         self._crs = CRS.from_wkt(vec_srs_wkt)
 
