@@ -215,7 +215,6 @@ class GDLVectorDataset(GeoDataset):
         self.mem_vec_ds = src_mem_driver.CopyDataSource(self.vec_ds, 'src_mem_ds')
         self.vec_srs = self.mem_vec_ds.GetLayer().GetSpatialRef()
         vec_srs_wkt = self.vec_srs.ExportToPrettyWkt()
-
         self._crs = CRS.from_wkt(vec_srs_wkt)
 
     def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:

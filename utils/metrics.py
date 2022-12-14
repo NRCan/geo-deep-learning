@@ -159,3 +159,51 @@ def calculate_batch_metrics(
 
     return metric_dict
 
+
+class ComputePixelMetrics:
+    """
+    Compute pixel-based metrics between two segmentation masks.
+    :param label: (numpy array) reference segmentaton mask
+    :param pred: (numpy array) predicted segmentaton mask
+    """
+    __slots__ = 'label', 'pred', 'num_classes', 'min_val'
+
+    def __init__(self, label, pred, num_classes):
+        self.label = label
+        self.pred = pred
+        self.num_classes = 2 if num_classes == 1 else num_classes
+        self.min_val = 1e-6
+
+    def update(self, metric_func):
+        metric = {}
+        classes = []
+        for i in range(self.num_classes):
+            c_label = self.label == i
+            c_pred = self.pred == i
+            m = metric_func(c_label, c_pred)
+            classes.append(m)
+            metric[metric_func.__name__ + '_' + str(i)] = classes[i]
+        mean_m = np.nanmean(classes)
+        metric['macro_avg_' + metric_func.__name__] = mean_m
+        metric['micro_avg_' + metric_func.__name__] = metric_func(self.label, self.pred)
+        return metric
+
+    def iou(self, label, pred):
+        """
+        :return: IOU
+        """
+        intersection = (pred & label).sum()
+        union = (pred | label).sum()
+        iou = (intersection + self.min_val) / (union + self.min_val)
+
+        return iou
+
+    @staticmethod
+    def dice(label, pred):
+        """
+        :return: Dice similarity coefficient
+        """
+        intersection = (pred & label).sum()
+        dice = (2 * intersection) / ((label.sum()) + (pred.sum()))
+
+        return dice
