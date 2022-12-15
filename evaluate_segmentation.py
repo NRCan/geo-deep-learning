@@ -2,6 +2,7 @@ import csv
 import logging
 from collections import OrderedDict
 from pathlib import Path
+from tempfile import mkstemp
 from typing import Sequence
 
 import omegaconf
@@ -17,7 +18,7 @@ from models.model_choice import read_checkpoint
 from utils.geoutils import create_new_raster_from_base
 from utils.metrics import iou_per_obj, iou_torchmetrics
 from utils.utils import get_key_def, override_model_params_from_checkpoint, get_device_ids, extension_remover, \
-    set_device, ckpt_is_compatible
+    set_device, ckpt_is_compatible, read_csv
 
 from inference_segmentation import main as gdl_inference
 from postprocess_segmentation import main as gdl_postprocess
@@ -150,6 +151,7 @@ def main(cfg):
     root.mkdir(exist_ok=True)
     with open_dict(cfg):
         OmegaConf.update(cfg, 'inference.root_dir', str(root), merge=False)
+        OmegaConf.update(cfg, 'postprocess.root_dir', str(root), merge=False)
         OmegaConf.update(cfg, 'postprocess.regularization', False, merge=False)  # TODO: softcode
         OmegaConf.update(cfg, 'postprocess.generalization', False, merge=False)  # TODO: softcode
 
@@ -167,6 +169,12 @@ def main(cfg):
     num_classes = 1  # FIXME override from model: len(cfg.dataset.classes_dict.keys())
 
     # read input data from csv
+    all_splits = read_csv(csv_file)
+    tst_split = [aoi for aoi in all_splits if aoi['split'] == "tst"]
+    _, csv_file = mkstemp()
+    with open(csv_file, "w", newline="") as fh:
+        csv.DictWriter(fh, tst_split[0].keys()).writerows(tst_split)
+
     benchmark_raw_data = aois_from_csv(
         csv_path=csv_file,
         bands_requested=bands_requested,

@@ -13,7 +13,7 @@ from torch import nn
 import models.unet
 from models import unet
 from models.model_choice import read_checkpoint, adapt_checkpoint_to_dp_model, define_model, define_model_architecture
-from utils.utils import get_device_ids, set_device
+from utils.utils import get_device_ids, set_device, ckpt_is_compatible
 
 
 class TestModelsZoo(object):
@@ -51,44 +51,32 @@ class TestModelsZoo(object):
                     print(output.shape)
 
 
-class TestReadCheckpoint(object):
+class TestCkptIsCompatible(object):
     """
-    Tests reading a checkpoint saved outside GDL into memory
+    Tests checkpoint compatibility utility with incompatible checkpoint
     """
-    var = 4
-    dummy_model = models.unet.UNetSmall(classes=var, in_channels=var)
-    dummy_optimizer = instantiate({'_target_': 'torch.optim.Adam'}, params=dummy_model.parameters())
-    filename = "test.pth.tar"
-    torch.save(dummy_model.state_dict(), filename)
-    read_checkpoint(filename)
-    # test gdl's checkpoints at version <=2.0.1
-    torch.save({'epoch': 999,
-                'params': {
-                    'global': {'num_classes': var, 'model_name': 'unet_small', 'number_of_bands': var}
-                },
-                'model': dummy_model.state_dict(),
-                'best_loss': 0.1,
-                'optimizer': dummy_optimizer.state_dict()}, filename)
-    checkpoint = read_checkpoint(filename, update=False)
-    assert isinstance(checkpoint['model'], OrderedDict)
-    os.remove(filename)
+    filename = "tests/utils/gdl_pre20_test.pth.tar"
+    assert not ckpt_is_compatible(filename)
 
 
 class TestAdaptCheckpoint2DpModel(object):
     """
-    Tests adapting a generic checkpoint to a DataParallel model, then loading it to model
+    Tests adapting a checkpoint to a DataParallel model, then loading it to model
     """
+    filename = "tests/utils/gdl_current_test.pth.tar"
+    filename_out = "tests/utils/gdl_current_test_temp.pth.tar"
+    checkpoint = read_checkpoint(filename)
     dummy_model = torchvision.models.resnet18()
-    filename = "test.pth.tar"
+    checkpoint['model_state_dict'] = dummy_model.state_dict()
+    torch.save(checkpoint, filename_out)
+    checkpoint = read_checkpoint(filename_out)
     num_devices = 1
     gpu_devices_dict = get_device_ids(num_devices)
-    torch.save(dummy_model.state_dict(), filename)
-    checkpoint = read_checkpoint(filename)
     device_ids = list(gpu_devices_dict.keys()) if len(gpu_devices_dict.keys()) >= 1 else None
     dummy_dp_model = nn.DataParallel(dummy_model, device_ids=device_ids)
     checkpoint = adapt_checkpoint_to_dp_model(checkpoint, dummy_dp_model)
     dummy_dp_model.load_state_dict(checkpoint['model_state_dict'])
-    os.remove(filename)
+    os.remove(filename_out)
 
 
 class TestDefineModelMultigpu(object):
@@ -96,8 +84,11 @@ class TestDefineModelMultigpu(object):
     Tests defining model architecture with weights from provided checkpoint and pushing to multiple devices if possible
     """
     dummy_model = unet.UNet(4, 4, True, 0.5)
-    filename = "test.pth.tar"
-    torch.save(dummy_model.state_dict(), filename)
+    filename = "tests/utils/gdl_current_test.pth.tar"
+    filename_out = "tests/utils/gdl_current_test_temp.pth.tar"
+    checkpoint = read_checkpoint(filename)
+    checkpoint['model_state_dict'] = dummy_model.state_dict()
+    torch.save(checkpoint, filename_out)
 
     gpu_devices_dict = get_device_ids(4)
     device = set_device(gpu_devices_dict=gpu_devices_dict)
@@ -110,6 +101,7 @@ class TestDefineModelMultigpu(object):
             out_classes=4,
             main_device=device,
             devices=list(gpu_devices_dict.keys()),
-            state_dict_path=filename,
+            state_dict_path=filename_out,
             state_dict_strict_load=True,
         )
+    os.remove(filename_out)

@@ -189,14 +189,14 @@ def run_from_container(
     logging.debug(command)
     if container_type == 'docker':
         binds = {k: {'bind': v, 'mode': 'rw'} for k, v in binds.items()}
-        gpu_device = [docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])] if use_gpu else []
+        gpu_device = [docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])] if use_gpu else None
         client = docker.from_env()
         qgis_pp_docker_img = client.images.get(image)
         container = client.containers.run(
             image=qgis_pp_docker_img,
             command=command,
             volumes=binds,
-            device_requests=gpu_device,
+            #device_requests=gpu_device,  # FIXME
             detach=True)
         logs = container.logs(stream=stream)
         if stream:

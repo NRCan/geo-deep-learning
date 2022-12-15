@@ -33,15 +33,15 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     """
     src = check_rasterio_im_load(input_raster)
     if len(write_array.shape) == 2:  # 2D array
-        count = 1
+        write_array = write_array[np.newaxis, :]
     elif len(write_array.shape) == 3:  # 3D array
         if write_array.shape[0] > 100:
             logging.warning(f"\nGot {write_array.shape[0]} bands. "
                             f"\nMake sure array follows rasterio's channels first convention")
             write_array = reshape_as_raster(write_array)
-        count = write_array.shape[0]
     else:
         raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
+    count = write_array.shape[0]
 
     if write_array.shape[1:] != (src.height, src.width):
         raise ValueError(f"Output array's width and height should be identical to dimensions of input reference raster")

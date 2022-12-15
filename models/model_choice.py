@@ -46,20 +46,7 @@ def read_checkpoint(filename, out_dir: str = 'checkpoints', update=True) -> Dict
             checkpoint = load_state_dict_from_url(url=filename, map_location='cpu', model_dir=to_absolute_path(out_dir))
         else:
             checkpoint = torch.load(f=filename, map_location='cpu')
-        # For loading external models with different structure in state dict.
-        if 'model_state_dict' not in checkpoint.keys() and 'model' not in checkpoint.keys():
-            val_set = set()
-            for val in checkpoint.values():
-                val_set.add(type(val))
-            if len(val_set) == 1 and list(val_set)[0] == torch.Tensor:
-                # places entire state_dict inside expected key
-                new_checkpoint = OrderedDict()
-                new_checkpoint['model_state_dict'] = OrderedDict({k: v for k, v in checkpoint.items()})
-                del checkpoint
-                checkpoint = new_checkpoint
-            else:
-                raise ValueError(f"GDL cannot find weight in provided checkpoint")
-        elif update:
+        if update:
             checkpoint = update_gdl_checkpoint(checkpoint)
         return checkpoint
     except FileNotFoundError as e:

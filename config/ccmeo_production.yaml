@@ -1,18 +1,20 @@
 defaults:
   - model: smp_unet
+  - verify: default_verify
+  - tiling: default_tiling
+  - training: default_training
+  - loss: binary/softbce  # TODO: remove from utils/print_config()
+  - optimizer: adam
+  - callbacks: default_callbacks
+  - scheduler: plateau
+  - dataset: ccmeo_datacube_dataset
+  - augmentation: basic_augmentation_segmentation
+  - tracker: # set logger here or use command line (e.g. `python GDL.py tracker=mlflow`)
+  - visualization: default_visualization
   - inference: production
   - postprocess: production
   - evaluate: default_evaluate
-  - callbacks: default_callbacks
-  - dataset: ccmeo_datacube_dataset
-  - augmentation: basic_augmentation_segmentation
-  - optimizer: adam
-  - scheduler: plateau
-  - visualization: default_visualization
-  - tracker: # set logger here or use command line (e.g. `python GDL.py tracker=mlflow`)
   - hydra: default
-  - loss: binary/softbce  # TODO: remove from utils/print_config()
-  - training: default_training
   - override hydra/hydra_logging: colorlog # enable color logging to make it pretty
   - override hydra/job_logging: colorlog # enable color logging to make it pretty
   - _self_

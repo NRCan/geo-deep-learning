@@ -7,6 +7,7 @@ from solaris.eval.base import Evaluator
 import torch
 import torch.nn.functional as F
 from torchmetrics import MetricCollection, JaccardIndex
+from torchmetrics.classification import BinaryJaccardIndex, MulticlassJaccardIndex
 
 from utils.geoutils import check_gdf_load
 
@@ -167,14 +168,17 @@ def calculate_batch_metrics(
 
 
 def iou_torchmetrics(pred: torch.Tensor, label: torch.Tensor, num_classes: int, device: torch.device = 'cpu'):  # FIXME: merge with iou() above
-    metrics = MetricCollection(
-        [JaccardIndex(num_classes=num_classes, ignore_index=False, multilabel=True)], prefix="evaluate_"
-    )
+    if num_classes == 1:
+        metrics = MetricCollection([BinaryJaccardIndex(num_classes=num_classes, multilabel=True)], prefix="evaluate_")
+        prefix = "Binary"
+    else:
+        metrics = MetricCollection([MulticlassJaccardIndex(num_classes=num_classes, multilabel=True)], prefix="evaluate_")
+        prefix = "Multiclass"
     metrics.to(device)
     metrics(pred.to(device), label.to(device))
     results = metrics.compute()
     metrics.reset()
-    iou = results["evaluate_JaccardIndex"].item()
+    iou = results[f"evaluate_{prefix}JaccardIndex"].item()
     return iou
 
 

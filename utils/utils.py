@@ -544,7 +544,7 @@ def override_model_params_from_checkpoint(
     classes = get_key_def('classes_dict', params['dataset'], expected_type=(dict, DictConfig))
     # TODO: remove if no old models are used in production.
     single_class_mode = get_key_def('state_dict_single_mode', params['inference'], expected_type=bool)
-    clip_limit = get_key_def('enhance_clip_limit', params['inference'], expected_type=int)
+    clip_limit = get_key_def('clahe_clip_limit', params['tiling'], expected_type=int)
     normalization = get_key_def('normalization', params['augmentation'], expected_type=DictConfig)
     scale_data = get_key_def('scale_data', params['augmentation'], expected_type=ListConfig)
 
@@ -558,7 +558,7 @@ def override_model_params_from_checkpoint(
             normalization_ckpt = {k: [float(val) for val in v] for k, v in normalization_ckpt.items()}
         scale_data_ckpt = get_key_def('scale_data', checkpoint_params['augmentation'], expected_type=(List, ListConfig))
         scale_data_ckpt = list(scale_data_ckpt)
-        clip_limit_ckpt = get_key_def('clahe_enhance_clip_limit', checkpoint_params['augmentation'], expected_type=int)
+        clip_limit_ckpt = get_key_def('clahe_clip_limit', params['tiling'], expected_type=int)
     else:
         normalization_ckpt = normalization
         scale_data_ckpt = scale_data
@@ -598,6 +598,14 @@ def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
         Checkpoint as dictionary containing training parameters, model weights, etc.
     @return: updated checkpoint
     """
+    # covers gdl checkpoints from version <= 2.0.1
+    if 'model' in checkpoint.keys() and isinstance(list(checkpoint['model'].values())[0], Tensor):
+        checkpoint['model_state_dict'] = checkpoint['model']
+        del checkpoint['model']
+    if 'optimizer' in checkpoint.keys() and 'state' in checkpoint["optimizer"].keys():
+        checkpoint['optimizer_state_dict'] = checkpoint['optimizer']
+        del checkpoint['optimizer']
+
     # covers gdl checkpoints pre-hydra (<=2.0.0)
     bands = {'red': 'R', 'green': 'G', 'blue': 'B', 'nir': 'N'}
     old2new = {
