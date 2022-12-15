@@ -44,13 +44,14 @@ def benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num
     # inference output path
     outname = get_key_def('output_name', cfg['inference'], default=f"{Path(aoi.raster_raw_input).stem}_pred")
     outname = extension_remover(outname)
+    out_raster = root / f"{outname}.tif"
+    # out_raster = root / f"{pred_vector_path.stem}_metrics_thresh{str(heatmap_threshold)}.tif"
     outpath_heat = root / f"{outname}_heatmap.tif"
 
     # postprocess output path
     out_poly_suffix = get_key_def('polygonization', cfg['postprocess']['output_suffixes'], default='_raw',
                                   expected_type=str)
     pred_vector_path = root / f"{outname}{out_poly_suffix}.gpkg"
-    out_raster = root / f"{pred_vector_path.stem}_metrics_thresh{str(heatmap_threshold)}.tif"
     out_vector = root / f"{pred_vector_path.stem}_metrics_iou{str(min_iou).replace('.', '')}_thresh{str(heatmap_threshold)}.gpkg"
 
     # TODO: cleanup! why inference.output_name defined twice?
