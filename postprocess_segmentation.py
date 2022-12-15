@@ -8,6 +8,7 @@ import codecs
 import os
 import shutil
 import subprocess
+from tempfile import mkstemp
 from typing import Dict, Union
 from collections import OrderedDict
 from pathlib import Path
@@ -209,7 +210,7 @@ def run_from_container(
     # Singularity: validate installation and assert version >= 3.0.0
     elif container_type == 'singularity':
         # Work around to prevent string parsing error: unexpected EOF while looking for matching `"'
-        cmd_file = Path(to_absolute_path("command.sh"))
+        _, cmd_file = mkstemp(suffix=".sh")
         with open(cmd_file, 'w') as dest:
             if "/bin/bash -c" not in command:
                 logging.warning(
@@ -218,7 +219,7 @@ def run_from_container(
                                                                                                                "\n")
             dest.write(inner_cmd)
         binds[f"{cmd_file.parent}"] = f"{cmd_file.parent}"
-        command = "/bin/bash " + to_absolute_path("command.sh")
+        command = "/bin/bash " + to_absolute_path(cmd_file)
         binds = [f"--bind {k}:{v} " for k, v in binds.items()]
         binds_str = " "
         binds_str = binds_str.join(binds)
