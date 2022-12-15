@@ -269,17 +269,12 @@ def main(params):
     data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
     models_dir = get_key_def('checkpoint_dir', params['inference'], default=root / 'checkpoints', to_path=True)
     models_dir.mkdir(exist_ok=True)
-    outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
-    outname = extension_remover(outname)
-    outpath = root / f"{outname}.tif"
     checkpoint = get_key_def('state_dict_path', params['inference'], to_path=True,
                              validate_path_exists=True, wildcard='*pth.tar')
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
     save_heatmap_bool = get_key_def('save_heatmap', params['inference'], default=False, expected_type=bool)
     heatmap_threshold = get_key_def('heatmap_threshold', params['inference'], default=50, expected_type=int)
-    heatmap_name = get_key_def('heatmap_name', params['inference'], default=f"{outpath.stem}_heatmap",
-                               expected_type=str)
-    outpath_heat = root / f"{heatmap_name}.tif"
+
 
     # Create yaml to use pytorch lightning model management
     if is_url(checkpoint):
@@ -388,6 +383,16 @@ def main(params):
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
+        if item_url:
+            outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
+        else:
+            outname = f"{Path(aoi.raster_raw_input).stem}_pred"
+        outname = extension_remover(outname)
+        outpath = root / f"{outname}.tif"
+        heatmap_name = get_key_def('heatmap_name', params['inference'], default=f"{outpath.stem}_heatmap",
+                                   expected_type=str)
+        outpath_heat = root / f"{heatmap_name}.tif"
+
         dm = InferenceDataModule(aoi=aoi,
                                  outpath=outpath,
                                  patch_size=chip_size,

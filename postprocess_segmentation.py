@@ -218,7 +218,7 @@ def run_from_container(
             inner_cmd = command.split("/bin/bash -c")[-1].strip("\" ").strip("\"").replace("; ", "\n").replace(";",
                                                                                                                "\n")
             dest.write(inner_cmd)
-        binds[f"{cmd_file.parent}"] = f"{cmd_file.parent}"
+        binds[f"{Path(cmd_file).parent}"] = f"{Path(cmd_file).parent}"
         command = "/bin/bash " + to_absolute_path(cmd_file)
         binds = [f"--bind {k}:{v} " for k, v in binds.items()]
         binds_str = " "

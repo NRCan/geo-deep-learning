@@ -551,6 +551,7 @@ def override_model_params_from_checkpoint(
     bands_ckpt = get_key_def('bands', checkpoint_params['dataset'], expected_type=Sequence)
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
+    clip_limit_ckpt = get_key_def('clahe_clip_limit', checkpoint_params['tiling'], expected_type=int)
     if "augmentation" in checkpoint_params:
         normalization_ckpt = get_key_def('normalization', checkpoint_params['augmentation'], expected_type=(dict, DictConfig))
         # Workaround for "omegaconf.errors.UnsupportedValueType: Value 'CommentedSeq' is not a supported primitive type"
@@ -558,11 +559,9 @@ def override_model_params_from_checkpoint(
             normalization_ckpt = {k: [float(val) for val in v] for k, v in normalization_ckpt.items()}
         scale_data_ckpt = get_key_def('scale_data', checkpoint_params['augmentation'], expected_type=(List, ListConfig))
         scale_data_ckpt = list(scale_data_ckpt)
-        clip_limit_ckpt = get_key_def('clahe_clip_limit', params['tiling'], expected_type=int)
     else:
         normalization_ckpt = normalization
         scale_data_ckpt = scale_data
-        clip_limit_ckpt = clip_limit
 
     if "inference" in checkpoint_params:
         single_class_mode_ckpt = get_key_def('state_dict_single_mode', checkpoint_params['inference'], expected_type=bool)
@@ -586,7 +585,7 @@ def override_model_params_from_checkpoint(
             OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt, merge=False)
             OmegaConf.update(params, 'augmentation.normalization', normalization_ckpt, merge=False)
             OmegaConf.update(params, 'augmentation.scale_data', scale_data_ckpt, merge=False)
-            OmegaConf.update(params, 'augmentation.clahe_enhance_clip_limit', clip_limit_ckpt, merge=False)
+            OmegaConf.update(params, 'tiling.clahe_clip_limit', clip_limit_ckpt, merge=False)
             OmegaConf.update(params, 'inference.state_dict_single_mode', single_class_mode_ckpt, merge=False)
     return params
 

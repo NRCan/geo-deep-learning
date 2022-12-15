@@ -15,7 +15,7 @@ from torch.hub import load_state_dict_from_url
 
 from dataset.aoi import aois_from_csv
 from models.model_choice import read_checkpoint
-from utils.geoutils import create_new_raster_from_base
+from utils.geoutils import create_new_raster_from_base, is_stac_item
 from utils.metrics import iou_per_obj, iou_torchmetrics
 from utils.utils import get_key_def, override_model_params_from_checkpoint, get_device_ids, extension_remover, \
     set_device, ckpt_is_compatible, read_csv
@@ -29,11 +29,20 @@ def benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num
         {'aoi_id': aoi.aoi_id, 'state_dict': Path(checkpoint).name, 'heatmap_threshold': heatmap_threshold})
     logging.info(f"Benchmarking: {aoi.aoi_id}")
     # inference on each raster
-    cfg['inference']['input_stac_item'] = item_url = aoi.raster_raw_input
+    if is_stac_item(aoi.raster_raw_input):
+        cfg['inference']['input_stac_item'] = aoi.raster_raw_input
+    else:
+        _, raw_data_csv = mkstemp(suffix=".csv")
+        with open(raw_data_csv, "w", newline="") as fh:
+            csv.writer(fh).writerow([str(aoi.raster_raw_input), None, "inference", Path(aoi.raster_raw_input).stem])
+        with open_dict(cfg):
+            cfg['inference']['input_stac_item'] = None
+            cfg['inference']['raw_data_csv'] = raw_data_csv
+    # TODO: softcode to different classes
     cfg['inference']['output_name'] = aoi.aoi_id + '_BUIL'
 
     # inference output path
-    outname = get_key_def('output_name', cfg['inference'], default=f"{Path(item_url).stem}_pred")
+    outname = get_key_def('output_name', cfg['inference'], default=f"{Path(aoi.raster_raw_input).stem}_pred")
     outname = extension_remover(outname)
     outpath_heat = root / f"{outname}_heatmap.tif"
 
@@ -171,6 +180,8 @@ def main(cfg):
     # read input data from csv
     all_splits = read_csv(csv_file)
     tst_split = [aoi for aoi in all_splits if aoi['split'] == "tst"]
+    logging.info(f"Keeping only AOIs with split=\"tst\" from source csv file {csv_file}"
+                 f"\nTst AOIs: {len(tst_split)} / {len(all_splits)}")
     _, csv_file = mkstemp()
     with open(csv_file, "w", newline="") as fh:
         csv.DictWriter(fh, tst_split[0].keys()).writerows(tst_split)

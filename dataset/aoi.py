@@ -703,6 +703,8 @@ def aois_from_csv(
                     download_data=download_data,
                     root_dir=data_dir,
                     for_multiprocessing=for_multiprocessing,
+                    write_dest_raster=write_dest_raster,
+                    equalize_clahe_clip_limit=equalize_clahe_clip_limit,
                 )
                 logging.debug(new_aoi)
                 aois.append(new_aoi)
