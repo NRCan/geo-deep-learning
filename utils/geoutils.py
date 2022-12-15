@@ -11,6 +11,8 @@ import geopandas as gpd
 import numpy as np
 import pystac
 import rasterio
+from hydra.utils import to_absolute_path
+from pandas.io.common import is_url
 from rasterio import MemoryFile, DatasetReader
 from rasterio.plot import reshape_as_raster
 from rasterio.shutil import copy as riocopy
@@ -150,6 +152,8 @@ def check_rasterio_im_load(im):
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L17
     """
     if isinstance(im, (str, Path)):
+        if not is_url(im):
+            im = to_absolute_path(str(im))
         return rasterio.open(im)
     elif isinstance(im, rasterio.DatasetReader):
         return im
@@ -163,6 +167,8 @@ def check_gdf_load(gdf):
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L52
     """
     if isinstance(gdf, (str, Path)):
+        if not is_url(gdf):
+            gdf = to_absolute_path(str(gdf))
         # as of geopandas 0.6.2, using the OGR CSV driver requires some add'nal
         # kwargs to create a valid geodataframe with a geometry column. see
         # https://github.com/geopandas/geopandas/issues/1234
