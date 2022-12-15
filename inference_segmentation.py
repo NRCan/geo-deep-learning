@@ -16,7 +16,7 @@ from typing import Dict, Any, Sequence, Union
 import numpy as np
 import rasterio
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pandas.io.common import is_url
 from pytorch_lightning import LightningModule, seed_everything
 import torch
@@ -37,6 +37,50 @@ from utils.utils import _window_2D, get_device_ids, get_key_def, set_device, ove
 
 # Set the logging file
 logging = get_logger(__name__)
+
+
+def convert_gdl_checkpoint(checkpoint: dict):
+    """
+    TODO: Temporary until 222 branch is merged with develop
+    Converts a checkpoint produced by latest version of geo-deep-learning to the inference pipeline.
+    """
+    try:
+        model_params = get_key_def('model', checkpoint["params"], default=None)
+        if model_params and (not "in_channels" in model_params.keys() or not "classes" in model_params.keys()):
+            class_keys = len(get_key_def('classes_dict', checkpoint['params']['dataset']).keys())
+            single_class_mode = True  # TODO: remove if no old models are used in production.
+            if 'inference' in checkpoint['params'].keys():
+                single_class_mode = get_key_def('state_dict_single_mode', checkpoint['params']['inference'], default=True)
+            # +1 for background(multiclass mode)
+            num_classes = class_keys if class_keys == 1 and single_class_mode else class_keys + 1
+            # Store hyperparameters to checkpoint as expected by pytorch lightning
+            if isinstance(checkpoint["params"]["model"], DictConfig):
+                OmegaConf.set_struct(checkpoint["params"]["model"], False)
+            checkpoint["params"]["model"]["in_channels"] = len(checkpoint['params']['dataset']['bands'])
+            checkpoint["params"]["model"]["classes"] = num_classes
+
+            OmegaConf.set_struct(checkpoint["params"], False)
+            clip_limit = checkpoint["params"]["augmentation"]["clahe_enhance_clip_limit"]
+            checkpoint["params"]["tiling"] = {"clahe_clip_limit": clip_limit}
+
+        # adapt to what pytorch lightning expects: add "model" prefix to model keys
+        if not list(checkpoint['model_state_dict'].keys())[0].startswith('model'):
+            new_state_dict = {}
+            new_state_dict['model_state_dict'] = checkpoint['model_state_dict'].copy()
+            new_state_dict['model_state_dict'] = {'model.'+k: v for k, v in checkpoint['model_state_dict'].items()}
+            checkpoint['model_state_dict'] = new_state_dict['model_state_dict']
+
+        # keep all keys and copy model weights to new state_dict key
+        pl_checkpoint = checkpoint.copy()
+        if not "state_dict" in pl_checkpoint.keys() or not isinstance(pl_checkpoint["state_dict"], dict):
+            pl_checkpoint['state_dict'] = checkpoint['model_state_dict']
+            del pl_checkpoint['model_state_dict']
+        if not "hyper_parameters" in pl_checkpoint.keys():
+            pl_checkpoint['hyper_parameters'] = checkpoint["params"]
+            del pl_checkpoint["params"]
+        return pl_checkpoint
+    except KeyError as e:
+        raise KeyError(f"Cannot convert provided checkpoint. Missing key: {e}")
 
 
 # TODO merge with GDL then remove this class
@@ -241,9 +285,11 @@ def main(params):
     if is_url(checkpoint):
         load_state_dict_from_url(url=checkpoint, map_location='cpu', model_dir=models_dir)
         checkpoint = models_dir / Path(checkpoint).name
-    if not ckpt_is_compatible(checkpoint):
-        raise KeyError(f"\nCheckpoint is incompatible with inference pipeline.")
     checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=False)
+    if not ckpt_is_compatible(checkpoint):
+        checkpoint_dict = convert_gdl_checkpoint(checkpoint=checkpoint_dict)
+        checkpoint = checkpoint.parent / f'pl_{checkpoint.name}'
+        torch.save(checkpoint_dict, checkpoint)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict["hyper_parameters"])
 
     # TODO: remove if no old models are used in production.
