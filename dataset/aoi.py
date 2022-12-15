@@ -167,15 +167,18 @@ class AOI(object):
             https://scikit-image.org/docs/stable/api/skimage.exposure.html#skimage.exposure.equalize_adapthist
             https://kornia.readthedocs.io/en/latest/enhance.html#kornia.enhance.equalize_clahe
         """
-        self.raster = self.raster_dest = self.raster_np = self.raster_meta = self.raster_parsed = None
-        self.raster_bounds = self.raster_name_clahe = None
-        self.download_data = self.root_dir = None
+        self.raster_np = None
+        self.raster_name_clahe = None
         self.raster_closed = False
         self.raster_name = Path(raster)  # default name, may be overwritten later
 
-        self.label = self.label_gdf = self.label_invalid_features = self.label_bounds = None
+        self.label = None
+        self.label_gdf = None
+        self.label_invalid_features = None
+        self.label_bounds = None
         self.overlap_label_rto_raster = self.overlap_raster_rto_label = None
-        self.crs_match = self.epsg_raster = self.epsg_label = None
+        self.epsg_raster = self.epsg_label = None
+        self.crs_match = None
 
         # Check and parse raster data
         if not isinstance(raster, str):
