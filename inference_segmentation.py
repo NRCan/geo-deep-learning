@@ -1,5 +1,7 @@
+import csv
 import itertools
 from math import sqrt
+from tempfile import mkstemp
 from typing import List, Union, Sequence
 
 import torch
@@ -21,6 +23,7 @@ from omegaconf import OmegaConf, DictConfig, open_dict
 from omegaconf.listconfig import ListConfig
 
 from dataset.aoi import aois_from_csv
+from dataset.stacitem import SingleBandItemEO
 from utils.logger import get_logger, set_tracker
 from models.model_choice import define_model, read_checkpoint
 from utils import augmentation
@@ -305,6 +308,14 @@ def override_model_params_from_checkpoint(
     return params
 
 
+def stac_input_to_temp_csv(input_stac_item: Union[str, Path]) -> Path:
+    """Saves a stac item path or url to a temporary csv"""
+    _, stac_temp_csv = mkstemp(suffix=".csv")
+    with open(stac_temp_csv, "w", newline="") as fh:
+        csv.writer(fh).writerow([str(input_stac_item), None, "inference", input_stac_item.stem])
+    return Path(stac_temp_csv)
+
+
 def main(params: Union[DictConfig, dict]) -> None:
     """
     Function to manage details about the inference on segmentation task.
@@ -338,8 +349,10 @@ def main(params: Union[DictConfig, dict]) -> None:
     Path.mkdir(working_folder, parents=True, exist_ok=True)
     logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     # Default input directory based on default output directory
-    raw_data_csv = get_key_def('raw_data_csv', params['inference'], default=working_folder,
-                                 expected_type=str, to_path=True, validate_path_exists=True)
+    raw_data_csv = get_key_def('raw_data_csv', params['inference'], expected_type=str, to_path=True,
+                               validate_path_exists=True)
+    input_stac_item = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True,
+                                  validate_path_exists=True)
 
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
@@ -373,6 +386,16 @@ def main(params: Union[DictConfig, dict]) -> None:
     device = set_device(gpu_devices_dict=gpu_devices_dict)
     # Read the concatenation point if requested model is deeplabv3 dualhead
     conc_point = get_key_def('conc_point', params['model'], None)
+
+    if raw_data_csv and input_stac_item:
+        raise ValueError(f"Input imagery should be either a csv of stac item. Got inputs from both \"raw_data_csv\" "
+                         f"and \"input stac item\"")
+    if input_stac_item:
+        raw_data_csv = stac_input_to_temp_csv(input_stac_item)
+        if not all([SingleBandItemEO.is_valid_cname(band) for band in bands_requested]):
+            logging.warning(f"Requested bands are not valid stac item common names. Got: {bands_requested}")
+            bands_requested = [SingleBandItemEO.band_to_cname(band) for band in bands_requested]
+            logging.warning(f"Will request: {bands_requested}")
 
     model = define_model(
         net_params=params.model,

@@ -218,29 +218,6 @@ class Test_AOI(object):
         aoi.close_raster()
         os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif")
 
-    def test_stac_input_missing_band(self):
-        """Tests error when requestinga non-existing singleband input rasters from stac item"""
-        extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/tiling/tiling_segmentation_binary-stac_ci.csv")
-        row = next(iter(data))
-        with pytest.raises(ValueError):
-            aoi = AOI(
-                raster=row['tif'], label=row['gpkg'], split=row['split'],
-                raster_bands_request=['ru', 'gris', 'but'])
-            aoi.close_raster()
-
-    def test_stac_input_empty_band_request(self):
-        """Tests error when band selection is required (stac item) but missing"""
-        extract_archive(src="tests/data/spacenet.zip")
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
-        raster_raw = (
-            ("tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json", ""),
-            ("tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped_${dataset.bands}.tif", ""),
-        )
-        for raster_raw, bands_requested in raster_raw:
-            with pytest.raises((ValueError, TypeError)):
-                AOI.parse_input_raster(csv_raster_str=raster_raw, raster_bands_requested=bands_requested)
-
     def test_no_intersection(self) -> None:
         """Tests error testing no intersection between raster and label"""
         extract_archive(src="tests/data/spacenet.zip")
