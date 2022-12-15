@@ -261,8 +261,8 @@ class AOI(object):
         self.enhance_clip_limit = equalize_clahe_clip_limit
 
         if self.enhance_clip_limit > 0:
-            self.raster_multiband = self.equalize_hist_raster(clip_limit=self.enhance_clip_limit)
-            self.raster = rasterio.open(self.raster_multiband)
+            self.raster_dest = self.equalize_hist_raster(clip_limit=self.enhance_clip_limit)
+            self.raster = rasterio.open(self.raster_dest)
 
         # Check label data
         if label:
@@ -703,11 +703,13 @@ def aois_from_csv(
                     download_data=download_data,
                     root_dir=data_dir,
                     for_multiprocessing=for_multiprocessing,
+                    write_dest_raster=write_dest_raster,
+                    equalize_clahe_clip_limit=equalize_clahe_clip_limit,
                 )
                 logging.debug(new_aoi)
                 aois.append(new_aoi)
             except FileNotFoundError as e:
                 logging.error(f"{e}\nGround truth file may not exist or is empty.\n"
-                                f"Failed to create AOI:\n{aoi_dict}\n"
-                                f"Index: {i}")
+                              f"Failed to create AOI:\n{aoi_dict}\n"
+                              f"Index: {i}")
     return aois
