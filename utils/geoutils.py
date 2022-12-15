@@ -101,7 +101,7 @@ def stack_singlebands_vrt(srcs: List, band: int = 1):
     """
     vrt_bands = []
     for srcnum, src in enumerate(srcs, start=1):
-        with rasterio.open(src) as ras, MemoryFile() as mem:
+        with check_rasterio_im_load(src) as ras, MemoryFile() as mem:
             riocopy(ras, mem.name, driver='VRT')
             vrt_xml = mem.read().decode('utf-8')
             vrt_dataset = ET.fromstring(vrt_xml)
