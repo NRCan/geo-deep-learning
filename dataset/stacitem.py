@@ -1,6 +1,6 @@
 from collections import OrderedDict
 import logging
-from typing import Optional, Sequence, Dict, List
+from typing import Optional, Sequence, Dict
 
 import pystac
 from pystac.extensions.eo import ItemEOExtension, Band

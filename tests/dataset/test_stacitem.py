@@ -1,18 +1,7 @@
-import multiprocessing
-import os.path
-from pathlib import Path
-from typing import List
-
-import geopandas as gpd
-import numpy as np
 import pystac
 import pytest
-from _pytest.fixtures import SubRequest
-import rasterio
-from rasterio import RasterioIOError
 from torchgeo.datasets.utils import extract_archive
 
-from dataset.aoi import AOI, aois_from_csv
 from dataset.stacitem import SingleBandItemEO
 from utils.utils import read_csv
 
