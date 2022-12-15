@@ -218,6 +218,35 @@ class GDLVectorDataset(GeoDataset):
 
         self._crs = CRS.from_wkt(vec_srs_wkt)
 
+    @staticmethod
+    def _check_curve(layer: ogr.Layer) -> None:
+        """
+        This function validates that all features of the output patches are polygonal.
+        Args:
+            layer: OGR Layer object
+
+        Returns:
+            Replaces curve feature geometries with the approximated ones.
+
+        """
+        # Check if the feature geometry is polygonal:
+        feature_defn = layer.GetLayerDefn()
+        layer.ResetReading()
+        feature = layer.GetNextFeature()
+        while feature is not None:
+            geom = feature.GetGeometryRef()
+            name = geom.GetGeometryName()
+
+            # Approximate a curvature by a polygon geometry:
+            if name != "POLYGON" and name != "MULTIPOLYGON":
+                linear_geom = geom.GetLinearGeometry()
+                new_feature = ogr.Feature(feature_defn)
+                new_feature.SetGeometryDirectly(linear_geom)
+                layer.CreateFeature(new_feature)
+                layer.DeleteFeature(feature.GetFID())
+
+            feature = layer.GetNextFeature()
+
     def __getitem__(self, query: BoundingBox) -> Dict[str, Any]:
         """Retrieve image/mask and metadata indexed by query.
 
@@ -255,23 +284,8 @@ class GDLVectorDataset(GeoDataset):
         out_layer = out_mem_ds.CreateLayer('0', self.vec_srs, geom_type=ogr.wkbMultiPolygon)
         ogr.Layer.Clip(self.mem_vec_ds.GetLayer(), mem_layer, out_layer)
 
-        # Check if the feature geometry is polygonal:
-        feature_defn = out_layer.GetLayerDefn()
-        out_layer.ResetReading()
-        feature = out_layer.GetNextFeature()
-        while feature is not None:
-            geom = feature.GetGeometryRef()
-            name = geom.GetGeometryName()
-
-            # Approximate a curvature by a polygon geometry:
-            if name != "POLYGON" and name != "MULTIPOLYGON":
-                linear_geom = geom.GetLinearGeometry()
-                new_feature = ogr.Feature(feature_defn)
-                new_feature.SetGeometryDirectly(linear_geom)
-                out_layer.CreateFeature(new_feature)
-                out_layer.DeleteFeature(feature.GetFID())
-
-            feature = out_layer.GetNextFeature()
+        # Check that there is no curve geometry in the output patch:
+        self._check_curve(layer=out_layer)
 
         sample = {"mask": out_mem_ds, "crs": self.crs, "bbox": query}
 
