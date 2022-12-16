@@ -11,10 +11,12 @@ import geopandas as gpd
 import numpy as np
 import pystac
 import rasterio
-from rasterio import MemoryFile
+from rasterio import MemoryFile, DatasetReader
 from rasterio.plot import reshape_as_raster
 from rasterio.shutil import copy as riocopy
 import xml.etree.ElementTree as ET
+
+from shapely.geometry import box, Polygon
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,9 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     else:
         raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
 
+    if write_array.shape[1:] != (src.height, src.width):
+        raise ValueError(f"Output array's width and height should be identical to dimensions of input reference raster")
+
     # Cannot write to 'VRT' driver
     driver = 'GTiff' if src.driver == 'VRT' else src.driver
 
@@ -51,11 +56,9 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
                        count=count,
                        crs=src.crs,
                        dtype=np.uint8,
-                       transform=src.transform) as dst:
-        if count == 1:
-            dst.write(write_array[:, :], 1)
-        else:
-            dst.write(write_array)
+                       transform=src.transform,
+                       compress='lzw') as dst:
+        dst.write(write_array)
 
 
 def get_key_recursive(key, config):
@@ -122,7 +125,6 @@ def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
     @return:
         RasterDataset object containing VRT
     """
-    vrt_bands = []
     if not isinstance(src, (str, Path)) and not Path(src).is_file():
         raise ValueError(f"Invalid source multiband raster.\n"
                          f"Got {src}")
@@ -131,15 +133,13 @@ def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
         vrt_xml = mem.read().decode('utf-8')
         vrt_dataset = ET.fromstring(vrt_xml)
         vrt_dataset_dict = {int(band.get('band')): band for band in vrt_dataset.iter("VRTRasterBand")}
+        for band in vrt_dataset_dict.values():
+            vrt_dataset.remove(band)
+
         for dest_band_idx, src_band_idx in enumerate(band_request, start=1):
             vrt_band = vrt_dataset_dict[src_band_idx]
             vrt_band.set('band', str(dest_band_idx))
-            vrt_bands.append(vrt_band)
-            vrt_dataset.remove(vrt_band)
-        for leftover_band in vrt_dataset.iter("VRTRasterBand"):
-            vrt_dataset.remove(leftover_band)
-    for vrt_band in vrt_bands:
-        vrt_dataset.append(vrt_band)
+            vrt_dataset.append(vrt_band)
 
     return ET.tostring(vrt_dataset).decode('UTF-8')
 
@@ -199,3 +199,23 @@ def check_crs(input_crs, return_rasterio=False):
             out_crs = rasterio.crs.CRS.from_wkt(out_crs.to_wkt("WKT1_GDAL"))
 
     return out_crs
+
+
+def bounds_riodataset(raster: DatasetReader) -> box:
+    """Returns bounds of a rasterio DatasetReader as shapely box instance"""
+    return box(*list(raster.bounds))
+
+
+def bounds_gdf(gdf: gpd.GeoDataFrame) -> box:
+    """Returns bounds of a GeoDataFrame as shapely box instance"""
+    if gdf.empty:
+        return Polygon()
+    gdf_bounds = gdf.total_bounds
+    gdf_bounds_box = box(*gdf_bounds.tolist())
+    return gdf_bounds_box
+
+
+def overlap_poly1_rto_poly2(polygon1: Polygon, polygon2: Polygon) -> float:
+    """Calculate intersection of extents from polygon 1 and 2 over extent of a polygon 2"""
+    intersection = polygon1.intersection(polygon2).area
+    return intersection / (polygon2.area + 1e-30)

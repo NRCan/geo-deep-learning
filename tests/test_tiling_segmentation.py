@@ -2,99 +2,15 @@ import itertools
 import shutil
 from pathlib import Path
 
-import numpy as np
+import numpy
 import pytest
 import rasterio
 from omegaconf import DictConfig
 from torchgeo.datasets.utils import extract_archive
 
-from dataset.aoi import AOI
-from tiling_segmentation import annot_percent, Tiler
+from tiling_segmentation import annot_percent
 from tiling_segmentation import main as tiling
 from utils.utils import read_csv
-
-
-class TestTiler(object):
-    def test_tiling_per_aoi(self):
-        img = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
-        gt = "tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg"
-        my_aoi = AOI(raster=img, raster_bands_request=[1, 2, 3], label=gt, split='trn')
-        exp_dir = Path("tests/data/massachusetts_buildings_kaggle")
-        tiling_dir = exp_dir / "patches"
-        my_tiler = Tiler(
-            tiling_root_dir=tiling_dir,
-            src_aoi_list=[my_aoi],
-            patch_size=32,
-        )
-        aoi, raster_patchs_paths, vect_patchs_paths = my_tiler.tiling_per_aoi(
-            aoi=my_aoi,
-            out_img_dir=tiling_dir / "images",
-            out_label_dir=tiling_dir / "labels")
-        assert len(raster_patchs_paths) == 18
-        assert len(vect_patchs_paths) == 18
-        assert Path(raster_patchs_paths[0]).is_file()
-        assert Path(vect_patchs_paths[0]).is_file()
-        shutil.rmtree(tiling_dir)
-
-    def test_passes_min_annot(self):
-        """Tests annotated percent calculation"""
-        img = "tests/data/spacenet/SN7_global_monthly_2020_01_mosaic_L15-0331E-1257N_1327_3160_13_uint8_clipped.tif"
-        gt = "tests/data/spacenet/SN7_global_monthly_2020_01_mosaic_L15-0331E-1257N_1327_3160_13_uint8_clipped.gpkg"
-        my_aoi = AOI(raster=img, raster_bands_request=[1, 2, 3], label=gt, split='trn')
-        exp_dir = Path("tests/data/spacenet")
-        tiling_dir = exp_dir / "patches"
-        my_tiler = Tiler(
-            tiling_root_dir=tiling_dir,
-            src_aoi_list=[my_aoi],
-        )
-        for min_annot in range(10):
-            my_tiler.min_annot_perc = min_annot
-            passes, perc = my_tiler.passes_min_annot(img, gt)
-            assert round(perc, 3) == 4.237
-            if min_annot < perc:
-                assert passes
-            else:
-                assert not passes
-        shutil.rmtree(tiling_dir)
-
-    def test_burn_gt_patch(self):
-        """Tests burning a label while using the filter for attribute field and values"""
-        img = "tests/data/new_brunswick_aerial/23322E759967N_clipped_1m_1of2.tif"
-        gt = "tests/data/new_brunswick_aerial/BakerLake_2017_clipped.gpkg"
-        my_aoi = AOI(
-            raster=img,
-            raster_bands_request=[1, 2, 3],
-            label=gt,
-            split='trn',
-            attr_field_filter="Quatreclasses",
-            attr_values_filter=[4],
-        )
-        exp_dir = Path("tests/data/new_brunswick_aerial")
-        tiling_dir = exp_dir / "patches"
-        my_tiler = Tiler(
-            tiling_root_dir=tiling_dir,
-            src_aoi_list=[my_aoi],
-        )
-        gt_filtered = AOI.filter_gdf_by_attribute(
-            gdf_patch=str(gt),
-            attr_field=my_aoi.attr_field_filter,
-            attr_vals=my_aoi.attr_values_filter
-        )
-        for continous_test, out_vals in zip([True, False], [[0, 1], [0, 4]]):
-            out_vals_str = '-'.join([str(item) for item in out_vals])
-            gt_patch_mask = tiling_dir / f"BakerLake_2017_clipped_mask_{out_vals_str}.tif"
-            my_tiler.burn_gt_patch(
-                aoi=my_aoi,
-                img_patch=img,
-                gt_patch=gt_filtered,
-                out_px_mask=gt_patch_mask,
-                continuous=continous_test,
-                save_preview=False,
-            )
-            assert Path(gt_patch_mask).is_file()
-            label_np = rasterio.open(gt_patch_mask).read()
-            assert list(np.unique(label_np)) == out_vals
-        shutil.rmtree(tiling_dir)
 
 
 class TestTiling(object):
@@ -197,7 +113,7 @@ class TestTiling(object):
         proj_prefix = "test_annot_percent"
         datasets = {"binary-multiband", "multiclass"}
         results = []
-        for expected_min_annot, dataset in itertools.product([0, 1, 10], datasets):
+        for expected_min_annot, dataset in itertools.product([0, 5, 10], datasets):
             proj_name = f"{proj_prefix}{expected_min_annot}_{dataset}"
             cfg = {
                 "general": {"project_name": proj_name},
@@ -301,3 +217,37 @@ class TestTiling(object):
         gt = "tests/data/spacenet/SN7_global_monthly_2020_01_mosaic_L15-0331E-1257N_1327_3160_13_uint8_clipped_4326.gpkg"
         with pytest.raises(rasterio.errors.CRSError):
             perc = annot_percent(img, gt)
+
+    def test_tiling_equalization(self):
+        """Tests the tiling process with clahe equalization"""
+        means_per_limit = []
+        for clip_limit in [0, 10, 25]:
+            data_dir = f"data/patches"
+            proj = f"tiling_output_test"
+            Path(data_dir).mkdir(exist_ok=True, parents=True)
+            extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+            cfg = {
+                "general": {"project_name": proj},
+                "debug": True,
+                "dataset": {
+                    "bands": [1, 2, 3],
+                    "raw_data_dir": data_dir,
+                    "raw_data_csv": f"tests/tiling/tiling_segmentation_binary_ci.csv",
+                },
+                "tiling": {
+                    "patch_size": 32,
+                    "train_val_percent": {'val': 0.3},
+                    "clahe_clip_limit": clip_limit,
+                },
+            }
+            cfg = DictConfig(cfg)
+            tiling(cfg)
+            out_labels = (Path(data_dir)/proj).glob("**/images/*.tif")
+            patch_means = []
+            for patch in out_labels:
+                patch_np = rasterio.open(patch).read()
+                patch_means.append(patch_np)
+            aoi_means = int(numpy.asarray(patch_means).mean())
+            means_per_limit.append(aoi_means)
+        assert means_per_limit[0] < means_per_limit[1] < means_per_limit[2]
+        shutil.rmtree(Path(data_dir) / proj)

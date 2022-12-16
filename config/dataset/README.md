@@ -1,11 +1,8 @@
 # Dataset config
 
+> Also see [dataset documentation](../../dataset/README.md) for general information about input data.
+
 ## Dataset-wide configuration
-
-### Input dimensions and overlap
-
-These parameters respectively set the width and length of a single sample and stride from one sample to another as
-outputted by tiling_segmentation.py. Default to 256 and 0, respectively.
 
 ### Raw data csv
 

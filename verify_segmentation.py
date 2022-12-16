@@ -41,7 +41,7 @@ def verify_per_aoi(
     """
     try:
         if not aoi.raster:  # in case of multiprocessing
-            aoi.raster = rasterio.open(aoi.raster_multiband)
+            aoi.raster = rasterio.open(aoi.raster_dest)
 
         # get aoi info
         logging.info(f"\nGetting data info for {aoi.aoi_id}...")
@@ -112,6 +112,7 @@ def main(cfg: DictConfig) -> None:
     output_raster_plots = get_key_def('output_raster_plots', cfg['verify'], default=False, expected_type=bool)
     extended_label_stats = get_key_def('extended_label_stats', cfg['verify'], default=False, expected_type=bool)
     parallel = get_key_def('multiprocessing', cfg['verify'], default=False, expected_type=bool)
+    write_dest_raster = get_key_def('write_dest_raster', cfg['verify'], default=False, expected_type=bool)
 
     # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to patches).
     with open_dict(cfg):
@@ -126,6 +127,7 @@ def main(cfg: DictConfig) -> None:
         download_data=download_data,
         data_dir=data_dir,
         for_multiprocessing=parallel,
+        write_dest_raster=write_dest_raster,
     )
 
     outpath_csv = output_report_dir / f"report_info_{csv_file.stem}.csv"
@@ -161,7 +163,7 @@ def main(cfg: DictConfig) -> None:
 
     logging.info(f"\nWriting to csv: {outpath_csv}...")
     with open(outpath_csv, 'w', newline='') as output_file:
-        dict_writer = csv.DictWriter(output_file, report_list[0].keys(), delimiter=';')
+        dict_writer = csv.DictWriter(output_file, report_list[0].keys())
         dict_writer.writeheader()
         dict_writer.writerows(report_list)
 

@@ -1,13 +1,14 @@
 import multiprocessing
 import os.path
 from pathlib import Path
+from typing import List
 
 import geopandas as gpd
 import numpy as np
 import pytest
+from _pytest.fixtures import SubRequest
 import rasterio
 from rasterio import RasterioIOError
-from shapely.geometry import box
 from torchgeo.datasets.utils import extract_archive
 
 from dataset.aoi import AOI, aois_from_csv
@@ -34,16 +35,21 @@ class Test_AOI(object):
         aoi.close_raster()
         assert aoi.raster_closed
 
-    def test_multiband_input_band_selection(self):
+    @pytest.fixture(
+        params=[[2, 1], [1], [2], [3], [1, 3]]
+    )
+    def bands_request(self, request: SubRequest) -> List:
+        return request.param
+
+    def test_multiband_input_band_selection(self, bands_request: List) -> None:
         """Tests reading a multiband raster as input with band selection"""
         extract_archive(src="tests/data/spacenet.zip")
         data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         row = data[0]
-        bands_request = [2, 1]
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands_request)
         src_raster_subset = rasterio.open(aoi.raster_raw_input)
         src_np_subset = src_raster_subset.read(bands_request)
-        dest_raster_subset = rasterio.open(aoi.raster_multiband)
+        dest_raster_subset = rasterio.open(aoi.raster_dest)
         assert src_np_subset.shape[0] == dest_raster_subset.count
         dest_np_subset = dest_raster_subset.read()
         assert np.all(src_np_subset == dest_np_subset)
@@ -103,12 +109,15 @@ class Test_AOI(object):
         row = next(iter(data))
         aoi = AOI(
             raster=row['tif'], label=row['gpkg'], split=row['split'],
-           raster_bands_request=['R'], download_data=True, root_dir="data"
+            raster_bands_request=['R'], download_data=True, root_dir="data"
         )
         assert aoi.download_data is True
         assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif").is_file()
         aoi.close_raster()
-        os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif")
+        try:
+            os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif")
+        except PermissionError:
+            pass
 
     def test_missing_label(self):
         """Tests error when provided label file is missing"""
@@ -119,12 +128,12 @@ class Test_AOI(object):
         with pytest.raises(AttributeError):
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
             aoi.close_raster()
-    
+
     def test_no_label(self):
         """Test when no label are provided. Should pass for inference. """
         extract_archive(src="tests/data/new_brunswick_aerial.zip")
         csv_path = "tests/inference/inference_segmentation_multiclass_no_label.csv"
-        aois = aois_from_csv(csv_path=csv_path, bands_requested=[1,2,3])
+        aois = aois_from_csv(csv_path=csv_path, bands_requested=[1, 2, 3])
         assert aois[0].label is None
 
     def test_parse_input_raster(self) -> None:
@@ -140,19 +149,6 @@ class Test_AOI(object):
         for raster_raw, bands_requested in raster_raw.items():
             raster_parsed = AOI.parse_input_raster(csv_raster_str=raster_raw, raster_bands_requested=bands_requested)
             print(raster_parsed)
-
-    def test_bounds_iou(self) -> None:
-        """Tests calculation of IOU between raster and label bounds"""
-        raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
-        raster = rasterio.open(raster_file)
-        label_gdf = gpd.read_file('tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg')
-
-        label_bounds = label_gdf.total_bounds
-        label_bounds_box = box(*label_bounds.tolist())
-        raster_bounds_box = box(*list(raster.bounds))
-        iou = AOI.bounds_iou(label_bounds_box, raster_bounds_box)
-        expected_iou = 0.013904645827033404
-        assert iou == expected_iou
 
     def test_corrupt_raster(self) -> None:
         """Tests error when reading a corrupt file"""
@@ -252,7 +248,7 @@ class Test_AOI(object):
         row = next(iter(data))
         row['gpkg'] = "tests/data/new_brunswick_aerial/BakerLake_2017_clipped.gpkg"
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
-        assert aoi.bounds_iou == 0
+        assert aoi.overlap_label_rto_raster == 0
         aoi.close_raster()
 
     def test_write_multiband_from_single_band(self) -> None:
@@ -261,8 +257,9 @@ class Test_AOI(object):
         data = read_csv("tests/tiling/tiling_segmentation_binary-singleband_ci.csv")
         row = data[0]
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'],
-                  write_multiband=True, root_dir="data")
+                  write_dest_raster=True, root_dir="data")
         assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif").is_file()
+        assert rasterio.open("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif").count == 3
         aoi.close_raster()
         os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif")
 
@@ -272,12 +269,22 @@ class Test_AOI(object):
         data = read_csv("tests/tiling/tiling_segmentation_binary-singleband-url_ci.csv")
         row = next(iter(data))
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=['R', 'G', 'B'],
-                  write_multiband=True, root_dir="data", download_data=True)
+                  write_dest_raster=True, root_dir="data", download_data=True)
         assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R-G-B.tif").is_file()
         assert aoi.download_data is True
         aoi.close_raster()
         for bands in ["R-G-B", "R", "G", "B"]:
             os.remove(f"data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-{bands}.tif")
+
+    def test_write_multiband_not_applicable(self) -> None:
+        """Tests the skipping of 'write_multiband' method"""
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
+        row = next(iter(data))
+        aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=[1, 2, 3],
+                  write_dest_raster=True, root_dir="data")
+        assert not aoi.raster_needs_vrt and not aoi.raster_is_vrt
+        aoi.close_raster()
 
     def test_download_true_not_url(self) -> None:
         """Tests AOI creation if download_data set to True, but not necessary (local image)"""
@@ -341,20 +348,21 @@ class Test_AOI(object):
         aoi.to_dict()
         aoi.close_raster()
 
-    def test_for_multiprocessing(self) -> None:
-        """Tests multiprocessing on AOI instances"""
-        extract_archive(src="tests/data/new_brunswick_aerial.zip")
-        data = read_csv("tests/tiling/tiling_segmentation_multiclass_ci.csv")
-        inputs = []
-        row = next(iter(data))
-        aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], for_multiprocessing=True)
-        inputs.append([aoi_read_raster, aoi])
-        assert aoi.raster_closed is True
-        assert aoi.raster is None
-
-        with multiprocessing.get_context('spawn').Pool(None) as pool:
-            aoi_meta = pool.map_async(map_wrapper, inputs).get()
-        print(aoi_meta)
+    # FIXME: see issue 433
+    # def test_for_multiprocessing(self) -> None:
+    #     """Tests multiprocessing on AOI instances"""
+    #     extract_archive(src="tests/data/new_brunswick_aerial.zip")
+    #     data = read_csv("tests/tiling/tiling_segmentation_multiclass_ci.csv")
+    #     inputs = []
+    #     row = next(iter(data))
+    #     aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], for_multiprocessing=True)
+    #     inputs.append([aoi_read_raster, aoi])
+    #     assert aoi.raster_closed is True
+    #     assert aoi.raster is None
+    #
+    #     with multiprocessing.get_context('spawn').Pool(None) as pool:
+    #         aoi_meta = pool.map_async(map_wrapper, inputs).get()
+    #     print(aoi_meta)
 
     def test_name_raster(self) -> None:
         """Tests naming of raster given multiple input type"""
@@ -380,6 +388,43 @@ class Test_AOI(object):
             actual = AOI.name_raster(root_dir="tests/data/spacenet/", input_path=input[0], bands_list=input[1])
             assert Path(expected) == actual
 
+    def test_equalize_hist_raster(self):
+        """Test equalize input raster with CLAHE transform"""
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
+        row = data[0]
+        aoi = AOI(
+            raster=row['tif'],
+            label=None,
+            split=row['split'],
+            raster_bands_request=[1, 2, 3]
+        )
+        no_equ_arr = aoi.raster.read()
+        for per_band in (True, False):
+            equ_fp = aoi.equalize_hist_raster(clip_limit=125, overwrite=True, per_band=per_band)
+            equ_arr = rasterio.open(equ_fp).read()
+            assert no_equ_arr.shape == equ_arr.shape
+            assert 100 < equ_arr.mean() < 150
+            assert no_equ_arr.mean() < equ_arr.mean()
+
+    def test_equalize_hist_raster_per_band(self):
+        """Test equalize input raster per band with CLAHE transform"""
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
+        row = data[0]
+        aoi = AOI(
+            raster=row['tif'],
+            label=None,
+            split=row['split'],
+            raster_bands_request=[1, 2, 3]
+        )
+        no_equ_arr = aoi.raster.read()
+        equ_fp = aoi.equalize_hist_raster(clip_limit=125, per_band=True)
+        equ_arr = rasterio.open(equ_fp).read()
+        assert no_equ_arr.shape == equ_arr.shape
+        assert 100 < equ_arr.mean() < 150
+        assert no_equ_arr.mean() < equ_arr.mean()
+
 
 def map_wrapper(x):
     """For multi-threading"""
@@ -388,5 +433,5 @@ def map_wrapper(x):
 
 def aoi_read_raster(aoi: AOI):
     """Function to package in multiprocessing"""
-    aoi.raster = rasterio.open(aoi.raster_multiband)
+    aoi.raster = rasterio.open(aoi.raster_dest)
     return aoi.raster.meta
