@@ -18,6 +18,7 @@ import fiona
 import geopandas
 import omegaconf
 import rasterio
+from docker.errors import ImageNotFound
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig
 from pandas.io.common import is_url
@@ -77,6 +78,9 @@ def regularize_buildings(in_pred: Union[str, Path],
                            container_type=container_type,
                            use_gpu=True)
         logging.info(f'\nRegularization completed')
+    except ImageNotFound as e:
+        logging.error(f"\nDocker image not found: {container_image}."
+                      f"\nError {type(e)}: {e}")
     except Exception as e:
         logging.error(f"\nError regularizing using {container_type} container with image {container_image}."
                       f"\ncommand: {container_command}"
@@ -190,7 +194,7 @@ def run_from_container(
     logging.debug(command)
     if container_type == 'docker':
         binds = {k: {'bind': v, 'mode': 'rw'} for k, v in binds.items()}
-        gpu_device = [docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])] if use_gpu else None
+        # gpu_device = [docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])] if use_gpu else None
         client = docker.from_env()
         qgis_pp_docker_img = client.images.get(image)
         container = client.containers.run(

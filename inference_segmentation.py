@@ -383,10 +383,7 @@ def main(params):
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
-        if item_url:
-            outname = get_key_def('output_name', params['inference'], default=f"{Path(item_url).stem}_pred")
-        else:
-            outname = f"{Path(aoi.raster_raw_input).stem}_pred"
+        outname = get_key_def('output_name', params['inference'], default=f"{Path(aoi.aoi_id).stem}_pred")
         outname = extension_remover(outname)
         outpath = root / f"{outname}.tif"
         heatmap_name = get_key_def('heatmap_name', params['inference'], default=f"{outpath.stem}_heatmap",

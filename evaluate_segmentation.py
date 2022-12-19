@@ -34,15 +34,15 @@ def benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num
     else:
         _, raw_data_csv = mkstemp(suffix=".csv")
         with open(raw_data_csv, "w", newline="") as fh:
-            csv.writer(fh).writerow([str(aoi.raster_raw_input), None, "inference", Path(aoi.raster_raw_input).stem])
+            csv.writer(fh).writerow([str(aoi.raster_raw_input), str(aoi.label), str(aoi.split), Path(aoi.aoi_id)])
         with open_dict(cfg):
             cfg['inference']['input_stac_item'] = None
             cfg['inference']['raw_data_csv'] = raw_data_csv
     # TODO: softcode to different classes
-    cfg['inference']['output_name'] = aoi.aoi_id + '_BUIL'
+    cfg['inference']['output_name'] = None  # overwrite default
 
     # inference output path
-    outname = get_key_def('output_name', cfg['inference'], default=f"{Path(aoi.raster_raw_input).stem}_pred")
+    outname = get_key_def('output_name', cfg['inference'], default=f"{Path(aoi.aoi_id).stem}_pred")
     outname = extension_remover(outname)
     out_raster = root / f"{outname}.tif"
     # out_raster = root / f"{pred_vector_path.stem}_metrics_thresh{str(heatmap_threshold)}.tif"
