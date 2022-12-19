@@ -29,28 +29,17 @@ from utils.utils import get_device_ids, get_key_def, \
 
 # Set the logging file
 logging = get_logger(__name__)
-
-
-def _pad_diff(arr, w, h, arr_shape):
-    """ Pads img_arr width or height < samples_size with zeros """
-    w_diff = arr_shape - w
-    h_diff = arr_shape - h
-
-    if len(arr.shape) > 2:
-        padded_arr = np.pad(arr, ((0, w_diff), (0, h_diff), (0, 0)), mode="constant", constant_values=np.nan)
-    else:
-        padded_arr = np.pad(arr, ((0, w_diff), (0, h_diff)), mode="constant", constant_values=np.nan)
-
-    return padded_arr
-
-
 def _pad(arr, chunk_size):
     """ Pads img_arr """
+    w_diff = chunk_size - arr.shape[0]
+    h_diff = chunk_size - arr.shape[1]
     aug = int(round(chunk_size * (1 - 1.0 / 2.0)))
+    aug_w = int(round(chunk_size * (1 - 1.0 / 2.0))) + w_diff
+    aug_h = int(round(chunk_size * (1 - 1.0 / 2.0))) + h_diff
     if len(arr.shape) > 2:
-        padded_arr = np.pad(arr, ((aug, aug), (aug, aug), (0, 0)), mode="reflect")
+        padded_arr = np.pad(arr, ((aug, aug_w), (aug, aug_h), (0, 0)), mode="reflect")
     else:
-        padded_arr = np.pad(arr, ((aug, aug), (aug, aug)), mode="reflect")
+        padded_arr = np.pad(arr, ((aug, aug_w), (aug, aug_h)), mode="reflect")
 
     return padded_arr
 
@@ -123,12 +112,12 @@ def gen_img_samples(src, chunk_size, step, *band_order):
                 window_array = reshape_as_image(src.read(band_order[0], window=window))
             else:
                 window_array = reshape_as_image(src.read(window=window))
-            if window_array.shape[0] < chunk_size or window_array.shape[1] < chunk_size:
-                window_array = _pad_diff(window_array, window_array.shape[0], window_array.shape[1], chunk_size)
             window_array = _pad(window_array, chunk_size)
 
             yield window_array, row, column
 
+def sigmoid(x):
+   return 1/(1+np.exp(-x))
 
 @torch.no_grad()
 def segmentation(param,
@@ -170,12 +159,13 @@ def segmentation(param,
 
     # initialize test time augmentation
     transforms = tta.Compose([tta.HorizontalFlip(), ])
+    tf_len = len(transforms)
     # construct window for smoothing
     WINDOW_SPLINE_2D = _window_2D(window_size=pad, power=2.0)
     WINDOW_SPLINE_2D = torch.as_tensor(np.moveaxis(WINDOW_SPLINE_2D, 2, 0), ).type(torch.float)
     WINDOW_SPLINE_2D = WINDOW_SPLINE_2D.to(device)
 
-    fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(h_padded, w_padded, num_classes))
+    fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(tf_len, h_padded, w_padded, num_classes))
     step = int(chunk_size / subdiv)
     total_inf_windows = int(np.ceil(input_image.height / step) * np.ceil(input_image.width / step))
     img_gen = gen_img_samples(src=input_image, chunk_size=chunk_size, step=step)
@@ -222,39 +212,34 @@ def segmentation(param,
             output_lst.append(deaugmented_output)
         outputs = torch.stack(output_lst)
         outputs = torch.mul(outputs, WINDOW_SPLINE_2D)
-        outputs, _ = torch.max(outputs, dim=0)
-        if single_class_mode:
-            outputs = torch.sigmoid(outputs)
-        outputs = outputs.permute(1, 2, 0)
-        outputs = outputs.reshape(pad, pad, num_classes).cpu().numpy().astype('float16')
-        outputs = outputs[dist_samples:-dist_samples, dist_samples:-dist_samples, :]
-        fp[row:row + chunk_size, col:col + chunk_size, :] = \
-            fp[row:row + chunk_size, col:col + chunk_size, :] + outputs
+        outputs = outputs.permute(0, 2, 3, 1)
+        outputs = outputs.reshape(tf_len, pad, pad, num_classes).cpu().numpy().astype('float16')
+        outputs = outputs[:, dist_samples:-dist_samples, dist_samples:-dist_samples, :]
+        fp[:, row:row + chunk_size, col:col + chunk_size, :] += outputs
     fp.flush()
     del fp
 
-    fp = np.memmap(tp_mem, dtype='float16', mode='r', shape=(h_padded, w_padded, num_classes))
+    fp = np.memmap(tp_mem, dtype='float16', mode='r', shape=(tf_len, h_padded, w_padded, num_classes))
     pred_img = np.zeros((h_padded, w_padded), dtype=np.uint8)
-    for row, col in tqdm(itertools.product(range(0, input_image.height, step), range(0, input_image.width, step)),
-                         leave=False,
-                         total=total_inf_windows,
-                         desc="Writing to array"):
-        arr1 = fp[row:row + chunk_size, col:col + chunk_size, :] / (2 ** 2)
+    for row, col in tqdm(itertools.product(range(0, input_image.height, chunk_size),
+                                           range(0, input_image.width, chunk_size)),
+                         leave=False, total=total_inf_windows, desc="Writing to array"):
+        arr1 = (fp[:, row:row + chunk_size, col:col + chunk_size, :]).max(axis=0)
         if single_class_mode:
+            arr1 = sigmoid(arr1)
             arr1 = (arr1 > threshold)
             arr1 = np.squeeze(arr1, axis=2).astype(np.uint8)
         else:
-            arr1 = arr1.argmax(axis=-1).astype('uint8')
+            arr1 = np.argmax(arr1, axis=-1).astype(np.uint8)
         pred_img[row:row + chunk_size, col:col + chunk_size] = arr1
-    pred_img = pred_img[:h_padded-pad, :w_padded-pad]
+
     end_seg = time.time() - start_seg
     logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
 
     if debug:
         logging.debug(f'Bin count of final output: {np.unique(pred_img, return_counts=True)}')
     input_image.close()
-
-    return pred_img
+    return pred_img[:h_padded-pad, :w_padded-pad]
 
 
 def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200, default: int = 512) -> int:
