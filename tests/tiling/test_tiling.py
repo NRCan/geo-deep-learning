@@ -255,3 +255,36 @@ class TestTiler(object):
 
         del gt_ds
         del saved_ds
+
+    def test_tiling_per_aoi_append_mode(self):
+        """Tests tiling's append mode"""
+        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        img = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
+        gt = "tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg"
+        my_aoi = AOI(raster=img, raster_bands_request=[1, 2, 3], label=gt, split='trn')
+        exp_dir = Path("tests/data/massachusetts_buildings_kaggle")
+        tiling_dir = exp_dir / "patches"
+        my_tiler = Tiler(
+            tiling_root_dir=tiling_dir,
+            src_aoi_list=[my_aoi],
+            patch_size=32,
+            write_mode="raise_exists"
+        )
+        aoi, raster_patchs_paths, vect_patchs_paths = my_tiler.tiling_per_aoi(
+            aoi=my_aoi,
+            out_img_dir=tiling_dir / "images",
+            out_label_dir=tiling_dir / "labels")
+        raster_ctimes_init = {ras_patch: os.path.getctime(ras_patch) for ras_patch in raster_patchs_paths}
+        vector_ctimes_init = {vec_patch: os.path.getctime(vec_patch) for vec_patch in vect_patchs_paths}
+        # Rerun tiling in append mode
+        my_tiler.write_mode = "append"
+        aoi_skipped, raster_patchs_paths_skipped, vect_patchs_paths_skipped = my_tiler.tiling_per_aoi(
+            aoi=my_aoi,
+            out_img_dir=tiling_dir / "images",
+            out_label_dir=tiling_dir / "labels")
+        raster_ctimes_final = {ras_patch: os.path.getctime(ras_patch) for ras_patch in raster_patchs_paths_skipped}
+        vector_ctimes_final = {vec_patch: os.path.getctime(vec_patch) for vec_patch in vect_patchs_paths_skipped}
+        # check that no existing patches have been overwritten
+        assert [ctimes for ctimes in raster_ctimes_init.values()] == [ctimes for ctimes in raster_ctimes_final.values()]
+        assert [ctimes for ctimes in vector_ctimes_init.values()] == [ctimes for ctimes in vector_ctimes_final.values()]
+        shutil.rmtree(tiling_dir)

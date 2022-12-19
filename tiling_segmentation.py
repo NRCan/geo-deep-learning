@@ -70,7 +70,8 @@ class Tiler(object):
                  patch_stride: int = None,
                  min_annot_perc: Number = 0,
                  val_percent: int = None,
-                 debug: bool = False):
+                 debug: bool = False,
+                 write_mode: str = "raise_exists"):
         """
         @param tiling_root_dir: pathlib.Path or str
             Root directory under which all patches will be written (in subfolders)
@@ -89,6 +90,9 @@ class Tiler(object):
             Percentage of training patches that should be written to validation set
         @param debug: boolean, optional
             If True, activate debug functionality
+        @param write_mode: str, optional
+            If "raise_exists" (default), tiling will raise error if patches already exist.
+            if "append", tiling will skip AOIs for which all patches already exist.
         """
         if src_aoi_list and not isinstance(src_aoi_list, List):
             raise TypeError('Input data should be a List')
@@ -154,6 +158,9 @@ class Tiler(object):
                                  f'Set of attribute values requested: {attr_vals_set}')
         self.attr_vals_exp = self.src_aoi_list[0].attr_values_filter
 
+        if not isinstance(write_mode, str) and write_mode not in ["raise_exists", "append"]:
+            raise ValueError(f"Tiler's write mode should be \"raise_exists\" or \"append\". See docs.")
+        self.write_mode = write_mode
         self.debug = debug
 
         self.datasets_dir = []
@@ -168,15 +175,17 @@ class Tiler(object):
                 for dataset in self.datasets:
                     if (self.tiling_root_dir / dataset).is_dir():
                         shutil.move(self.tiling_root_dir / dataset, move_dir)
-            else:
+            elif self.write_mode == "raise_exists":
                 raise FileExistsError(
                     f'Patches directory is not empty. Won\'t overwrite existing content unless debug=True.\n'
                     f'Directory: {self.tiling_root_dir}.'
                 )
+            elif self.write_mode == "append":
+                logging.info(f"Append mode: Will skip AOIs where tiling is complete.")
 
         for dataset in self.datasets:
             dataset_dir = self.tiling_root_dir / dataset
-            dataset_dir.mkdir()
+            dataset_dir.mkdir(exist_ok=True)
             self.datasets_dir.append(dataset_dir)
 
         logging.info(f'Patches will be written to {self.tiling_root_dir}\n\n')
@@ -323,40 +332,62 @@ class Tiler(object):
         if len(dataloader) == 0:
             raise ValueError("The dataloader is empty. Check input image and vector datasets.")
 
-        # Iterate over the dataloader and save resulting raster patches:
-        bboxes = []
         raster_tile_paths = []
         vector_tile_paths = []
-        os.makedirs(out_img_dir, exist_ok=True)
 
-        raster_tile_data = []
-        for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
-            # Parse the TorchGeo batch:
-            sample_image, sample_mask, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
-            bboxes.append(sample_window)
+        skip_aoi = False
+        if self.write_mode == "append" and out_img_dir.is_dir():
+            expect_patch_len = len(dataloader)
+            if aoi.split == "trn":  # Need to move val patches back to trn. Trn/val sorting will restart from scratch.
+                self.move_existing_val_to_trn(out_img_dir_trn=out_img_dir, out_lbl_dir_trn=out_label_dir)
+            raster_tile_paths = list(out_img_dir.iterdir())
+            vector_tile_paths = list(out_label_dir.iterdir()) if out_label_dir is not None else []
+            logging.info(f"[no overwrite mode]\nPatches found for AOI {aoi.aoi_id}:\n"
+                         f"Imagery: {len(raster_tile_paths)} / {expect_patch_len}\n"
+                         f"Ground truth: {len(vector_tile_paths)} / {expect_patch_len}")
+            if len(raster_tile_paths) == expect_patch_len and \
+                    (len(vector_tile_paths) == expect_patch_len or not vector_tile_paths):
+                logging.info(f"Skipping tiling for {aoi.aoi_id}")
+                skip_aoi = True
+            else:
+                [os.remove(ras_patch) for ras_patch in raster_tile_paths]
+                [os.remove(vec_patch) for vec_patch in vector_tile_paths]
+                raster_tile_paths = []
+                vector_tile_paths = []
 
-            # Define the output raster patch filename:
-            dst_raster_name = self._define_output_name(aoi, out_img_dir, sample_window) + ".tif"
-            raster_tile_paths.append(dst_raster_name)
+        if not skip_aoi:
+            # Iterate over the dataloader and save resulting raster patches:
+            bboxes = []
+            os.makedirs(out_img_dir, exist_ok=True)
 
-            # Append all the raster patch data for later parallel writing to the disk:
-            raster_tile_data.append([sample_image, dst_raster_name, sample_window, sample_crs])
-            if not self.for_inference:
-                # Define the output vector patch filename:
-                dst_vector_name = self._define_output_name(aoi, out_label_dir, sample_window) + ".geojson"
-                vector_tile_paths.append(dst_vector_name)
-                # Clip vector labels having bounding boxes from the raster patches:
-                self._save_vec_mem_tile(sample_mask, dst_vector_name)
+            raster_tile_data = []
+            for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
+                # Parse the TorchGeo batch:
+                sample_image, sample_mask, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
+                bboxes.append(sample_window)
 
-        # Write all raster tiles to the disk in parallel:
-        logging.info(f'Cropping raster patches...')
-        with ThreadPoolExecutor(32) as exe:
-            _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
+                # Define the output raster patch filename:
+                dst_raster_name = self._define_output_name(aoi, out_img_dir, sample_window) + ".tif"
+                raster_tile_paths.append(dst_raster_name)
+
+                # Append all the raster patch data for later parallel writing to the disk:
+                raster_tile_data.append([sample_image, dst_raster_name, sample_window, sample_crs])
+                if not self.for_inference:
+                    # Define the output vector patch filename:
+                    dst_vector_name = self._define_output_name(aoi, out_label_dir, sample_window) + ".geojson"
+                    vector_tile_paths.append(dst_vector_name)
+                    # Clip vector labels having bounding boxes from the raster patches:
+                    self._save_vec_mem_tile(sample_mask, dst_vector_name)
+
+            # Write all raster tiles to the disk in parallel:
+            logging.info(f'Cropping raster patches...')
+            with ThreadPoolExecutor(32) as exe:
+                _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
 
         aoi.close_raster()  # for multiprocessing
         aoi.raster = None
 
-        return aoi, raster_tile_paths, vector_tile_paths
+        return aoi, sorted(raster_tile_paths), sorted(vector_tile_paths)
 
     def passes_min_annot(self,
                          img_patch: Union[str, Path],
@@ -505,6 +536,25 @@ class Tiler(object):
         else:
             return dataset, None
 
+    @staticmethod
+    def move_existing_val_to_trn(out_img_dir_trn: Union[str, Path], out_lbl_dir_trn: Union[str, Path] = None) -> None:
+        """Moves all existing patches from val folder to trn folder"""
+        if not Path(out_img_dir_trn).is_dir():
+            raise NotADirectoryError(f"Trn directory for imagery doesn't exist.\nGot: {out_img_dir_trn}")
+        if not Path(out_lbl_dir_trn).is_dir():
+            raise NotADirectoryError(f"Trn directory for ground truth doesn't exist.\nGot: {out_lbl_dir_trn}")
+        out_img_dir_val = Path(str(out_img_dir_trn).replace("/trn/", "/val/").replace("\\trn\\", "\\val\\"))
+        if out_img_dir_val.is_dir():
+            for patch in out_img_dir_val.iterdir():
+                patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
+                shutil.move(patch, patch_dest)
+        if out_lbl_dir_trn:
+            out_label_dir_val = Path(str(out_lbl_dir_trn).replace("/trn/", "/val/").replace("\\trn\\", "\\val\\"))
+            if out_label_dir_val.is_dir():
+                for patch in out_label_dir_val.iterdir():
+                    patch_dest = Path(str(patch).replace("/val/", "/trn/").replace("\\val\\", "\\trn\\"))
+                    shutil.move(patch, patch_dest)
+
 
 def move_patch_trn_to_val(patch: str, src_split: str = "trn", dest_split: str = "val"):
     """Renames and moves a patch's path from on split to another (ex.: to from 'trn' to 'val')"""
@@ -578,6 +628,8 @@ def main(cfg: DictConfig) -> None:
     min_annot_perc = get_key_def('min_annot_perc', cfg['tiling'], expected_type=Number, default=0)
     continuous_vals = get_key_def('continuous_values', cfg['tiling'], default=True)
     save_prev_labels = get_key_def('save_preview_labels', cfg['tiling'], default=True)
+    write_mode = get_key_def('write_mode', cfg['tiling'], default="raise_exists", expected_type=str)
+    overwr = False if write_mode == "append" else True
     parallel = get_key_def('multiprocessing', cfg['tiling'], default=False, expected_type=bool)
     parallel_num_proc = get_key_def('multiprocessing_processes', cfg['tiling'], default=multiprocessing.cpu_count(),
                                     expected_type=int)
@@ -620,7 +672,9 @@ def main(cfg: DictConfig) -> None:
                   patch_size=patch_size,
                   min_annot_perc=min_annot_perc,
                   val_percent=val_percent,
-                  debug=debug)
+                  write_mode=write_mode,
+                  debug=debug,
+                  )
 
     # For each row in csv: (1) tiling imagery and labels
     input_args = []

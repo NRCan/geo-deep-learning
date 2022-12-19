@@ -66,3 +66,14 @@ Defaults to `write_dest_raster=False`<sup>1</sup> <sup>2</sup>
 2. if a VRT is required, but `write_dest_raster=False`, no destination raster is written to disk.
 
 > This feature is currently implemented mostly for debugging and demoing purposes. 
+
+## Write mode
+
+Defines behavior in case patches already exist in destination folder for a particular dataset.
+
+Modes:
+"raise_exists" (default): tiling will raise error if patches already exist. 
+"append": tiling will skip AOIs for which all patches already exist 
+
+> This feature applies to 1st step of tiling only, does not apply to 2nd 
+step (filtering, sorting among trn/val and burning vector ground truth patches).
