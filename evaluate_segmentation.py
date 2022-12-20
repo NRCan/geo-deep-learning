@@ -10,7 +10,6 @@ import torch
 from omegaconf import OmegaConf, open_dict
 from pandas.io.common import is_url
 from solaris import vector
-from solaris.utils.core import _check_rasterio_im_load
 from torch.hub import load_state_dict_from_url
 
 from dataset.aoi import aois_from_csv
@@ -24,7 +23,8 @@ from inference_segmentation import main as gdl_inference
 from postprocess_segmentation import main as gdl_postprocess
 
 
-def benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num_classes, min_iou, outpath_csv, keys):
+def benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num_classes, min_iou, outpath_csv, keys,
+                      check_rasterio_im_load=None):
     metric_per_aoi = OrderedDict(
         {'aoi_id': aoi.aoi_id, 'state_dict': Path(checkpoint).name, 'heatmap_threshold': heatmap_threshold})
     logging.info(f"Benchmarking: {aoi.aoi_id}")
@@ -64,7 +64,7 @@ def benchmark_per_aoi(cfg, checkpoint, root, aoi, heatmap_threshold, device, num
         _, pred_raster = gdl_inference(cfg.copy())
         torch.cuda.empty_cache()
     else:
-        pred_raster_heatmap = _check_rasterio_im_load(str(outpath_heat)).read()
+        pred_raster_heatmap = check_rasterio_im_load(str(outpath_heat)).read()
         pred_raster_heatmap = pred_raster_heatmap.squeeze()
         pred_raster = (pred_raster_heatmap > heatmap_threshold)
         create_new_raster_from_base(
