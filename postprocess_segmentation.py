@@ -6,6 +6,7 @@
 """CCMEO postprocess script."""
 import codecs
 import os
+import re
 import shutil
 import subprocess
 from typing import Dict, Union
@@ -505,8 +506,7 @@ def main(params):
             logging.critical(f'\nThe raw prediction contain no polygon.')
         else:
             gdf_footprint = geopandas.read_file(footprint)
-            gdf_footprint = gdf_footprint.to_crs(str(gdf_poly.crs))
-            
+            gdf_footprint = gdf_footprint.to_crs(str(gdf_poly.crs))            
             gdf_clipped = geopandas.clip(gdf_poly, gdf_footprint)
             gdf_clipped.to_file(returned_vector_pred, driver="GPKG")
         
@@ -524,54 +524,73 @@ def main(params):
                 logging.error(f"\nError generalizing using {cont_type} container with image {gen_cont_image}."
                               f"\ncommand: {command}"
                               f"\nError {type(e)}: {e}")
+            # Collect the name of the layer created
+            if 'ROAI' in classes_dict: # take the polygon layer for the road
+                m = re.search('outlayernamepoly=(.{6})', str(command))
+            else:
+                m = re.search('outlayername=(.{6})', str(command))
+            layer_name = m.group(1)
+            
         if out_gen.is_file():
             logging.info(f'\nGeneralization completed. Final prediction: {out_gen}')
             returned_vector_pred = out_gen
-            # add more info on a new layer waiting for Fiona 1.9
-            logging.info(f"\nAdding a layer 'extent_info' in {out_gen} with addintional informations.")
-            # Create a schema to store extent informations in the gpks
-            extent_schema_list = [("stac_item", 'str'), ("gdl_image", 'str')]
-            # list all layer(s) in the gpkg
-            layers = fiona.listlayers(out_gen)
+            
+            try: # Try to convert multipolygon to polygon
+                df = geopandas.read_file(returned_vector_pred, layer=layer_name)
+                if 'MultiPolygon' in df['geometry'].geom_type.values:
+                    logging.info("\nConverting multiPolygon to Polygon...")
+                    gdf_exploded = df.explode(index_parts=True, ignore_index=True)
+                    gdf_exploded.to_file(returned_vector_pred, layer=layer_name)
+            except Exception as e:
+                logging.error(f"\nSomething went wrong during the convertion of Polygon. \nError {type(e)}: {e}")
+            
             # Fetch the tag information inside the tiff
             tiff_src = rasterio.open(inf_outpath_ori)
             tags = tiff_src.tags()
-            checkpoint_path = tags['checkpoint']
-            # Look which class is use first by looking in the inf_outpath 
-            cls_name = next((elem for elem in classes_dict if elem in str(inf_outpath_ori)), None)  # TODO something when its None
-            # Check if the layer already created
-            if 'extent_info' in layers:
-                # open the gpkg
-                _gpkg = fiona.open(out_gen, layer='extent_info')
-                new_extent_schema = _gpkg.schema.copy()
-                # Add the model class name to the schema to fit what will be added
-                new_extent_schema['properties'].update({"model_"+cls_name : 'str'})
-                # extract information in the layer 
-                prop = list(_gpkg.filter())[0]['properties']
-                p = prop.copy()
-                # close the gpkg to be able to rewrite it
-                _gpkg.close()
-                # add infrmation in the layer already there
-                with fiona.open(returned_vector_pred, 'w', crs=_gpkg.crs, layer='extent_info', schema=new_extent_schema, driver='GPKG', overwrite=True) as ds:
-                    # add the checkpoint path associated with the model use for that class
-                    p.update({"model_"+cls_name : checkpoint_path})
-                    ds.write({'properties': p})
-            # If not there create the layer for extent information
-            else:
-                # open the gpkg
-                _gpkg = fiona.open(out_gen)
-                # Add the model class name to the schema to fit what will be added
-                extent_schema_list.append(("model_"+cls_name, 'str'))
-                extent_schema = {'properties': OrderedDict(extent_schema_list)}
-                # Create a new layer in the gpkg with all information on stac item, gdl image and model class
-                with fiona.open(returned_vector_pred, 'w', crs=_gpkg.crs, layer='extent_info', schema=extent_schema, driver='GPKG') as ds:
-                    p = {
-                        "stac_item": item_url,
-                        "gdl_image": reg_cont_image,
-                    }
-                    # add the checkpoint path associated with the model use for that class
-                    p.update({"model_"+cls_name : checkpoint_path})
-                    ds.write({'properties': p})
+            # check if the tiff have a checkpoint save in 
+            if 'checkpoint' in tags.keys():
+                checkpoint_path = tags['checkpoint']
+                # add more info on a new layer waiting for Fiona 1.9
+                logging.info(f"\nAdding a layer 'extent_info' in {out_gen} with addintional informations.")
+                # Create a schema to store extent informations in the gpks
+                extent_schema_list = [("stac_item", 'str'), ("gdl_image", 'str')]
+                # list all layer(s) in the gpkg
+                layers = fiona.listlayers(out_gen)
+                # Look which class is use first by looking in the inf_outpath 
+                cls_name = next((elem for elem in classes_dict if elem in str(inf_outpath_ori)), None)  # TODO something when its None
+                # Check if the layer already created
+                if 'extent_info' in layers:
+                    # open the gpkg
+                    _gpkg = fiona.open(out_gen, layer='extent_info')
+                    new_extent_schema = _gpkg.schema.copy()
+                    # Add the model class name to the schema to fit what will be added
+                    new_extent_schema['properties'].update({"model_"+cls_name : 'str'})
+                    # extract information in the layer 
+                    prop = list(_gpkg.filter())[0]['properties']
+                    p = prop.copy()
+                    # close the gpkg to be able to rewrite it
+                    _gpkg.close()
+                    # add infrmation in the layer already there
+                    with fiona.open(returned_vector_pred, 'w', crs=_gpkg.crs, layer='extent_info', schema=new_extent_schema, driver='GPKG', overwrite=True) as ds:
+                        # add the checkpoint path associated with the model use for that class
+                        p.update({"model_"+cls_name : checkpoint_path})
+                        ds.write({'properties': p})
+                # If not there create the layer for extent information
+                else:
+                    # open the gpkg
+                    _gpkg = fiona.open(out_gen)
+                    # Add the model class name to the schema to fit what will be added
+                    extent_schema_list.append(("model_"+cls_name, 'str'))
+                    extent_schema = {'properties': OrderedDict(extent_schema_list)}
+                    # Create a new layer in the gpkg with all information on stac item, gdl image and model class
+                    with fiona.open(returned_vector_pred, 'w', crs=_gpkg.crs, layer='extent_info', schema=extent_schema, driver='GPKG') as ds:
+                        p = {
+                            "stac_item": item_url,
+                            "gdl_image": reg_cont_image,
+                        }
+                        # add the checkpoint path associated with the model use for that class
+                        p.update({"model_"+cls_name : checkpoint_path})
+                        ds.write({'properties': p})
             
         else:
             logging.error(f'\nGeneralization failed. Output "{out_gen}" not created. See logs...')
