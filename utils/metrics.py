@@ -175,7 +175,7 @@ def iou_torchmetrics(pred: torch.Tensor, label: torch.Tensor, num_classes: int, 
         metrics = MetricCollection([MulticlassJaccardIndex(num_classes=num_classes, multilabel=True)], prefix="evaluate_")
         prefix = "Multiclass"
     metrics.to(device)
-    metrics(pred.to(device), label.to(device))
+    metrics(pred.squeeze().to(device), label.squeeze().to(device))
     results = metrics.compute()
     metrics.reset()
     iou = results[f"evaluate_{prefix}JaccardIndex"].item()

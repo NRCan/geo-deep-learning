@@ -551,7 +551,10 @@ def override_model_params_from_checkpoint(
     bands_ckpt = get_key_def('bands', checkpoint_params['dataset'], expected_type=Sequence)
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
-    clip_limit_ckpt = get_key_def('clahe_clip_limit', checkpoint_params['tiling'], expected_type=int)
+    if "tiling" in checkpoint_params:
+        clip_limit_ckpt = get_key_def('clahe_clip_limit', checkpoint_params['tiling'], expected_type=int)
+    else:
+        clip_limit_ckpt = clip_limit
     if "augmentation" in checkpoint_params:
         normalization_ckpt = get_key_def('normalization', checkpoint_params['augmentation'], expected_type=(dict, DictConfig))
         # Workaround for "omegaconf.errors.UnsupportedValueType: Value 'CommentedSeq' is not a supported primitive type"
@@ -640,14 +643,19 @@ def update_gdl_checkpoint(checkpoint: DictConfig) -> DictConfig:
         get_key_def('classes_dict', checkpoint["params"]['dataset'], expected_type=(dict, DictConfig))
         get_key_def('model', checkpoint["params"], expected_type=(dict, DictConfig))
         bands_cfg = get_key_def('bands', checkpoint["params"]['dataset'], expected_type=Sequence)
+        print("Hardcoded NRG bands and WAER class!!!")
+        # Necessary to manually update when using old models in postprocess pipeline
+        checkpoint["params"]["dataset"]["bands"] = ['nir', 'red', 'green']
+        checkpoint["params"]["dataset"]["classes_dict"] = {f"WAER": 1}
+
         # covers version where bands were inputted as str, e.g. "RGB", not ["R", "G", "B"]
-        if isinstance(bands_cfg, str):
-            modalities_old2new = {v: k for k, v in bands.items()}  # invert keys and values
-            checkpoint["params"]['dataset'].update(
-                {'bands': [modalities_old2new[band] for band in bands_cfg]}
-            )
+        # if isinstance(bands_cfg, str):
+        #     modalities_old2new = {v: k for k, v in bands.items()}  # invert keys and values
+        #     checkpoint["params"]['dataset'].update(
+        #         {'bands': [modalities_old2new[band] for band in bands_cfg]}
+        #     )
         return checkpoint
-    except KeyError:
+    except KeyError as e:
         num_classes_ckpt = get_key_def('num_classes', checkpoint["params"]['global'], expected_type=int)
         num_bands_ckpt = get_key_def('number_of_bands', checkpoint["params"]['global'], expected_type=int)
         model_name = get_key_def('model_name', checkpoint["params"]['global'], expected_type=str)
