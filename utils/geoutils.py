@@ -23,12 +23,13 @@ from shapely.geometry import box, Polygon
 logger = logging.getLogger(__name__)
 
 
-def create_new_raster_from_base(input_raster, output_raster, write_array):
+def create_new_raster_from_base(input_raster, output_raster, write_array, **kwargs):
     """Function to use info from input raster to create new one.
     Args:
         input_raster: input raster path and name
         output_raster: raster name and path to be created with info from input
         write_array (optional): array to write into the new raster
+        kwargs (optional): Complementary parameter(s)
 
     Return:
         none
@@ -61,6 +62,10 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
                        transform=src.transform,
                        compress='lzw') as dst:
         dst.write(write_array)
+        # add tag to transmit more informations
+        if 'checkpoint_path' in kwargs.keys():
+            # add the path to the model checkpoint
+            dst.update_tags(checkpoint=kwargs['checkpoint_path']) 
 
 
 def get_key_recursive(key, config):
@@ -235,8 +240,9 @@ def multi2poly(returned_vector_pred, layer_name=None):
     Args:
         returned_vector_pred: string, geopackage PATH where the post-processing
                               results are saved.
-        layer_name: string, the name of layer to look into for multipolygon, the name
+        layer_name (optional): string, the name of layer to look into for multipolygon, the name
                     represente the classes post-processed. Default None.
+                    
     Return:
         none
     """
