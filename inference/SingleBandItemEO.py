@@ -20,6 +20,8 @@ class SingleBandItemEO(ItemEOExtension):
         if self._assets_by_common_name is None:
             self._assets_by_common_name = {}
             for name, a_meta in self.item.assets.items():
+                if name == 'FOOTPRINT':
+                    self._assets_by_common_name['FOOTPRINT'] = {'href': a_meta.href, 'name': name}
                 bands = []
                 if 'eo:bands' in a_meta.extra_fields.keys():
                     bands = a_meta.extra_fields['eo:bands']

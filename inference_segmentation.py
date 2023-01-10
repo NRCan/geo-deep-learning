@@ -390,7 +390,9 @@ def main(params):
     fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, num_classes))
     pred_img = class_from_heatmap(heatmap_arr=fp, heatmap_threshold=heatmap_threshold)
     pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
-    create_new_raster_from_base(input_raster=dm.inference_dataset.src, output_raster=outpath, write_array=pred_img)
+    create_new_raster_from_base(
+        input_raster=dm.inference_dataset.src, output_raster=outpath, write_array=pred_img, checkpoint_path=checkpoint
+    )
 
     logging.info(f'\nInference completed on {dm.inference_dataset.item_url}'
                  f'\nFinal prediction written to {outpath}')
