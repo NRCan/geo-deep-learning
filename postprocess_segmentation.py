@@ -97,7 +97,7 @@ def regularize_buildings(in_pred: Union[str, Path],
                     for ckpt in ckpts:
                         load_state_dict_from_url(url=ckpt, model_dir=fallback_models_dir)
                 regularize.main(
-                    in_raster=in_pred,
+                    in_pred_raster=in_pred,
                     out_raster=out_pred,
                     build_val=building_value,
                     models_dir=fallback_models_dir,
@@ -195,14 +195,14 @@ def run_from_container(
     logging.debug(command)
     if container_type == 'docker':
         binds = {k: {'bind': v, 'mode': 'rw'} for k, v in binds.items()}
-        # gpu_device = [docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])] if use_gpu else None
+        gpu_device = [docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])] if use_gpu else None
         client = docker.from_env()
         qgis_pp_docker_img = client.images.get(image)
         container = client.containers.run(
             image=qgis_pp_docker_img,
             command=command,
             volumes=binds,
-            #device_requests=gpu_device,  # FIXME
+            device_requests=gpu_device,
             detach=True)
         logs = container.logs(stream=stream)
         if stream:
@@ -516,16 +516,16 @@ def main(params):
     # Clip the predicted polygon(s) if given one
     if footprint:
         logging.info(f'\nClipping predicted polygon(s). Footprint: {footprint}')
-        
+
         gdf_poly = geopandas.read_file(returned_vector_pred)
         if gdf_poly.empty:
             logging.critical(f'\nThe raw prediction contain no polygon.')
         else:
             gdf_footprint = geopandas.read_file(footprint)
-            gdf_footprint = gdf_footprint.to_crs(str(gdf_poly.crs))            
+            gdf_footprint = gdf_footprint.to_crs(str(gdf_poly.crs))
             gdf_clipped = geopandas.clip(gdf_poly, gdf_footprint)
             gdf_clipped.to_file(returned_vector_pred, driver="GPKG")
-        
+
         logging.info(f'\nClipping completed. Clipped prediction: {returned_vector_pred}')
 
     if generalization:
@@ -541,7 +541,7 @@ def main(params):
                               f"\ncommand: {command}"
                               f"\nError {type(e)}: {e}")
             # Collect the name of the layer created
-            if 'ROAI' in classes_dict: # take the polygon layer for the road
+            if 'ROAI' in classes_dict:  # take the polygon layer for the road
                 m = re.search('outlayernamepoly=(.{6})', str(command))
             else:
                 m = re.search('outlayername=(.{6})', str(command))
@@ -551,14 +551,14 @@ def main(params):
             logging.info(f'\nGeneralization completed. Final prediction: {out_gen}')
             returned_vector_pred = out_gen
             
-            try: # Try to convert multipolygon to polygon
+            try:  # Try to convert multipolygon to polygon
                 df = geopandas.read_file(returned_vector_pred, layer=layer_name)
                 if 'MultiPolygon' in df['geometry'].geom_type.values:
                     logging.info("\nConverting multiPolygon to Polygon...")
                     gdf_exploded = df.explode(index_parts=True, ignore_index=True)
                     gdf_exploded.to_file(returned_vector_pred, layer=layer_name)
             except Exception as e:
-                logging.error(f"\nSomething went wrong during the convertion of Polygon. \nError {type(e)}: {e}")
+                logging.error(f"\nSomething went wrong during the conversion of Polygon. \nError {type(e)}: {e}")
             
             # Fetch the tag information inside the tiff
             tiff_src = rasterio.open(inf_outpath_ori)
@@ -567,8 +567,8 @@ def main(params):
             if 'checkpoint' in tags.keys():
                 checkpoint_path = tags['checkpoint']
                 # add more info on a new layer waiting for Fiona 1.9
-                logging.info(f"\nAdding a layer 'extent_info' in {out_gen} with addintional informations.")
-                # Create a schema to store extent informations in the gpks
+                logging.info(f"\nAdding a layer 'extent_info' in {out_gen} with additional information.")
+                # Create a schema to store extent information in the gpks
                 extent_schema_list = [("stac_item", 'str'), ("gdl_image", 'str')]
                 # list all layer(s) in the gpkg
                 layers = fiona.listlayers(out_gen)
@@ -580,16 +580,16 @@ def main(params):
                     _gpkg = fiona.open(out_gen, layer='extent_info')
                     new_extent_schema = _gpkg.schema.copy()
                     # Add the model class name to the schema to fit what will be added
-                    new_extent_schema['properties'].update({"model_"+cls_name : 'str'})
+                    new_extent_schema['properties'].update({"model_"+cls_name: 'str'})
                     # extract information in the layer 
                     prop = list(_gpkg.filter())[0]['properties']
                     p = prop.copy()
                     # close the gpkg to be able to rewrite it
                     _gpkg.close()
-                    # add infrmation in the layer already there
+                    # add information in the layer already there
                     with fiona.open(returned_vector_pred, 'w', crs=_gpkg.crs, layer='extent_info', schema=new_extent_schema, driver='GPKG', overwrite=True) as ds:
                         # add the checkpoint path associated with the model use for that class
-                        p.update({"model_"+cls_name : checkpoint_path})
+                        p.update({"model_"+cls_name: checkpoint_path})
                         ds.write({'properties': p})
                 # If not there create the layer for extent information
                 else:
@@ -605,7 +605,7 @@ def main(params):
                             "gdl_image": reg_cont_image,
                         }
                         # add the checkpoint path associated with the model use for that class
-                        p.update({"model_"+cls_name : checkpoint_path})
+                        p.update({"model_"+cls_name: checkpoint_path})
                         ds.write({'properties': p})
             
         else:

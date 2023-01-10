@@ -91,6 +91,8 @@ class SingleBandItemEO(ItemEOExtension):
         if self._assets_by_common_name is None:
             self._assets_by_common_name = OrderedDict()
             for name, a_meta in self.item.assets.items():
+                if name == 'FOOTPRINT':
+                    self._assets_by_common_name['FOOTPRINT'] = {'href': a_meta.href, 'name': name}
                 bands = []
                 if 'eo:bands' in a_meta.extra_fields.keys():
                     bands = a_meta.extra_fields['eo:bands']
@@ -172,6 +174,7 @@ class AOI(object):
         self.download_data = self.root_dir = None
         self.raster_closed = False
         self.raster_name = Path(raster)  # default name, may be overwritten later
+        self.raster_footprint = None
 
         self.label = self.label_gdf = self.label_invalid_features = self.label_bounds = None
         self.overlap_label_rto_raster = self.overlap_raster_rto_label = None
@@ -195,6 +198,9 @@ class AOI(object):
             item = SingleBandItemEO(item=pystac.Item.from_file(self.raster_raw_input),
                                     bands_requested=self.raster_bands_request)
             self.raster_stac_item = item
+            # Create footprint inventory
+            if 'FOOTPRINT' in self.raster_stac_item.asset_by_common_name.keys():
+                self.raster_footprint = self.raster_stac_item.asset_by_common_name.pop('FOOTPRINT')
         else:
             self.raster_stac_item = None
 
@@ -221,6 +227,10 @@ class AOI(object):
                     download_url(single_raster, root=str(out_name.parent), filename=out_name.name)
                     # replace with local copy
                     raster_parsed[index] = str(out_name)
+                if self.raster_footprint:
+                    out_name = self.root_dir / Path(self.raster_footprint['href']).name
+                    download_url(self.raster_footprint['href'], root=str(self.root_dir), filename=str(out_name))
+                    self.raster_footprint['href'] = out_name
 
         # validate raster data
         for single_raster in raster_parsed:

@@ -4,7 +4,7 @@ channels:
   - conda-forge
 dependencies:
   - coverage>=6.3.1
-  - docker-py>=4.4.4
+  - docker-py>=6.0.0
   - geopandas>=0.10.2
   - hydra-core>=1.2.0
   - pip
