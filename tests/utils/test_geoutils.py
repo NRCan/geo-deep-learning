@@ -10,7 +10,7 @@ from _pytest.fixtures import SubRequest
 from torchgeo.datasets.utils import extract_archive
 
 from dataset.aoi import AOI
-from utils.geoutils import create_new_raster_from_base, bounds_gdf, bounds_riodataset, overlap_poly1_rto_poly2
+from utils.geoutils import create_new_raster_from_base, bounds_gdf, bounds_riodataset, overlap_poly1_rto_poly2, fetch_tag_raster
 from utils.utils import read_csv
 
 
@@ -85,3 +85,11 @@ class TestGeoutils(object):
         label_bounds_box = bounds_gdf(label_gdf)
         raster_bounds_box = bounds_riodataset(raster)
         assert overlap_poly1_rto_poly2(label_bounds_box, raster_bounds_box) == 0.0
+        
+    def test_fetch_tag_raster(self):
+        """Test to verify if the function really fetch the right information from the raster"""
+        raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
+        with rasterio.open(raster_file) as dest:
+            dest.update_tags(checkpoint='test/path/to/checkpoint.pth')
+        assert fetch_tag_raster(raster_file, 'checkpoint') == 'test/path/to/checkpoint.pth'
+         

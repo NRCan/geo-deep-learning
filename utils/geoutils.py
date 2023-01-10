@@ -256,7 +256,6 @@ def multi2poly(returned_vector_pred, layer_name=None):
         logging.error(f"\nSomething went wrong during the conversion of Polygon. \nError {type(e)}: {e}")
         
         
-        
 def fetch_tag_raster(raster_path, tag_wanted):
     """
     Fetch the tag(s) information saved inside the tiff.
@@ -269,13 +268,12 @@ def fetch_tag_raster(raster_path, tag_wanted):
     """
     with rasterio.open(raster_path) as tiff_src:
         tags = tiff_src.tags()
-    # check if the tiff have a checkpoint save in 
+    # check if the tiff have the wanted tag save in 
     if tag_wanted in tags.keys():
         return tags[tag_wanted]
     else:
         raise logging.error(
-            f"\nThe tag {tag_wanted} was not found in the {list(tags.keys())},"
+            f"\nThe tag {tag_wanted} was not found in the {tags.keys()},"
             f" try again with one inside that list."
         )
     
- 
