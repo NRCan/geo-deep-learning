@@ -89,7 +89,10 @@ class TestGeoutils(object):
     def test_fetch_tag_raster(self):
         """Test to verify if the function really fetch the right information from the raster"""
         raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
-        with rasterio.open(raster_file) as dest:
-            dest.update_tags(checkpoint='test/path/to/checkpoint.pth')
-        assert fetch_tag_raster(raster_file, 'checkpoint') == 'test/path/to/checkpoint.pth'
+        tag_raster = 'tests/data/massachusetts_buildings_kaggle/tag_raster.tif'
+        with rasterio.open(raster_file, 'r') as src_ds:
+            with rasterio.open(tag_raster, 'w', **src_ds.meta) as dst_ds:
+                dst_ds.update_tags(checkpoint='test/path/to/checkpoint.pth')
+                dst_ds.write(src_ds.read())
+        assert fetch_tag_raster(tag_raster, 'checkpoint') == 'test/path/to/checkpoint.pth'
          
