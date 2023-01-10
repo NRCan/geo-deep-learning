@@ -152,7 +152,7 @@ def check_rasterio_im_load(im):
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L17
     """
     if isinstance(im, (str, Path)):
-        if not is_url(im):
+        if not is_url(im) and 'VRTDataset' not in str(im):
             im = to_absolute_path(str(im))
         return rasterio.open(im)
     elif isinstance(im, rasterio.DatasetReader):

@@ -287,9 +287,9 @@ def override_model_params_from_checkpoint(
                         f"\nInput bands:\t\t{modalities} | {modalities_ckpt}"
                         f"\nOutput classes:\t\t{classes} | {classes_ckpt}")
         with open_dict(params):
-            OmegaConf.update(params, 'dataset.modalities', modalities_ckpt)
-            OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt)
-            OmegaConf.update(params, 'model', model_ckpt)
+            params['dataset']['modalities'] = modalities_ckpt
+            params['dataset']['classes_dict'] = classes_ckpt
+            params['model'] = model_ckpt
     return params
 
 
@@ -297,7 +297,7 @@ def stac_input_to_temp_csv(input_stac_item: Union[str, Path]) -> Path:
     """Saves a stac item path or url to a temporary csv"""
     _, stac_temp_csv = mkstemp(suffix=".csv")
     with open(stac_temp_csv, "w", newline="") as fh:
-        csv.writer(fh).writerow([str(input_stac_item), None, "inference", input_stac_item.stem])
+        csv.writer(fh).writerow([str(input_stac_item), None, "inference", Path(input_stac_item).stem])
     return Path(stac_temp_csv)
 
 
@@ -392,14 +392,15 @@ def main(params: Union[DictConfig, dict]) -> None:
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
-    list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested)
+    # TODO: softcode download_data, data_dir, equalize_clip_limit
+    list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested, download_data=True)
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
         Path.mkdir(working_folder / aoi.raster_name.parent.name, parents=True, exist_ok=True)
         inference_image = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_inference.tif"
         temp_file = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}.dat"
-        logging.info(f'\nReading image: {aoi.raster_name}')
+        logging.info(f'\nReading image: {aoi.raster_name.stem}')
         inf_meta = aoi.raster.meta
 
         pred = segmentation(param=params,
