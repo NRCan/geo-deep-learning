@@ -6,6 +6,7 @@
 """CCMEO postprocess script."""
 import codecs
 import os
+import re
 import shutil
 import subprocess
 from tempfile import mkstemp
@@ -364,6 +365,7 @@ def main(params):
                          f"\nhydra's successful interpolation of input and output names in commands set in config.")
     inf_outname = extension_remover(inf_outname)
     inf_outpath = root / f"{inf_outname}.tif"
+    inf_outpath_ori = inf_outpath
     heatmap_name = get_key_def('heatmap_name', params['inference'], default=f"{inf_outpath.stem}_heatmap", expected_type=str)
     heatmap_name = extension_remover(heatmap_name)
     in_heatmap = root / f"{heatmap_name}.tif"
@@ -415,6 +417,15 @@ def main(params):
                                   to_path=True, validate_path_exists=True)
     gen_cont_image = get_key_def('cont_image', params['postprocess']['gen_cont'], expected_type=str)
     gen_commands = dict(get_key_def('command', params['postprocess']['gen_cont'], expected_type=DictConfig))
+
+    # fetch the footprint
+    item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
+    data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
+    # TODO: Maybe add the download from the stac item if not there, but supposed since downloaded in inference
+    footprint = os.path.join(data_dir, f'{os.path.basename(item_url)}-FOOTPRINT.geojson')
+    if not os.path.isfile(footprint):
+        logging.critical(f"\nFOOTPRINT not found! {footprint} is not a file.")
+        footprint = None
 
     logging.debug('\nCreate "hparams" yaml to use pytorch lightning model management')
     logging.info(f"\nConverting geo-deep-learning checkpoint to pytorch lightning...")
@@ -502,6 +513,21 @@ def main(params):
     elif confidence_values:
         logging.error(f"Cannot add confidence levels to polygons. A heatmap must be generated at inference")
 
+    # Clip the predicted polygon(s) if given one
+    if footprint:
+        logging.info(f'\nClipping predicted polygon(s). Footprint: {footprint}')
+        
+        gdf_poly = geopandas.read_file(returned_vector_pred)
+        if gdf_poly.empty:
+            logging.critical(f'\nThe raw prediction contain no polygon.')
+        else:
+            gdf_footprint = geopandas.read_file(footprint)
+            gdf_footprint = gdf_footprint.to_crs(str(gdf_poly.crs))            
+            gdf_clipped = geopandas.clip(gdf_poly, gdf_footprint)
+            gdf_clipped.to_file(returned_vector_pred, driver="GPKG")
+        
+        logging.info(f'\nClipping completed. Clipped prediction: {returned_vector_pred}')
+
     if generalization:
         logging.info(f"Generalizing prediction to {out_gen}")
         for command in gen_cmds_pruned.values():
@@ -514,12 +540,77 @@ def main(params):
                 logging.error(f"\nError generalizing using {cont_type} container with image {gen_cont_image}."
                               f"\ncommand: {command}"
                               f"\nError {type(e)}: {e}")
+            # Collect the name of the layer created
+            if 'ROAI' in classes_dict: # take the polygon layer for the road
+                m = re.search('outlayernamepoly=(.{6})', str(command))
+            else:
+                m = re.search('outlayername=(.{6})', str(command))
+            layer_name = m.group(1)
+            
         if out_gen.is_file():
             logging.info(f'\nGeneralization completed. Final prediction: {out_gen}')
             returned_vector_pred = out_gen
+            
+            try: # Try to convert multipolygon to polygon
+                df = geopandas.read_file(returned_vector_pred, layer=layer_name)
+                if 'MultiPolygon' in df['geometry'].geom_type.values:
+                    logging.info("\nConverting multiPolygon to Polygon...")
+                    gdf_exploded = df.explode(index_parts=True, ignore_index=True)
+                    gdf_exploded.to_file(returned_vector_pred, layer=layer_name)
+            except Exception as e:
+                logging.error(f"\nSomething went wrong during the convertion of Polygon. \nError {type(e)}: {e}")
+            
+            # Fetch the tag information inside the tiff
+            tiff_src = rasterio.open(inf_outpath_ori)
+            tags = tiff_src.tags()
+            # check if the tiff have a checkpoint save in 
+            if 'checkpoint' in tags.keys():
+                checkpoint_path = tags['checkpoint']
+                # add more info on a new layer waiting for Fiona 1.9
+                logging.info(f"\nAdding a layer 'extent_info' in {out_gen} with addintional informations.")
+                # Create a schema to store extent informations in the gpks
+                extent_schema_list = [("stac_item", 'str'), ("gdl_image", 'str')]
+                # list all layer(s) in the gpkg
+                layers = fiona.listlayers(out_gen)
+                # Look which class is use first by looking in the inf_outpath 
+                cls_name = next((elem for elem in classes_dict if elem in str(inf_outpath_ori)), None)  # TODO something when its None
+                # Check if the layer already created
+                if 'extent_info' in layers:
+                    # open the gpkg
+                    _gpkg = fiona.open(out_gen, layer='extent_info')
+                    new_extent_schema = _gpkg.schema.copy()
+                    # Add the model class name to the schema to fit what will be added
+                    new_extent_schema['properties'].update({"model_"+cls_name : 'str'})
+                    # extract information in the layer 
+                    prop = list(_gpkg.filter())[0]['properties']
+                    p = prop.copy()
+                    # close the gpkg to be able to rewrite it
+                    _gpkg.close()
+                    # add infrmation in the layer already there
+                    with fiona.open(returned_vector_pred, 'w', crs=_gpkg.crs, layer='extent_info', schema=new_extent_schema, driver='GPKG', overwrite=True) as ds:
+                        # add the checkpoint path associated with the model use for that class
+                        p.update({"model_"+cls_name : checkpoint_path})
+                        ds.write({'properties': p})
+                # If not there create the layer for extent information
+                else:
+                    # open the gpkg
+                    _gpkg = fiona.open(out_gen)
+                    # Add the model class name to the schema to fit what will be added
+                    extent_schema_list.append(("model_"+cls_name, 'str'))
+                    extent_schema = {'properties': OrderedDict(extent_schema_list)}
+                    # Create a new layer in the gpkg with all information on stac item, gdl image and model class
+                    with fiona.open(returned_vector_pred, 'w', crs=_gpkg.crs, layer='extent_info', schema=extent_schema, driver='GPKG') as ds:
+                        p = {
+                            "stac_item": item_url,
+                            "gdl_image": reg_cont_image,
+                        }
+                        # add the checkpoint path associated with the model use for that class
+                        p.update({"model_"+cls_name : checkpoint_path})
+                        ds.write({'properties': p})
+            
         else:
             logging.error(f'\nGeneralization failed. Output "{out_gen}" not created. See logs...')
-
+        
     logging.info(f'\nEnd of postprocessing')
 
     return returned_vector_pred

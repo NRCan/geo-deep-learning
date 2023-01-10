@@ -470,6 +470,9 @@ def main(params):
     fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(height, width, num_classes))
     pred_img = class_from_heatmap(heatmap_arr=fp, heatmap_threshold=heatmap_threshold)
     pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
+    create_new_raster_from_base(
+        input_raster=dm.inference_dataset.src, output_raster=outpath, write_array=pred_img, checkpoint_path=checkpoint
+    )
 
     if not aoi.raster:  # in case of multiprocessing
         aoi.raster = rasterio.open(aoi.raster_dest)
