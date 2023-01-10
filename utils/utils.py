@@ -728,7 +728,7 @@ def ckpt_is_compatible(in_ckpt_path: str, download_dir: str = None):
         isinstance(checkpoint["hyper_parameters"]["model"]["_target_"], str)
         isinstance(checkpoint["hyper_parameters"]["dataset"]["bands"], list)
         isinstance(checkpoint["hyper_parameters"]["dataset"]["classes_dict"], (dict, DictConfig))
-        return True
+        return True, checkpoint
     except (KeyError, AttributeError) as e:
         logging.warning(f"\nCheckpoint is incompatible with inference pipeline.\n{e}")
         return False
@@ -794,7 +794,7 @@ def stretch_heatmap(heatmap_arr: np.ndarray, out_max: int = 100, range_warning: 
         omax = imax
     else:
         _, omax = map(float, intensity_range(heatmap_arr, 'dtype'))
-    return np.array(heatmap_arr) / omax * out_max
+    return heatmap_arr / omax * out_max
 
 
 def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: int = 50, range_warning: bool = True) -> np.ndarray:
