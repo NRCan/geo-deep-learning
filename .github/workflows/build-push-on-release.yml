@@ -30,7 +30,7 @@ jobs:
         images:  ${{ env.REGISTRY }}/${{ secrets.DOCKER_REPO }}
 
     - name: Build the docker image
-      run: docker build . --file Dockerfile --tag gdl-cuda11:${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+      run: docker build . --file Dockerfile --tag gdl-cuda11:${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }} --build-arg GIT_TAG=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
 
     - name: Tag the docker image
       run: docker tag gdl-cuda11:${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }} ${{ secrets.DOCKER_REPO }}/gdl-cuda11
