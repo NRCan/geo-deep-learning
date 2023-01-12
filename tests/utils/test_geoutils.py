@@ -8,9 +8,10 @@ import pytest
 import rasterio
 from _pytest.fixtures import SubRequest
 from torchgeo.datasets.utils import extract_archive
+from shapely.geometry import MultiPolygon
 
 from dataset.aoi import AOI
-from utils.geoutils import create_new_raster_from_base, bounds_gdf, bounds_riodataset, overlap_poly1_rto_poly2
+from utils.geoutils import create_new_raster_from_base, bounds_gdf, bounds_riodataset, overlap_poly1_rto_poly2, multi2poly
 from utils.utils import read_csv
 
 
@@ -85,3 +86,11 @@ class TestGeoutils(object):
         label_bounds_box = bounds_gdf(label_gdf)
         raster_bounds_box = bounds_riodataset(raster)
         assert overlap_poly1_rto_poly2(label_bounds_box, raster_bounds_box) == 0.0
+
+    def test_multi2poly(self):
+        """Test the conversion from MultiPolygon to Polygon in a GPKG"""
+        multi_gpkg = "tests/data/new_brunswick_aerial/BakerLake_2017_clipped.gpkg"
+        multi2poly(multi_gpkg, 'BakerLake_2017')
+        df = gpd.read_file(multi_gpkg, layer='BakerLake_2017')
+        have_multi = 'MultiPolygon' in df['geometry'].geom_type.values
+        assert have_multi == False
