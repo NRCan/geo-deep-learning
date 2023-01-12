@@ -1,6 +1,6 @@
 # This file is used as an argument to `docker build`
 # Its purpose is to allow combining http://github.com/remtav/projectRegularization in a "stock" GDL image
-# ex. docker build -t username/gdl-cuda11:v2.3.0-prod https://github.com/username/geo-deep-learning.git#v2.3.0-prod -f- < Dockerfile-remtav
+# ex. docker build . --file Dockerfile --tag gdl-cuda11:v2.5.1-prod --build-arg GIT_TAG=v2.5.1-prod
 # That generates a new image to be uploaded to a Docker repo like DockerHub, which then allows building the Singularity image as
 # cd /path/deep_learning/singularity_images
 # export SINGULARITY_TMPDIR=/path/singularity/images
@@ -9,8 +9,13 @@
 ARG CONDA_PYTHON_VERSION=3
 ARG CONDA_DIR=/opt/conda
 ARG USERNAME=gdl_user
+ARG GIT_TAG=develop
 
 FROM nvidia/cuda:11.2.0-cudnn8-runtime-ubuntu20.04 AS build
+
+# RNCAN certificate; uncomment (with right .cer name) if you are building behind a FW
+# COPY NRCan-RootCA.cer /usr/local/share/ca-certificates/cert.crt
+# RUN chmod 644 /usr/local/share/ca-certificates/cert.crt && update-ca-certificates
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git wget unzip bzip2 build-essential sudo \
@@ -21,12 +26,12 @@ RUN apt-get update \
     && sudo mv cuda-ubuntu2004-keyring.gpg /usr/share/keyrings/cuda-archive-keyring.gpg \
     && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb \
     && sudo dpkg -i cuda-keyring_1.0-1_all.deb && rm -f cuda-keyring_1.0-1_all.deb && rm -f /etc/apt/sources.list.d/cuda.list \
-    
+
 	&& apt-get update \
     && apt-get clean \
 	&& apt-get install git \
     && rm -rf /var/lib/apt/lists/*
-	
+
 ARG CONDA_PYTHON_VERSION
 ARG CONDA_DIR
 
@@ -38,12 +43,14 @@ RUN wget --quiet https://repo.continuum.io/miniconda/Miniconda$CONDA_PYTHON_VERS
     rm -rf /tmp/* && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-	
+
 ARG USERNAME
+ARG GIT_TAG
 RUN mkdir -p /home/$USERNAME
-RUN cd /home/$USERNAME && git clone https://github.com/NRCan/geo-deep-learning.git
+RUN cd /home/$USERNAME && git clone --depth 1 "https://github.com/NRCan/geo-deep-learning.git" --branch $GIT_TAG
 RUN conda config --set ssl_verify no
-RUN conda env create -f /home/$USERNAME/geo-deep-learning/environment.yml
+RUN conda install mamba -n base -c conda-forge
+RUN mamba env create -f /home/$USERNAME/geo-deep-learning/environment.yml
 RUN cd /home/$USERNAME && git clone --depth=1 http://github.com/remtav/projectRegularization -b light
 
 # runtime image
