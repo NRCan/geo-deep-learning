@@ -1,21 +1,14 @@
-# This file is used as an argument to `docker build`
-# Its purpose is to allow combining http://github.com/remtav/projectRegularization in a "stock" GDL image
-# ex. docker build -t username/gdl-cuda11:v2.3.0-prod https://github.com/username/geo-deep-learning.git#v2.3.0-prod -f- < Dockerfile-remtav
-# That generates a new image to be uploaded to a Docker repo like DockerHub, which then allows building the Singularity image as
-# cd /path/deep_learning/singularity_images
-# export SINGULARITY_TMPDIR=/path/singularity/images
-# export SINGULARITY_CACHEDIR=/path/singularity/images
-# singularity pull docker://username/gdl-cuda11:latest
+FROM nvidia/cuda:11.2.0-cudnn8-runtime-ubuntu20.04
+
 ARG CONDA_PYTHON_VERSION=3
 ARG CONDA_DIR=/opt/conda
 ARG USERNAME=gdl_user
+ARG USERID=1000
 ARG GIT_TAG=develop
 
-FROM nvidia/cuda:11.2.0-cudnn8-runtime-ubuntu20.04 AS build
-
 # RNCAN certificate; uncomment (with right .cer name) if you are building behind a FW
-# COPY NRCan-RootCA.cer /usr/local/share/ca-certificates/cert.crt
-# RUN chmod 644 /usr/local/share/ca-certificates/cert.crt && update-ca-certificates
+#COPY NRCan-RootCA.cer /usr/local/share/ca-certificates/cert.crt
+#RUN chmod 644 /usr/local/share/ca-certificates/cert.crt && update-ca-certificates
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git wget unzip bzip2 build-essential sudo \
@@ -32,37 +25,15 @@ RUN apt-get update \
 	&& apt-get install git \
     && rm -rf /var/lib/apt/lists/*
 
-ARG CONDA_PYTHON_VERSION
-ARG CONDA_DIR
-
 # Install miniconda
 ENV PATH $CONDA_DIR/bin:$PATH
-RUN wget --quiet https://repo.continuum.io/miniconda/Miniconda$CONDA_PYTHON_VERSION-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
-    echo 'export PATH=$CONDA_DIR/bin:$PATH' > /etc/profile.d/conda.sh && \
+RUN wget https://repo.continuum.io/miniconda/Miniconda$CONDA_PYTHON_VERSION-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+#     echo 'export PATH=$CONDA_DIR/bin:$PATH' > /etc/profile.d/conda.sh && \
     /bin/bash /tmp/miniconda.sh -b -p $CONDA_DIR && \
     rm -rf /tmp/* && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-ARG USERNAME
-ARG GIT_TAG
-RUN mkdir -p /home/$USERNAME
-RUN cd /home/$USERNAME && git clone --depth 1 "https://github.com/remtav/geo-deep-learning.git" --branch $GIT_TAG
-RUN conda config --set ssl_verify no
-RUN conda install mamba -n base -c conda-forge
-RUN mamba env create -f /home/$USERNAME/geo-deep-learning/environment.yml
-RUN cd /home/$USERNAME && git clone --depth=1 http://github.com/remtav/projectRegularization -b light
-
-# runtime image
-FROM condaforge/mambaforge
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends wget unzip bzip2 build-essential sudo \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-ARG CONDA_DIR
-ARG USERID=1000
-ARG USERNAME=gdl_user
-RUN mkdir -p /opt/conda/
 # Create the user
 RUN useradd --create-home -s /bin/bash --no-user-group -u $USERID $USERNAME && \
     chown $USERNAME $CONDA_DIR -R && \
@@ -71,12 +42,10 @@ RUN useradd --create-home -s /bin/bash --no-user-group -u $USERID $USERNAME && \
 USER $USERNAME
 WORKDIR /home/$USERNAME/
 
-# From (remote) context
-COPY --chown=1000 --from=build /home/$USERNAME/geo-deep-learning/. /home/$USERNAME/geo-deep-learning
-COPY --chown=1000 --from=build /home/$USERNAME/projectRegularization/. /home/$USERNAME/projectRegularization
-
-# Variables
-COPY --chown=1000 --from=build /opt/conda/. $CONDA_DIR
+RUN cd /home/$USERNAME && git clone --depth 1 "https://github.com/remtav/geo-deep-learning.git" --branch $GIT_TAG
+RUN conda config --set ssl_verify no
+RUN conda env create -f /home/$USERNAME/geo-deep-learning/environment.yml
+RUN cd /home/$USERNAME && git clone --depth=1 http://github.com/remtav/projectRegularization -b light
 
 ENV PATH $CONDA_DIR/envs/geo_deep_env/bin:$PATH
 RUN echo "source activate geo_deep_env" > ~/.bashrc
