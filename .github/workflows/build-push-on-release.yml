@@ -1,7 +1,7 @@
-on:
-  push:
-    tags:
-      - v**
+on: push
+#  push:
+#    tags:
+#      - v**
 
 env:
   REGISTRY: docker.io
