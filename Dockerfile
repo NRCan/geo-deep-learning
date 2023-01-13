@@ -49,8 +49,9 @@ ARG GIT_TAG
 RUN mkdir -p /home/$USERNAME
 RUN cd /home/$USERNAME && git clone --depth 1 "https://github.com/NRCan/geo-deep-learning.git" --branch $GIT_TAG
 RUN conda config --set ssl_verify no
-RUN conda install mamba -n base -c conda-forge
-RUN mamba env create -f /home/$USERNAME/geo-deep-learning/environment.yml
+#RUN conda install mamba -n base -c conda-forge
+#RUN mamba env create -f /home/$USERNAME/geo-deep-learning/environment.yml
+RUN conda env create -f /home/$USERNAME/geo-deep-learning/environment.yml
 RUN cd /home/$USERNAME && git clone --depth=1 http://github.com/remtav/projectRegularization -b light
 
 # runtime image
