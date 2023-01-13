@@ -47,7 +47,7 @@ RUN wget --quiet https://repo.continuum.io/miniconda/Miniconda$CONDA_PYTHON_VERS
 ARG USERNAME
 ARG GIT_TAG
 RUN mkdir -p /home/$USERNAME
-RUN cd /home/$USERNAME && git clone --depth 1 "https://github.com/NRCan/geo-deep-learning.git" --branch $GIT_TAG
+RUN cd /home/$USERNAME && git clone --depth 1 "https://github.com/remtav/geo-deep-learning.git" --branch $GIT_TAG
 RUN conda config --set ssl_verify no
 RUN conda install mamba -n base -c conda-forge
 RUN mamba env create -f /home/$USERNAME/geo-deep-learning/environment.yml
