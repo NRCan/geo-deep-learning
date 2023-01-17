@@ -152,7 +152,7 @@ def check_rasterio_im_load(im):
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L17
     """
     if isinstance(im, (str, Path)):
-        if not is_url(im):
+        if not is_url(im) and 'VRTDataset' not in str(im):
             im = to_absolute_path(str(im))
         return rasterio.open(im)
     elif isinstance(im, rasterio.DatasetReader):
@@ -225,3 +225,27 @@ def overlap_poly1_rto_poly2(polygon1: Polygon, polygon2: Polygon) -> float:
     """Calculate intersection of extents from polygon 1 and 2 over extent of a polygon 2"""
     intersection = polygon1.intersection(polygon2).area
     return intersection / (polygon2.area + 1e-30)
+
+
+def multi2poly(returned_vector_pred, layer_name):
+    """
+    Convert shapely multipolygon to polygon. If fail return a logging error.
+    This function will read an PATH string create an geodataframe and explode
+    all multipolygon to polygon and save the geodataframe at the same PATH.
+    Args:
+        returned_vector_pred: string, geopackage PATH where the post-processing
+                              results are saved
+        layer_name: string, the name of layer to look into for multipolygon, the name
+                    represente the classes post-processed
+    Return:
+        none
+    """
+    try: # Try to convert multipolygon to polygon
+        df = gpd.read_file(returned_vector_pred, layer=layer_name)
+        if 'MultiPolygon' in df['geometry'].geom_type.values:
+            logging.info("\nConverting multiPolygon to Polygon...")
+            gdf_exploded = df.explode(index_parts=True, ignore_index=True)
+            gdf_exploded.to_file(returned_vector_pred, layer=layer_name) # overwrite the layer readed
+    except Exception as e:
+        logging.error(f"\nSomething went wrong during the convertion of Polygon. \nError {type(e)}: {e}")
+        

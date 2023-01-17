@@ -316,7 +316,7 @@ def stac_input_to_temp_csv(input_stac_item: Union[str, Path]) -> Path:
     """Saves a stac item path or url to a temporary csv"""
     _, stac_temp_csv = mkstemp(suffix=".csv")
     with open(stac_temp_csv, "w", newline="") as fh:
-        csv.writer(fh).writerow([str(input_stac_item), None, "inference", input_stac_item.stem])
+        csv.writer(fh).writerow([str(input_stac_item), None, "inference", Path(input_stac_item).stem])
     return Path(stac_temp_csv)
 
 
@@ -419,7 +419,7 @@ def main(params: Union[DictConfig, dict]) -> None:
         Path.mkdir(working_folder / aoi.raster_name.parent.name, parents=True, exist_ok=True)
         inference_image = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_inference.tif"
         temp_file = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}.dat"
-        logging.info(f'\nReading image: {aoi.raster_name}')
+        logging.info(f'\nReading image: {aoi.raster_name.stem}')
         inf_meta = aoi.raster.meta
 
         pred = segmentation(param=params,
