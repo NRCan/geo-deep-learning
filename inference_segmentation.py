@@ -1,6 +1,7 @@
 import csv
 import itertools
 from math import sqrt
+from numbers import Number
 from tempfile import mkstemp
 from typing import List, Union, Sequence
 
@@ -14,6 +15,7 @@ import rasterio
 import ttach as tta
 from collections import OrderedDict
 from fiona.crs import to_string
+from ruamel_yaml.comments import CommentedSeq
 from tqdm import tqdm
 from rasterio import features
 from rasterio.windows import Window
@@ -266,30 +268,47 @@ def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 
 
 def override_model_params_from_checkpoint(
         params: DictConfig,
-        checkpoint_params):
+        checkpoint_params) -> DictConfig:
     """
     Overrides model-architecture related parameters from provided checkpoint parameters
     @param params: Original parameters as inputted through hydra
     @param checkpoint_params: Checkpoint parameters as saved during checkpoint creation when training
     @return:
     """
-    modalities = get_key_def('modalities', params['dataset'], expected_type=Sequence)
+    bands = get_key_def('bands', params['dataset'], expected_type=Sequence)
     classes = get_key_def('classes_dict', params['dataset'], expected_type=(dict, DictConfig))
+    clip_limit = get_key_def('clahe_clip_limit', params['tiling'], expected_type=int)
+    normalization = get_key_def('normalization', params['augmentation'], expected_type=DictConfig)
+    scale_data = get_key_def('scale_data', params['augmentation'], expected_type=ListConfig)
 
-    modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=Sequence)
+    bands_ckpt = get_key_def('bands', checkpoint_params['dataset'], expected_type=Sequence)
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
+    clip_limit_ckpt = get_key_def('clahe_clip_limit', checkpoint_params['tiling'], expected_type=int)
+    normalization_ckpt = get_key_def('normalization', checkpoint_params['augmentation'], expected_type=(dict, DictConfig))
+    # Workaround for "omegaconf.errors.UnsupportedValueType: Value 'CommentedSeq' is not a supported primitive type"
+    if normalization_ckpt is not None and isinstance(list(normalization_ckpt.values())[0], CommentedSeq):
+        normalization_ckpt = {k: [float(val) for val in v] for k, v in normalization_ckpt.items()}
+    scale_data_ckpt = get_key_def('scale_data', checkpoint_params['augmentation'], expected_type=(List, ListConfig))
+    scale_data_ckpt = list(scale_data_ckpt)
 
-    if model_ckpt != params.model or classes_ckpt != classes or modalities_ckpt != modalities:
-        logging.warning(f"\nParameters from checkpoint will override inputted parameters."
-                        f"\n\t\t\t Inputted | Overriden"
-                        f"\nModel:\t\t {params.model} | {model_ckpt}"
-                        f"\nInput bands:\t\t{modalities} | {modalities_ckpt}"
-                        f"\nOutput classes:\t\t{classes} | {classes_ckpt}")
+    if model_ckpt != params.model or classes_ckpt != classes or bands_ckpt != bands \
+            or clip_limit != clip_limit_ckpt:
+        logging.info(f"\nParameters from checkpoint will override inputted parameters."
+                     f"\n\t\t\t Inputted | Overriden"
+                     f"\nModel:\t\t {params.model} | {model_ckpt}"
+                     f"\nInput bands:\t\t{bands} | {bands_ckpt}"
+                     f"\nOutput classes:\t\t{classes} | {classes_ckpt}"
+                     f"\nNormalization means and stds:\t\t{normalization} | {normalization_ckpt}"
+                     f"\nScale data range:\t\t{scale_data} | {scale_data_ckpt}"
+                     f"\nRaster enhance clip limit:\t\t{clip_limit} | {clip_limit_ckpt}")
         with open_dict(params):
-            params['dataset']['modalities'] = modalities_ckpt
-            params['dataset']['classes_dict'] = classes_ckpt
             params['model'] = model_ckpt
+            params['dataset']['bands'] = bands_ckpt
+            params['dataset']['classes_dict'] = classes_ckpt
+            params['augmentation']['normalization'] = normalization_ckpt
+            params['augmentation']['scale_data'] = scale_data_ckpt
+            params['tiling']['clahe_clip_limit'] = clip_limit_ckpt
     return params
 
 
@@ -369,8 +388,8 @@ def main(params: Union[DictConfig, dict]) -> None:
                                                 max_pix_per_mb_gpu=max_pix_per_mb_gpu, default=512)
     chunk_size = get_key_def('chunk_size', params['inference'], default=auto_chunk_size, expected_type=int)
     device = set_device(gpu_devices_dict=gpu_devices_dict)
-    # Read the concatenation point if requested model is deeplabv3 dualhead
-    conc_point = get_key_def('conc_point', params['model'], None)
+
+    clahe_clip_limit = get_key_def('clahe_clip_limit', params['tiling'], expected_type=Number, default=0)
 
     if raw_data_csv and input_stac_item:
         raise ValueError(f"Input imagery should be either a csv of stac item. Got inputs from both \"raw_data_csv\" "
@@ -392,8 +411,8 @@ def main(params: Union[DictConfig, dict]) -> None:
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
-    # TODO: softcode download_data, data_dir, equalize_clip_limit
-    list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested, download_data=True)
+    list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested,
+                              equalize_clahe_clip_limit=clahe_clip_limit)
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):

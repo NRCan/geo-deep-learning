@@ -234,14 +234,16 @@ def overlap_poly1_rto_poly2(polygon1: Polygon, polygon2: Polygon) -> float:
 
 def multi2poly(returned_vector_pred, layer_name=None):
     """
-    Convert shapely multipolygon to polygon. If fail return a logging error.
-    This function will read an PATH string create an geodataframe and explode
-    all multipolygon to polygon and save the geodataframe at the same PATH.
+    Converts shapely multipolygon to polygon. If fails, returns a logging error.
+    This function will read a PATH string, create a geodataframe, explode all
+    multipolygon to polygon and save the geodataframe at the same PATH.
     Args:
         returned_vector_pred: string, geopackage PATH where the post-processing
                               results are saved.
-        layer_name (optional): string, the name of layer to look into for multipolygon, the name
-                    represente the classes post-processed. Default None.
+        layer_name (optional): string, the name of layer to look into for multipolygons.
+                               For example, if using during post-processing, the layer
+                               name could represent the class name if class are stored
+                               in separate layers. Default None.
                     
     Return:
         none
@@ -272,8 +274,9 @@ def fetch_tag_raster(raster_path, tag_wanted):
     if tag_wanted in tags.keys():
         return tags[tag_wanted]
     else:
-        raise logging.error(
+        logging.error(
             f"\nThe tag {tag_wanted} was not found in the {tags.keys()},"
             f" try again with one inside that list."
         )
+        raise ValueError('Tag not found.')
     
