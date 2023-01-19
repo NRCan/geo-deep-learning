@@ -17,8 +17,7 @@ RUN apt-get update \
     && sudo dpkg -i cuda-keyring_1.0-1_all.deb \
     && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004-keyring.gpg \
     && sudo mv cuda-ubuntu2004-keyring.gpg /usr/share/keyrings/cuda-archive-keyring.gpg \
-    && rm -f cuda-keyring_1.0-1_all.deb && rm -f /etc/apt/sources.list.d/cuda.list \
-	&& apt-get update \
+    && rm -f cuda-keyring_1.0-1_all.deb && rm -f /etc/apt/sources.list.d/cuda.list
 
 # Install miniconda
 ENV PATH $CONDA_DIR/bin:$PATH
