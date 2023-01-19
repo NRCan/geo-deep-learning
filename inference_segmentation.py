@@ -19,13 +19,15 @@ from ruamel_yaml.comments import CommentedSeq
 from tqdm import tqdm
 from rasterio import features
 from rasterio.windows import Window
-from rasterio.plot import reshape_as_image
+from rasterio.plot import reshape_as_image, reshape_as_raster
 from pathlib import Path
 from omegaconf import OmegaConf, DictConfig, open_dict
 from omegaconf.listconfig import ListConfig
 
 from dataset.aoi import aois_from_csv
 from dataset.stacitem import SingleBandItemEO
+from utils.geoutils import create_new_raster_from_base
+from utils.inference import stretch_heatmap, class_from_heatmap
 from utils.logger import get_logger, set_tracker
 from models.model_choice import define_model, read_checkpoint
 from utils import augmentation
@@ -225,26 +227,22 @@ def segmentation(param,
     del fp
 
     fp = np.memmap(tp_mem, dtype='float16', mode='r', shape=(tf_len, h_padded, w_padded, num_classes))
-    pred_img = np.zeros((h_padded, w_padded), dtype=np.uint8)
+    pred_heatmap = np.zeros((h_padded, w_padded, num_classes), dtype=np.float16)
     for row, col in tqdm(itertools.product(range(0, input_image.height, chunk_size),
                                            range(0, input_image.width, chunk_size)),
                          leave=False, total=total_inf_windows, desc="Writing to array"):
         arr1 = (fp[:, row:row + chunk_size, col:col + chunk_size, :]).max(axis=0)
         if single_class_mode:
             arr1 = sigmoid(arr1)
-            arr1 = (arr1 > threshold)
-            arr1 = np.squeeze(arr1, axis=2).astype(np.uint8)
-        else:
-            arr1 = np.argmax(arr1, axis=-1).astype(np.uint8)
-        pred_img[row:row + chunk_size, col:col + chunk_size] = arr1
+        pred_heatmap[row:row + chunk_size, col:col + chunk_size, :] = arr1
 
     end_seg = time.time() - start_seg
     logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
 
     if debug:
-        logging.debug(f'Bin count of final output: {np.unique(pred_img, return_counts=True)}')
+        logging.debug(f'Bin count of final output: {np.unique(pred_heatmap, return_counts=True)}')
     input_image.close()
-    return pred_img[:h_padded-pad, :w_padded-pad]
+    return pred_heatmap[:h_padded-pad, :w_padded-pad]
 
 
 def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200, default: int = 512) -> int:
@@ -320,6 +318,23 @@ def stac_input_to_temp_csv(input_stac_item: Union[str, Path]) -> Path:
     return Path(stac_temp_csv)
 
 
+def write_heatmap(heatmap: np.ndarray, outpath: Union[str, Path], src: rasterio.DatasetReader):
+    """
+    Write a heatmap as array to disk
+    @param heatmap:
+        array of dtype float containing probability map for each class,
+        after sigmoid or softmax operation (expects values between 0 and 1)
+    @param outpath:
+        path to desired output file
+    @param src:
+        a rasterio file handler (aka DatasetReader) from source imagery. Contains metadata to write heatmap
+    @return:
+    """
+    heatmap_arr = stretch_heatmap(heatmap_arr=heatmap, out_max=100)
+    heatmap_arr = reshape_as_raster(heatmap_arr)
+    create_new_raster_from_base(input_raster=src, output_raster=outpath, write_array=heatmap_arr)
+
+
 def main(params: Union[DictConfig, dict]) -> None:
     """
     Function to manage details about the inference on segmentation task.
@@ -390,6 +405,7 @@ def main(params: Union[DictConfig, dict]) -> None:
     device = set_device(gpu_devices_dict=gpu_devices_dict)
 
     clahe_clip_limit = get_key_def('clahe_clip_limit', params['tiling'], expected_type=Number, default=0)
+    save_heatmap = get_key_def('save_heatmap', params['inference'], default=True, expected_type=bool)
 
     if raw_data_csv and input_stac_item:
         raise ValueError(f"Input imagery should be either a csv of stac item. Got inputs from both \"raw_data_csv\" "
@@ -418,6 +434,7 @@ def main(params: Union[DictConfig, dict]) -> None:
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
         Path.mkdir(working_folder / aoi.raster_name.parent.name, parents=True, exist_ok=True)
         inference_image = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_inference.tif"
+        inference_heatmap = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_heatmap.tif"
         temp_file = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}.dat"
         logging.info(f'\nReading image: {aoi.raster_name.stem}')
         inf_meta = aoi.raster.meta
@@ -432,7 +449,6 @@ def main(params: Union[DictConfig, dict]) -> None:
                             tp_mem=temp_file,
                             debug=debug)
 
-        pred = pred[np.newaxis, :, :].astype(np.uint8)
         inf_meta.update({"driver": "GTiff",
                          "height": pred.shape[1],
                          "width": pred.shape[2],
@@ -440,9 +456,16 @@ def main(params: Union[DictConfig, dict]) -> None:
                          "dtype": 'uint8',
                          "compress": 'lzw'})
         logging.info(f'\nSuccessfully inferred on {aoi.raster_name}\nWriting to file: {inference_image}')
-        with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
-            dest.write(pred)
+
+        if save_heatmap:
+            logging.info(f"\nSaving heatmap...")
+            write_heatmap(heatmap=pred, outpath=inference_heatmap, src=aoi.raster)
+            logging.info(f'\nSaved heatmap to {inference_heatmap}')
+
+        pred_img = class_from_heatmap(heatmap_arr=pred, heatmap_threshold=50)
+        create_new_raster_from_base(input_raster=aoi.raster, output_raster=inference_image, write_array=pred_img)
         del pred
+
         try:
             temp_file.unlink()
         except OSError as e:
