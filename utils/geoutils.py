@@ -227,16 +227,20 @@ def overlap_poly1_rto_poly2(polygon1: Polygon, polygon2: Polygon) -> float:
     return intersection / (polygon2.area + 1e-30)
 
 
-def multi2poly(returned_vector_pred, layer_name):
+def multi2poly(returned_vector_pred, layer_name=None):
     """
     Convert shapely multipolygon to polygon. If fail return a logging error.
     This function will read an PATH string create an geodataframe and explode
     all multipolygon to polygon and save the geodataframe at the same PATH.
+    Side note, if you use this function without a layer name, be sure that the
+    GPKG dont have a layer otherwise a new layer will be created with the 
+    resulting Polygon.
     Args:
         returned_vector_pred: string, geopackage PATH where the post-processing
                               results are saved
-        layer_name: string, the name of layer to look into for multipolygon, the name
-                    represente the classes post-processed
+        layer_name (optional): string, the name of layer to look into for multipolygon, the name
+                    represente the classes post-processed. Default None.
+                    
     Return:
         none
     """
@@ -247,5 +251,5 @@ def multi2poly(returned_vector_pred, layer_name):
             gdf_exploded = df.explode(index_parts=True, ignore_index=True)
             gdf_exploded.to_file(returned_vector_pred, layer=layer_name) # overwrite the layer readed
     except Exception as e:
-        logging.error(f"\nSomething went wrong during the convertion of Polygon. \nError {type(e)}: {e}")
+        logging.error(f"\nSomething went wrong during the conversion of Polygon. \nError {type(e)}: {e}")
         
