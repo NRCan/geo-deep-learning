@@ -18,12 +18,12 @@ RUN apt-get update \
     && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004-keyring.gpg \
     && sudo mv cuda-ubuntu2004-keyring.gpg /usr/share/keyrings/cuda-archive-keyring.gpg \
     && rm -f cuda-keyring_1.0-1_all.deb && rm -f /etc/apt/sources.list.d/cuda.list \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+	&& apt-get update \
 
 # Install miniconda
 ENV PATH $CONDA_DIR/bin:$PATH
 RUN wget https://repo.continuum.io/miniconda/Miniconda$CONDA_PYTHON_VERSION-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+#     echo 'export PATH=$CONDA_DIR/bin:$PATH' > /etc/profile.d/conda.sh && \
     /bin/bash /tmp/miniconda.sh -b -p $CONDA_DIR && \
     rm -rf /tmp/* && \
     apt-get clean && \
@@ -37,8 +37,7 @@ RUN useradd --create-home -s /bin/bash --no-user-group -u $USERID $USERNAME && \
 USER $USERNAME
 WORKDIR /home/$USERNAME/
 
-# TODO: restore "NRCan" rather than "remtav"
-RUN cd /home/$USERNAME && git clone --depth 1 https://github.com/remtav/geo-deep-learning -b $GIT_TAG
+RUN cd /home/$USERNAME && git clone --depth 1 "https://github.com/remtav/geo-deep-learning.git" --branch $GIT_TAG
 RUN conda config --set ssl_verify no
 RUN conda env create -f /home/$USERNAME/geo-deep-learning/environment.yml
 RUN cd /home/$USERNAME && git clone --depth=1 http://github.com/remtav/projectRegularization -b light
