@@ -636,8 +636,9 @@ def train(cfg: DictConfig) -> None:
         main_device=device,
         devices=list(gpu_devices_dict.keys()),
     )
-    checkpoint = read_checkpoint(train_state_dict_path)
-    model.load_state_dict(state_dict=checkpoint['model_state_dict'], strict=state_dict_strict)
+    if train_state_dict_path:
+        checkpoint = read_checkpoint(train_state_dict_path)
+        model.load_state_dict(state_dict=checkpoint['model_state_dict'], strict=state_dict_strict)
 
     criterion = define_loss(loss_params=cfg.loss, class_weights=class_weights)
     criterion = criterion.to(device)
