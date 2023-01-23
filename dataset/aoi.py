@@ -15,14 +15,13 @@ from pandas.io.common import is_url
 from omegaconf import listconfig, ListConfig
 from rasterio.plot import reshape_as_image, reshape_as_raster
 from shapely.geometry import Polygon, MultiPolygon
-from torchvision.datasets.utils import download_url
 from tqdm import tqdm
 
 from dataset.stacitem import SingleBandItemEO
 from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base, subset_multiband_vrt, \
     check_rasterio_im_load, check_gdf_load, bounds_gdf, bounds_riodataset, overlap_poly1_rto_poly2
 from utils.logger import get_logger
-from utils.utils import read_csv, minmax_scale
+from utils.utils import read_csv, minmax_scale, download_url_wcheck
 from utils.verifications import assert_crs_match, validate_raster, \
     validate_num_bands, validate_features_from_gpkg
 
@@ -143,7 +142,7 @@ class AOI(object):
             for index, single_raster in enumerate(raster_parsed):
                 if is_url(single_raster):
                     out_name = self.root_dir / Path(single_raster).name
-                    download_url(single_raster, root=str(out_name.parent), filename=out_name.name)
+                    download_url_wcheck(single_raster, root=str(out_name.parent), filename=out_name.name)
                     # replace with local copy
                     raster_parsed[index] = str(out_name)
 
@@ -421,7 +420,7 @@ class AOI(object):
         try:
             stats_asset = self.raster_stac_item.item.assets['STATS']
             if is_url(stats_asset.href):
-                download_url(stats_asset.href, root=str(self.root_dir), filename=Path(stats_asset.href).name)
+                download_url_wcheck(stats_asset.href, root=str(self.root_dir), filename=Path(stats_asset.href).name)
                 stats_href = self.root_dir / Path(stats_asset.href).name
             else:
                 stats_href = to_absolute_path(stats_asset.href)
