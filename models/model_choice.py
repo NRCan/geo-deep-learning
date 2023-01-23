@@ -116,24 +116,3 @@ def to_dp_model(model, devices: List):
                         f"Trying devices with ids {list(range(len(devices)))}")
         model = nn.DataParallel(model, device_ids=list(range(len(devices))))
     return model
-
-
-def define_model(
-        net_params: dict,
-        in_channels: int,
-        out_classes: int,
-        main_device: str = 'cpu',
-        devices: List = []
-):
-    """
-    Defines model's architecture with weights from provided checkpoint and pushes to device(s)
-    @return:
-    """
-    model = define_model_architecture(
-        net_params=net_params,
-        in_channels=in_channels,
-        out_classes=out_classes,
-    )
-    model = to_dp_model(model=model, devices=devices[1:]) if len(devices) > 1 else model
-    model.to(main_device)
-    return model

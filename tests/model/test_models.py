@@ -11,7 +11,7 @@ from torch import nn
 
 import models.unet
 from models import unet
-from models.model_choice import read_checkpoint, adapt_checkpoint_to_dp_model, define_model, define_model_architecture
+from models.model_choice import read_checkpoint, adapt_checkpoint_to_dp_model, define_model_architecture, to_dp_model
 from utils.utils import get_device_ids, set_device
 
 
@@ -102,12 +102,13 @@ class TestDefineModelMultigpu(object):
     if len(gpu_devices_dict.keys()) == 0:
         logging.critical(f"No GPUs available. Cannot perform multi-gpu testing.")
     else:
-        model = define_model(
+        model = define_model_architecture(
             net_params={'_target_': 'models.unet.UNet'},
             in_channels=4,
             out_classes=4,
-            main_device=device,
-            devices=list(gpu_devices_dict.keys()),
         )
+        devices = list(gpu_devices_dict.keys())
+        model = to_dp_model(model=model, devices=devices[1:]) if len(devices) > 1 else model
+        model.to(device)
         checkpoint = read_checkpoint(filename)
         model.load_state_dict(state_dict=checkpoint['model_state_dict'])

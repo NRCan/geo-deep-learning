@@ -27,7 +27,7 @@ from omegaconf.listconfig import ListConfig
 from dataset.aoi import aois_from_csv
 from dataset.stacitem import SingleBandItemEO
 from utils.logger import get_logger, set_tracker
-from models.model_choice import define_model, read_checkpoint
+from models.model_choice import read_checkpoint, define_model_architecture
 from utils import augmentation
 from utils.utils import get_device_ids, get_key_def, \
     add_metadata_from_raster_to_sample, _window_2D, set_device
@@ -329,17 +329,13 @@ def main(params: Union[DictConfig, dict]) -> None:
     -------
     :param params: (dict) Parameters inputted during execution.
     """
-    # Main params
-    root = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
-    root.mkdir(exist_ok=True)
+    # SETTING OUTPUT DIRECTORY
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
                              validate_path_exists=True,
                              wildcard='*pth.tar')
-    models_dir = get_key_def('checkpoint_dir', params['inference'], default=root / 'checkpoints', to_path=True)
-    models_dir.mkdir(exist_ok=True)
 
     # Override params from checkpoint
-    checkpoint = read_checkpoint(state_dict, out_dir=models_dir)
+    checkpoint = read_checkpoint(state_dict)
     params = override_model_params_from_checkpoint(
         params=params,
         checkpoint_params=checkpoint['params']
@@ -352,9 +348,9 @@ def main(params: Union[DictConfig, dict]) -> None:
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
     num_bands = len(bands_requested)
 
-    working_folder = root / Path(state_dict).name.split(".")[0]
+    working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
     logging.info("\nThe state dict path directory used '{}'".format(working_folder))
-    Path.mkdir(working_folder, exist_ok=True)
+    Path.mkdir(working_folder, parents=True, exist_ok=True)
     logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     # Default input directory based on default output directory
     raw_data_csv = get_key_def('raw_data_csv', params['inference'], expected_type=str, to_path=True,
@@ -405,13 +401,12 @@ def main(params: Union[DictConfig, dict]) -> None:
             bands_requested = [SingleBandItemEO.band_to_cname(band) for band in bands_requested]
             logging.warning(f"Will request: {bands_requested}")
 
-    model = define_model(
+    model = define_model_architecture(
         net_params=params.model,
         in_channels=num_bands,
         out_classes=num_classes,
-        main_device=device,
-        devices=[list(gpu_devices_dict.keys())],
     )
+    model.to(device)
     model.load_state_dict(state_dict=checkpoint['model_state_dict'])
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
@@ -421,8 +416,8 @@ def main(params: Union[DictConfig, dict]) -> None:
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
         Path.mkdir(working_folder / aoi.raster_name.parent.name, parents=True, exist_ok=True)
-        inference_image = working_folder / f"{aoi.raster_name.stem}_inference.tif"
-        temp_file = working_folder / f"{aoi.raster_name.stem}.dat"
+        inference_image = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_inference.tif"
+        temp_file = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}.dat"
         logging.info(f'\nReading image: {aoi.raster_name.stem}')
         inf_meta = aoi.raster.meta
 

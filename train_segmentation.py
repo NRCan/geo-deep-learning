@@ -16,7 +16,8 @@ from torch import optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_to_dp_model
+from models.model_choice import read_checkpoint, adapt_checkpoint_to_dp_model, to_dp_model, \
+    define_model_architecture
 from tiling_segmentation import Tiler
 from utils import augmentation as aug
 from dataset import create_dataset
@@ -629,13 +630,15 @@ def train(cfg: DictConfig) -> None:
     device = set_device(gpu_devices_dict=gpu_devices_dict)
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
-    model = define_model(
+    model = define_model_architecture(
         net_params=cfg.model,
         in_channels=num_bands,
         out_classes=num_classes,
-        main_device=device,
-        devices=list(gpu_devices_dict.keys()),
     )
+    devices = list(gpu_devices_dict.keys())
+    model = to_dp_model(model=model, devices=devices[1:]) if len(devices) > 1 else model
+    model.to(device)
+
     if train_state_dict_path:
         checkpoint = read_checkpoint(train_state_dict_path)
         model.load_state_dict(state_dict=checkpoint['model_state_dict'], strict=state_dict_strict)
