@@ -71,6 +71,7 @@ class InferenceDataset(RasterDataset):
         self.outpath = outpath
         self.outpath_vec = self.root / f"{outpath.stem}.gpkg"
         self.cache = download
+        self.footprint = None
 
         # Create an R-tree to index the dataset
         self.index = Index(interleaved=False, properties=Property(dimension=3))
@@ -82,6 +83,10 @@ class InferenceDataset(RasterDataset):
             self.item = SingleBandItemEO(pystac.Item.from_file(str(self.item_url)))
         else:
             raise NotImplementedError(f"Currently only support single-band Stac Items")  # TODO
+
+        # Create footprint inventory
+        if 'FOOTPRINT' in self.item.asset_by_common_name.keys():
+            self.footprint = self.item.asset_by_common_name.pop('FOOTPRINT')
 
         # Create band inventory (all available bands)
         self.all_bands = [band for band in self.item.asset_by_common_name.keys()]
@@ -100,6 +105,10 @@ class InferenceDataset(RasterDataset):
                 out_name = self.root / Path(self.bands_dict[cname]['href']).name
                 download_url(self.bands_dict[cname]['href'], root=str(self.root), filename=str(out_name))
                 self.bands_dict[cname]['href'] = out_name
+            if self.footprint:
+                out_name = self.root / Path(self.footprint['href']).name
+                download_url(self.footprint['href'], root=str(self.root), filename=str(out_name))
+                self.footprint['href'] = out_name
 
         # Open first asset with rasterio (for metadata: colormap, crs, resolution, etc.)
         if self.bands:

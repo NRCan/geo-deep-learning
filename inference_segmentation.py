@@ -31,7 +31,7 @@ from models.model_choice import define_model_architecture
 from utils.geoutils import create_new_raster_from_base
 from utils.logger import get_logger
 from utils.utils import _window_2D, get_device_ids, get_key_def, set_device, override_model_params_from_checkpoint, \
-    checkpoint_converter, read_checkpoint, extension_remover, class_from_heatmap, stretch_heatmap, ckpt_is_compatible
+    checkpoint_converter, extension_remover, class_from_heatmap, stretch_heatmap
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -91,7 +91,7 @@ class InferenceTask(LightningModule):
         return self.model(x)
 
 
-def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, max_used_ram: int = 95):
+def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, max_used_ram: int = 95, window_spline_2d=None):
     """
     Auto batch size finder scales batch size to find the largest batch size that fits into memory.
     Pytorch Lightning's alternative (not implemented for inference):
@@ -111,16 +111,15 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
     """
     src_size = datamodule.inference_dataset.src.height * datamodule.inference_dataset.src.width
     bs_min, bs_max, bs_step = 4, 256, 4
-    window_spline_2d = create_spline_window(datamodule.patch_size).to(device)
-    _tqdm = tqdm(range(bs_min, bs_max, bs_step), desc=f"Finding batch size filling GPU to {max_used_ram} % or less")
-    for trial in _tqdm:
+    for trial in tqdm(range(bs_min, bs_max, bs_step), desc=f"Finding batch size filling GPU to {max_used_ram} % or less"):
         batch_size_trial = trial
-        _tqdm.set_postfix_str(f"Trying: {batch_size_trial}")
         datamodule.batch_size = batch_size_trial
         if batch_size_trial*datamodule.patch_size**2 > src_size:
             logging.info(f"Reached maximum batch size for image size. "
                          f"Batch size tuned to {batch_size_trial-bs_step}.")
-            return batch_size_trial-bs_step
+            datamodule.batch_size = batch_size_trial-bs_step
+            break
+
         eval_gen2tune = eval_batch_generator(
             model=model,
             dataloader=datamodule.predict_dataloader(),
@@ -129,12 +128,13 @@ def auto_batch_size_finder(datamodule, device, model, single_class_mode=False, m
             window_spline_2d=window_spline_2d,
             pad=datamodule.pad_size,
             verbose=False,
+            check_in=True,
         )
-        _ = next(eval_gen2tune)
+        next(eval_gen2tune)
         free, total = torch.cuda.mem_get_info(device)
         if (total-free)/total > max_used_ram/100:
             logging.info(f"Reached GPU RAM threshold of {int(max_used_ram)}%. Batch size tuned to {batch_size_trial}.")
-            return batch_size_trial
+            break
 
 
 def create_spline_window(window_size: int, power=1):
@@ -159,6 +159,7 @@ def eval_batch_generator(
     window_spline_2d,
     pad,
     verbose: bool = True,
+    check_in=False,
 ) -> Any:
     """Runs an adapted version of test loop without label data over a dataloader and returns prediction.
     Args:
@@ -169,6 +170,7 @@ def eval_batch_generator(
         window_spline_2d: spline window to use for smoothing overlapping predictions
         pad: padding value used in transforms
         verbose: if True, print progress bar. Should be set to False when auto scaling batch size.
+        check_in: if True, it will avoide all the useless permutation, note that the only usecase don't use the output.
     Returns:
         the prediction for a dataloader batch
     """
@@ -179,13 +181,17 @@ def eval_batch_generator(
         inputs = batch["image"].to(device)
         with torch.no_grad(), autocast(device_type=device.type):
             outputs = model(inputs)
-        if single_class_mode:
-            outputs = torch.sigmoid(outputs)
+        if check_in:
+            batch_output['data'] = outputs
         else:
-            outputs = F.softmax(outputs, dim=1)
-        outputs = outputs[..., pad:-pad, pad:-pad]
-        outputs = torch.mul(outputs, window_spline_2d)
-        batch_output['data'] = outputs.permute(0, 2, 3, 1).cpu().numpy().astype('float16')
+            if single_class_mode:
+                outputs = torch.sigmoid(outputs)
+            else:
+                outputs = F.softmax(outputs, dim=1)
+            outputs = outputs[..., pad:-pad, pad:-pad]
+            outputs = torch.mul(outputs, window_spline_2d)
+            # keep the variable as float32 reduce the precessing time
+            batch_output['data'] = outputs.permute(0, 2, 3, 1).cpu().numpy() 
         yield batch_output
 
 
@@ -212,6 +218,9 @@ def main(params):
     Args:
         params: configuration parameters
     """
+    seed = 123
+    seed_everything(seed)
+
     logging.debug(f"\nSetting inference parameters")
     # Main params
     item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
@@ -234,10 +243,25 @@ def main(params):
     if is_url(checkpoint):
         load_state_dict_from_url(url=checkpoint, map_location='cpu', model_dir=models_dir)
         checkpoint = models_dir / Path(checkpoint).name
-    if not ckpt_is_compatible(checkpoint):
-        checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
-    checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=False)
-    params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict["hyper_parameters"])
+
+    logging.debug(f"\nInstantiating model with pretrained weights from {checkpoint}")
+    try:
+        model = InferenceTask.load_from_checkpoint(checkpoint)
+    except (KeyError, AssertionError) as e:
+        logging.warning(f"\nModel checkpoint is not compatible with pytorch-ligthning's load_from_checkpoint method:\n"
+                        f"Key error: {e}\n")
+        try:
+            logging.warning(
+                f"\nTry to convert model checkpoint to be compatible with pytorch-ligthning's load_from_checkpoint method"
+            )
+            checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
+            model = InferenceTask.load_from_checkpoint(checkpoint)
+        except (KeyError, AssertionError) as e:
+            logging.warning(f"\nModel checkpoint fail to be compatible with pytorch-ligthning's load_from_checkpoint method:\n"
+                        f"Key error: {e}\n")
+            raise e
+
+    params = override_model_params_from_checkpoint(params=params, checkpoint_params=model.hparams)
 
     # TODO: remove if no old models are used in production.
     # Covers old single-class models with 2 input channels rather than 1 (ie with background)
@@ -298,17 +322,7 @@ def main(params):
     # TODO: tune TTA with optuna
     tta_transforms = get_key_def('tta_transforms', params['inference'], default=None, expected_type=(dict, DictConfig))
 
-    seed = 123
-    seed_everything(seed)
-
-    logging.debug(f"\nInstantiating model with pretrained weights from {checkpoint}")
-    try:
-        model = InferenceTask.load_from_checkpoint(checkpoint)
-    except (KeyError, AssertionError) as e:
-        logging.warning(f"\nModel checkpoint is not compatible with pytorch-ligthning's load_from_checkpoint method:\n"
-                        f"Key error: {e}\n")
-        raise e
-
+    # Let's start the inference
     model.freeze()
     model.eval()
     model = model.to(device)
@@ -359,17 +373,22 @@ def main(params):
 
     h, w = [side for side in dm.inference_dataset.src.shape]
 
-    if auto_batch_size and device.type != "cpu":
-        batch_size = auto_batch_size_finder(datamodule=dm,
-                                            device=device,
-                                            model=model,
-                                            single_class_mode=single_class_mode,
-                                            max_used_ram=auto_bs_threshold,
-                                            )
-        # Set final batch size from auto found value
-        dm.batch_size = batch_size
-
     window_spline_2d = create_spline_window(chip_size).to(device)
+
+    if auto_batch_size and device.type != "cpu":
+        auto_batch_size_finder(datamodule=dm,
+                               device=device,
+                               model=model,
+                               single_class_mode=single_class_mode,
+                               max_used_ram=auto_bs_threshold,
+                               window_spline_2d=window_spline_2d
+        )
+
+    try: # try to recuperate the window_spline_2d variable use in auto_batch_size_finder
+        window_spline_2d
+    except NameError:
+        window_spline_2d = create_spline_window(chip_size).to(device)
+
     logging.debug(f"\nInstantiating inference generator for looping over imagery chips")
     eval_gen = eval_batch_generator(
         model=model,
@@ -384,7 +403,7 @@ def main(params):
     tempfile = root / f"{Path(dm.inference_dataset.outpath).stem}.dat"
     fp = np.memmap(tempfile, dtype='float16', mode='w+', shape=(h, w, num_classes))
     transform = dm.inference_dataset.src.transform
-    for inference_prediction in eval_gen:
+    for inference_prediction in eval_gen: 
         # iterate through the batch and paste the predictions where they belong
         for i in range(len(inference_prediction['bbox'])):
             bb = inference_prediction["bbox"][i]
@@ -392,11 +411,11 @@ def main(params):
             col_min, row_min = round(col_min), round(row_min)
             right = col_min + chip_size if col_min + chip_size <= w else w
             bottom = row_min + chip_size if row_min + chip_size <= h else h
-
             pred = inference_prediction['data'][i]
             # Write prediction on top of existing prediction for smoothing purposes
             fp[row_min:bottom, col_min:right, :] = \
-                fp[row_min:bottom, col_min:right, :] + pred[:bottom-row_min, :right-col_min]
+               fp[row_min:bottom, col_min:right, :] + pred[:bottom-row_min, :right-col_min]
+  
     fp.flush()
     del fp
 
@@ -405,7 +424,9 @@ def main(params):
     fp = np.memmap(tempfile, dtype='float16', mode='r', shape=(h, w, num_classes))
     pred_img = class_from_heatmap(heatmap_arr=fp, heatmap_threshold=heatmap_threshold)
     pred_img = pred_img[np.newaxis, :, :].astype(np.uint8)
-    create_new_raster_from_base(input_raster=dm.inference_dataset.src, output_raster=outpath, write_array=pred_img)
+    create_new_raster_from_base(
+        input_raster=dm.inference_dataset.src, output_raster=outpath, write_array=pred_img, checkpoint_path=checkpoint
+    )
 
     logging.info(f'\nInference completed on {dm.inference_dataset.item_url}'
                  f'\nFinal prediction written to {outpath}')

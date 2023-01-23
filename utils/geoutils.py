@@ -95,12 +95,13 @@ def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0
     return np_label_raster
 
 
-def create_new_raster_from_base(input_raster, output_raster, write_array):
+def create_new_raster_from_base(input_raster, output_raster, write_array, **kwargs):
     """Function to use info from input raster to create new one.
     Args:
         input_raster: input raster path and name
         output_raster: raster name and path to be created with info from input
         write_array (optional): array to write into the new raster
+        kwargs (optional): other stuff
 
     Return:
         none
@@ -129,6 +130,9 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
                        dtype=np.uint8,
                        transform=src.transform) as dst:
         dst.write(write_array)
+        # add tag to transmit more informations
+        if 'checkpoint_path' in kwargs.keys():
+            dst.update_tags(checkpoint=kwargs['checkpoint_path']) 
 
 
 def get_key_recursive(key, config):

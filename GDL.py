@@ -12,7 +12,7 @@ config_path = "config"
 config_name = "gdl_config_template"
 
 
-@hydra.main(config_path=config_path, config_name=config_name)
+@hydra.main(version_base=None, config_path=config_path, config_name=config_name)
 def run_gdl(cfg: DictConfig) -> None:
     """
     Function general for Geo Deep-Learning using Hydra library to rules all the
