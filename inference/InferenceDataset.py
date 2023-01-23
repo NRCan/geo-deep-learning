@@ -11,12 +11,12 @@ from rtree import Index
 from rtree.index import Property
 from torch import Tensor
 from torchgeo.datasets import RasterDataset, BoundingBox
-from torchvision.datasets.utils import download_url
 
 from inference.SingleBandItemEO import SingleBandItemEO
 
 # Set the logging file
 from utils.logger import get_logger
+from utils.utils import download_url_wcheck
 
 logging = get_logger(__name__)
 
@@ -103,11 +103,11 @@ class InferenceDataset(RasterDataset):
         if self.download:
             for cname in self.bands:
                 out_name = self.root / Path(self.bands_dict[cname]['href']).name
-                download_url(self.bands_dict[cname]['href'], root=str(self.root), filename=str(out_name))
+                download_url_wcheck(self.bands_dict[cname]['href'], root=str(self.root), filename=str(out_name))
                 self.bands_dict[cname]['href'] = out_name
             if self.footprint:
                 out_name = self.root / Path(self.footprint['href']).name
-                download_url(self.footprint['href'], root=str(self.root), filename=str(out_name))
+                download_url_wcheck(self.footprint['href'], root=str(self.root), filename=str(out_name))
                 self.footprint['href'] = out_name
 
         # Open first asset with rasterio (for metadata: colormap, crs, resolution, etc.)
