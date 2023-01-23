@@ -7,6 +7,8 @@ import rasterio
 
 import logging
 
+from rasterio.windows import Window
+
 from utils.geoutils import check_rasterio_im_load, check_gdf_load, check_crs
 from utils.utils import is_url
 
@@ -37,7 +39,8 @@ def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: 
                             f"Datatype {raster.meta['dtype']} for {raster.aoi_id} may cause problems.")
         if extended:
             logging.debug(f'Will perform extended check.\nWill read first band: {raster}')
-            raster_np = raster.read(1)
+            window = Window(raster.width-100, raster.height-100, raster.width, raster.height)
+            raster_np = raster.read(1, window=window)
             logging.debug(raster_np.shape)
             if not np.any(raster_np):
                 logging.critical(f"Raster data filled with zero values.\nRaster path: {raster}")
