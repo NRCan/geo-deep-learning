@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 import pytest
+from hydra.utils import to_absolute_path
 from torchgeo.datasets.utils import extract_archive
 
 from models.model_choice import read_checkpoint
@@ -60,7 +61,7 @@ class TestUtils(object):
         # 94 MB
         url = "http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/spacenet-samples/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif"
         filename = Path(url).name
-        root = "tests/utils"
+        root = to_absolute_path("tests/utils")
         fpath = Path(root) / filename
         for i in range(2):
             init_sleep = 4 if i > 0 else 0
