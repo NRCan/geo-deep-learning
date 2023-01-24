@@ -1,13 +1,16 @@
 import multiprocessing
 import os
 from pathlib import Path
+from time import sleep
 
 import pytest
 from hydra.utils import to_absolute_path
 from torchgeo.datasets.utils import extract_archive
+from torchvision.datasets.utils import download_url
 
 from models.model_choice import read_checkpoint
 from utils.utils import read_csv, is_inference_compatible, update_gdl_checkpoint, download_url_wcheck, map_wrapper
+from utils.verifications import validate_raster
 
 
 class TestUtils(object):
@@ -65,9 +68,18 @@ class TestUtils(object):
         fpath = Path(root) / filename
         for i in range(2):
             init_sleep = 4 if i > 0 else 0
-            inputs.append([download_url_wcheck, url, root, filename, None, 3, 10, 1800, init_sleep])
-
+            #download_and_validate(url, root, filename, init_sleep)
+            inputs.append([download_and_validate, url, root, filename, init_sleep])
         # not printing, but seems to be working...
         with multiprocessing.get_context('spawn').Pool(None) as pool:
-            pool.map_async(map_wrapper, inputs)
+            pool.map_async(map_wrapper, inputs).get()
         os.remove(fpath)
+
+
+def download_and_validate(url, root, filename, init_sleep):
+    sleep(init_sleep)
+    # basic download functions fails (uncomment to test)
+    #download_url(url, root, filename)
+    # adapted function succeeds
+    download_url_wcheck(url, root, filename)
+    validate_raster(Path(root) / filename, extended=True)

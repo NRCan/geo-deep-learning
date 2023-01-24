@@ -660,7 +660,7 @@ def get_file_size(filepath):
 
 def download_url_wcheck(
     url: str, root: str, filename: Optional[str] = None, md5: Optional[str] = None, max_redirect_hops: int = 3,
-        sleep_secs: int = 10, timeout: int = 1800, init_sleep=0,
+        sleep_secs: int = 10, timeout: int = 1800
 ) -> None:
     """Download a file from a url and place it in root. If file to be downloaded exists, but its size varies within a
     10 seconds period, wait for size to remain stable.
@@ -673,10 +673,8 @@ def download_url_wcheck(
         max_redirect_hops (int, optional): Maximum number of redirect hops allowed
         sleep_secs (int, optional): Seconds to wait before re-checking the size of file to be downloaded
         timeout (int, optional): Maximum amount of time (seconds) to check if file size has changed
-        init_sleep (int, optional): Amount of time (seconds) to sleep before downloading. For testing/debugging purposes
 
     """
-    sleep(init_sleep)
     timeout = time.time() + timeout
     fpath = Path(root) / filename
     if fpath.is_file():

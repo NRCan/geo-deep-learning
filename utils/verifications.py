@@ -39,12 +39,11 @@ def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: 
                             f"Datatype {raster.meta['dtype']} for {raster.aoi_id} may cause problems.")
         if extended:
             logging.debug(f'Will perform extended check.\nWill read first band: {raster}')
-            window = Window(raster.width-100, raster.height-100, raster.width, raster.height)
+            window = Window(raster.width-200, raster.height-200, raster.width, raster.height)
             raster_np = raster.read(1, window=window)
             logging.debug(raster_np.shape)
             if not np.any(raster_np):
                 logging.critical(f"Raster data filled with zero values.\nRaster path: {raster}")
-                return False
     except FileNotFoundError as e:
         logging.critical(f"Could not locate raster file.\nRaster path: {raster}\n{e}")
         raise e
