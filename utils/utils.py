@@ -658,12 +658,35 @@ def get_file_size(filepath):
     return False
 
 
+def wait_while_modif(fpath: Union[str, Path], sleep_secs: int = 10, timeout: int = 1800) -> None:
+    """
+    fpath (str or Path): Path to file potentially being modified
+    sleep_secs (int, optional): Seconds to wait before re-checking the size of file to be downloaded
+    timeout (int, optional): Maximum amount of time (seconds) to check if file size has changed
+    """
+    if Path(fpath).is_file():
+        while True:
+            initial_size = get_file_size(fpath)
+            sleep(sleep_secs)
+            final_size = get_file_size(fpath)
+            if time.time() > timeout:
+                raise TimeoutError(f"File has been modified for more than {timeout} seconds. \nFile: {fpath}")
+            # if the initial size is equal to the final size, the file has most likely
+            # not changed, unless they are both False.
+            elif initial_size == final_size and initial_size is not False:
+                logging.debug(f"File has not changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
+                break
+            logging.debug(f"File has changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
+    else:
+        logging.debug(f"File doesn't exist: {fpath}")
+
+
 def download_url_wcheck(
     url: str, root: str, filename: Optional[str] = None, md5: Optional[str] = None, max_redirect_hops: int = 3,
         sleep_secs: int = 10, timeout: int = 1800
 ) -> None:
     """Download a file from a url and place it in root. If file to be downloaded exists, but its size varies within a
-    10 seconds period, wait for size to remain stable.
+    certain period, wait for size to remain stable.
 
     Args:
         url (str): URL to download file from
@@ -672,8 +695,7 @@ def download_url_wcheck(
         md5 (str, optional): MD5 checksum of the download. If None, do not check
         max_redirect_hops (int, optional): Maximum number of redirect hops allowed
         sleep_secs (int, optional): Seconds to wait before re-checking the size of file to be downloaded
-        timeout (int, optional): Maximum amount of time (seconds) to check if file size has changed
-
+        timeout (int, optional): Maximum amount of time (seconds) to check if file size has change
     """
     timeout = time.time() + timeout
     fpath = Path(root) / filename

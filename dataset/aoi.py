@@ -21,7 +21,7 @@ from dataset.stacitem import SingleBandItemEO
 from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base, subset_multiband_vrt, \
     check_rasterio_im_load, check_gdf_load, bounds_gdf, bounds_riodataset, overlap_poly1_rto_poly2
 from utils.logger import get_logger
-from utils.utils import read_csv, minmax_scale, download_url_wcheck
+from utils.utils import read_csv, minmax_scale, download_url_wcheck, wait_while_modif
 from utils.verifications import assert_crs_match, validate_raster, \
     validate_num_bands, validate_features_from_gpkg
 
@@ -465,9 +465,11 @@ class AOI(object):
             return self.raster_name
         self.raster_name_clahe = self.raster_name.parent / f"{self.raster_name.stem}_clahe{clip_limit}.tif"
         self.raster_name_clahe = to_absolute_path(str(self.raster_name_clahe))
-        if not overwrite and Path(self.raster_name_clahe).is_file():
-            logging.info(f"Enhanced raster exists. Will not overwrite.\nFound: {self.raster_name_clahe}")
-            return self.raster_name_clahe
+        if Path(self.raster_name_clahe).is_file():
+            wait_while_modif(self.raster_name_clahe)
+            if not overwrite:
+                logging.info(f"Enhanced raster exists. Will not overwrite.\nFound: {self.raster_name_clahe}")
+                return self.raster_name_clahe
         if per_band:
             self.raster_np = np.empty((self.raster.height, self.raster.width, self.raster.count))
             for band_idx in range(self.raster.count):
