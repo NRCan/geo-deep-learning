@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+from tempfile import mkstemp
 from typing import Dict, Union
 from collections import OrderedDict
 from pathlib import Path
@@ -18,6 +19,7 @@ import fiona
 import geopandas
 import omegaconf
 import rasterio
+from docker.errors import ImageNotFound
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig
 from pandas.io.common import is_url
@@ -27,9 +29,10 @@ from rasterio.windows import Window
 from torch.hub import load_state_dict_from_url, get_dir
 from tqdm import tqdm
 
+from models.model_choice import read_checkpoint
 from utils.logger import get_logger
-from utils.utils import get_key_def, override_model_params_from_checkpoint, checkpoint_converter, read_checkpoint, \
-    extension_remover, class_from_heatmap, ckpt_is_compatible
+from utils.utils import get_key_def, override_model_params_from_checkpoint, extension_remover, class_from_heatmap, \
+    ckpt_is_compatible
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -73,8 +76,12 @@ def regularize_buildings(in_pred: Union[str, Path],
         run_from_container(image=container_image, command=container_command,
                            binds={f"{str(in_pred.parent.absolute())}": "/home",
                                   f"{code_dir}": "/media"},
-                           container_type=container_type)
+                           container_type=container_type,
+                           use_gpu=True)
         logging.info(f'\nRegularization completed')
+    except ImageNotFound as e:
+        logging.error(f"\nDocker image not found: {container_image}."
+                      f"\nError {type(e)}: {e}")
     except Exception as e:
         logging.error(f"\nError regularizing using {container_type} container with image {container_image}."
                       f"\ncommand: {container_command}"
@@ -85,12 +92,13 @@ def regularize_buildings(in_pred: Union[str, Path],
                 from regularization import regularize
                 if not fallback_models_dir:
                     fallback_models_dir = Path(get_dir()) / 'checkpoints'
-                    ckpts = ["https://github.com/remtav/projectRegularization/blob/light/regularization/saved_models_gan/E140000_net?raw=true",
-                              "https://github.com/remtav/projectRegularization/blob/light/regularization/saved_models_gan/E140000_e1?raw=true"]
+                    ckpts = [
+                        "https://github.com/remtav/projectRegularization/blob/light/regularization/saved_models_gan/E140000_net?raw=true",
+                        "https://github.com/remtav/projectRegularization/blob/light/regularization/saved_models_gan/E140000_e1?raw=true"]
                     for ckpt in ckpts:
                         load_state_dict_from_url(url=ckpt, model_dir=fallback_models_dir)
                 regularize.main(
-                    in_raster=in_pred,
+                    in_pred_raster=in_pred,
                     out_raster=out_pred,
                     build_val=building_value,
                     models_dir=fallback_models_dir,
@@ -101,8 +109,8 @@ def regularize_buildings(in_pred: Union[str, Path],
 
 def polygonize(in_raster: Union[str, Path],
                out_vector: Union[str, Path],
-               container_image: str = None, 
-               container_type: str = 'docker', 
+               container_image: str = None,
+               container_type: str = 'docker',
                container_command: str = '',
                fallback: bool = True):
     """
@@ -158,7 +166,14 @@ def polygonize(in_raster: Union[str, Path],
             os.remove(out_vect_no_crs)
 
 
-def run_from_container(image: str, command: str, binds: Dict = {}, container_type='docker', verbose: bool = True):
+def run_from_container(
+        image: str,
+        command: str,
+        binds: Dict = {},
+        container_type='docker',
+        use_gpu: bool = False,
+        verbose: bool = True,
+):
     """
     Runs a command inside a docker or singularity container and returns when container has exited (on success or fail)
     @param image: str
@@ -171,6 +186,8 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
         Currently hardcoded to mount the volumes read/write
     @param container_type: str
         Specifies whether to use "docker" or "singularity"
+    @param use_gpu: bool
+        if True, will add parameter to use gpu if available
     @param verbose: bool
         if True, will print logs as container if executed
     @return:
@@ -179,15 +196,14 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
     logging.debug(command)
     if container_type == 'docker':
         binds = {k: {'bind': v, 'mode': 'rw'} for k, v in binds.items()}
+        gpu_device = [docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])] if use_gpu else None
         client = docker.from_env()
         qgis_pp_docker_img = client.images.get(image)
         container = client.containers.run(
             image=qgis_pp_docker_img,
             command=command,
             volumes=binds,
-            device_requests=[
-                docker.types.DeviceRequest(count=-1, capabilities=[['gpu']])
-            ],
+            device_requests=gpu_device,
             detach=True)
         logs = container.logs(stream=stream)
         if stream:
@@ -200,7 +216,7 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
     # Singularity: validate installation and assert version >= 3.0.0
     elif container_type == 'singularity':
         # Work around to prevent string parsing error: unexpected EOF while looking for matching `"'
-        cmd_file = Path(to_absolute_path("command.sh"))
+        _, cmd_file = mkstemp(suffix=".sh")
         with open(cmd_file, 'w') as dest:
             if "/bin/bash -c" not in command:
                 logging.warning(
@@ -208,12 +224,13 @@ def run_from_container(image: str, command: str, binds: Dict = {}, container_typ
             inner_cmd = command.split("/bin/bash -c")[-1].strip("\" ").strip("\"").replace("; ", "\n").replace(";",
                                                                                                                "\n")
             dest.write(inner_cmd)
-        binds[f"{cmd_file.parent}"] = f"{cmd_file.parent}"
-        command = "/bin/bash " + to_absolute_path("command.sh")
+        binds[f"{Path(cmd_file).parent}"] = f"{Path(cmd_file).parent}"
+        command = "/bin/bash " + to_absolute_path(cmd_file)
         binds = [f"--bind {k}:{v} " for k, v in binds.items()]
         binds_str = " "
         binds_str = binds_str.join(binds)
-        command = f"singularity exec --nv --cleanenv {binds_str}{to_absolute_path(str(image))} {command}"
+        gpu_device = "--nv" if use_gpu else ""
+        command = f"singularity exec --cleanenv {gpu_device} {binds_str}{to_absolute_path(str(image))} {command}"
         logging.debug(command.split())
         subproc = subprocess.run(command.split())
         subproc = subproc.returncode
@@ -350,7 +367,8 @@ def main(params):
     inf_outname = extension_remover(inf_outname)
     inf_outpath = root / f"{inf_outname}.tif"
     inf_outpath_ori = inf_outpath
-    heatmap_name = get_key_def('heatmap_name', params['inference'], default=f"{inf_outpath.stem}_heatmap", expected_type=str)
+    heatmap_name = get_key_def('heatmap_name', params['inference'], default=f"{inf_outpath.stem}_heatmap",
+                               expected_type=str)
     heatmap_name = extension_remover(heatmap_name)
     in_heatmap = root / f"{heatmap_name}.tif"
     outname = get_key_def('output_name', params['postprocess'], default=inf_outname, expected_type=str)
@@ -373,11 +391,11 @@ def main(params):
 
     # output suffixes
     out_reg_suffix = get_key_def('regularization', params['postprocess']['output_suffixes'], default='_reg',
-                                  expected_type=str)
+                                 expected_type=str)
     out_poly_suffix = get_key_def('polygonization', params['postprocess']['output_suffixes'], default='_raw',
                                   expected_type=str)
     out_gen_suffix = get_key_def('generalization', params['postprocess']['output_suffixes'], default='_post',
-                                  expected_type=str)
+                                 expected_type=str)
 
     cont_type = get_key_def('cont_type', params['postprocess'], expected_type=str)
     # regularization container parameters
@@ -390,7 +408,7 @@ def main(params):
         reg_command = None
     reg_models_dir = get_key_def('fallback_models_dir', params['postprocess']['reg_cont'], expected_type=str,
                                  to_path=True, validate_path_exists=True)
-    
+
     # polygonization container parameters
     poly_fallback = get_key_def('fallback', params['postprocess']['poly_cont'], expected_type=bool, default=True)
     poly_cont_image = get_key_def('cont_image', params['postprocess']['poly_cont'], expected_type=str)
@@ -403,7 +421,8 @@ def main(params):
     gen_commands = dict(get_key_def('command', params['postprocess']['gen_cont'], expected_type=DictConfig))
 
     # fetch the footprint
-    item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True, validate_path_exists=True)
+    item_url = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True,
+                           validate_path_exists=True)
     data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
     # TODO: Maybe add the download from the stac item if not there, but supposed since downloaded in inference
     footprint = os.path.join(data_dir, f'{os.path.basename(item_url)}-FOOTPRINT.geojson')
@@ -417,7 +436,7 @@ def main(params):
         load_state_dict_from_url(url=checkpoint, map_location='cpu', model_dir=models_dir)
         checkpoint = models_dir / Path(checkpoint).name
     if not ckpt_is_compatible(checkpoint):
-        checkpoint = checkpoint_converter(in_pth_path=checkpoint, out_dir=models_dir)
+        raise KeyError(f"\nCheckpoint is incompatible with inference pipeline.")
     checkpoint_dict = read_checkpoint(checkpoint, out_dir=models_dir, update=False)
     params = override_model_params_from_checkpoint(params=params, checkpoint_params=checkpoint_dict["hyper_parameters"])
 
@@ -500,16 +519,16 @@ def main(params):
     # Clip the predicted polygon(s) if given one
     if footprint:
         logging.info(f'\nClipping predicted polygon(s). Footprint: {footprint}')
-        
+
         gdf_poly = geopandas.read_file(returned_vector_pred)
         if gdf_poly.empty:
             logging.critical(f'\nThe raw prediction contain no polygon.')
         else:
             gdf_footprint = geopandas.read_file(footprint)
-            gdf_footprint = gdf_footprint.to_crs(str(gdf_poly.crs))            
+            gdf_footprint = gdf_footprint.to_crs(str(gdf_poly.crs))
             gdf_clipped = geopandas.clip(gdf_poly, gdf_footprint)
             gdf_clipped.to_file(returned_vector_pred, driver="GPKG")
-        
+
         logging.info(f'\nClipping completed. Clipped prediction: {returned_vector_pred}')
 
     if generalization:
@@ -525,76 +544,79 @@ def main(params):
                               f"\ncommand: {command}"
                               f"\nError {type(e)}: {e}")
             # Collect the name of the layer created
-            if 'ROAI' in classes_dict: # take the polygon layer for the road
+            if 'ROAI' in classes_dict:  # take the polygon layer for the road
                 m = re.search('outlayernamepoly=(.{6})', str(command))
             else:
                 m = re.search('outlayername=(.{6})', str(command))
             layer_name = m.group(1)
-            
+
         if out_gen.is_file():
             logging.info(f'\nGeneralization completed. Final prediction: {out_gen}')
             returned_vector_pred = out_gen
-            
-            try: # Try to convert multipolygon to polygon
+
+            try:  # Try to convert multipolygon to polygon
                 df = geopandas.read_file(returned_vector_pred, layer=layer_name)
                 if 'MultiPolygon' in df['geometry'].geom_type.values:
                     logging.info("\nConverting multiPolygon to Polygon...")
                     gdf_exploded = df.explode(index_parts=True, ignore_index=True)
                     gdf_exploded.to_file(returned_vector_pred, layer=layer_name)
             except Exception as e:
-                logging.error(f"\nSomething went wrong during the convertion of Polygon. \nError {type(e)}: {e}")
-            
+                logging.error(f"\nSomething went wrong during the conversion of Polygon. \nError {type(e)}: {e}")
+
             # Fetch the tag information inside the tiff
             tiff_src = rasterio.open(inf_outpath_ori)
             tags = tiff_src.tags()
-            # check if the tiff have a checkpoint save in 
+            # check if the tiff have a checkpoint save in
             if 'checkpoint' in tags.keys():
                 checkpoint_path = tags['checkpoint']
                 # add more info on a new layer waiting for Fiona 1.9
-                logging.info(f"\nAdding a layer 'extent_info' in {out_gen} with addintional informations.")
-                # Create a schema to store extent informations in the gpks
+                logging.info(f"\nAdding a layer 'extent_info' in {out_gen} with additional information.")
+                # Create a schema to store extent information in the gpks
                 extent_schema_list = [("stac_item", 'str'), ("gdl_image", 'str')]
                 # list all layer(s) in the gpkg
                 layers = fiona.listlayers(out_gen)
-                # Look which class is use first by looking in the inf_outpath 
-                cls_name = next((elem for elem in classes_dict if elem in str(inf_outpath_ori)), None)  # TODO something when its None
+                # Look which class is use first by looking in the inf_outpath
+                cls_name = next((elem for elem in classes_dict if elem in str(inf_outpath_ori)),
+                                None)  # TODO something when its None
                 # Check if the layer already created
                 if 'extent_info' in layers:
                     # open the gpkg
                     _gpkg = fiona.open(out_gen, layer='extent_info')
                     new_extent_schema = _gpkg.schema.copy()
                     # Add the model class name to the schema to fit what will be added
-                    new_extent_schema['properties'].update({"model_"+cls_name : 'str'})
-                    # extract information in the layer 
+                    new_extent_schema['properties'].update({"model_" + cls_name: 'str'})
+                    # extract information in the layer
                     prop = list(_gpkg.filter())[0]['properties']
                     p = prop.copy()
                     # close the gpkg to be able to rewrite it
                     _gpkg.close()
-                    # add infrmation in the layer already there
-                    with fiona.open(returned_vector_pred, 'w', crs=_gpkg.crs, layer='extent_info', schema=new_extent_schema, driver='GPKG', overwrite=True) as ds:
+                    # add information in the layer already there
+                    with fiona.open(returned_vector_pred, 'w', crs=_gpkg.crs, layer='extent_info',
+                                    schema=new_extent_schema, driver='GPKG', overwrite=True) as ds:
                         # add the checkpoint path associated with the model use for that class
-                        p.update({"model_"+cls_name : checkpoint_path})
+                        p.update({"model_" + cls_name: checkpoint_path})
                         ds.write({'properties': p})
                 # If not there create the layer for extent information
                 else:
                     # open the gpkg
                     _gpkg = fiona.open(out_gen)
                     # Add the model class name to the schema to fit what will be added
-                    extent_schema_list.append(("model_"+cls_name, 'str'))
+                    extent_schema_list.append(("model_" + cls_name, 'str'))
                     extent_schema = {'properties': OrderedDict(extent_schema_list)}
                     # Create a new layer in the gpkg with all information on stac item, gdl image and model class
-                    with fiona.open(returned_vector_pred, 'w', crs=_gpkg.crs, layer='extent_info', schema=extent_schema, driver='GPKG') as ds:
+                    with fiona.open(returned_vector_pred, 'w', crs=_gpkg.crs, layer='extent_info', schema=extent_schema,
+                                    driver='GPKG') as ds:
                         p = {
                             "stac_item": item_url,
                             "gdl_image": reg_cont_image,
                         }
                         # add the checkpoint path associated with the model use for that class
-                        p.update({"model_"+cls_name : checkpoint_path})
+                        p.update({"model_" + cls_name: checkpoint_path})
                         ds.write({'properties': p})
-            
+
         else:
             logging.error(f'\nGeneralization failed. Output "{out_gen}" not created. See logs...')
-        
+
     logging.info(f'\nEnd of postprocessing')
 
     return returned_vector_pred
