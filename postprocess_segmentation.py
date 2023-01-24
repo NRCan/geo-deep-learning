@@ -29,10 +29,9 @@ from rasterio.windows import Window
 from torch.hub import load_state_dict_from_url, get_dir
 from tqdm import tqdm
 
-from models.model_choice import read_checkpoint
 from utils.logger import get_logger
 from utils.utils import get_key_def, override_model_params_from_checkpoint, extension_remover, class_from_heatmap, \
-    ckpt_is_compatible
+    ckpt_is_compatible, read_checkpoint
 
 # Set the logging file
 logging = get_logger(__name__)
