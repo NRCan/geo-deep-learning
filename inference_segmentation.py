@@ -333,6 +333,8 @@ def main(params: Union[DictConfig, dict]) -> None:
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
                              validate_path_exists=True,
                              wildcard='*pth.tar')
+    data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
+    download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
 
     # Override params from checkpoint
     checkpoint = read_checkpoint(state_dict)
@@ -411,8 +413,13 @@ def main(params: Union[DictConfig, dict]) -> None:
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
-    list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested,
-                              equalize_clahe_clip_limit=clahe_clip_limit)
+    list_aois = aois_from_csv(
+        csv_path=raw_data_csv,
+        bands_requested=bands_requested,
+        download_data=download_data,
+        data_dir=data_dir,
+        equalize_clahe_clip_limit=clahe_clip_limit,
+    )
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
