@@ -40,6 +40,6 @@ general:
 print_config: True # save the config in the log folder
 # FIXME postprocess: Fallback causing error on github's CI...
 # FIXME evaluate with stac item and label!
-mode: {verify, sampling, train, inference} #, postprocess, evaluate}
+mode: {verify, sampling, train, inference-prep, inference} #, postprocess, evaluate}
 # TODO deactivate rasterio/fiona logs
 debug: True # will print the complete yaml config plus run a validation test
