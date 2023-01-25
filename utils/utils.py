@@ -664,12 +664,13 @@ def wait_while_modif(fpath: Union[str, Path], sleep_secs: int = 10, timeout: int
     sleep_secs (int, optional): Seconds to wait before re-checking the size of file to be downloaded
     timeout (int, optional): Maximum amount of time (seconds) to check if file size has changed
     """
+    timeout_time = time.time() + timeout
     if Path(fpath).is_file():
         while True:
             initial_size = get_file_size(fpath)
             sleep(sleep_secs)
             final_size = get_file_size(fpath)
-            if time.time() > timeout:
+            if time.time() > timeout_time:
                 raise TimeoutError(f"File has been modified for more than {timeout} seconds. \nFile: {fpath}")
             # if the initial size is equal to the final size, the file has most likely
             # not changed, unless they are both False.
