@@ -449,6 +449,9 @@ def main(params: Union[DictConfig, dict]) -> None:
         logging.info(f'\nSuccessfully inferred on {aoi.raster_name}\nWriting to file: {inference_image}')
         with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
             dest.write(pred)
+            # NOTE: the tags option will be join to the `create_new_raster_from_base` function for later version
+            # add tag to transmit more informations, the checkpoint path in that case
+            dest.update_tags(checkpoint=state_dict)  
         del pred
         try:
             temp_file.unlink()
