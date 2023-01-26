@@ -26,27 +26,25 @@ def stretch_heatmap(heatmap_arr: np.ndarray, out_max: int = 100, range_warning: 
         if range_warning:
             logging.warning(f"\nProvided heatmap should be the result of sigmoid or softmax operation."
                             f"\nExpected values are between 0 and 1. Got min {imin} and max {imax}.")
-        omax = imax
+        dtype_max = imax
     else:
-        _, omax = map(float, intensity_range(heatmap_arr, 'dtype'))
-    return np.array(heatmap_arr) / omax * out_max
+        _, dtype_max = map(float, intensity_range(heatmap_arr, 'dtype'))
+    return np.array(heatmap_arr) / dtype_max * out_max
 
 
-def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: int = 50, range_warning: bool = True) -> np.ndarray:
+def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: float = 0.5) -> np.ndarray:
     """
     Sets class value from raw heatmap as predicted by model
     @param heatmap_arr:
         3D array (channels last) of dtype float containing probability map for each class,
         after sigmoid or softmax operation (expects values between 0 and 1)
     @param heatmap_threshold:
-        threshold (%) to apply to heatmap if single class prediction
-    @param range_warning:
-        if True, a warning will be emitted if values of heatmap range under 0 or above 1.
+        threshold (fraction of 1) to apply to heatmap if single class prediction
     @return: flattened array where pixel values correspond to final class values
     """
     if heatmap_arr.shape[-1] == 1:
-        heatmap_arr = stretch_heatmap(heatmap_arr=heatmap_arr, out_max=100, range_warning=range_warning)
-        flattened_arr = (heatmap_arr > heatmap_threshold)
+        heatmap_threshold_abs = heatmap_threshold * np.iinfo(heatmap_arr.dtype).max
+        flattened_arr = (heatmap_arr > heatmap_threshold_abs)
         flattened_arr = np.squeeze(flattened_arr, axis=-1)
     else:
         flattened_arr = heatmap_arr.argmax(axis=-1)

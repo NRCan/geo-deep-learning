@@ -135,6 +135,7 @@ def segmentation(param,
                  device,
                  scale: List,
                  tp_mem,
+                 heatmap_dtype=np.uint16,
                  debug=False,
                  ):
     """
@@ -149,12 +150,13 @@ def segmentation(param,
         scale: scale range
         tp_mem: memory temp file for saving numpy array to disk
         debug: True/False
+        heatmap_dtype:
+            Output data type for heatmap. Ex.: Uint16 captures more information, but takes more space in memory or disk.
 
     Returns:
 
     """
     subdiv = 2
-    threshold = 0.5
     sample = {"image": None, "mask": None, 'metadata': None}
     start_seg = time.time()
     print_log = True if logging.level == 20 else False  # 20 is INFO
@@ -227,14 +229,18 @@ def segmentation(param,
     del fp
 
     fp = np.memmap(tp_mem, dtype='float16', mode='r', shape=(tf_len, h_padded, w_padded, num_classes))
-    pred_heatmap = np.zeros((h_padded, w_padded, num_classes), dtype=np.float16)
+    pred_heatmap = np.zeros((h_padded, w_padded, num_classes), dtype=heatmap_dtype)
     for row, col in tqdm(itertools.product(range(0, input_image.height, chunk_size),
                                            range(0, input_image.width, chunk_size)),
                          leave=False, total=total_inf_windows, desc="Writing to array"):
         arr1 = (fp[:, row:row + chunk_size, col:col + chunk_size, :]).max(axis=0)
         if single_class_mode:
             arr1 = sigmoid(arr1)
-        pred_heatmap[row:row + chunk_size, col:col + chunk_size, :] = arr1
+
+        heatmap_max = np.iinfo(heatmap_dtype).max
+        arr1 = stretch_heatmap(heatmap_arr=arr1, out_max=heatmap_max)
+
+        pred_heatmap[row:row + chunk_size, col:col + chunk_size, :] = arr1.astype(heatmap_dtype)
 
     end_seg = time.time() - start_seg
     logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
@@ -318,23 +324,6 @@ def stac_input_to_temp_csv(input_stac_item: Union[str, Path]) -> Path:
     return Path(stac_temp_csv)
 
 
-def write_heatmap(heatmap: np.ndarray, outpath: Union[str, Path], src: rasterio.DatasetReader):
-    """
-    Write a heatmap as array to disk
-    @param heatmap:
-        array of dtype float containing probability map for each class,
-        after sigmoid or softmax operation (expects values between 0 and 1)
-    @param outpath:
-        path to desired output file
-    @param src:
-        a rasterio file handler (aka DatasetReader) from source imagery. Contains metadata to write heatmap
-    @return:
-    """
-    heatmap_arr = stretch_heatmap(heatmap_arr=heatmap, out_max=100)
-    heatmap_arr = reshape_as_raster(heatmap_arr)
-    create_new_raster_from_base(input_raster=src, output_raster=outpath, write_array=heatmap_arr)
-
-
 def main(params: Union[DictConfig, dict]) -> None:
     """
     Function to manage details about the inference on segmentation task.
@@ -405,7 +394,9 @@ def main(params: Union[DictConfig, dict]) -> None:
     device = set_device(gpu_devices_dict=gpu_devices_dict)
 
     clahe_clip_limit = get_key_def('clahe_clip_limit', params['tiling'], expected_type=Number, default=0)
+    heatmap_dtype = get_key_def('heatmap_dtype', params['inference'], default=np.uint16)
     save_heatmap = get_key_def('save_heatmap', params['inference'], default=True, expected_type=bool)
+    heatmap_threshold = get_key_def('heatmap_threshold', params['inference'], default=0.5, expected_type=float)
 
     if raw_data_csv and input_stac_item:
         raise ValueError(f"Input imagery should be either a csv of stac item. Got inputs from both \"raw_data_csv\" "
@@ -439,7 +430,7 @@ def main(params: Union[DictConfig, dict]) -> None:
         logging.info(f'\nReading image: {aoi.raster_name.stem}')
         inf_meta = aoi.raster.meta
 
-        pred = segmentation(param=params,
+        pred_heatmap = segmentation(param=params,
                             input_image=aoi.raster,
                             num_classes=num_classes,
                             model=model,
@@ -447,24 +438,32 @@ def main(params: Union[DictConfig, dict]) -> None:
                             device=device,
                             scale=scale,
                             tp_mem=temp_file,
+                            heatmap_dtype=heatmap_dtype,
                             debug=debug)
 
         inf_meta.update({"driver": "GTiff",
-                         "height": pred.shape[1],
-                         "width": pred.shape[2],
-                         "count": pred.shape[0],
+                         "height": pred_heatmap.shape[1],
+                         "width": pred_heatmap.shape[2],
+                         "count": pred_heatmap.shape[0],
                          "dtype": 'uint8',
                          "compress": 'lzw'})
         logging.info(f'\nSuccessfully inferred on {aoi.raster_name}\nWriting to file: {inference_image}')
 
+        pred_img = class_from_heatmap(heatmap_arr=pred_heatmap, heatmap_threshold=heatmap_threshold)
+
         if save_heatmap:
             logging.info(f"\nSaving heatmap...")
-            write_heatmap(heatmap=pred, outpath=inference_heatmap, src=aoi.raster)
+            pred_heatmap = reshape_as_raster(pred_heatmap)
+            create_new_raster_from_base(
+                input_raster=aoi.raster,
+                output_raster=inference_heatmap,
+                write_array=pred_heatmap,
+                dtype=heatmap_dtype,
+            )
             logging.info(f'\nSaved heatmap to {inference_heatmap}')
 
-        pred_img = class_from_heatmap(heatmap_arr=pred, heatmap_threshold=50)
         create_new_raster_from_base(input_raster=aoi.raster, output_raster=inference_image, write_array=pred_img)
-        del pred
+        del pred_heatmap
 
         try:
             temp_file.unlink()

@@ -23,7 +23,7 @@ from shapely.geometry import box, Polygon
 logger = logging.getLogger(__name__)
 
 
-def create_new_raster_from_base(input_raster, output_raster, write_array):
+def create_new_raster_from_base(input_raster, output_raster, write_array, dtype = np.uint8):
     """Function to use info from input raster to create new one.
     Args:
         input_raster: input raster path and name
@@ -59,7 +59,7 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
                        height=src.height,
                        count=count,
                        crs=src.crs,
-                       dtype=np.uint8,
+                       dtype=dtype,
                        transform=src.transform,
                        compress='lzw') as dst:
         dst.write(write_array)
