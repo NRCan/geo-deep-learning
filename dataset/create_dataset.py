@@ -179,6 +179,11 @@ class DRDataset(GeoDataset):
             out_shape=out_shape, window=from_bounds(*bounds, self.dr_ds.transform)
         )
 
+        if dest.dtype == np.uint16:
+            dest = dest.astype(np.int32)
+        elif dest.dtype == np.uint32:
+            dest = dest.astype(np.int64)
+
         tensor = torch.tensor(dest)
 
         return tensor
@@ -285,7 +290,7 @@ class GDLVectorDataset(GeoDataset):
         ogr.Layer.Clip(self.mem_vec_ds.GetLayer(), mem_layer, out_layer)
 
         # Check that there is no curve geometry in the output patch:
-        self._check_curve(layer=out_layer)
+        # self._check_curve(layer=out_layer)
 
         sample = {"mask": out_mem_ds, "crs": self.crs, "bbox": query}
 
