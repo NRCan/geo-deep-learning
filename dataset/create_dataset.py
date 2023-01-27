@@ -240,10 +240,10 @@ class GDLVectorDataset(GeoDataset):
         feature = layer.GetNextFeature()
         while feature is not None:
             geom = feature.GetGeometryRef()
-            name = geom.GetGeometryName()
+            name_wkt = geom.ExportToWkt()
 
             # Approximate a curvature by a polygon geometry:
-            if name != "POLYGON" and name != "MULTIPOLYGON":
+            if 'curv' in name_wkt.lower():
                 linear_geom = geom.GetLinearGeometry()
                 new_feature = ogr.Feature(feature_defn)
                 new_feature.SetGeometryDirectly(linear_geom)
@@ -290,7 +290,7 @@ class GDLVectorDataset(GeoDataset):
         ogr.Layer.Clip(self.mem_vec_ds.GetLayer(), mem_layer, out_layer)
 
         # Check that there is no curve geometry in the output patch:
-        # self._check_curve(layer=out_layer)
+        self._check_curve(layer=out_layer)
 
         sample = {"mask": out_mem_ds, "crs": self.crs, "bbox": query}
 
