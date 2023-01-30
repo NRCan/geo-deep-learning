@@ -280,3 +280,25 @@ def fetch_tag_raster(raster_path, tag_wanted):
         )
         raise ValueError('Tag not found.')
     
+
+def gdf_mean_vertices_nb(gdf: gpd.GeoDataFrame):
+    """
+    Counts vertices of all polygons inside a given GeoDataFrame
+    @param gdf: input GeoDataFrame to count vertices from
+    """
+    if len(gdf.geometry) == 0:
+        print("No features in GeoDataFrame")
+        return None
+    vertices_per_polygon = []
+    for geom in gdf.geometry:
+        if geom is None:
+            logging.warning(f"GeoDataFrame contains a \"None\" geometry")
+        elif geom.geom_type == "MultiPolygon":
+            for polygon in geom.geoms:
+                vertices_per_polygon.append(len(polygon.exterior.coords))
+        elif geom.geom_type == "Polygon":
+            vertices_per_polygon.append(len(geom.exterior.coords))
+        else:
+            logging.warning(f"Only supports MultiPolygon or Polygon. \nGot {geom.geom_type}")
+    mean_ext_vert_nb = np.mean(vertices_per_polygon)
+    return mean_ext_vert_nb
