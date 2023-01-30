@@ -29,10 +29,11 @@ def create_new_raster_from_base(input_raster, output_raster, write_array, dtype 
         input_raster: input raster path and name
         output_raster: raster name and path to be created with info from input
         write_array (optional): array to write into the new raster
+        dtype (optional): data type of output raster
         kwargs (optional): Complementary parameter(s)
 
     Return:
-        none
+        None
     """
     src = check_rasterio_im_load(input_raster)
     if len(write_array.shape) == 2:  # 2D array

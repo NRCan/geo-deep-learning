@@ -470,7 +470,12 @@ def main(params: Union[DictConfig, dict]) -> None:
             )
             logging.info(f'\nSaved heatmap to {inference_heatmap}')
 
-        create_new_raster_from_base(input_raster=aoi.raster, output_raster=inference_image, write_array=pred_img)
+        create_new_raster_from_base(
+            input_raster=aoi.raster,
+            output_raster=inference_image,
+            write_array=pred_img,
+            checkpoint_path=state_dict
+            )
         del pred_heatmap
 
         try:
