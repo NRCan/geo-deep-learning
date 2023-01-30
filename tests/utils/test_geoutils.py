@@ -11,7 +11,8 @@ from torchgeo.datasets.utils import extract_archive
 from shapely.geometry import MultiPolygon
 
 from dataset.aoi import AOI
-from utils.geoutils import create_new_raster_from_base, bounds_gdf, bounds_riodataset, overlap_poly1_rto_poly2, multi2poly
+from utils.geoutils import create_new_raster_from_base, bounds_gdf, bounds_riodataset, overlap_poly1_rto_poly2, \
+    multi2poly, fetch_tag_raster, gdf_mean_vertices_nb, check_gdf_load
 from utils.utils import read_csv
 
 
@@ -97,7 +98,17 @@ class TestGeoutils(object):
         label_bounds_box = bounds_gdf(label_gdf)
         raster_bounds_box = bounds_riodataset(raster)
         assert overlap_poly1_rto_poly2(label_bounds_box, raster_bounds_box) == 0.0
-
+        
+    def test_fetch_tag_raster(self):
+        """Test to verify if the function really fetch the right information from the raster"""
+        raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
+        tag_raster = 'tests/data/massachusetts_buildings_kaggle/tag_raster.tif'
+        with rasterio.open(raster_file, 'r') as src_ds:
+            with rasterio.open(tag_raster, 'w', **src_ds.meta) as dst_ds:
+                dst_ds.update_tags(checkpoint='test/path/to/checkpoint.pth')
+                dst_ds.write(src_ds.read())
+        assert fetch_tag_raster(tag_raster, 'checkpoint') == 'test/path/to/checkpoint.pth'
+         
     def test_multi2poly(self):
         """Test the conversion from MultiPolygon to Polygon in a GPKG"""
         multi_gpkg = "tests/data/new_brunswick_aerial/BakerLake_2017_clipped.gpkg"
@@ -105,3 +116,15 @@ class TestGeoutils(object):
         df = gpd.read_file(multi_gpkg, layer='BakerLake_2017')
         have_multi = 'MultiPolygon' in df['geometry'].geom_type.values
         assert have_multi == False
+
+    def test_gdf_mean_vertices_nb(self):
+        test_data_labels_csv = "tests/data/all_gpkg.csv"
+        with open(test_data_labels_csv, 'r') as fh:
+            test_data_labels = fh.read().splitlines()
+        mean_vertices_per_label = []
+        for label in test_data_labels:
+            my_gdf = check_gdf_load(label)
+            mean_vertices = gdf_mean_vertices_nb(my_gdf)
+            mean_vertices_per_label.append(mean_vertices)
+        mean_vertices_per_label_int = [round(mean_verts) for mean_verts in mean_vertices_per_label if mean_verts]
+        assert mean_vertices_per_label_int == [7, 7, 6, 36, 5, 5, 8, 5]
