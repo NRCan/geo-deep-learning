@@ -23,15 +23,17 @@ from shapely.geometry import box, Polygon
 logger = logging.getLogger(__name__)
 
 
-def create_new_raster_from_base(input_raster, output_raster, write_array, dtype = np.uint8):
+def create_new_raster_from_base(input_raster, output_raster, write_array, dtype = np.uint8, **kwargs):
     """Function to use info from input raster to create new one.
     Args:
         input_raster: input raster path and name
         output_raster: raster name and path to be created with info from input
         write_array (optional): array to write into the new raster
+        dtype (optional): data type of output raster
+        kwargs (optional): Complementary parameter(s)
 
     Return:
-        none
+        None
     """
     src = check_rasterio_im_load(input_raster)
     if len(write_array.shape) == 2:  # 2D array
@@ -63,6 +65,10 @@ def create_new_raster_from_base(input_raster, output_raster, write_array, dtype 
                        transform=src.transform,
                        compress='lzw') as dst:
         dst.write(write_array)
+        # add tag to transmit more informations
+        if 'checkpoint_path' in kwargs.keys():
+            # add the path to the model checkpoint
+            dst.update_tags(checkpoint=kwargs['checkpoint_path']) 
 
 
 def get_key_recursive(key, config):
@@ -231,17 +237,16 @@ def overlap_poly1_rto_poly2(polygon1: Polygon, polygon2: Polygon) -> float:
 
 def multi2poly(returned_vector_pred, layer_name=None):
     """
-    Convert shapely multipolygon to polygon. If fail return a logging error.
-    This function will read an PATH string create an geodataframe and explode
-    all multipolygon to polygon and save the geodataframe at the same PATH.
-    Side note, if you use this function without a layer name, be sure that the
-    GPKG dont have a layer otherwise a new layer will be created with the 
-    resulting Polygon.
+    Converts shapely multipolygon to polygon. If fails, returns a logging error.
+    This function will read a PATH string, create a geodataframe, explode all
+    multipolygon to polygon and save the geodataframe at the same PATH.
     Args:
         returned_vector_pred: string, geopackage PATH where the post-processing
-                              results are saved
-        layer_name (optional): string, the name of layer to look into for multipolygon, the name
-                    represente the classes post-processed. Default None.
+                              results are saved.
+        layer_name (optional): string, the name of layer to look into for multipolygons.
+                               For example, if using during post-processing, the layer
+                               name could represent the class name if class are stored
+                               in separate layers. Default None.
                     
     Return:
         none
@@ -255,3 +260,26 @@ def multi2poly(returned_vector_pred, layer_name=None):
     except Exception as e:
         logging.error(f"\nSomething went wrong during the conversion of Polygon. \nError {type(e)}: {e}")
         
+        
+def fetch_tag_raster(raster_path, tag_wanted):
+    """
+    Fetch the tag(s) information saved inside the tiff.
+    TODO, change the `tag_wanted` to accept str or list of str.
+    Args:
+        raster_path: string, raster path
+        tag_wanted: string, tag name, ex. 'checkpoint'
+    Return:
+        string containing associate information to the `tag_wanted`
+    """
+    with rasterio.open(raster_path) as tiff_src:
+        tags = tiff_src.tags()
+    # check if the tiff have the wanted tag save in 
+    if tag_wanted in tags.keys():
+        return tags[tag_wanted]
+    else:
+        logging.error(
+            f"\nThe tag {tag_wanted} was not found in the {tags.keys()},"
+            f" try again with one inside that list."
+        )
+        raise ValueError('Tag not found.')
+    
