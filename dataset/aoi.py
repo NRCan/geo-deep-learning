@@ -393,7 +393,7 @@ class AOI(object):
                 if isinstance(list(self.label_gdf_filtered.geometry)[0], MultiPolygon):
                     ext_vert = []
                     for multipolygon in list(self.label_gdf_filtered.geometry):
-                        ext_vert.extend([len(geom.exterior.coords) for geom in list(multipolygon)])
+                        ext_vert.extend([len(geom.exterior.coords) for geom in multipolygon.geoms])
                     mean_ext_vert_nb = np.mean(ext_vert)
                 elif isinstance(list(self.label_gdf_filtered.geometry)[0], Polygon):
                     mean_ext_vert_nb = np.mean([len(geom.exterior.coords) for geom in self.label_gdf_filtered.geometry])
