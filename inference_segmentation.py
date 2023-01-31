@@ -337,6 +337,8 @@ def main(params: Union[DictConfig, dict]) -> None:
                              wildcard='*pth.tar')
     models_dir = get_key_def('checkpoint_dir', params['inference'], default=root / 'checkpoints', to_path=True)
     models_dir.mkdir(exist_ok=True)
+    data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
+    download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
 
     # Override params from checkpoint
     checkpoint = read_checkpoint(state_dict, out_dir=models_dir)
@@ -411,12 +413,17 @@ def main(params: Union[DictConfig, dict]) -> None:
         out_classes=num_classes,
         main_device=device,
         devices=[list(gpu_devices_dict.keys())],
+        checkpoint_dict=checkpoint,
     )
-    model.load_state_dict(state_dict=checkpoint['model_state_dict'])
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
-    list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested,
-                              equalize_clahe_clip_limit=clahe_clip_limit)
+    list_aois = aois_from_csv(
+        csv_path=raw_data_csv,
+        bands_requested=bands_requested,
+        download_data=download_data,
+        data_dir=data_dir,
+        equalize_clahe_clip_limit=clahe_clip_limit,
+    )
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
@@ -446,6 +453,9 @@ def main(params: Union[DictConfig, dict]) -> None:
         logging.info(f'\nSuccessfully inferred on {aoi.raster_name}\nWriting to file: {inference_image}')
         with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
             dest.write(pred)
+            # NOTE: the tags option will be join to the `create_new_raster_from_base` function for later version
+            # add tag to transmit more informations, the checkpoint path in that case
+            dest.update_tags(checkpoint=state_dict)
         del pred
         try:
             temp_file.unlink()
