@@ -123,8 +123,10 @@ def define_model(
         in_channels: int,
         out_classes: int,
         main_device: str = 'cpu',
-        devices: List = []
-):
+        devices: List = [],
+        checkpoint_dict: Union[DictConfig, dict] = None,
+        checkpoint_dict_strict_load: bool = True,
+) -> nn.Module:
     """
     Defines model's architecture with weights from provided checkpoint and pushes to device(s)
     @return:
@@ -136,4 +138,6 @@ def define_model(
     )
     model = to_dp_model(model=model, devices=devices[1:]) if len(devices) > 1 else model
     model.to(main_device)
+    if checkpoint_dict:
+        model.load_state_dict(state_dict=checkpoint_dict['model_state_dict'], strict=checkpoint_dict_strict_load)
     return model
