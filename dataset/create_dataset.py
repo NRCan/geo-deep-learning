@@ -179,6 +179,11 @@ class DRDataset(GeoDataset):
             out_shape=out_shape, window=from_bounds(*bounds, self.dr_ds.transform)
         )
 
+        if dest.dtype == np.uint16:
+            dest = dest.astype(np.int32)
+        elif dest.dtype == np.uint32:
+            dest = dest.astype(np.int64)
+
         tensor = torch.tensor(dest)
 
         return tensor
@@ -235,10 +240,10 @@ class GDLVectorDataset(GeoDataset):
         feature = layer.GetNextFeature()
         while feature is not None:
             geom = feature.GetGeometryRef()
-            name = geom.GetGeometryName()
+            name_wkt = geom.ExportToWkt()
 
             # Approximate a curvature by a polygon geometry:
-            if name != "POLYGON" and name != "MULTIPOLYGON":
+            if 'curv' in name_wkt.lower():
                 linear_geom = geom.GetLinearGeometry()
                 new_feature = ogr.Feature(feature_defn)
                 new_feature.SetGeometryDirectly(linear_geom)
