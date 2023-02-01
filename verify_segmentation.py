@@ -13,7 +13,6 @@ from rasterio.plot import show_hist, show
 from tqdm import tqdm
 
 from dataset.aoi import aois_from_csv, AOI
-from utils.geoutils import check_rasterio_im_load
 from utils.utils import get_key_def, get_git_hash, map_wrapper
 
 

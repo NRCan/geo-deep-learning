@@ -62,6 +62,17 @@ class TestGeoutils(object):
         create_new_raster_from_base(input_raster=ref_raster, output_raster=out_raster, write_array=out_array)
         os.remove(out_raster)
 
+    def test_create_new_raster_from_base_2d_out_array(self) -> None:
+        """Tests the 'create_new_raster_from_base' geo-utility for a 2D output array"""
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
+        ref_raster = Path(data[0]['tif'])
+        out_raster = ref_raster.parent / f"{ref_raster.stem}_copy.tif"
+        ref_raster_rio = rasterio.open(ref_raster)
+        out_array = np.ndarray((ref_raster_rio.height, ref_raster_rio.width))
+        create_new_raster_from_base(input_raster=ref_raster, output_raster=out_raster, write_array=out_array)
+        os.remove(out_raster)
+
     def test_bounds_iou(self) -> None:
         """Tests calculation of IOU between raster and label bounds"""
         raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
