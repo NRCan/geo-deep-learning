@@ -1,7 +1,7 @@
 # @package _global_
 inference:
   raw_data_csv: tests/inference/inference_segmentation_multiclass.csv
-  root_dir: data/inference
+  root_dir: inferences
   input_stac_item:  # alternatively, use a path or url to stac item directly
   state_dict_path: ${general.save_weights_dir}/
   checkpoint_dir: ${general.save_weights_dir}  # (string, optional): directory in which to save the object if url
