@@ -23,20 +23,22 @@ from shapely.geometry import box, Polygon
 logger = logging.getLogger(__name__)
 
 
-def create_new_raster_from_base(input_raster, output_raster, write_array, **kwargs):
+def create_new_raster_from_base(input_raster, output_raster, write_array, dtype = np.uint8, **kwargs):
     """Function to use info from input raster to create new one.
     Args:
         input_raster: input raster path and name
         output_raster: raster name and path to be created with info from input
         write_array (optional): array to write into the new raster
+        dtype (optional): data type of output raster
         kwargs (optional): Complementary parameter(s)
 
     Return:
-        none
+        None
     """
     src = check_rasterio_im_load(input_raster)
     if len(write_array.shape) == 2:  # 2D array
         count = 1
+        write_array = write_array[np.newaxis, :, :]
     elif len(write_array.shape) == 3:  # 3D array
         if write_array.shape[0] > 100:
             logging.warning(f"\nGot {write_array.shape[0]} bands. "
@@ -46,9 +48,10 @@ def create_new_raster_from_base(input_raster, output_raster, write_array, **kwar
     else:
         raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
 
-    if write_array.shape[1:] != (src.height, src.width):
-        raise ValueError(f"Output array's width and height should be identical to dimensions of input reference raster")
-
+    if write_array.shape[-2:] != (src.height, src.width):
+        raise ValueError(f"Output array's width and height should be identical to dimensions of input reference raster"
+                         f"\nInput reference raster shape (h x w): ({src.height}, {src.width})"
+                         f"\nOutput array shape (h x w): {write_array.shape[1:]}")
     # Cannot write to 'VRT' driver
     driver = 'GTiff' if src.driver == 'VRT' else src.driver
 
@@ -58,14 +61,14 @@ def create_new_raster_from_base(input_raster, output_raster, write_array, **kwar
                        height=src.height,
                        count=count,
                        crs=src.crs,
-                       dtype=np.uint8,
+                       dtype=dtype,
                        transform=src.transform,
                        compress='lzw') as dst:
         dst.write(write_array)
         # add tag to transmit more informations
         if 'checkpoint_path' in kwargs.keys():
             # add the path to the model checkpoint
-            dst.update_tags(checkpoint=kwargs['checkpoint_path']) 
+            dst.update_tags(checkpoint=kwargs['checkpoint_path'])
 
 
 def get_key_recursive(key, config):
@@ -256,8 +259,8 @@ def multi2poly(returned_vector_pred, layer_name=None):
             gdf_exploded.to_file(returned_vector_pred, layer=layer_name) # overwrite the layer readed
     except Exception as e:
         logging.error(f"\nSomething went wrong during the conversion of Polygon. \nError {type(e)}: {e}")
-        
-        
+
+
 def fetch_tag_raster(raster_path, tag_wanted):
     """
     Fetch the tag(s) information saved inside the tiff.
@@ -270,7 +273,7 @@ def fetch_tag_raster(raster_path, tag_wanted):
     """
     with rasterio.open(raster_path) as tiff_src:
         tags = tiff_src.tags()
-    # check if the tiff have the wanted tag save in 
+    # check if the tiff have the wanted tag save in
     if tag_wanted in tags.keys():
         return tags[tag_wanted]
     else:
@@ -279,7 +282,7 @@ def fetch_tag_raster(raster_path, tag_wanted):
             f" try again with one inside that list."
         )
         raise ValueError('Tag not found.')
-    
+
 
 def gdf_mean_vertices_nb(gdf: gpd.GeoDataFrame):
     """
