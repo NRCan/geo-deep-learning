@@ -80,7 +80,8 @@ def main(params):
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
     bands_requested = get_key_def('bands', params['dataset'], default=[], expected_type=Sequence)
     num_bands = len(bands_requested)
-    working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
+    working_folder = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
+    working_folder.mkdir(exist_ok=True)
     raw_data_csv = get_key_def('raw_data_csv', params['inference'], default=working_folder,
                                  expected_type=str, to_path=True, validate_path_exists=True)
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
@@ -115,8 +116,7 @@ def main(params):
     gpkg_name_ = []
 
     for aoi in tqdm(list_aois, desc='Evaluating from input list', position=0, leave=True):
-        Path.mkdir(working_folder / aoi.raster_name.parent.name, parents=True, exist_ok=True)
-        inference_image = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_inference.tif"
+        inference_image = working_folder / f"{aoi.raster_name.stem}_inference.tif"
         if not inference_image.is_file():
             raise FileNotFoundError(f"Couldn't locate inference to evaluate metrics with. Make inferece has been run "
                                     f"before you run evaluate mode.")
