@@ -333,15 +333,21 @@ def main(params: Union[DictConfig, dict]) -> None:
     -------
     :param params: (dict) Parameters inputted during execution.
     """
-    # SETTING OUTPUT DIRECTORY
+    # Main params
+    working_folder = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
+    working_folder.mkdir(exist_ok=True)
+    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
+
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
                              validate_path_exists=True,
                              wildcard='*pth.tar')
+    models_dir = get_key_def('checkpoint_dir', params['inference'], default=working_folder / 'checkpoints', to_path=True)
+    models_dir.mkdir(exist_ok=True)
     data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
 
     # Override params from checkpoint
-    checkpoint = read_checkpoint(state_dict)
+    checkpoint = read_checkpoint(state_dict, out_dir=models_dir)
     params = override_model_params_from_checkpoint(
         params=params,
         checkpoint_params=checkpoint['params']
@@ -354,10 +360,6 @@ def main(params: Union[DictConfig, dict]) -> None:
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
     num_bands = len(bands_requested)
 
-    working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
-    logging.info("\nThe state dict path directory used '{}'".format(working_folder))
-    Path.mkdir(working_folder, parents=True, exist_ok=True)
-    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     # Default input directory based on default output directory
     raw_data_csv = get_key_def('raw_data_csv', params['inference'], expected_type=str, to_path=True,
                                validate_path_exists=True)
@@ -416,7 +418,7 @@ def main(params: Union[DictConfig, dict]) -> None:
         out_classes=num_classes,
         main_device=device,
         devices=[list(gpu_devices_dict.keys())],
-        state_dict_path=state_dict,
+        checkpoint_dict=checkpoint,
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
@@ -430,23 +432,24 @@ def main(params: Union[DictConfig, dict]) -> None:
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
-        Path.mkdir(working_folder / aoi.raster_name.parent.name, parents=True, exist_ok=True)
-        inference_image = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_inference.tif"
-        inference_heatmap = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_heatmap.tif"
-        temp_file = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}.dat"
+        inference_image = working_folder / f"{aoi.raster_name.stem}_inference.tif"
+        inference_heatmap = working_folder / f"{aoi.raster_name.stem}_heatmap.tif"
+        temp_file = working_folder / f"{aoi.raster_name.stem}.dat"
         logging.info(f'\nReading image: {aoi.raster_name.stem}')
         inf_meta = aoi.raster.meta
 
-        pred_heatmap = segmentation(param=params,
-                            input_image=aoi.raster,
-                            num_classes=num_classes,
-                            model=model,
-                            chunk_size=chunk_size,
-                            device=device,
-                            scale=scale,
-                            tp_mem=temp_file,
-                            heatmap_dtype=heatmap_dtype,
-                            debug=debug)
+        pred_heatmap = segmentation(
+            param=params,
+            input_image=aoi.raster,
+            num_classes=num_classes,
+            model=model,
+            chunk_size=chunk_size,
+            device=device,
+            scale=scale,
+            tp_mem=temp_file,
+            heatmap_dtype=heatmap_dtype,
+            debug=debug
+        )
 
         inf_meta.update({"driver": "GTiff",
                          "height": pred_heatmap.shape[1],

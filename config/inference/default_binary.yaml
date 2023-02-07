@@ -1,8 +1,10 @@
 # @package _global_
 inference:
   raw_data_csv: tests/inference/inference_segmentation_binary.csv
+  root_dir: inferences
   input_stac_item:  # alternatively, use a path or url to stac item directly
   state_dict_path: ${general.save_weights_dir}/
+  checkpoint_dir: ${general.save_weights_dir}  # (string, optional): directory in which to save the object if url
   chunk_size:  # if empty, will be calculated automatically from max_pix_per_mb_gpu
   # Maximum number of pixels each Mb of GPU Ram to allow. E.g. if GPU has 1000 Mb of Ram and this parameter is set to
   # 10, chunk_size will be set to sqrt(1000 * 10) = 100.
