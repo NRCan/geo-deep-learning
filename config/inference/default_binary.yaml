@@ -9,6 +9,7 @@ inference:
   # Maximum number of pixels each Mb of GPU Ram to allow. E.g. if GPU has 1000 Mb of Ram and this parameter is set to
   # 10, chunk_size will be set to sqrt(1000 * 10) = 100.
   max_pix_per_mb_gpu: 25
+  prep_data_only: False
   save_heatmap: True  # saves a heatmap to {output_dir}/{output_name}_heatmap.tif
   heatmap_threshold: 0.3
 

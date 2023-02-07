@@ -365,6 +365,7 @@ def main(params: Union[DictConfig, dict]) -> None:
                                validate_path_exists=True)
     input_stac_item = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True,
                                   validate_path_exists=True)
+    prep_data_only = get_key_def('prep_data_only', params['inference'], default=False, expected_type=bool)
 
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
@@ -429,6 +430,10 @@ def main(params: Union[DictConfig, dict]) -> None:
         data_dir=data_dir,
         equalize_clahe_clip_limit=clahe_clip_limit,
     )
+
+    if prep_data_only:
+        logging.info(f"[prep_data_only mode] Data preparation for inference is complete. Exiting...")
+        exit()
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
