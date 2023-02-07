@@ -102,12 +102,12 @@ class TestDefineModelMultigpu(object):
     if len(gpu_devices_dict.keys()) == 0:
         logging.critical(f"No GPUs available. Cannot perform multi-gpu testing.")
     else:
-        define_model(
+        checkpoint = read_checkpoint(filename)
+        model = define_model(
             net_params={'_target_': 'models.unet.UNet'},
             in_channels=4,
             out_classes=4,
             main_device=device,
             devices=list(gpu_devices_dict.keys()),
-            state_dict_path=filename,
-            state_dict_strict_load=True,
+            checkpoint_dict=checkpoint
         )

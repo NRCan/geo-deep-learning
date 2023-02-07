@@ -28,7 +28,7 @@ def define_model_architecture(
     return instantiate(net_params, in_channels=in_channels, classes=out_classes)
 
 
-def read_checkpoint(filename, out_dir: str = 'checkpoints', update=True) -> DictConfig:
+def read_checkpoint(filename, out_dir: str = 'checkpoints', update=False) -> DictConfig:
     """
     Loads checkpoint from provided path to GDL's expected format,
     ie model's state dictionary should be under "model_state_dict" and
@@ -124,9 +124,9 @@ def define_model(
         out_classes: int,
         main_device: str = 'cpu',
         devices: List = [],
-        state_dict_path: str = None,
-        state_dict_strict_load: bool = True,
-):
+        checkpoint_dict: Union[DictConfig, dict] = None,
+        checkpoint_dict_strict_load: bool = True,
+) -> nn.Module:
     """
     Defines model's architecture with weights from provided checkpoint and pushes to device(s)
     @return:
@@ -138,7 +138,6 @@ def define_model(
     )
     model = to_dp_model(model=model, devices=devices[1:]) if len(devices) > 1 else model
     model.to(main_device)
-    if state_dict_path:
-        checkpoint = read_checkpoint(state_dict_path)
-        model.load_state_dict(state_dict=checkpoint['model_state_dict'], strict=state_dict_strict_load)
+    if checkpoint_dict:
+        model.load_state_dict(state_dict=checkpoint_dict['model_state_dict'], strict=checkpoint_dict_strict_load)
     return model
