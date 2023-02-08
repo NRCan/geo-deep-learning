@@ -238,7 +238,7 @@ class Tiler(object):
         # Close and save the datasource:
         dst_ds = None
 
-    def _parse_torchgeo_batch(self, batch):
+    def _parse_torchgeo_batch(self, batch: dict, nodataval: int):
         """
         Extract data from the TorchGeo batch.
         Args:
@@ -256,6 +256,10 @@ class Tiler(object):
             sample_mask = None
 
         sample_image = np.asarray(sample_image).squeeze(0)
+        # Calculate % of nodata pixels:
+        num_nodata = np.count_nonzero(sample_image == nodataval)
+        if num_nodata / sample_image.size > 0.5:
+            return None
 
         # Get the CRS and the bounding box coordinates:
         sample_crs = batch['crs'][0].wkt
@@ -315,6 +319,7 @@ class Tiler(object):
 
         # Create TorchGeo-based custom DRDataset dataset:
         dr_dataset = DRDataset(aoi.raster)
+        nodata = aoi.raster.nodata
 
         if not self.for_inference:
             vec_dataset = GDLVectorDataset(aoi.label)
@@ -363,7 +368,12 @@ class Tiler(object):
             raster_tile_data = []
             for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
                 # Parse the TorchGeo batch:
-                sample_image, sample_mask, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
+                tile_data = self._parse_torchgeo_batch(batch, nodata)
+
+                if tile_data is None:
+                    continue
+
+                sample_image, sample_mask, sample_crs, sample_window = tile_data
                 bboxes.append(sample_window)
 
                 # Define the output raster patch filename:
