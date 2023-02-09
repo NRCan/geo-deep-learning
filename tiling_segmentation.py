@@ -258,7 +258,7 @@ class Tiler(object):
         sample_image = np.asarray(sample_image).squeeze(0)
         # Calculate % of nodata pixels:
         num_nodata = np.count_nonzero(sample_image == nodataval)
-        if num_nodata / sample_image.size > 0.5:
+        if num_nodata / sample_image.size == 1:
             return None
 
         # Get the CRS and the bounding box coordinates:

@@ -154,8 +154,9 @@ class TestTiler(object):
 
 
         }
+        nodata = 0
         Tiler.for_inference = False
-        sample_image, sample_mask, sample_crs, window = Tiler._parse_torchgeo_batch(Tiler, batch=batch)
+        sample_image, sample_mask, sample_crs, window = Tiler._parse_torchgeo_batch(Tiler, batch=batch, nodataval=nodata)
 
         assert (sample_image == batch['image']).all(), "Initial and unpacked samples images are different!"
         assert (sample_mask == batch['mask'][0]).all(), "Initial and unpacked samples masks are different!"
@@ -165,7 +166,7 @@ class TestTiler(object):
                "Initial and unpacked bboxes are different!"
 
         Tiler.for_inference = True
-        sample_image, sample_mask, sample_crs, window = Tiler._parse_torchgeo_batch(Tiler, batch=batch)
+        sample_image, sample_mask, sample_crs, window = Tiler._parse_torchgeo_batch(Tiler, batch=batch, nodataval=nodata)
         assert (sample_image == batch['image']).all(), "Initial and unpacked samples images are different!"
         assert sample_mask is None, "The unpacked sample masks is not None! (Tiler.for_inference = True)"
         assert CRS.from_wkt(sample_crs) == batch['crs'][0], "Initial and unpacked CRSs are different!"
