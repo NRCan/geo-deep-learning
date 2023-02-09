@@ -444,7 +444,7 @@ def main(params: Union[DictConfig, dict]) -> None:
         )
         inference_image.parent.mkdir(exist_ok=True)
         inference_heatmap = working_folder / f"{inference_image.stem}_heatmap.tif"
-        temp_file = working_folder / f"{aoi.aoi_id}.dat"
+        temp_file = working_folder / f"{inference_image.stem}_heatmap.dat"
         logging.info(f'\nReading image: {aoi.aoi_id}')
         inf_meta = aoi.raster.meta
 
