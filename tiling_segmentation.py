@@ -23,7 +23,7 @@ from torchgeo.datasets import stack_samples
 
 from dataset.create_dataset import DRDataset, GDLVectorDataset
 from dataset.aoi import aois_from_csv, AOI
-from utils.geoutils import check_gdf_load, check_rasterio_im_load, bounds_gdf, bounds_riodataset
+from utils.geoutils import check_gdf_load, check_rasterio_im_load, bounds_gdf, bounds_riodataset, mask_nodata
 from utils.utils import get_key_def, get_git_hash
 from utils.verifications import validate_raster
 # Set the logging file
@@ -512,6 +512,7 @@ class Tiler(object):
         """
         if not aoi.raster:  # in case of multiprocessing
             aoi.raster = rasterio.open(aoi.raster_dest)
+        nodata = aoi.raster.nodata
 
         random_val = np.random.randint(1, 101)
         if not {'trn', 'val'}.issubset(set(self.datasets)):
@@ -542,6 +543,13 @@ class Tiler(object):
                                save_preview=save_preview_labels,
                                )
             dataset_line = f'{Path(img_patch).absolute()};{Path(out_gt_burned_path).absolute()};{round(annot_perc)}\n'
+
+            mask_nodata(
+                img_patch=img_patch,
+                gt_patch=out_gt_burned_path,
+                nodata_val=int(nodata)
+            )
+
             return dataset, dataset_line
         else:
             return dataset, None

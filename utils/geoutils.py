@@ -17,6 +17,7 @@ from rasterio import MemoryFile, DatasetReader
 from rasterio.plot import reshape_as_raster
 from rasterio.shutil import copy as riocopy
 import xml.etree.ElementTree as ET
+from osgeo import gdal, gdalconst
 
 from shapely.geometry import box, Polygon
 
@@ -305,3 +306,29 @@ def gdf_mean_vertices_nb(gdf: gpd.GeoDataFrame):
             logging.warning(f"Only supports MultiPolygon or Polygon. \nGot {geom.geom_type}")
     mean_ext_vert_nb = np.mean(vertices_per_polygon)
     return mean_ext_vert_nb
+
+
+def mask_nodata(img_patch: Union[str, Path], gt_patch: Union[str, Path], nodata_val: int) -> None:
+    # img_patch = r"C:\Users\msokolov\PycharmProjects\geo-deep-learning\data\patches\template_project\trn\RCM3_5M6_20211118_015023_GRD_Sigma_FME_3978_HHHV_DEM_compressed\images\RCM3_5M6_20211118_015023_GRD_Sigma_FME_3978_HHHV_DEM_compressed_-1911240_0_429080_0.tif"
+    # gt_patch = r"C:\Users\msokolov\PYCHAR~1\GEO-DE~1\data\patches\template_project\trn\RCM3_5M6_20211118_015023_GRD_Sigma_FME_3978_HHHV_DEM_compressed\labels_burned\RCM3_5M6_20211118_015023_GRD_Sigma_FME_3978_HHHV_DEM_compressed_-1911240_0_429080_0_feat1_min-annot1.tif"
+    # nodata_val = 65535
+
+    image_ds = gdal.Open(img_patch, gdalconst.GA_ReadOnly)
+    image_arr = image_ds.ReadAsArray()
+    nodata_mask = image_arr != nodata_val
+    nodata_mask_flat = np.sum(nodata_mask, axis=0) != 0
+
+    if nodata_mask_flat.min() == 1:
+        return
+
+    gt_patch_ds = gdal.Open(gt_patch, gdalconst.GA_Update)
+    gt_patch_arr = gt_patch_ds.ReadAsArray()
+    masked_gt_arr = np.where(nodata_mask_flat == 1, gt_patch_arr, 0)
+    gt_patch_ds.GetRasterBand(1).WriteArray(masked_gt_arr)
+    gt_patch_ds = None
+    image_ds = None
+    pass
+#
+#
+# if __name__ == "__main__":
+#     mask_nodata('a', 'b', 65535)
