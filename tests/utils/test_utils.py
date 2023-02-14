@@ -56,9 +56,9 @@ class TestUtils(unittest.TestCase):
             cfg = OmegaConf.create(cfg)
             # Not the same type - raise the error
             with self.assertRaises(TypeError):
-                get_key_def('max_pix_per_mb_gpu', params['inference'], default=25, expected_type=str)
+                get_key_def('max_pix_per_mb_gpu', cfg['inference'], default=25, expected_type=str)
             # Same type
-            mp = get_key_def('max_pix_per_mb_gpu', params['inference'], default=25, expected_type=int)
+            mp = get_key_def('max_pix_per_mb_gpu', cfg['inference'], default=25, expected_type=int)
             assert isinstance(mp, int)
             
         
