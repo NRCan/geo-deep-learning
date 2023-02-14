@@ -162,10 +162,9 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
             pass
         else:
             val = config[key] if config[key] != 'None' else None
-            if expected_type and val is not False:
-                if not isinstance(val, expected_type):
-                    raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
+            
     if not val:  # Skips below if statements if val is None
+        logging.error(f"The key {key} as a None value.")
         return val
     if is_url(val):
         logging.info(f"\nProvided path is url. Cannot validate it's existence nor convert to Path object. Got:"
@@ -189,6 +188,10 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
         if not val.exists():
             logging.critical(f"Couldn't locate path: {val}.\nProvided key: {key}")
             raise FileNotFoundError()
+
+    if expected_type and val is not False:
+        if not isinstance(val, expected_type):
+            raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
 
     return val
 

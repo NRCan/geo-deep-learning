@@ -1,8 +1,11 @@
 import pytest
 from torchgeo.datasets.utils import extract_archive
 
+from hydra import initialize, compose
+from omegaconf import DictConfig, OmegaConf, open_dict
+
 from models.model_choice import read_checkpoint
-from utils.utils import read_csv, is_inference_compatible, update_gdl_checkpoint
+from utils.utils import read_csv, is_inference_compatible, update_gdl_checkpoint, get_key_def
 
 
 class TestUtils(object):
@@ -12,7 +15,6 @@ class TestUtils(object):
             data = read_csv("tests/tiling/point_virgule.csv")
         ##for row in data:
         ##aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
-
 
     def test_with_header_in_csv(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
@@ -46,3 +48,16 @@ class TestUtils(object):
 
         assert ckpt_dict['params']['training']['augmentation']['clahe_enhance'] is True
         assert ckpt_updated['params']['augmentation']['clahe_enhance_clip_limit'] == 0.1
+
+    def test_expected_type_get_key_def(self) -> None:
+        with initialize(config_path="../../config", job_name="test_ci"):
+            cfg = compose(config_name="gdl_config_template")
+            cfg = OmegaConf.create(cfg)
+            # Not the same type - raise the error
+            with self.assertRaises(TypeError):
+                get_key_def('max_pix_per_mb_gpu', params['inference'], default=25, expected_type=str)
+            # Same type
+            mp = get_key_def('max_pix_per_mb_gpu', params['inference'], default=25, expected_type=int)
+            assert isinstance(mp, int)
+            
+        
