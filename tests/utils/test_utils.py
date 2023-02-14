@@ -2,13 +2,14 @@ import pytest
 from torchgeo.datasets.utils import extract_archive
 
 from hydra import initialize, compose
-from omegaconf import DictConfig, OmegaConf, open_dict
+from omegaconf import OmegaConf
+import unittest
 
 from models.model_choice import read_checkpoint
 from utils.utils import read_csv, is_inference_compatible, update_gdl_checkpoint, get_key_def
 
 
-class TestUtils(object):
+class TestUtils(unittest.TestCase):
     def test_wrong_seperation(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         with pytest.raises(TypeError):
