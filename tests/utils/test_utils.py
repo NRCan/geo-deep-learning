@@ -4,6 +4,7 @@ from torchgeo.datasets.utils import extract_archive
 from hydra import initialize, compose
 from omegaconf import OmegaConf
 import unittest
+from hydra.core.hydra_config import HydraConfig
 
 from models.model_choice import read_checkpoint
 from utils.utils import read_csv, is_inference_compatible, update_gdl_checkpoint, get_key_def
@@ -51,9 +52,10 @@ class TestUtils(unittest.TestCase):
         assert ckpt_updated['params']['augmentation']['clahe_enhance_clip_limit'] == 0.1
 
     def test_expected_type_get_key_def(self) -> None:
-        with initialize(config_path="../../config", job_name="test_ci"):
+        with initialize(config_path="../../config", job_name="test_key_def"):
             cfg = compose(config_name="gdl_config_template")
-            cfg = OmegaConf.create(cfg)
+            hconf = HydraConfig()
+            hconf.set_config(cfg)
             # Not the same type - raise the error
             with self.assertRaises(TypeError):
                 get_key_def('max_pix_per_mb_gpu', cfg['inference'], default=25, expected_type=str)
