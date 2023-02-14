@@ -53,7 +53,7 @@ class TestUtils(unittest.TestCase):
 
     def test_expected_type_get_key_def(self) -> None:
         with initialize(config_path="../../config", job_name="test_key_def"):
-            cfg = compose(config_name="gdl_config_template")
+            cfg = compose(config_name="gdl_config_template", return_hydra_config=True)
             hconf = HydraConfig()
             hconf.set_config(cfg)
             # Not the same type - raise the error
