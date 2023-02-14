@@ -361,7 +361,7 @@ def main(params: Union[DictConfig, dict]) -> None:
     num_bands = len(bands_requested)
 
     # Default input directory based on default output directory
-    raw_data_csv = get_key_def('raw_data_csv', params['inference'], expected_type=str, to_path=True,
+    raw_data_csv = get_key_def('raw_data_csv', params['inference'], expected_type=Path, to_path=True,
                                validate_path_exists=True)
     input_stac_item = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True,
                                   validate_path_exists=True)
