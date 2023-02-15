@@ -23,7 +23,8 @@ from torchgeo.datasets import stack_samples
 
 from dataset.create_dataset import DRDataset, GDLVectorDataset
 from dataset.aoi import aois_from_csv, AOI
-from utils.geoutils import check_gdf_load, check_rasterio_im_load, bounds_gdf, bounds_riodataset, mask_nodata
+from utils.geoutils import check_gdf_load, check_rasterio_im_load, bounds_gdf, bounds_riodataset, mask_nodata, \
+    nodata_vec_mask
 from utils.utils import get_key_def, get_git_hash
 from utils.verifications import validate_raster
 # Set the logging file
@@ -322,7 +323,8 @@ class Tiler(object):
         nodata = aoi.raster.nodata
 
         if not self.for_inference:
-            vec_dataset = GDLVectorDataset(aoi.label)
+            nodata_mask = nodata_vec_mask(raster=aoi.raster)
+            vec_dataset = GDLVectorDataset(vec_ds=aoi.label, nodata_mask=nodata_mask)
             # Combine raster and vector datasets using AND operator (sampling only from the intersection area).
             resulting_dataset = dr_dataset & vec_dataset
             os.makedirs(out_label_dir, exist_ok=True)
@@ -528,7 +530,7 @@ class Tiler(object):
             attr_field=aoi.attr_field_filter,
             attr_vals=aoi.attr_values_filter
         )
-        # measure annotated percentage for all patches as it is useful data analysis info for a output report
+        # measure annotated percentage for all patches as it is useful data analysis info for an output report
         min_annot_success, annot_perc = self.passes_min_annot(
             img_patch=img_patch,
             gt_patch=gdf_patch,
@@ -542,14 +544,14 @@ class Tiler(object):
                                continuous=continuous_vals,
                                save_preview=save_preview_labels,
                                )
+            # Here nodata pixels will be used to mask correspondiong label with "ignore_label"value:
+            # mask_nodata(
+            #     img_patch=img_patch,
+            #     gt_patch=out_gt_burned_path,
+            #     nodata_val=int(nodata)
+            # )
+
             dataset_line = f'{Path(img_patch).absolute()};{Path(out_gt_burned_path).absolute()};{round(annot_perc)}\n'
-
-            mask_nodata(
-                img_patch=img_patch,
-                gt_patch=out_gt_burned_path,
-                nodata_val=int(nodata)
-            )
-
             return dataset, dataset_line
         else:
             return dataset, None
