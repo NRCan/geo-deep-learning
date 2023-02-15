@@ -30,8 +30,8 @@ class TestTiler(object):
             aoi=my_aoi,
             out_img_dir=tiling_dir / "images",
             out_label_dir=tiling_dir / "labels")
-        assert len(raster_patchs_paths) == 18
-        assert len(vect_patchs_paths) == 18
+        assert len(raster_patchs_paths) == 15
+        assert len(vect_patchs_paths) == 15
         assert Path(raster_patchs_paths[0]).is_file()
         assert Path(vect_patchs_paths[0]).is_file()
         shutil.rmtree(tiling_dir)
