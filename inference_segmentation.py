@@ -336,7 +336,6 @@ def main(params: Union[DictConfig, dict]) -> None:
     # Main params
     working_folder = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
     working_folder.mkdir(exist_ok=True)
-    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
 
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
                              validate_path_exists=True,
@@ -437,10 +436,16 @@ def main(params: Union[DictConfig, dict]) -> None:
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
-        inference_image = working_folder / f"{aoi.raster_name.stem}_inference.tif"
-        inference_heatmap = working_folder / f"{aoi.raster_name.stem}_heatmap.tif"
-        temp_file = working_folder / f"{aoi.raster_name.stem}.dat"
-        logging.info(f'\nReading image: {aoi.raster_name.stem}')
+        inference_image = get_key_def(
+            key='output_path',
+            config=params['inference'],
+            default=working_folder / f"{aoi.aoi_id}_pred.tif",
+            to_path=True
+        )
+        inference_image.parent.mkdir(exist_ok=True)
+        inference_heatmap = inference_image.parent / f"{inference_image.stem}_heatmap.tif"
+        temp_file = inference_image.parent / f"{inference_image.stem}_heatmap.dat"
+        logging.info(f'\nReading image: {aoi.aoi_id}')
         inf_meta = aoi.raster.meta
 
         pred_heatmap = segmentation(
@@ -462,7 +467,7 @@ def main(params: Union[DictConfig, dict]) -> None:
                          "count": pred_heatmap.shape[0],
                          "dtype": 'uint8',
                          "compress": 'lzw'})
-        logging.info(f'\nSuccessfully inferred on {aoi.raster_name}\nWriting to file: {inference_image}')
+        logging.info(f'\nSuccessfully inferred on {aoi.aoi_id}\nWriting to file: {inference_image}')
 
         pred_img = class_from_heatmap(heatmap_arr=pred_heatmap, heatmap_threshold=heatmap_threshold)
 
