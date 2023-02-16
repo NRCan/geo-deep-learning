@@ -28,6 +28,9 @@ Path to checkpoint containing trained weights for a given neural network archite
 Complete path including parent directories and full name with extension where output inference should be saved.
 Default: root_dir / {aoi.aoi_id}_pred.tif (see [AOI documentation](../../dataset/README.md#input-data))
 
+> the "output_path" parameter should only be used if a single inference is being performed. Otherwise, it is recommended
+> to set the root_dir and use the default output name.  
+
 ## checkpoint_dir (str)
 
 Directory in which to save the checkpoint file if url.

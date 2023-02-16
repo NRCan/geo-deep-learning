@@ -340,6 +340,10 @@ def main(params: Union[DictConfig, dict]) -> None:
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
                              validate_path_exists=True,
                              wildcard='*pth.tar')
+    inference_image = get_key_def(key='output_path', config=params['inference'], to_path=True, expected_type=Path)
+    if inference_image:
+        inference_image.parent.mkdir(exist_ok=True)
+
     models_dir = get_key_def('checkpoint_dir', params['inference'], default=working_folder / 'checkpoints', to_path=True)
     models_dir.mkdir(exist_ok=True)
     data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
@@ -430,21 +434,19 @@ def main(params: Union[DictConfig, dict]) -> None:
         equalize_clahe_clip_limit=clahe_clip_limit,
     )
 
+    if len(list_aois) > 1 and inference_image:
+        raise ValueError(f"\n\"inference.output_path\" should be set for a single inference only. \n"
+                         f"Got {len(list_aois)} AOIs for inference.\n")
+
     if prep_data_only:
         logging.info(f"[prep_data_only mode] Data preparation for inference is complete. Exiting...")
         exit()
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
-        inference_image = get_key_def(
-            key='output_path',
-            config=params['inference'],
-            default=working_folder / f"{aoi.aoi_id}_pred.tif",
-            to_path=True
-        )
-        inference_image.parent.mkdir(exist_ok=True)
-        inference_heatmap = inference_image.parent / f"{inference_image.stem}_heatmap.tif"
-        temp_file = inference_image.parent / f"{inference_image.stem}_heatmap.dat"
+        output_path = working_folder / f"{aoi.aoi_id}_pred.tif" if not inference_image else inference_image
+        inference_heatmap = output_path.parent / f"{output_path.stem}_heatmap.tif"
+        temp_file = output_path.parent / f"{output_path.stem}_heatmap.dat"
         logging.info(f'\nReading image: {aoi.aoi_id}')
         inf_meta = aoi.raster.meta
 
