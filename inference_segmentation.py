@@ -469,7 +469,7 @@ def main(params: Union[DictConfig, dict]) -> None:
                          "count": pred_heatmap.shape[0],
                          "dtype": 'uint8',
                          "compress": 'lzw'})
-        logging.info(f'\nSuccessfully inferred on {aoi.aoi_id}\nWriting to file: {inference_image}')
+        logging.info(f'\nSuccessfully inferred on {aoi.aoi_id}\nWriting to file: {output_path}')
 
         pred_img = class_from_heatmap(heatmap_arr=pred_heatmap, heatmap_threshold=heatmap_threshold)
 
@@ -487,7 +487,7 @@ def main(params: Union[DictConfig, dict]) -> None:
 
         create_new_raster_from_base(
             input_raster=aoi.raster,
-            output_raster=inference_image,
+            output_raster=output_path,
             write_array=pred_img,
             checkpoint_path=state_dict
             )
@@ -501,6 +501,6 @@ def main(params: Union[DictConfig, dict]) -> None:
             start_vec = time.time()
             inference_vec = working_folder.joinpath(aoi.raster_name.parent.name,
                                                     f"{aoi.raster_name.split('.')[0]}_inference.gpkg")
-            ras2vec(inference_image, inference_vec)
+            ras2vec(output_path, inference_vec)
             end_vec = time.time() - start_vec
             logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))
