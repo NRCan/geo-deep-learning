@@ -19,13 +19,15 @@ from ruamel_yaml.comments import CommentedSeq
 from tqdm import tqdm
 from rasterio import features
 from rasterio.windows import Window
-from rasterio.plot import reshape_as_image
+from rasterio.plot import reshape_as_image, reshape_as_raster
 from pathlib import Path
 from omegaconf import OmegaConf, DictConfig, open_dict
 from omegaconf.listconfig import ListConfig
 
 from dataset.aoi import aois_from_csv
 from dataset.stacitem import SingleBandItemEO
+from utils.geoutils import create_new_raster_from_base
+from utils.inference import stretch_heatmap, class_from_heatmap
 from utils.logger import get_logger, set_tracker
 from models.model_choice import define_model, read_checkpoint
 from utils import augmentation
@@ -133,6 +135,7 @@ def segmentation(param,
                  device,
                  scale: List,
                  tp_mem,
+                 heatmap_dtype=np.uint16,
                  debug=False,
                  ):
     """
@@ -147,12 +150,13 @@ def segmentation(param,
         scale: scale range
         tp_mem: memory temp file for saving numpy array to disk
         debug: True/False
+        heatmap_dtype:
+            Output data type for heatmap. Ex.: Uint16 captures more information, but takes more space in memory or disk.
 
     Returns:
 
     """
     subdiv = 2
-    threshold = 0.5
     sample = {"image": None, "mask": None, 'metadata': None}
     start_seg = time.time()
     print_log = True if logging.level == 20 else False  # 20 is INFO
@@ -225,26 +229,26 @@ def segmentation(param,
     del fp
 
     fp = np.memmap(tp_mem, dtype='float16', mode='r', shape=(tf_len, h_padded, w_padded, num_classes))
-    pred_img = np.zeros((h_padded, w_padded), dtype=np.uint8)
+    pred_heatmap = np.zeros((h_padded, w_padded, num_classes), dtype=heatmap_dtype)
     for row, col in tqdm(itertools.product(range(0, input_image.height, chunk_size),
                                            range(0, input_image.width, chunk_size)),
                          leave=False, total=total_inf_windows, desc="Writing to array"):
         arr1 = (fp[:, row:row + chunk_size, col:col + chunk_size, :]).max(axis=0)
         if single_class_mode:
             arr1 = sigmoid(arr1)
-            arr1 = (arr1 > threshold)
-            arr1 = np.squeeze(arr1, axis=2).astype(np.uint8)
-        else:
-            arr1 = np.argmax(arr1, axis=-1).astype(np.uint8)
-        pred_img[row:row + chunk_size, col:col + chunk_size] = arr1
+
+        heatmap_max = np.iinfo(heatmap_dtype).max
+        arr1 = stretch_heatmap(heatmap_arr=arr1, out_max=heatmap_max)
+
+        pred_heatmap[row:row + chunk_size, col:col + chunk_size, :] = arr1.astype(heatmap_dtype)
 
     end_seg = time.time() - start_seg
     logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
 
     if debug:
-        logging.debug(f'Bin count of final output: {np.unique(pred_img, return_counts=True)}')
+        logging.debug(f'Bin count of final output: {np.unique(pred_heatmap, return_counts=True)}')
     input_image.close()
-    return pred_img[:h_padded-pad, :w_padded-pad]
+    return pred_heatmap[:h_padded-pad, :w_padded-pad]
 
 
 def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200, default: int = 512) -> int:
@@ -329,15 +333,21 @@ def main(params: Union[DictConfig, dict]) -> None:
     -------
     :param params: (dict) Parameters inputted during execution.
     """
-    # SETTING OUTPUT DIRECTORY
+    # Main params
+    working_folder = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
+    working_folder.mkdir(exist_ok=True)
+    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
+
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
                              validate_path_exists=True,
                              wildcard='*pth.tar')
+    models_dir = get_key_def('checkpoint_dir', params['inference'], default=working_folder / 'checkpoints', to_path=True)
+    models_dir.mkdir(exist_ok=True)
     data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
 
     # Override params from checkpoint
-    checkpoint = read_checkpoint(state_dict)
+    checkpoint = read_checkpoint(state_dict, out_dir=models_dir)
     params = override_model_params_from_checkpoint(
         params=params,
         checkpoint_params=checkpoint['params']
@@ -350,15 +360,12 @@ def main(params: Union[DictConfig, dict]) -> None:
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
     num_bands = len(bands_requested)
 
-    working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
-    logging.info("\nThe state dict path directory used '{}'".format(working_folder))
-    Path.mkdir(working_folder, parents=True, exist_ok=True)
-    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     # Default input directory based on default output directory
-    raw_data_csv = get_key_def('raw_data_csv', params['inference'], expected_type=str, to_path=True,
+    raw_data_csv = get_key_def('raw_data_csv', params['inference'], expected_type=Path, to_path=True,
                                validate_path_exists=True)
     input_stac_item = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True,
                                   validate_path_exists=True)
+    prep_data_only = get_key_def('prep_data_only', params['inference'], default=False, expected_type=bool)
 
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
@@ -392,6 +399,9 @@ def main(params: Union[DictConfig, dict]) -> None:
     device = set_device(gpu_devices_dict=gpu_devices_dict)
 
     clahe_clip_limit = get_key_def('clahe_clip_limit', params['tiling'], expected_type=Number, default=0)
+    heatmap_dtype = get_key_def('heatmap_dtype', params['inference'], default=np.uint16)
+    save_heatmap = get_key_def('save_heatmap', params['inference'], default=True, expected_type=bool)
+    heatmap_threshold = get_key_def('heatmap_threshold', params['inference'], default=0.5, expected_type=float)
 
     if raw_data_csv and input_stac_item:
         raise ValueError(f"Input imagery should be either a csv of stac item. Got inputs from both \"raw_data_csv\" "
@@ -409,7 +419,7 @@ def main(params: Union[DictConfig, dict]) -> None:
         out_classes=num_classes,
         main_device=device,
         devices=[list(gpu_devices_dict.keys())],
-        state_dict_path=state_dict,
+        checkpoint_dict=checkpoint,
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
@@ -421,38 +431,61 @@ def main(params: Union[DictConfig, dict]) -> None:
         equalize_clahe_clip_limit=clahe_clip_limit,
     )
 
+    if prep_data_only:
+        logging.info(f"[prep_data_only mode] Data preparation for inference is complete. Exiting...")
+        exit()
+
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
-        Path.mkdir(working_folder / aoi.raster_name.parent.name, parents=True, exist_ok=True)
-        inference_image = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_inference.tif"
-        temp_file = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}.dat"
+        inference_image = working_folder / f"{aoi.raster_name.stem}_inference.tif"
+        inference_heatmap = working_folder / f"{aoi.raster_name.stem}_heatmap.tif"
+        temp_file = working_folder / f"{aoi.raster_name.stem}.dat"
         logging.info(f'\nReading image: {aoi.raster_name.stem}')
         inf_meta = aoi.raster.meta
 
-        pred = segmentation(param=params,
-                            input_image=aoi.raster,
-                            num_classes=num_classes,
-                            model=model,
-                            chunk_size=chunk_size,
-                            device=device,
-                            scale=scale,
-                            tp_mem=temp_file,
-                            debug=debug)
+        pred_heatmap = segmentation(
+            param=params,
+            input_image=aoi.raster,
+            num_classes=num_classes,
+            model=model,
+            chunk_size=chunk_size,
+            device=device,
+            scale=scale,
+            tp_mem=temp_file,
+            heatmap_dtype=heatmap_dtype,
+            debug=debug
+        )
 
-        pred = pred[np.newaxis, :, :].astype(np.uint8)
         inf_meta.update({"driver": "GTiff",
-                         "height": pred.shape[1],
-                         "width": pred.shape[2],
-                         "count": pred.shape[0],
+                         "height": pred_heatmap.shape[1],
+                         "width": pred_heatmap.shape[2],
+                         "count": pred_heatmap.shape[0],
                          "dtype": 'uint8',
                          "compress": 'lzw'})
         logging.info(f'\nSuccessfully inferred on {aoi.raster_name}\nWriting to file: {inference_image}')
-        with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
-            dest.write(pred)
-            # NOTE: the tags option will be join to the `create_new_raster_from_base` function for later version
-            # add tag to transmit more informations, the checkpoint path in that case
-            dest.update_tags(checkpoint=state_dict)  
-        del pred
+
+        pred_img = class_from_heatmap(heatmap_arr=pred_heatmap, heatmap_threshold=heatmap_threshold)
+
+        if save_heatmap:
+            logging.info(f"\nSaving heatmap...")
+            pred_heatmap = reshape_as_raster(pred_heatmap)
+            create_new_raster_from_base(
+                input_raster=aoi.raster,
+                output_raster=inference_heatmap,
+                write_array=pred_heatmap,
+                dtype=heatmap_dtype,
+                checkpoint_path=state_dict,
+            )
+            logging.info(f'\nSaved heatmap to {inference_heatmap}')
+
+        create_new_raster_from_base(
+            input_raster=aoi.raster,
+            output_raster=inference_image,
+            write_array=pred_img,
+            checkpoint_path=state_dict
+            )
+        del pred_heatmap
+
         try:
             temp_file.unlink()
         except OSError as e:

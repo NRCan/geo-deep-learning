@@ -1,5 +1,6 @@
 import multiprocessing
 import os
+import unittest
 from pathlib import Path
 from time import sleep
 
@@ -8,19 +9,22 @@ from hydra.utils import to_absolute_path
 from torchgeo.datasets.utils import extract_archive
 from torchvision.datasets.utils import download_url
 
+from hydra import initialize, compose
+from hydra.core.hydra_config import HydraConfig
+
 from models.model_choice import read_checkpoint
-from utils.utils import read_csv, is_inference_compatible, update_gdl_checkpoint, download_url_wcheck, map_wrapper
+from utils.utils import read_csv, is_inference_compatible, update_gdl_checkpoint, get_key_def, download_url_wcheck, \
+    map_wrapper
 from utils.verifications import validate_raster
 
 
-class TestUtils(object):
+class TestUtils(unittest.TestCase):
     def test_wrong_seperation(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
         with pytest.raises(TypeError):
             data = read_csv("tests/tiling/point_virgule.csv")
         ##for row in data:
         ##aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
-
 
     def test_with_header_in_csv(self) -> None:
         extract_archive(src="tests/data/spacenet.zip")
@@ -54,6 +58,19 @@ class TestUtils(object):
 
         assert ckpt_dict['params']['training']['augmentation']['clahe_enhance'] is True
         assert ckpt_updated['params']['augmentation']['clahe_enhance_clip_limit'] == 0.1
+
+    def test_expected_type_get_key_def(self) -> None:
+        with initialize(config_path="../../config", job_name="test_key_def"):
+            cfg = compose(config_name="gdl_config_template", return_hydra_config=True)
+            hconf = HydraConfig()
+            hconf.set_config(cfg)
+            # Not the same type - raise the error
+            with self.assertRaises(TypeError):
+                get_key_def('max_pix_per_mb_gpu', cfg['inference'], default=25, expected_type=str)
+            # Same type
+            mp = get_key_def('max_pix_per_mb_gpu', cfg['inference'], default=25, expected_type=int)
+            assert isinstance(mp, int)
+
 
     def test_download_url_wcheck(self):
         """

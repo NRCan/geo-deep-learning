@@ -629,15 +629,17 @@ def train(cfg: DictConfig) -> None:
     device = set_device(gpu_devices_dict=gpu_devices_dict)
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
+    checkpoint = read_checkpoint(train_state_dict_path)
     model = define_model(
         net_params=cfg.model,
         in_channels=num_bands,
         out_classes=num_classes,
         main_device=device,
         devices=list(gpu_devices_dict.keys()),
-        state_dict_path=train_state_dict_path,
-        state_dict_strict_load=state_dict_strict,
+        checkpoint_dict=checkpoint,
+        checkpoint_dict_strict_load=state_dict_strict
     )
+
     criterion = define_loss(loss_params=cfg.loss, class_weights=class_weights)
     criterion = criterion.to(device)
     optimizer = instantiate(cfg.optimizer, params=model.parameters())
