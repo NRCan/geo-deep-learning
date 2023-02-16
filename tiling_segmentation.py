@@ -317,13 +317,13 @@ class Tiler(object):
         """
         if not aoi.raster:  # in case of multiprocessing
             aoi.raster = rasterio.open(aoi.raster_dest)
+        nodata = aoi.raster.nodata
 
         # Create TorchGeo-based custom DRDataset dataset:
         dr_dataset = DRDataset(aoi.raster)
-        self.nodata = aoi.raster.nodata
 
         if not self.for_inference:
-            nodata_mask = nodata_vec_mask(raster=aoi.raster, nodata_val=self.nodata)
+            nodata_mask = nodata_vec_mask(raster=aoi.raster, nodata_val=nodata)
             vec_dataset = GDLVectorDataset(vec_ds=aoi.label, nodata_mask=nodata_mask)
             # Combine raster and vector datasets using AND operator (sampling only from the intersection area).
             resulting_dataset = dr_dataset & vec_dataset
@@ -370,7 +370,7 @@ class Tiler(object):
             raster_tile_data = []
             for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
                 # Parse the TorchGeo batch:
-                tile_data = self._parse_torchgeo_batch(batch, self.nodata)
+                tile_data = self._parse_torchgeo_batch(batch, nodata)
 
                 if tile_data is None:
                     continue
@@ -514,6 +514,7 @@ class Tiler(object):
         """
         if not aoi.raster:  # in case of multiprocessing
             aoi.raster = rasterio.open(aoi.raster_dest)
+        nodata = aoi.raster.nodata
 
         random_val = np.random.randint(1, 101)
         if not {'trn', 'val'}.issubset(set(self.datasets)):
@@ -544,12 +545,13 @@ class Tiler(object):
                                save_preview=save_preview_labels,
                                )
             # Here nodata pixels will be used to mask corresponding label with "ignore_label"value:
-            mask_nodata(
-                img_patch=img_patch,
-                gt_patch=out_gt_burned_path,
-                nodata_val=int(self.nodata),
-                mask_val=255
-            )
+            if isinstance(nodata, int | float):
+                mask_nodata(
+                    img_patch=img_patch,
+                    gt_patch=out_gt_burned_path,
+                    nodata_val=int(nodata),
+                    mask_val=255
+                )
 
             dataset_line = f'{Path(img_patch).absolute()};{Path(out_gt_burned_path).absolute()};{round(annot_perc)}\n'
             return dataset, dataset_line
