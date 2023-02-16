@@ -308,26 +308,33 @@ def gdf_mean_vertices_nb(gdf: gpd.GeoDataFrame):
     return mean_ext_vert_nb
 
 
-def mask_nodata(img_patch: Union[str, Path], gt_patch: Union[str, Path], nodata_val: int, mask_val: int = 0) -> None:
-    # img_patch = r"C:\Users\msokolov\PycharmProjects\geo-deep-learning\data\patches\template_project\trn\RCM3_5M6_20211118_015023_GRD_Sigma_FME_3978_HHHV_DEM_compressed\images\RCM3_5M6_20211118_015023_GRD_Sigma_FME_3978_HHHV_DEM_compressed_-1911240_0_429080_0.tif"
-    # gt_patch = r"C:\Users\msokolov\PYCHAR~1\GEO-DE~1\data\patches\template_project\trn\RCM3_5M6_20211118_015023_GRD_Sigma_FME_3978_HHHV_DEM_compressed\labels_burned\RCM3_5M6_20211118_015023_GRD_Sigma_FME_3978_HHHV_DEM_compressed_-1911240_0_429080_0_feat1_min-annot1.tif"
-    # nodata_val = 65535
+def mask_nodata(img_patch: Union[str, Path], gt_patch: Union[str, Path], nodata_val: int, mask_val: int = 255) -> None:
+    """
+    Masks label raster file with "ignore_index" value where pixels are "nodata" in the corresponding raster image.
+    Args:
+        img_patch: raster tile image path
+        gt_patch: raster tile label path
+        nodata_val: nodata value
+        mask_val: masking value (255 by default)
 
-    image_ds = gdal.Open(img_patch, gdalconst.GA_ReadOnly)
+    Returns:
+        Masks label tile or None if no nadata pixels
+    """
+    image_ds = gdal.Open(str(img_patch), gdalconst.GA_ReadOnly)
     image_arr = image_ds.ReadAsArray()
     nodata_mask = image_arr != nodata_val
     nodata_mask_flat = np.sum(nodata_mask, axis=0) != 0
 
     if nodata_mask_flat.min() == 1:
+        image_ds = None
         return
 
-    gt_patch_ds = gdal.Open(gt_patch, gdalconst.GA_Update)
+    gt_patch_ds = gdal.Open(str(gt_patch), gdalconst.GA_Update)
     gt_patch_arr = gt_patch_ds.ReadAsArray()
     masked_gt_arr = np.where(nodata_mask_flat == 1, gt_patch_arr, mask_val)
     gt_patch_ds.GetRasterBand(1).WriteArray(masked_gt_arr)
     gt_patch_ds = None
     image_ds = None
-    pass
 
 
 def nodata_vec_mask(raster: rasterio.DatasetReader, nodata_val: int = None) -> ogr.DataSource | None:
