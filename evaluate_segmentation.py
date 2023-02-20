@@ -77,7 +77,9 @@ def main(params):
     @return:
     """
     start_seg = time.time()
-    state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
+    state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
+                             validate_path_exists=True,
+                             wildcard='*pth.tar')
     bands_requested = get_key_def('bands', params['dataset'], default=[], expected_type=Sequence)
     num_bands = len(bands_requested)
     working_folder = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
@@ -158,7 +160,7 @@ def main(params):
             log_metrics(pixelMetrics.update(pixelMetrics.dice))
 
     if not len(gdf_) == len(gpkg_name_):
-        raise logging.critical(ValueError('\nbenchmarking unable to complete'))
+        raise ValueError('\nbenchmarking unable to complete')
     all_gdf = pd.concat(gdf_)  # Concatenate all geo data frame into one geo data frame
     all_gdf.reset_index(drop=True, inplace=True)
     gdf_x = gpd.GeoDataFrame(all_gdf, crs=4326)
