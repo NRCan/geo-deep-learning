@@ -93,7 +93,7 @@ def main(params):
 
     # benchmark (ie when gkpgs are inputted along with imagery)
     out_gpkg = get_key_def('out_benchmark_gpkg', params['inference'], default=working_folder/"benchmark.gpkg",
-                           expected_type=str)
+                           expected_type=str, to_path=True)
     chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
     dontcare = get_key_def("ignore_index", params["dataset"], -1)
     attribute_field = get_key_def('attribute_field', params['dataset'], None, expected_type=str)
