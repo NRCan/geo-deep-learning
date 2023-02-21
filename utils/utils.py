@@ -175,6 +175,7 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
             val = Path(to_absolute_path(val))
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
+        expected_type = Path if expected_type == "str" else expected_type  # allows "str" and "Path" as expected_type
     if validate_path_exists:
         if not isinstance(val, Path):
             val = Path(to_absolute_path(val))
