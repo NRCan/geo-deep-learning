@@ -13,8 +13,7 @@ terms, to be an [AOI](https://torchgeo.readthedocs.io/en/latest/user/glossary.ht
 | my_dir/my_geoimagery2.tif | my_dir/my_geogt2.gpkg    | tst           | NewBrunswick-23   |
 | ...                       | ...                      | ...           | ...               |
 
-> The use of aoi id information will be implemented in a near future. It will serve, for example, to print a detailed 
-> report of tiling, training and evaluation, or for easier debugging.
+> If left blank, the aoi id will be derived from the raster path and bands requested.
 
 The path to a custom csv must be entered in the 
 [dataset configuration](../config/dataset/test_ci_segmentation_binary.yaml). See the 
