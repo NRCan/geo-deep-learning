@@ -4,6 +4,10 @@
 
 > Input imagery should be either a csv of stac item
 
+### root_dir (str)
+
+Directory where outputs and downloads will be written by default, if "checkpoint_dir" or "output_path" are omitted.
+
 ### raw_data_csv (str)
 
 Points to a csv containing paths to imagery for inference. If a ground truth is present in 2nd column, it will be 
@@ -18,6 +22,18 @@ also contained in [test data](../../tests/data/spacenet.zip).
 ### state_dict_path (str)
 
 Path to checkpoint containing trained weights for a given neural network architecture.
+
+## output_path (str, optional)
+
+Complete path including parent directories and full name with extension where output inference should be saved.
+Default: root_dir / {aoi.aoi_id}_pred.tif (see [AOI documentation](../../dataset/README.md#input-data))
+
+> the "output_path" parameter should only be used if a single inference is being performed. Otherwise, it is recommended
+> to set the root_dir and use the default output name.  
+
+## checkpoint_dir (str)
+
+Directory in which to save the checkpoint file if url.
 
 ## chunk_size (int)
 
