@@ -50,6 +50,7 @@ def _pad(arr, chunk_size):
 
     return padded_arr
 
+
 def ras2vec(raster_file, output_path):
     # Create a generic polygon schema for the output vector file
     i = 0
@@ -104,7 +105,7 @@ def gen_img_samples(src, patch_list, chunk_size, *band_order):
     Args:
         src: input image (rasterio object)
         patch_list: list of patches index
-        chunk_size: preset image tile size
+        chunk_size: image tile size
         *band_order: ignore
 
     Returns: generator object
@@ -322,11 +323,14 @@ def main(params: Union[DictConfig, dict]) -> None:
     # Main params
     working_folder = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
     working_folder.mkdir(exist_ok=True)
-    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
 
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
                              validate_path_exists=True,
                              wildcard='*pth.tar')
+    inference_image = get_key_def(key='output_path', config=params['inference'], to_path=True, expected_type=Path)
+    if inference_image:
+        inference_image.parent.mkdir(exist_ok=True)
+
     models_dir = get_key_def('checkpoint_dir', params['inference'], default=working_folder / 'checkpoints', to_path=True)
     models_dir.mkdir(exist_ok=True)
     data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
@@ -416,16 +420,20 @@ def main(params: Union[DictConfig, dict]) -> None:
         equalize_clahe_clip_limit=clahe_clip_limit,
     )
 
+    if len(list_aois) > 1 and inference_image:
+        raise ValueError(f"\n\"inference.output_path\" should be set for a single inference only. \n"
+                         f"Got {len(list_aois)} AOIs for inference.\n")
+
     if prep_data_only:
         logging.info(f"[prep_data_only mode] Data preparation for inference is complete. Exiting...")
         exit()
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
-        inference_image = working_folder / f"{aoi.raster_name.stem}_inference.tif"
-        inference_heatmap = working_folder / f"{aoi.raster_name.stem}_heatmap.tif"
-        temp_file = working_folder / f"{aoi.raster_name.stem}.dat"
-        logging.info(f'\nReading image: {aoi.raster_name.stem}')
+        output_path = working_folder / f"{aoi.aoi_id}_pred.tif" if not inference_image else inference_image
+        inference_heatmap = output_path.parent / f"{output_path.stem}_heatmap.tif"
+        temp_file = output_path.parent / f"{output_path.stem}_heatmap.dat"
+        logging.info(f'\nReading image: {aoi.aoi_id}')
         inf_meta = aoi.raster.meta
 
         pred_heatmap = segmentation(
@@ -447,7 +455,7 @@ def main(params: Union[DictConfig, dict]) -> None:
                          "count": pred_heatmap.shape[0],
                          "dtype": 'uint8',
                          "compress": 'lzw'})
-        logging.info(f'\nSuccessfully inferred on {aoi.raster_name}\nWriting to file: {inference_image}')
+        logging.info(f'\nSuccessfully inferred on {aoi.aoi_id}\nWriting to file: {output_path}')
 
         pred_img = class_from_heatmap(heatmap_arr=pred_heatmap, heatmap_threshold=heatmap_threshold)
 
@@ -465,7 +473,7 @@ def main(params: Union[DictConfig, dict]) -> None:
 
         create_new_raster_from_base(
             input_raster=aoi.raster,
-            output_raster=inference_image,
+            output_raster=output_path,
             write_array=pred_img,
             checkpoint_path=state_dict
             )
@@ -477,7 +485,8 @@ def main(params: Union[DictConfig, dict]) -> None:
             logging.warning(f'File Error: {temp_file, e.strerror}')
         if raster_to_vec:
             start_vec = time.time()
-            inference_vec = working_folder.joinpath(f"{aoi.raster_name.stem}_inference.gpkg")
-            ras2vec(inference_image, inference_vec)
+            inference_vec = working_folder.joinpath(aoi.raster_name.parent.name,
+                                                    f"{aoi.raster_name.split('.')[0]}_inference.gpkg")
+            ras2vec(output_path, inference_vec)
             end_vec = time.time() - start_vec
             logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))
