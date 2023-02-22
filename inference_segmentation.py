@@ -13,6 +13,7 @@ import time
 import fiona  # keep this import. it sets GDAL_DATA to right value
 import rasterio
 import ttach as tta
+from scipy.special import softmax
 from collections import OrderedDict
 from fiona.crs import to_string
 from ruamel_yaml.comments import CommentedSeq
@@ -31,25 +32,23 @@ from utils.inference import stretch_heatmap, class_from_heatmap
 from utils.logger import get_logger, set_tracker
 from models.model_choice import define_model, read_checkpoint
 from utils import augmentation
+from utils.inference import generate_patch_list
 from utils.utils import get_device_ids, get_key_def, \
-    add_metadata_from_raster_to_sample, _window_2D, set_device
+add_metadata_from_raster_to_sample, set_device
 
 # Set the logging file
 logging = get_logger(__name__)
+
 def _pad(arr, chunk_size):
     """ Pads img_arr """
     w_diff = chunk_size - arr.shape[0]
     h_diff = chunk_size - arr.shape[1]
-    aug = int(round(chunk_size * (1 - 1.0 / 2.0)))
-    aug_w = int(round(chunk_size * (1 - 1.0 / 2.0))) + w_diff
-    aug_h = int(round(chunk_size * (1 - 1.0 / 2.0))) + h_diff
     if len(arr.shape) > 2:
-        padded_arr = np.pad(arr, ((aug, aug_w), (aug, aug_h), (0, 0)), mode="reflect")
+        padded_arr = np.pad(arr, ((0, w_diff), (0, h_diff), (0, 0)), mode="reflect")
     else:
-        padded_arr = np.pad(arr, ((aug, aug_w), (aug, aug_h)), mode="reflect")
+        padded_arr = np.pad(arr, ((0, w_diff), (0, h_diff)), mode="reflect")
 
     return padded_arr
-
 
 def ras2vec(raster_file, output_path):
     # Create a generic polygon schema for the output vector file
@@ -99,29 +98,29 @@ def ras2vec(raster_file, output_path):
     print("Number of features written: {}".format(i))
 
 
-def gen_img_samples(src, chunk_size, step, *band_order):
+def gen_img_samples(src, patch_list, chunk_size, *band_order):
     """
     TODO
     Args:
         src: input image (rasterio object)
-        chunk_size: image tile size
-        step: stride used during inference (in pixels)
+        patch_list: list of patches index
+        chunk_size: preset image tile size
         *band_order: ignore
 
     Returns: generator object
 
     """
-    for row in range(0, src.height, step):
-        for column in range(0, src.width, step):
-            window = Window.from_slices(slice(row, row + chunk_size),
-                                        slice(column, column + chunk_size))
-            if band_order:
-                window_array = reshape_as_image(src.read(band_order[0], window=window))
-            else:
-                window_array = reshape_as_image(src.read(window=window))
-            window_array = _pad(window_array, chunk_size)
+    for patch in patch_list:
+        patch_x, patch_y, patch_width, patch_height, hann_window = patch
+        window = Window.from_slices(slice(patch_y, patch_y + patch_height),
+                                    slice(patch_x, patch_x + patch_width))
+        if band_order:
+            patch_array = reshape_as_image(src.read(band_order[0], window=window))
+        else:
+            patch_array = reshape_as_image(src.read(window=window))
+        patch_array = _pad(patch_array, chunk_size)
 
-            yield window_array, row, column
+        yield patch_array, (patch_y, patch_height), (patch_x, patch_width), hann_window
 
 def sigmoid(x):
    return 1/(1+np.exp(-x))
@@ -156,32 +155,24 @@ def segmentation(param,
     Returns:
 
     """
-    subdiv = 2
+    use_hanning = True
     sample = {"image": None, "mask": None, 'metadata': None}
     start_seg = time.time()
     print_log = True if logging.level == 20 else False  # 20 is INFO
-    pad = chunk_size * 2
-    h_padded, w_padded = [side + pad for side in input_image.shape]
-    dist_samples = int(round(chunk_size * (1 - 1.0 / 2.0)))
-
     model.eval()  # switch to evaluate mode
 
     # initialize test time augmentation
-    transforms = tta.Compose([tta.HorizontalFlip(), ])
+    transforms = tta.aliases.d4_transform()
     tf_len = len(transforms)
-    # construct window for smoothing
-    WINDOW_SPLINE_2D = _window_2D(window_size=pad, power=2.0)
-    WINDOW_SPLINE_2D = torch.as_tensor(np.moveaxis(WINDOW_SPLINE_2D, 2, 0), ).type(torch.float)
-    WINDOW_SPLINE_2D = WINDOW_SPLINE_2D.to(device)
+    h_padded, w_padded = input_image.height + chunk_size, input_image.width + chunk_size
+    patch_list = generate_patch_list(w_padded, h_padded, chunk_size, use_hanning)
 
     fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(tf_len, h_padded, w_padded, num_classes))
-    step = int(chunk_size / subdiv)
-    total_inf_windows = int(np.ceil(input_image.height / step) * np.ceil(input_image.width / step))
-    img_gen = gen_img_samples(src=input_image, chunk_size=chunk_size, step=step)
+    img_gen = gen_img_samples(src=input_image, patch_list=patch_list, chunk_size=chunk_size)
     single_class_mode = False if num_classes > 1 else True
-    for sub_image, row, col in tqdm(img_gen, position=1, leave=False,
-                    desc=f'Inferring on window slices of size {chunk_size}',
-                    total=total_inf_windows):
+    for sub_image, h_idxs, w_idxs, hann_win in tqdm(img_gen, position=0, leave=True,
+                    desc=f'Inferring on patches'):
+        hann_win = np.expand_dims(hann_win, -1)
         image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
                                                             raster_handle=input_image,
                                                             raster_info={})
@@ -213,30 +204,25 @@ def segmentation(param,
                 augmented_output = augmented_output['out']
             logging.debug(f'Shape of augmented output: {augmented_output.shape}')
             # reverse augmentation for outputs
-            deaugmented_output = transformer.deaugment_mask(augmented_output)
-            if single_class_mode:
-                deaugmented_output = deaugmented_output.squeeze(dim=0)
-            else:
-                deaugmented_output = F.softmax(deaugmented_output, dim=1).squeeze(dim=0)
+            deaugmented_output = transformer.deaugment_mask(augmented_output).squeeze(dim=0)
             output_lst.append(deaugmented_output)
         outputs = torch.stack(output_lst)
-        outputs = torch.mul(outputs, WINDOW_SPLINE_2D)
-        outputs = outputs.permute(0, 2, 3, 1)
-        outputs = outputs.reshape(tf_len, pad, pad, num_classes).cpu().numpy().astype('float16')
-        outputs = outputs[:, dist_samples:-dist_samples, dist_samples:-dist_samples, :]
-        fp[:, row:row + chunk_size, col:col + chunk_size, :] += outputs
+        outputs = outputs.permute(0, 2, 3, 1).squeeze(dim=0)
+        outputs = outputs.cpu().numpy() * hann_win
+        fp[:, h_idxs[0]:h_idxs[0] + h_idxs[1], w_idxs[0]:w_idxs[0] + w_idxs[1], :] += outputs
     fp.flush()
     del fp
 
     fp = np.memmap(tp_mem, dtype='float16', mode='r', shape=(tf_len, h_padded, w_padded, num_classes))
     pred_heatmap = np.zeros((h_padded, w_padded, num_classes), dtype=heatmap_dtype)
-    for row, col in tqdm(itertools.product(range(0, input_image.height, chunk_size),
-                                           range(0, input_image.width, chunk_size)),
-                         leave=False, total=total_inf_windows, desc="Writing to array"):
-        arr1 = (fp[:, row:row + chunk_size, col:col + chunk_size, :]).max(axis=0)
+    for row, col in tqdm(itertools.product(range(0, h_padded, chunk_size),
+                                           range(0, w_padded, chunk_size)),
+                         leave=False, position=0, desc="Writing to array"):
+        arr1 = (fp[:, row:row + chunk_size, col:col + chunk_size, :]).mean(axis=0)
         if single_class_mode:
             arr1 = sigmoid(arr1)
-
+        else:
+            arr1 = softmax(arr1, axis=-1)
         heatmap_max = np.iinfo(heatmap_dtype).max
         arr1 = stretch_heatmap(heatmap_arr=arr1, out_max=heatmap_max)
 
@@ -248,7 +234,7 @@ def segmentation(param,
     if debug:
         logging.debug(f'Bin count of final output: {np.unique(pred_heatmap, return_counts=True)}')
     input_image.close()
-    return pred_heatmap[:h_padded-pad, :w_padded-pad]
+    return pred_heatmap[:input_image.height, :input_image.width]
 
 
 def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200, default: int = 512) -> int:
@@ -345,13 +331,12 @@ def main(params: Union[DictConfig, dict]) -> None:
     models_dir.mkdir(exist_ok=True)
     data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
     download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
+    override = get_key_def('override_model_params', params['inference'], default=False, expected_type=bool)
 
     # Override params from checkpoint
-    checkpoint = read_checkpoint(state_dict, out_dir=models_dir)
-    params = override_model_params_from_checkpoint(
-        params=params,
-        checkpoint_params=checkpoint['params']
-    )
+    checkpoint = read_checkpoint(state_dict, out_dir=models_dir, update=True)
+    if override:
+        params = override_model_params_from_checkpoint(params=params,checkpoint_params=checkpoint['params'])
 
     # Dataset params
     bands_requested = get_key_def('bands', params['dataset'], default=[1, 2, 3], expected_type=Sequence)
@@ -370,7 +355,7 @@ def main(params: Union[DictConfig, dict]) -> None:
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
     run_name = get_key_def(['tracker', 'run_name'], params, default='gdl')
-    tracker_uri = get_key_def(['tracker', 'uri'], params, default=None, expected_type=str, to_path=True)
+    tracker_uri = get_key_def(['tracker', 'uri'], params, default=None, expected_type=str, to_path=False)
     set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
                 tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
 
@@ -492,8 +477,7 @@ def main(params: Union[DictConfig, dict]) -> None:
             logging.warning(f'File Error: {temp_file, e.strerror}')
         if raster_to_vec:
             start_vec = time.time()
-            inference_vec = working_folder.joinpath(aoi.raster_name.parent.name,
-                                                    f"{aoi.raster_name.split('.')[0]}_inference.gpkg")
+            inference_vec = working_folder.joinpath(f"{aoi.raster_name.stem}_inference.gpkg")
             ras2vec(inference_image, inference_vec)
             end_vec = time.time() - start_vec
             logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))

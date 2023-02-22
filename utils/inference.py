@@ -1,7 +1,9 @@
 import logging
 
 import numpy as np
+import scipy.signal.windows as w
 from skimage.exposure.exposure import intensity_range
+from typing import List
 
 from utils.logger import get_logger
 
@@ -49,3 +51,65 @@ def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: float = 0.5) 
     else:
         flattened_arr = heatmap_arr.argmax(axis=-1)
     return flattened_arr.astype(np.uint8)
+
+def window2d(window_size: int) -> np.ndarray:
+    window = np.matrix(w.hann(M=window_size, sym=False))
+    return window.T.dot(window)
+
+def generate_corner_windows(window_size: int) -> np.ndarray:
+    step = window_size >> 1
+    window = window2d(window_size)
+    window_u = np.vstack([np.tile(window[step:step+1, :], (step, 1)), window[step:, :]])
+    window_b = np.vstack([window[:step, :], np.tile(window[step:step+1, :], (step, 1))])
+    window_l = np.hstack([np.tile(window[:, step:step+1], (1, step)), window[:, step:]])
+    window_r = np.hstack([window[:, :step], np.tile(window[:, step:step+1], (1, step))])
+    window_ul = np.block([[np.ones((step, step)), window_u[:step, step:]],
+                          [window_l[step:, :step], window_l[step:, step:]]])
+    window_ur = np.block([[window_u[:step, :step], np.ones((step, step))],
+                          [window_r[step:, :step], window_r[step:, step:]]])
+    window_bl = np.block([[window_l[:step, :step], window_l[:step, step:]],
+                          [np.ones((step, step)), window_b[step:, step:]]])
+    window_br = np.block([[window_r[:step, :step], window_r[:step, step:]],
+                          [window_b[step:, :step], np.ones((step, step))]])
+    return np.array([[window_ul, window_u, window_ur],
+                     [window_l, window, window_r],
+                     [window_bl, window_b, window_br],])
+
+def generate_patch_list(image_width: int, image_height: int, window_size: int, overlapping: bool=False)-> List[tuple]:
+    patch_list = []
+    if overlapping:
+        step = window_size >> 1
+        windows = generate_corner_windows(window_size)
+        max_height = int(image_height/step - 1)*step
+        max_width = int(image_width/step - 1)*step
+    else:
+        step = window_size
+        windows = np.ones((window_size, window_size))
+        max_height = int(image_height/step)*step
+        max_width = int(image_width/step)*step
+    for i in range(0, max_height, step):
+        for j in range(0, max_width, step):
+            if overlapping:
+                # Close to border and corner cases
+                # Default (1, 1) is regular center window
+                border_x, border_y = 1, 1
+                if i == 0: border_x = 0
+                if j == 0: border_y = 0
+                if i == max_height-step: border_x = 2
+                if j == max_width-step: border_y = 2
+                # Selecting the right window
+                current_window = windows[border_x, border_y]
+            else:
+                current_window = windows
+            # The patch is cropped when the patch size is not
+            # a multiple of the image size.
+            patch_height = window_size
+            if i+patch_height > image_height:
+                patch_height = image_height - i
+            patch_width = window_size
+            if j+patch_width > image_width:
+                patch_width = image_width - j
+            # Adding the patch
+            patch_list.append((j, i, patch_width, patch_height, current_window[:patch_height, :patch_width]))
+    return patch_list
+
