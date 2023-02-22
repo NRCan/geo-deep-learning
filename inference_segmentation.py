@@ -485,8 +485,7 @@ def main(params: Union[DictConfig, dict]) -> None:
             logging.warning(f'File Error: {temp_file, e.strerror}')
         if raster_to_vec:
             start_vec = time.time()
-            inference_vec = working_folder.joinpath(aoi.raster_name.parent.name,
-                                                    f"{aoi.raster_name.split('.')[0]}_inference.gpkg")
+            inference_vec = working_folder.joinpath(f"{aoi.aoi_id}_pred.gpkg")
             ras2vec(output_path, inference_vec)
             end_vec = time.time() - start_vec
             logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))
