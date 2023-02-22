@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from torchgeo.datasets.utils import extract_archive
 
@@ -62,5 +64,11 @@ class TestUtils(unittest.TestCase):
             # Same type
             mp = get_key_def('max_pix_per_mb_gpu', cfg['inference'], default=25, expected_type=int)
             assert isinstance(mp, int)
+            # with to_path=True, two different possibilities for expected type: str or Path
+            assert isinstance(cfg['inference']['raw_data_csv'], str)
+            mp = get_key_def('raw_data_csv', cfg['inference'], expected_type=Path, to_path=True)
+            assert isinstance(mp, Path)
+            mp = get_key_def('raw_data_csv', cfg['inference'], expected_type=str, to_path=True)
+            assert isinstance(mp, Path)
             
         

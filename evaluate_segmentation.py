@@ -80,6 +80,8 @@ def main(params):
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
                              validate_path_exists=True,
                              wildcard='*pth.tar')
+    inference_image = get_key_def(key='output_path', config=params['inference'], to_path=True, expected_type=str)
+
     bands_requested = get_key_def('bands', params['dataset'], default=[], expected_type=Sequence)
     num_bands = len(bands_requested)
     working_folder = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
@@ -107,6 +109,10 @@ def main(params):
 
     list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested)
 
+    if len(list_aois) > 1 and inference_image:
+        raise ValueError(f"\n\"inference.output_path\" should be set for a single evaluation only. \n"
+                         f"Got {len(list_aois)} AOIs for evaluation.\n")
+
     # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
     for aoi in tqdm(list_aois, desc='Validating ground truth'):
         if aoi.label is None:
@@ -118,12 +124,12 @@ def main(params):
     gpkg_name_ = []
 
     for aoi in tqdm(list_aois, desc='Evaluating from input list', position=0, leave=True):
-        inference_image = working_folder / f"{aoi.raster_name.stem}_inference.tif"
-        if not inference_image.is_file():
-            raise FileNotFoundError(f"Couldn't locate inference to evaluate metrics with. Make inferece has been run "
+        output_path = working_folder / f"{aoi.aoi_id}_pred.tif" if not inference_image else inference_image
+        if not output_path.is_file():
+            raise FileNotFoundError(f"Couldn't locate inference to evaluate metrics with. Make inference has been run "
                                     f"before you run evaluate mode.")
 
-        pred = rasterio.open(inference_image).read()[0, ...]
+        pred = rasterio.open(output_path).read()[0, ...]
 
         logging.info(f'\nBurning label as raster: {aoi.label}')
         raster = rasterio.open(aoi.raster_name, 'r')
