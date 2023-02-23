@@ -1,5 +1,7 @@
-Welcome to TestDocMonster documentation!
+Welcome to Geo Deep Learning documentation!
 ========================================
+
+.. mdinclude:: ../../README.md
 
 **Lumache** (/lu'make/) is a Python library for cooks and food lovers
 that creates recipes mixing random ingredients.

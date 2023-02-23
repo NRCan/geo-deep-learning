@@ -26,6 +26,7 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
+    'm2r2',
 ]
 
 intersphinx_mapping = {
@@ -38,9 +39,17 @@ html_static_path = ['_static']
 
 templates_path = ['_templates']
 
+source_suffix = ['.rst', '.md']
+
 # -- Options for HTML output
 
 html_theme = 'sphinx_rtd_theme'
+
+html_logo = "../img/logo.png"
+html_theme_options = {
+    'logo_only': True,
+    'display_version': False,
+}
 
 # -- Options for EPUB output
 epub_show_urls = 'footnote'
