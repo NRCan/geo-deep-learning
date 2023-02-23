@@ -23,7 +23,8 @@ from torchgeo.datasets import stack_samples
 
 from dataset.create_dataset import DRDataset, GDLVectorDataset
 from dataset.aoi import aois_from_csv, AOI
-from utils.geoutils import check_gdf_load, check_rasterio_im_load, bounds_gdf, bounds_riodataset
+from utils.geoutils import check_gdf_load, check_rasterio_im_load, bounds_gdf, bounds_riodataset, mask_nodata, \
+    nodata_vec_mask
 from utils.utils import get_key_def, get_git_hash
 from utils.verifications import validate_raster
 # Set the logging file
@@ -238,7 +239,7 @@ class Tiler(object):
         # Close and save the datasource:
         dst_ds = None
 
-    def _parse_torchgeo_batch(self, batch):
+    def _parse_torchgeo_batch(self, batch: dict, nodataval: int):
         """
         Extract data from the TorchGeo batch.
         Args:
@@ -256,6 +257,10 @@ class Tiler(object):
             sample_mask = None
 
         sample_image = np.asarray(sample_image).squeeze(0)
+        # Calculate % of nodata pixels:
+        num_nodata = np.count_nonzero(sample_image == nodataval)
+        if num_nodata / sample_image.size == 1:
+            return None
 
         # Get the CRS and the bounding box coordinates:
         sample_crs = batch['crs'][0].wkt
@@ -312,12 +317,14 @@ class Tiler(object):
         """
         if not aoi.raster:  # in case of multiprocessing
             aoi.raster = rasterio.open(aoi.raster_dest)
+        nodata = aoi.raster.nodata
 
         # Create TorchGeo-based custom DRDataset dataset:
         dr_dataset = DRDataset(aoi.raster)
 
         if not self.for_inference:
-            vec_dataset = GDLVectorDataset(aoi.label)
+            nodata_mask = nodata_vec_mask(raster=aoi.raster, nodata_val=nodata)
+            vec_dataset = GDLVectorDataset(vec_ds=aoi.label, nodata_mask=nodata_mask)
             # Combine raster and vector datasets using AND operator (sampling only from the intersection area).
             resulting_dataset = dr_dataset & vec_dataset
             os.makedirs(out_label_dir, exist_ok=True)
@@ -363,7 +370,12 @@ class Tiler(object):
             raster_tile_data = []
             for i, batch in tqdm(enumerate(dataloader), total=len(dataloader)):
                 # Parse the TorchGeo batch:
-                sample_image, sample_mask, sample_crs, sample_window = self._parse_torchgeo_batch(batch)
+                tile_data = self._parse_torchgeo_batch(batch, nodata)
+
+                if tile_data is None:
+                    continue
+
+                sample_image, sample_mask, sample_crs, sample_window = tile_data
                 bboxes.append(sample_window)
 
                 # Define the output raster patch filename:
@@ -502,6 +514,7 @@ class Tiler(object):
         """
         if not aoi.raster:  # in case of multiprocessing
             aoi.raster = rasterio.open(aoi.raster_dest)
+        nodata = aoi.raster.nodata
 
         random_val = np.random.randint(1, 101)
         if not {'trn', 'val'}.issubset(set(self.datasets)):
@@ -517,7 +530,7 @@ class Tiler(object):
             attr_field=aoi.attr_field_filter,
             attr_vals=aoi.attr_values_filter
         )
-        # measure annotated percentage for all patches as it is useful data analysis info for a output report
+        # measure annotated percentage for all patches as it is useful data analysis info for an output report
         min_annot_success, annot_perc = self.passes_min_annot(
             img_patch=img_patch,
             gt_patch=gdf_patch,
@@ -531,6 +544,15 @@ class Tiler(object):
                                continuous=continuous_vals,
                                save_preview=save_preview_labels,
                                )
+            # Here nodata pixels will be used to mask corresponding label with "ignore_label"value:
+            if isinstance(nodata, int | float):
+                mask_nodata(
+                    img_patch=img_patch,
+                    gt_patch=out_gt_burned_path,
+                    nodata_val=int(nodata),
+                    mask_val=255
+                )
+
             dataset_line = f'{Path(img_patch).absolute()};{Path(out_gt_burned_path).absolute()};{round(annot_perc)}\n'
             return dataset, dataset_line
         else:
