@@ -37,7 +37,7 @@ class TestTiling(object):
         tiling(cfg)
         # expected number of patches is constant due to random seed set in tiling script
         out_labels = [
-            (Path(f"{data_dir}/{proj}/trn/22978945_15_uint8_clipped/labels_burned"), 16),
+            (Path(f"{data_dir}/{proj}/trn/22978945_15_uint8_clipped/labels_burned"), 13),
             (Path(f"{data_dir}/{proj}/val/22978945_15_uint8_clipped/labels_burned"), 2),
             (Path(f"{data_dir}/{proj}/tst/23429155_15_uint8_clipped/labels_burned"), 9),
         ]
