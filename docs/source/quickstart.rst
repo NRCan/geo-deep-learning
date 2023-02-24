@@ -37,9 +37,9 @@ python environment with the following commands:
 Running GDL
 -----------
 
-This is an example of how to run GDL for a :ref:`segmentation` task on 
-the ``massachusetts buildings`` dataset (add the link).  
-GDL is using `Hydra <https://hydra.cc/>`_ library for more information 
+This is an example of how to run **GDL** for a :ref:`segmentation` task on 
+the *massachusetts buildings* dataset (add the link).  
+**GDL** is using `Hydra <https://hydra.cc/>`_ library for more information 
 see their documentation.
 
 .. code-block:: console
@@ -57,27 +57,27 @@ see their documentation.
    (geo_deep_env) $ python GDL.py mode=inference
 
 This example runs with a default configuration
-`./config/gdl_config_template.yaml <./config/gdl_config_template.yaml>`_. 
+``./config/gdl_config_template.yaml``. 
 For further examples on configuration options or how to change the configuration 
 go see the :ref:`configuration` documentation.
 
-Creating recipes
-----------------
+.. Creating recipes
+.. ----------------
 
-To retrieve a list of random ingredients,
-you can use the ``lumache.get_random_ingredients()`` function:
+.. To retrieve a list of random ingredients,
+.. you can use the ``lumache.get_random_ingredients()`` function:
 
-.. autofunction:: lumache.get_random_ingredients
+.. .. autofunction:: lumache.get_random_ingredients
 
-The ``kind`` parameter should be either ``"meat"``, ``"fish"``,
-or ``"veggies"``. Otherwise, :py:func:`lumache.get_random_ingredients`
-will raise an exception.
+.. The ``kind`` parameter should be either ``"meat"``, ``"fish"``,
+.. or ``"veggies"``. Otherwise, :py:func:`lumache.get_random_ingredients`
+.. will raise an exception.
 
-.. autoexception:: lumache.InvalidKindError
+.. .. autoexception:: lumache.InvalidKindError
 
-For example:
+.. For example:
 
->>> import lumache
->>> lumache.get_random_ingredients()
-['shells', 'gorgonzola', 'parsley']
+.. >>> import lumache
+.. >>> lumache.get_random_ingredients()
+.. ['shells', 'gorgonzola', 'parsley']
 
