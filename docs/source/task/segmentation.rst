@@ -1,6 +1,8 @@
 Task
 ====
 
+.. _segmentation:
+
 Segmentation
 ------------
 
