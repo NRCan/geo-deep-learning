@@ -1,12 +1,10 @@
 Welcome to Geo Deep Learning documentation!
 ========================================
 
-.. mdinclude:: ../../README.md
-
-**Lumache** (/lu'make/) is a Python library for cooks and food lovers
-that creates recipes mixing random ingredients.
-It pulls data from the `Open Food Facts database <https://world.openfoodfacts.org/>`_
-and offers a *simple* and *intuitive* API.
+The geo-deep-learning project stems from an initiative at
+`NRCan's CCMEO<https://natural-resources.canada.ca/science-and-data/science-and-research/geomatics/10776>`.
+Its aim is to allow using Convolutional Neural Networks (CNN) and other 
+deep-learning methods with georeferenced datasets.
 
 Check out the :doc:`usage` section for further information, including
 how to :ref:`installation` the project.
@@ -21,4 +19,5 @@ Contents
 .. toctree::
 
    usage
+   segmentation
    api

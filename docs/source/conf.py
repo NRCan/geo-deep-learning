@@ -26,7 +26,6 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
-    'm2r',
 ]
 
 intersphinx_mapping = {
