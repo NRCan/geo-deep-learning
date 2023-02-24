@@ -1,5 +1,5 @@
-Usage
-=====
+Quickstart
+==========
 
 .. _installation:
 

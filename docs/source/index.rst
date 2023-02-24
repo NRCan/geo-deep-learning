@@ -1,8 +1,8 @@
 Welcome to Geo Deep Learning documentation!
-========================================
+===========================================
 
 The geo-deep-learning project stems from an initiative at
-`NRCan's CCMEO<https://natural-resources.canada.ca/science-and-data/science-and-research/geomatics/10776>`.
+`NRCan's CCMEO <https://natural-resources.canada.ca/science-and-data/science-and-research/geomatics/10776>`.
 Its aim is to allow using Convolutional Neural Networks (CNN) and other 
 deep-learning methods with georeferenced datasets.
 
@@ -13,11 +13,13 @@ how to :ref:`installation` the project.
 
    This project is under active development.
 
-Contents
---------
+
+Documentation
+-------------
 
 .. toctree::
 
-   usage
-   segmentation
+   quickstart
+   mode/index
+   task/segmentation
    api
