@@ -1,6 +1,7 @@
 import os
 import shutil
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 import rasterio
@@ -11,6 +12,7 @@ from osgeo import gdal, gdalconst, ogr
 
 from dataset.aoi import AOI
 from tiling_segmentation import Tiler
+from utils.geoutils import mask_nodata, nodata_vec_mask
 
 
 class TestTiler(object):
@@ -30,8 +32,8 @@ class TestTiler(object):
             aoi=my_aoi,
             out_img_dir=tiling_dir / "images",
             out_label_dir=tiling_dir / "labels")
-        assert len(raster_patchs_paths) == 18
-        assert len(vect_patchs_paths) == 18
+        assert len(raster_patchs_paths) == 15
+        assert len(vect_patchs_paths) == 15
         assert Path(raster_patchs_paths[0]).is_file()
         assert Path(vect_patchs_paths[0]).is_file()
         shutil.rmtree(tiling_dir)
@@ -154,8 +156,9 @@ class TestTiler(object):
 
 
         }
+        nodata = 0
         Tiler.for_inference = False
-        sample_image, sample_mask, sample_crs, window = Tiler._parse_torchgeo_batch(Tiler, batch=batch)
+        sample_image, sample_mask, sample_crs, window = Tiler._parse_torchgeo_batch(Tiler, batch=batch, nodataval=nodata)
 
         assert (sample_image == batch['image']).all(), "Initial and unpacked samples images are different!"
         assert (sample_mask == batch['mask'][0]).all(), "Initial and unpacked samples masks are different!"
@@ -165,7 +168,7 @@ class TestTiler(object):
                "Initial and unpacked bboxes are different!"
 
         Tiler.for_inference = True
-        sample_image, sample_mask, sample_crs, window = Tiler._parse_torchgeo_batch(Tiler, batch=batch)
+        sample_image, sample_mask, sample_crs, window = Tiler._parse_torchgeo_batch(Tiler, batch=batch, nodataval=nodata)
         assert (sample_image == batch['image']).all(), "Initial and unpacked samples images are different!"
         assert sample_mask is None, "The unpacked sample masks is not None! (Tiler.for_inference = True)"
         assert CRS.from_wkt(sample_crs) == batch['crs'][0], "Initial and unpacked CRSs are different!"
@@ -288,3 +291,85 @@ class TestTiler(object):
         assert [ctimes for ctimes in raster_ctimes_init.values()] == [ctimes for ctimes in raster_ctimes_final.values()]
         assert [ctimes for ctimes in vector_ctimes_init.values()] == [ctimes for ctimes in vector_ctimes_final.values()]
         shutil.rmtree(tiling_dir)
+
+    def test_mask_nodata(self):
+        # Create a temporary directory to hold test files
+        with TemporaryDirectory() as temp_dir:
+            # Create test image and ground truth files
+            image_path = Path(temp_dir) / 'test_image.tif'
+            gt_path = Path(temp_dir) / 'test_gt.tif'
+            image_arr = np.ones(shape=(3, 10, 10))
+            image_arr[:, 3:6, 3:6] = 0
+            gt_arr = np.zeros((10, 10))
+            gt_arr[3:6, 3:6] = 1
+            driver = gdal.GetDriverByName('GTiff')
+            image_ds = driver.Create(str(image_path), 10, 10, 3, gdalconst.GDT_Byte)
+            image_ds.GetRasterBand(1).WriteArray(image_arr[0, :, :])
+            image_ds.GetRasterBand(2).WriteArray(image_arr[1, :, :])
+            image_ds.GetRasterBand(3).WriteArray(image_arr[2, :, :])
+            gt_ds = driver.Create(str(gt_path), 10, 10, 1, gdalconst.GDT_Byte)
+            gt_ds.GetRasterBand(1).WriteArray(gt_arr)
+            gt_ds = None
+            image_ds = None
+
+            # Call the function with test files and nodata value of 0
+            mask_nodata(img_patch=image_path, gt_patch=gt_path, nodata_val=0, mask_val=255)
+
+            # Check that nodata pixels in ground truth are masked
+            gt_ds = gdal.Open(str(gt_path), gdalconst.GA_ReadOnly)
+            masked_gt_arr = gt_ds.ReadAsArray()
+            expected_masked_gt_arr = np.zeros((10, 10))
+            expected_masked_gt_arr[3:6, 3:6] = 255
+            assert (masked_gt_arr == expected_masked_gt_arr).all()
+            gt_ds = None
+
+    def test_nodata_vec_mask(self):
+        with TemporaryDirectory() as tmp_path:
+            # Create a temporary raster file
+            img_path = Path(tmp_path) / 'test.tif'
+            raster_drv = gdal.GetDriverByName('GTiff')
+            raster = raster_drv.Create(str(img_path), 3, 3, 3, gdal.GDT_Byte)
+            raster.SetProjection('EPSG:4326')
+            raster.SetGeoTransform([0, 1, 0, 0, 0, -1])
+            data = np.zeros(shape=(3, 3, 3), dtype=np.uint8)
+            data[:, 1, 1] = 1
+            raster.GetRasterBand(1).WriteArray(data[0, :, :])
+            raster.GetRasterBand(1).SetNoDataValue(0)
+            raster.GetRasterBand(2).WriteArray(data[1, :, :])
+            raster.GetRasterBand(2).SetNoDataValue(0)
+            raster.GetRasterBand(3).WriteArray(data[2, :, :])
+            raster.GetRasterBand(3).SetNoDataValue(0)
+            raster = None
+
+            # Test nodata_vec_mask function
+            with rasterio.open(img_path) as src:
+                mask = nodata_vec_mask(raster=src)
+                assert isinstance(mask, ogr.DataSource)
+                layer = mask.GetLayer()
+                feature = layer.GetFeature(0)
+                geom = feature.GetGeometryRef()
+                assert geom.GetGeometryName() == 'POLYGON'
+                geom_wkt = geom.ExportToWkt()
+                geom_wkt = geom_wkt.replace('POLYGON', '')
+                geom_wkt = "".join(geom_wkt.split())
+                assert geom_wkt == '((1-1,1-2,2-2,2-1,1-1))'
+
+    def test_nodata_vec_mask_none(self):
+        with TemporaryDirectory() as tmp_path:
+            # Create a temporary raster file
+            img_path = Path(tmp_path) / 'test.tif'
+            raster_drv = gdal.GetDriverByName('GTiff')
+            raster = raster_drv.Create(str(img_path), 3, 3, 3, gdal.GDT_Byte)
+            raster.SetProjection('EPSG:4326')
+            raster.SetGeoTransform([0, 1, 0, 0, 0, -1])
+            data = np.ones(shape=(3, 3, 3), dtype=np.uint8)
+            raster.GetRasterBand(1).WriteArray(data[0, :, :])
+            raster.GetRasterBand(2).WriteArray(data[1, :, :])
+            raster.GetRasterBand(3).WriteArray(data[2, :, :])
+            raster = None
+
+            # Test nodata_vec_mask function
+            with rasterio.open(img_path) as src:
+                mask = nodata_vec_mask(raster=src)
+                assert mask is None
+

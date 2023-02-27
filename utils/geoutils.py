@@ -17,6 +17,7 @@ from rasterio import MemoryFile, DatasetReader
 from rasterio.plot import reshape_as_raster
 from rasterio.shutil import copy as riocopy
 import xml.etree.ElementTree as ET
+from osgeo import gdal, gdalconst, ogr, osr
 
 from shapely.geometry import box, Polygon
 
@@ -305,3 +306,88 @@ def gdf_mean_vertices_nb(gdf: gpd.GeoDataFrame):
             logging.warning(f"Only supports MultiPolygon or Polygon. \nGot {geom.geom_type}")
     mean_ext_vert_nb = np.mean(vertices_per_polygon)
     return mean_ext_vert_nb
+
+
+def mask_nodata(img_patch: Union[str, Path], gt_patch: Union[str, Path], nodata_val: int, mask_val: int = 255) -> None:
+    """
+    Masks label raster file with "ignore_index" value where pixels are "nodata" in the corresponding raster image.
+    Args:
+        img_patch: raster tile image path
+        gt_patch: raster tile label path
+        nodata_val: nodata value
+        mask_val: masking value (255 by default)
+
+    Returns:
+        Masks label tile or None if no nadata pixels
+    """
+    image_ds = gdal.Open(str(img_patch), gdalconst.GA_ReadOnly)
+    image_arr = image_ds.ReadAsArray()
+    nodata_mask = image_arr != nodata_val
+    nodata_mask_flat = np.sum(nodata_mask, axis=0) != 0
+
+    if nodata_mask_flat.min() == 1:
+        image_ds = None
+        return
+
+    gt_patch_ds = gdal.Open(str(gt_patch), gdalconst.GA_Update)
+    gt_patch_arr = gt_patch_ds.ReadAsArray()
+    masked_gt_arr = np.where(nodata_mask_flat == 1, gt_patch_arr, mask_val)
+    gt_patch_ds.GetRasterBand(1).WriteArray(masked_gt_arr)
+    gt_patch_ds = None
+    image_ds = None
+
+
+def nodata_vec_mask(raster: rasterio.DatasetReader, nodata_val: int = None) -> ogr.DataSource | None:
+    """
+    Fetches nodata mask from the raster image.
+    Args:
+        raster: raster dataset (DatasetReader) object.
+        nodata_val: either None or predefined by a user integer value.
+        If None, tries to fetch nodata value from the raster.
+
+    Returns:
+        Either None or vector nodata mask as an OGR datasource.
+    """
+    if nodata_val is None:
+        nodata_val = raster.nodata
+        if not isinstance(nodata_val, int | float):
+            return None
+
+    # Get original CRS and transform:
+    crs_wkt = raster.crs.to_wkt()
+    crs_gt = raster.transform
+
+    # Read the data and calculate a nodata mask:
+    image_arr = raster.read()
+    nodata_mask = image_arr != nodata_val
+    nodata_mask_flat = np.sum(nodata_mask, axis=0) != 0
+    nodata_mask_flat = nodata_mask_flat.astype('uint8')
+
+    raster_drv = gdal.GetDriverByName("MEM")
+    dst = raster_drv.Create("/vsimem/raster", int(nodata_mask_flat.shape[1]),
+                            int(nodata_mask_flat.shape[0]), 1, gdal.GDT_Byte)
+
+    gdal_src_gt = [crs_gt[2], crs_gt[0], crs_gt[1], crs_gt[5], crs_gt[3], crs_gt[4]]
+    dst.SetGeoTransform(gdal_src_gt)
+    dst.SetProjection(crs_wkt)
+    dst.GetRasterBand(1).WriteArray(nodata_mask_flat)
+    dst.GetRasterBand(1).SetNoDataValue(0)
+    src_band = dst.GetRasterBand(1)
+
+    # Create vector datasource in memory:
+    drv = ogr.GetDriverByName("MEMORY")
+    vec_ds = drv.CreateDataSource('memdata')
+
+    # Initialize projection:
+    spatial_ref = osr.SpatialReference()
+    spatial_ref.ImportFromWkt(crs_wkt)
+    layer = vec_ds.CreateLayer('0', spatial_ref, geom_type=ogr.wkbPolygon)
+
+    # Vectorize the raster nodata mask:
+    gdal.Polygonize(src_band, src_band, layer, -1, [], callback=None)
+
+    return vec_ds
+
+
+if __name__ == "__main__":
+    pass
