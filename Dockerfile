@@ -22,7 +22,6 @@ RUN apt-get update \
 # Install miniconda
 ENV PATH $CONDA_DIR/bin:$PATH
 RUN wget https://repo.continuum.io/miniconda/Miniconda$CONDA_PYTHON_VERSION-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
-#     echo 'export PATH=$CONDA_DIR/bin:$PATH' > /etc/profile.d/conda.sh && \
     /bin/bash /tmp/miniconda.sh -b -p $CONDA_DIR && \
     rm -rf /tmp/* && \
     apt-get clean && \
@@ -38,8 +37,8 @@ WORKDIR /home/$USERNAME/
 
 RUN cd /home/$USERNAME && git clone --depth 1 "https://github.com/NRCan/geo-deep-learning.git" --branch $GIT_TAG
 RUN conda config --set ssl_verify no
-RUN conda env create -f /home/$USERNAME/geo-deep-learning/environment.yml
-RUN cd /home/$USERNAME && git clone --depth=1 http://github.com/remtav/projectRegularization -b light
+RUN conda install mamba -c conda-forge
+RUN mamba env create -f /home/$USERNAME/geo-deep-learning/environment.yml
 
 ENV PATH $CONDA_DIR/envs/geo_deep_env/bin:$PATH
 RUN echo "source activate geo_deep_env" > ~/.bashrc
