@@ -12,7 +12,7 @@ dependencies:
   - pystac>=0.3.0
   - pytest>=7.1
   - python>=3.10
-  - pytorch>=1.9
+  - pytorch==1.12
   - rich>=11.1
   - ruamel_yaml>=0.15
   - scikit-image>=0.18
@@ -21,7 +21,6 @@ dependencies:
   - pip:
     - hydra-colorlog>=1.1.0
     - hydra-optuna-sweeper>=1.1.0
-    - git+https://github.com/remtav/projectRegularization.git@light
     - git+https://github.com/CosmiQ/solaris.git@0.5.0
     - ttach>=0.0.3
     - mlflow>=1.2 # causes env solving to hang if not with pip
