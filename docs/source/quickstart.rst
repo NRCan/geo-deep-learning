@@ -34,13 +34,15 @@ python environment with the following commands:
 
    Tested on Ubuntu 20.04 and Windows 10 using miniconda.
 
+.. _runninggdl:
+
 Running GDL
 -----------
 
 This is an example of how to run **GDL** for a :ref:`segmentation` task on 
 the *massachusetts buildings* dataset (add the link).  
 **GDL** is using `Hydra <https://hydra.cc/>`_ library for more information 
-see their documentation.
+see the :ref:`configuration` section or go visit their documentation.
 
 .. code-block:: console
 
