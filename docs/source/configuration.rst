@@ -1,41 +1,45 @@
 .. _configuration:
 
 Configuration
-=============
++++++++++++++
 
 How to use **Hydra** config files
 ---------------------------------
 
 Since **GDL** use the `Hydra <https://hydra.cc/docs/intro/#quick-start-guide>`_ library, here how 
 **GDL** configuratiuon work. Through a main ``yaml`` file 
-`gdl_config_template.yaml <https://https://github.com/NRCan/geo-deep-learning/blob/develop/config/gdl_config_template.yaml>`_ 
-located in the `config <https://https://github.com/NRCan/geo-deep-learning/blob/develop/config/>`_ 
+`gdl_config_template.yaml <https://github.com/NRCan/geo-deep-learning/tree/develop/config/gdl_config_template.yaml>`_ 
+located in the `config <https://github.com/NRCan/geo-deep-learning/tree/develop/config/>`_ 
 folder which handles additional ``yaml`` files located in other subfolders.
 We recommend starting with the 
-`gdl_config_template.yaml <https://https://github.com/NRCan/geo-deep-learning/blob/develop/config/gdl_config_template.yaml>`_ 
+`gdl_config_template.yaml <https://github.com/NRCan/geo-deep-learning/tree/develop/config/gdl_config_template.yaml>`_ 
 as the configuration entrypoint. To run your code with the proper parameters, see the 
-`Running GDL <runninggdl>`_ section for an example with a semantic segmentation task. 
+:ref:`Running GDL <runninggdl>` section for an example with a semantic segmentation task. 
 There are other examples at the end of this document in the :ref:`confexample` section.
 
 The ``config`` folder is structured as depicted below. 
 It is important to remember that the 
-`gdl_config_template.yaml <https://https://github.com/NRCan/geo-deep-learning/blob/develop/config/gdl_config_template.yaml>`_  
+`gdl_config_template.yaml <https://github.com/NRCan/geo-deep-learning/tree/develop/config/gdl_config_template.yaml>`_  
 file contains every parameter necessary for executing the command. 
 Other ``yaml`` files in subfolders handle specific categories of parameters. 
-.. See details in the next section [Defaults Section](#Defaults Section).
 
-| ├── config
-| │   ├── gdl_config_template.yaml
-| │   ├── model
-| │       ├── gdl_unet.yaml
-| │       └── smp_deeplabv3.yaml
-| |    ...
-|     └── task
-|         └── segmentation.yaml
+| config
+| ├── gdl_config_template.yaml
+| ├── model
+|     ├── gdl_unet.yaml
+|     └── smp_deeplabv3.yaml
+|     ...
+| └── task
+|     └── segmentation.yaml
 | 
 | 
 
 The code is currently executed with 
+`gdl_config_template.yaml <https://github.com/NRCan/geo-deep-learning/tree/develop/config/gdl_config_template.yaml>`_ 
+as a default configuration, the :ref:`confexample` section have an example on how to run the script with 
+an other config ``yaml``. 
+
+
 .. [gdl_config_template.yaml](gdl_config_template.yaml) by default. If you want to create your own `gdl_config.yaml` see the [Examples](#Examples) section.
 .. But keep in mind your own config will require the following structure:
 .. ```YAML
@@ -50,7 +54,9 @@ The code is currently executed with
 .. debug: ...
 .. ```
 
-.. #### Defaults Section
+Defaults Parameters
+-------------------
+
 .. The **_'defaults'_** section is where all default `yaml` files are loaded as input values for each category of parameters.
 .. The same is true for all items in the `defaults` section.
 .. For example, `task: segmentation` means the `config` folder contains a subfolder called `task` which contains a `segmentation.yaml` file.
@@ -161,11 +167,7 @@ The code is currently executed with
 ..   params: 1.0
 .. ```
 
-.. - Using a new `gdl_config.yaml` file that has the same structure as the template. For more information, see 
-.. - [Hydra's documentation on command line flags](https://hydra.cc/docs/advanced/hydra-command-line-flags/)  
-.. ```bash
-.. $ python GDL.py --config-name=/path/to/new/gdl_config.yaml mode=train
-.. ```
+
 
 
 
@@ -175,3 +177,24 @@ Examples
 --------
 
 Here some examples on how to run GDL with Hydra.
+
+Other configuration file
+========================
+
+How to using a new ``gdl_config.yaml`` file that has the same structure as the template ``yaml`` 
+but have different values. The usecase for that is, for example, you have a certain configuration
+for your pipline that is different form your testing one, you dont want to change your parameters 
+each time. So you create a new ``yaml`` for your pipline and when you are ready to run it, you 
+only have to run it like that: 
+
+.. code-block:: console
+
+   (geo_deep_env) $ python GDL.py --config-name=/path/to/new/gdl_pipline_config.yaml mode=train
+
+
+Other Hydra parameters to overwritte
+====================================
+
+See `Hydra's documentation on command line flags <https://hydra.cc/docs/advanced/hydra-command-line-flags/>`_
+page for more informations.
+
