@@ -8,9 +8,9 @@ sys.path.insert(0, os.path.abspath('../..'))
 
 # -- Project information
 
-project = 'TestDocMonster'
-copyright = '2099, Sherbrooke'
-author = 'Charles at NRCAN'
+project = 'Geo-Deep-Learning'
+copyright = '2099, Sherbrooke, Quebec, Canada'
+author = 'Charles Authier at NRCAN'
 
 release = '0.1'
 version = '0.1.0'

@@ -32,30 +32,29 @@ Other ``yaml`` files in subfolders handle specific categories of parameters.
 | └── task
 |     └── segmentation.yaml
 | 
-| 
 
 The code is currently executed with 
 `gdl_config_template.yaml <https://github.com/NRCan/geo-deep-learning/tree/develop/config/gdl_config_template.yaml>`_ 
 as a default configuration, the :ref:`confexample` section have an example on how to run the script with 
 an other config ``yaml``. 
 
+Each configuration file need to follow the structure show bellow, and each of those sections
+have their functionality that will be explain.
 
-.. [gdl_config_template.yaml](gdl_config_template.yaml) by default. If you want to create your own `gdl_config.yaml` see the [Examples](#Examples) section.
-.. But keep in mind your own config will require the following structure:
-.. ```YAML
-.. defaults:
-..       ...
-.. general:
-..       ...
-.. inference:
-..       ...
-.. print_config: ...
-.. mode:  ...
-.. debug: ...
-.. ```
+.. code-block:: yaml
+
+    defaults:
+        ...
+    general:
+        ...
+    inference:
+        ...
+    print_config: ...
+    mode:  ...
+    debug: ...
 
 Defaults Parameters
--------------------
+===================
 
 .. The **_'defaults'_** section is where all default `yaml` files are loaded as input values for each category of parameters.
 .. The same is true for all items in the `defaults` section.
@@ -97,7 +96,9 @@ Defaults Parameters
 .. However, the goal will be to add tasks as need be. The `GDL.py` code simply executes the main function from the `task_mode.py` in the main folder of GDL.
 .. The chosen `yaml` from the task categories will gather all the parameters relevant (as chosen by user) for the desired task.
 
-.. #### General Section
+General Parameters
+==================
+
 .. ```YAML
 .. general:
 ..   work_dir: ${hydra:runtime.cwd}  # where the code is executed
@@ -115,27 +116,47 @@ Defaults Parameters
 .. ```
 .. This section contains general information that will be read by the code. Other `yaml` files read information from here.
 
-.. #### Print Config Section
-.. If `True`, will save the config in the log folder.
+Print Config Parameter
+======================
 
-.. #### Mode Section
-.. ```YAML
-.. mode: {tiling, train, inference, evaluate, hyperparameters_search}
-.. ```
-.. **GDL** has five modes: tiling, train, evaluate, inference and hyperparameters search.
-.. - *tiling*, generates .geotiff and .geojson [chips](https://torchgeo.readthedocs.io/en/latest/user/glossary.html#term-chip) from each source aoi (image & ground truth).
-.. - *train*, will train the model specified with all the parameters in `training`, `trainer`, `optimizer`, `callbacks` and `scheduler`. The outcome will be `.pth` weights.
-.. - *evaluate*, this function needs to be filled with images, their ground truth and a weight for the model. At the end of the evaluation you will obtain statistics on those images. 
-.. - *inference*, unlike the evaluation, the inference doesn't need a ground truth. The inference will produce a prediction on the content of the images fed to the model. Depending on the task, the outcome file will differ.
-.. - *hyperparameters search*, soon to come.
+If ``True``, this will save the config inder the run subfolder generated in the log folder.
 
-.. >Each of those modes will be different for all the tasks, a documentation on how to write a new task with all the proper functions will follow soon.
+Mode Parameter
+==============
 
-.. #### Debug Section
+.. code-block:: yaml
+
+    mode: {verify, tiling, train, inference, evaluate}
+
+For **GDL**, the mode available are:
+    - *verify*, verify the given datas and generate an ``csv`` with infos and stats on thoses images.
+    - *tiling*, generates tiles from each source aoi (image & ground truth).
+    - *train*, will train the model specified with all the parameters in the configuration file.
+    - *inference*, generate the inference for the given images.
+    - *evaluate*, generate statistics on the given images, unlike the *inference*, this mode need the images to be link to a ground truth.
+    
+.. note::
+    Each of those modes will be different for all the tasks, for further information on the well 
+    being of those modes, see the :ref:`modeindex`  section.
+
+Debug Parameter
+===============
+
 .. ```YAML
 .. debug: False
 .. ```
 .. Will print the complete yaml config plus run a validation test before the training.
+
+
+
+
+
+
+
+
+
+
+
 
 .. ## Examples
 .. Here some examples on how to run **GDL** with *Hydra*.
@@ -178,8 +199,8 @@ Examples
 
 Here some examples on how to run GDL with Hydra.
 
-Other configuration file
-========================
+Using an other configuration file
+=================================
 
 How to using a new ``gdl_config.yaml`` file that has the same structure as the template ``yaml`` 
 but have different values. The usecase for that is, for example, you have a certain configuration
@@ -192,8 +213,8 @@ only have to run it like that:
    (geo_deep_env) $ python GDL.py --config-name=/path/to/new/gdl_pipline_config.yaml mode=train
 
 
-Other Hydra parameters to overwritte
-====================================
+Other Hydra parameters to overwrite
+===================================
 
 See `Hydra's documentation on command line flags <https://hydra.cc/docs/advanced/hydra-command-line-flags/>`_
 page for more informations.

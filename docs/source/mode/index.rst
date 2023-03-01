@@ -1,5 +1,7 @@
+.. _modeindex:
+
 Mode
-====
+++++
 
 .. _datatiling:
 
