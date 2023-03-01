@@ -6,8 +6,8 @@ The geo-deep-learning project stems from an initiative at
 Its aim is to allow using **Convolutional Neural Networks (CNN)** and other 
 deep-learning methods with georeferenced datasets.
 
-Check out the :doc:`quickstart` section for further information, including
-how to :ref:`installation` the project.
+Check out the :doc:`quickstart` section for further information on how **GDL** work, 
+including how to run the :ref:`installation` for this the project.
 
 .. note::
 
@@ -18,6 +18,7 @@ Documentation
 -------------
 
 .. toctree::
+   :maxdepth: 1
 
    quickstart
    mode/index
