@@ -22,5 +22,5 @@ Documentation
 
    quickstart
    mode/index
-   task/segmentation
+   task/index
    configuration
