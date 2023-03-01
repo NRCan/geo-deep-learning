@@ -7,7 +7,7 @@ Requirement
 This project comprises a set of commands to be run at a shell command prompt.
 Examples used here are for a bash shell in an Ubuntu GNU/Linux environment.
 
-- `Python 3.9 <https://www.python.org/downloads/release/python-390/>`_, see the full list of dependencies in [environment.yml](environment.yml)
+- `Python 3.9 <https://www.python.org/downloads/release/python-390/>`_, see the full list of dependencies in `environment.yml <https://github.com/NRCan/geo-deep-learning/tree/develop/environment.yml>`_
 - `hydra <https://hydra.cc/docs/intro/>`_
 - `mlflow <https://mlflow.org/>`_
 - `miniconda <https://docs.conda.io/en/latest/miniconda.html>`_ (highly recommended)
@@ -63,23 +63,29 @@ This example runs with a default configuration
 For further examples on configuration options or how to change the configuration 
 go see the :ref:`configuration` documentation.
 
-.. Creating recipes
-.. ----------------
+.. currentmodule:: losses
 
-.. To retrieve a list of random ingredients,
-.. you can use the ``lumache.get_random_ingredients()`` function:
+Creating recipes
+----------------
 
-.. .. autofunction:: lumache.get_random_ingredients
+To retrieve a list of random ingredients,
+you can use the ``lumache.get_random_ingredients()`` function:
 
-.. The ``kind`` parameter should be either ``"meat"``, ``"fish"``,
-.. or ``"veggies"``. Otherwise, :py:func:`lumache.get_random_ingredients`
-.. will raise an exception.
+.. automodule:: losses.boundary_loss
+   :members:
+   :special-members:
 
-.. .. autoexception:: lumache.InvalidKindError
+.. autofunction:: losses.boundary_loss.one_hot
 
-.. For example:
+The ``kind`` parameter should be either ``"meat"``, ``"fish"``,
+or ``"veggies"``. Otherwise, :py:func:`lumache.get_random_ingredients`
+will raise an exception.
 
-.. >>> import lumache
-.. >>> lumache.get_random_ingredients()
-.. ['shells', 'gorgonzola', 'parsley']
+.. autoexception:: losses.lumache.InvalidKindError
+
+For example:
+
+>>> import lumache
+>>> lumache.get_random_ingredients()
+['shells', 'gorgonzola', 'parsley']
 

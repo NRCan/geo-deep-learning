@@ -8,7 +8,19 @@ logging.getLogger(__name__)
 
 
 def one_hot(label, n_classes, requires_grad=True):
-    """Return One Hot Label"""
+    """
+    Return One Hot Label
+    
+    :param label: list of label.
+    :type label: list[str] or None
+    :param n_classes: number of classes.
+    :type n_classes: int
+    :param requires_grad: Optional "requires_grad" of ingredients.
+    :type requires_grad: bool
+    :return: The ingredients list.
+    :rtype: list[str]
+    """
+    # """Return One Hot Label"""
     device = label.device
     one_hot_label = torch.eye(
         n_classes, device=device, requires_grad=requires_grad)[label]
@@ -18,13 +30,23 @@ def one_hot(label, n_classes, requires_grad=True):
 
 
 class BoundaryLoss(nn.Module):
-    """Boundary Loss proposed in:
+    """
+    Boundary Loss proposed in:
     Alexey Bokhovkin et al., Boundary Loss for Remote Sensing Imagery Semantic Segmentation
     https://arxiv.org/abs/1905.07852
     From: https://github.com/yiskw713/boundary_loss_for_remote_sensing
     """
 
     def __init__(self, theta0=19, theta=19, ignore_index=None):
+        """
+        Return a list of random ingredients as strings.
+
+        :param kind: Optional "kind" of ingredients.
+        :type kind: list[str] or None
+        :raise lumache.InvalidKindError: If the kind is invalid.
+        :return: The ingredients list.
+        :rtype: list[str]
+        """
         super().__init__()
 
         self.theta0 = theta0

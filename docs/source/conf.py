@@ -38,7 +38,7 @@ html_static_path = ['_static']
 
 templates_path = ['_templates']
 
-source_suffix = ['.rst', '.md']
+# source_suffix = ['.rst', '.md']
 
 # -- Options for HTML output
 
