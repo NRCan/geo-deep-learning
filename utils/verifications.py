@@ -36,7 +36,7 @@ def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: 
                       f'Extended check: {extended}')
         if not raster.meta['dtype'] in ['uint8', 'uint16']:  # will trigger exception if invalid raster
             logging.warning(f"Only uint8 and uint16 are supported in current version.\n"
-                            f"Datatype {raster.meta['dtype']} for {raster.aoi_id} may cause problems.")
+                            f"Datatype {raster.meta['dtype']} for {raster} may cause problems.")
         if extended:
             logging.debug(f'Will perform extended check.\nWill read first band: {raster}')
             window = Window(raster.width-200, raster.height-200, raster.width, raster.height)

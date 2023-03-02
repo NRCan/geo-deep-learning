@@ -5,6 +5,7 @@ from pathlib import Path
 from time import sleep
 
 import pytest
+import rasterio
 from hydra.utils import to_absolute_path
 from torchgeo.datasets.utils import extract_archive
 from torchvision.datasets.utils import download_url
@@ -89,20 +90,26 @@ class TestUtils(unittest.TestCase):
         filename = Path(url).name
         root = to_absolute_path("tests/utils")
         fpath = Path(root) / filename
-        for i in range(2):
-            init_sleep = 4 if i > 0 else 0
-            #download_and_validate(url, root, filename, init_sleep)
-            inputs.append([download_and_validate, url, root, filename, init_sleep])
-        # not printing, but seems to be working...
-        with multiprocessing.get_context('spawn').Pool(None) as pool:
-            pool.map_async(map_wrapper, inputs).get()
-        os.remove(fpath)
+        for wcheck in [True, False]:
+            for i in range(2):
+                init_sleep = 4 if i > 0 else 0
+                inputs.append([download_and_validate, url, root, filename, init_sleep, wcheck])
+            if not wcheck:
+                with pytest.raises(rasterio.errors.RasterioIOError):
+                    with multiprocessing.get_context('spawn').Pool(None) as pool:
+                        pool.map_async(map_wrapper, inputs).get()
+            else:
+                with multiprocessing.get_context('spawn').Pool(None) as pool:
+                    pool.map_async(map_wrapper, inputs).get()
+            os.remove(fpath)
 
 
-def download_and_validate(url, root, filename, init_sleep):
+def download_and_validate(url, root, filename, init_sleep, wcheck: bool = True):
     sleep(init_sleep)
-    # basic download functions fails (uncomment to test)
-    #download_url(url, root, filename)
-    # adapted function succeeds
-    download_url_wcheck(url, root, filename)
+    # basic download functions fails since multiple threads download same file
+    if not wcheck:
+        download_url(url, root, filename)
+    else:
+        # adapted function succeeds
+        download_url_wcheck(url, root, filename)
     validate_raster(Path(root) / filename, extended=True)

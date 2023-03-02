@@ -646,22 +646,6 @@ def update_gdl_checkpoint(checkpoint: Union[dict, DictConfig]) -> Dict:
     return checkpoint
 
 
-def get_file_size(filepath):
-    """
-    Copied from https://instructobit.com/tutorial/117/Detecting-files-in-the-process-of-being-copied-or-written-to-in-Python#Detecting-changed-made-to-large-files-using-size-comparison
-    """
-    # open the file in read only
-    with open(filepath, "r") as file:
-        # move pointer to the end of the file
-        file.seek(0, 2)
-        # retrieve the current position of the pointer
-        # this will be the file's size in bytes
-        size = file.tell()
-        return size
-    # if the function reaches this statement it means an error occurred within the above context handler
-    return False
-
-
 def wait_while_modif(fpath: Union[str, Path], sleep_secs: int = 10, timeout: int = 1800) -> None:
     """
     fpath (str or Path): Path to file potentially being modified
@@ -671,14 +655,14 @@ def wait_while_modif(fpath: Union[str, Path], sleep_secs: int = 10, timeout: int
     timeout_time = time.time() + timeout
     if Path(fpath).is_file():
         while True:
-            initial_size = get_file_size(fpath)
+            initial_size = os.stat(fpath).st_size
             sleep(sleep_secs)
-            final_size = get_file_size(fpath)
+            final_size = os.stat(fpath).st_size
             if time.time() > timeout_time:
                 raise TimeoutError(f"File has been modified for more than {timeout} seconds. \nFile: {fpath}")
             # if the initial size is equal to the final size, the file has most likely
             # not changed, unless they are both False.
-            elif initial_size == final_size and initial_size is not False:
+            elif initial_size == final_size:
                 logging.debug(f"File has not changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
                 break
             logging.debug(f"File has changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
@@ -702,21 +686,10 @@ def download_url_wcheck(
         sleep_secs (int, optional): Seconds to wait before re-checking the size of file to be downloaded
         timeout (int, optional): Maximum amount of time (seconds) to check if file size has change
     """
-    timeout = time.time() + timeout
+    timeout = int(time.time() + timeout)
     fpath = Path(root) / filename
     if fpath.is_file():
-        while True:
-            initial_size = get_file_size(fpath)
-            sleep(sleep_secs)
-            final_size = get_file_size(fpath)
-            if time.time() > timeout:
-                raise TimeoutError(f"File has been modified for more than {timeout} seconds. \nFile: {fpath}")
-            # if the initial size is equal to the final size, the file has most likely
-            # not changed, unless they are both False.
-            elif initial_size == final_size and initial_size is not False:
-                logging.debug(f"File has not changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
-                break
-            logging.debug(f"File has changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
+        wait_while_modif(fpath=fpath, sleep_secs=sleep_secs, timeout=timeout)
     else:
         download_url(url=url, root=root, filename=filename, md5=md5, max_redirect_hops=max_redirect_hops)
 
