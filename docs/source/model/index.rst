@@ -1,5 +1,0 @@
-.. _modelindex:
-
-Models
-++++++
-

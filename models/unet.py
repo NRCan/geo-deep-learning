@@ -66,6 +66,15 @@ class UNet(nn.Module):
     """Main UNet architecture"""
 
     def __init__(self, classes, in_channels, dropout=False, prob=0.5):
+        """Initialize the UNet.
+
+        Args:
+            classes (int): number of classes for output mask 
+                           (or you can think as a number of channels of output mask).
+            in_channels (int): number of input channels for the model, default is 3 (RGB images).
+            dropout (bool, optional): spatial dropout rate in range. Defaults to False.
+            prob (float, optional): dropout probability. Defaults to 0.5.
+        """        
         super().__init__()
 
         self.conv1 = EncodingBlock(in_channels, 64, dropout=dropout, prob=prob)
@@ -87,6 +96,14 @@ class UNet(nn.Module):
         self.final = nn.Conv2d(64, classes, kernel_size=1)
 
     def forward(self, input_data):
+        """Foward function use during trainning.
+
+        Args:
+            input_data (Tensor): tensor containing the image.
+
+        Returns:
+            Tensor: tensor containing the result from the model.
+        """        
         conv1 = self.conv1(input_data)
         maxpool1 = self.maxpool1(conv1)
         conv2 = self.conv2(maxpool1)
@@ -108,10 +125,19 @@ class UNet(nn.Module):
         return final
 
 
-class UNetSmall(nn.Module):
-    """Main UNet architecture"""
+class UNetSmall(nn.Module):   
+    """Main UNetSmall architecture, less deep version of Unet"""
 
     def __init__(self, classes, in_channels, dropout=False, prob=0.5):
+        """Initialize the UNetSmall.
+
+        Args:
+            classes (int): number of classes for output mask 
+                           (or you can think as a number of channels of output mask).
+            in_channels (int): number of input channels for the model, default is 3 (RGB images).
+            dropout (bool, optional): spatial dropout rate in range. Defaults to False.
+            prob (float, optional): dropout probability. Defaults to 0.5.
+        """        
         super().__init__()
 
         self.conv1 = EncodingBlock(in_channels, 32, dropout=dropout, prob=prob)
@@ -130,6 +156,14 @@ class UNetSmall(nn.Module):
         self.final = nn.Conv2d(32, classes, kernel_size=1)
 
     def forward(self, input_data):
+        """Foward function use during trainning.
+
+        Args:
+            input_data (Tensor): tensor containing the image.
+
+        Returns:
+            Tensor: tensor containing the result from the model.
+        """        
         conv1 = self.conv1(input_data)
         maxpool1 = self.maxpool1(conv1)
         conv2 = self.conv2(maxpool1)

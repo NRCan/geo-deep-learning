@@ -24,5 +24,5 @@ Documentation
    mode/index
    task/index
    configuration
-   model/index
+   model
    losses

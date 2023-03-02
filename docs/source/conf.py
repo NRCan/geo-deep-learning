@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.abspath('../..'))
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 # Since we aren't installing package here, we mock imports of the dependencies.
 sys.path.insert(0, os.path.abspath('../../losses'))
+sys.path.insert(0, os.path.abspath('../../models'))
 
 # -- Project information
 
@@ -27,7 +28,10 @@ version = '0.1.0'
 master_doc = 'index'
 
 autodoc_mock_imports = [
-    'torch', 'numpy', 'ruamel_yaml', 'mlflow', 
+    'torch', 'numpy', 'ruamel_yaml', 'mlflow', 'hydra',
+    'pandas', 'pytorch_lightning', 'rich', 'omegaconf',
+    'scipy', 'torchvision', 'rasterio', 'affine', 'segmentation_models_pytorch',
+    
 ]
 
 # -- General configuration
