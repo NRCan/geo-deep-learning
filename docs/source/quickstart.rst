@@ -62,30 +62,3 @@ This example runs with a default configuration
 ``./config/gdl_config_template.yaml``. 
 For further examples on configuration options or how to change the configuration 
 go see the :ref:`configuration` documentation.
-
-.. currentmodule:: losses
-
-Creating recipes
-----------------
-
-To retrieve a list of random ingredients,
-you can use the ``lumache.get_random_ingredients()`` function:
-
-.. automodule:: losses.boundary_loss
-   :members:
-   :special-members:
-
-.. autofunction:: losses.boundary_loss.one_hot
-
-The ``kind`` parameter should be either ``"meat"``, ``"fish"``,
-or ``"veggies"``. Otherwise, :py:func:`lumache.get_random_ingredients`
-will raise an exception.
-
-.. autoexception:: losses.lumache.InvalidKindError
-
-For example:
-
->>> import lumache
->>> lumache.get_random_ingredients()
-['shells', 'gorgonzola', 'parsley']
-

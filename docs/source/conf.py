@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 # Configuration file for the Sphinx documentation builder.
 
 import os
@@ -5,6 +7,12 @@ import sys
 
 # path to repo-head
 sys.path.insert(0, os.path.abspath('../..'))
+
+# If extensions (or modules to document with autodoc) are in another directory,
+# add these directories to sys.path here. If the directory is relative to the
+# documentation root, use os.path.abspath to make it absolute, like shown here.
+# Since we aren't installing package here, we mock imports of the dependencies.
+sys.path.insert(0, os.path.abspath('../../losses'))
 
 # -- Project information
 
@@ -14,6 +22,11 @@ author = 'Charles Authier at NRCAN'
 
 release = '0.1'
 version = '0.1.0'
+
+# The master toctree document.
+master_doc = 'index'
+
+autodoc_mock_imports = ['torch']
 
 # -- General configuration
 
@@ -26,6 +39,9 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
+    'sphinx.ext.coverage',
+    'sphinx.ext.githubpages',
+    'sphinx.ext.napoleon',
 ]
 
 intersphinx_mapping = {
@@ -38,7 +54,10 @@ html_static_path = ['_static']
 
 templates_path = ['_templates']
 
-# source_suffix = ['.rst', '.md']
+source_suffix = '.rst'
+
+# If true, `todo` and `todoList` produce output, else they produce nothing.
+todo_include_todos = True
 
 # -- Options for HTML output
 
@@ -52,3 +71,9 @@ html_theme_options = {
 
 # -- Options for EPUB output
 epub_show_urls = 'footnote'
+
+# -- Options for HTMLHelp output ------------------------------------------
+
+# Output file base name for HTML help builder.
+htmlhelp_basename = 'GDLdoc'
+

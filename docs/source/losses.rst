@@ -25,7 +25,21 @@ based on how far it is form the actual expected value.
 
 .. autoclass:: losses.boundary_loss.BoundaryLoss
 
+essaye
+
+.. automodule:: losses.boundary_loss.BoundaryLoss
+
+essaye
+
 .. autofunction:: gdl_hyperopt_template.get_latest_mlrun
+
+essaye
+
+.. autofunction:: losses.lumache.get_random_ingredients
+
+essaye
+
+.. autoexception:: losses.lumache.InvalidKindError
 
 test
 

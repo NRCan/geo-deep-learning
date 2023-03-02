@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+"""
+Boundary Loss - Implementation of the loss of the same name.
+============================================================
+Created on Sun Nov 18 19:26:01 2018
+@author: Charles
+"""
+
 import logging
 
 import torch
@@ -5,6 +13,23 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 logging.getLogger(__name__)
+
+class InvalidKindError(Exception):
+    """Raised if the kind is invalid."""
+    pass
+
+
+def get_random_ingredients(kind=None):
+    """
+    Return a list of random ingredients as strings.
+
+    :param kind: Optional "kind" of ingredients.
+    :type kind: list[str] or None
+    :raise lumache.InvalidKindError: If the kind is invalid.
+    :return: The ingredients list.
+    :rtype: list[str]
+    """
+    return ["shells", "gorgonzola", "parsley"]
 
 
 def one_hot(label, n_classes, requires_grad=True):

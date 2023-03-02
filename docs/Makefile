@@ -5,6 +5,7 @@
 # from the environment for the first two.
 SPHINXOPTS    ?=
 SPHINXBUILD   ?= sphinx-build
+SPHINXPROJ    = GDL
 SOURCEDIR     = source
 BUILDDIR      = build
 
@@ -12,7 +13,21 @@ BUILDDIR      = build
 help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-.PHONY: help Makefile
+.PHONY: help docs Makefile
+
+
+docs: test
+
+
+clean :
+	rm -rf ./build/
+
+
+test : clean
+	@$(SPHINXBUILD) -b linkcheck "$(SOURCEDIR)" "$(BUILDDIR)"
+	make clean
+	@$(SPHINXBUILD) -b html "$(SOURCEDIR)" "$(BUILDDIR)"
+
 
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
