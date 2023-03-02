@@ -19,12 +19,20 @@ def soft_dice_score(
 
 
 class DiceLoss(nn.Module):
+    """Implementation of Dice loss for image segmentation task from 
+    https://smp.readthedocs.io/en/latest/losses.html#diceloss.
+    It supports binary and multiclass cases.
+    """
 
     def __init__(self, smooth=1.0, eps=1e-7, ignore_index=None, mode='MULTICLASS_MODE'):
-        """Implementation of Dice loss for image segmentation task.
-        https://github.com/qubvel/segmentation_models.pytorch
-        """
+        """Initialize the dice loss for image segmentation task.
 
+        Args:
+            smooth (float, optional): smoothness constant for dice coefficient . Defaults to 1.0.
+            eps (float, optional): small epsilon for numerical stability to avoid zero division error. Defaults to 1e-7.
+            ignore_index (int, optional): target value that is ignored and does not contribute to the input gradient. Defaults to None.
+            mode (str, optional): loss mode 'MULTICLASS_MODE' or 'BINARY_MODE'. Defaults to 'MULTICLASS_MODE'.
+        """     
         super().__init__()
         self.smooth = smooth
         self.eps = eps
@@ -32,6 +40,15 @@ class DiceLoss(nn.Module):
         self.mode = mode
 
     def forward(self, output, target):
+        """Foward function use during trainning. 
+        
+        Args:
+            output (Tensor): the output from model.
+            target (Tensor): ground truth.
+
+        Returns:
+            Tensor: dice loss score.
+        """        
         bs = target.size(0)
         num_classes = output.size(1)
         dims = (0, 2)

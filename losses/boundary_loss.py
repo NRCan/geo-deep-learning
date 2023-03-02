@@ -28,9 +28,9 @@ def one_hot(label, n_classes, requires_grad=True):
 
 class BoundaryLoss(nn.Module):
     """
-    Boundary Loss proposed in:
-    Alexey Bokhovkin et al., Boundary Loss for Remote Sensing Imagery Semantic Segmentation
-    https://arxiv.org/abs/1905.07852
+    Boundary Loss proposed in the paper *Boundary Loss for Remote Sensing Imagery Semantic Segmentation*
+    from *Alexey Bokhovkin et al.* (https://arxiv.org/abs/1905.07852)
+    
     From: https://github.com/yiskw713/boundary_loss_for_remote_sensing
     """
 
@@ -54,11 +54,11 @@ class BoundaryLoss(nn.Module):
         """Foward function use during trainning. 
 
         Args:
-            pred (torch.tensor):  the output from model (before softmax), shape (N, C, H, W).
-            gt (torch.tensor): ground truth map, shape (N, H, w).
+            pred (Tensor): the output from model (before softmax), shape (N, C, H, W).
+            gt (Tensor): ground truth, shape (N, H, W).
 
         Returns:
-            torch.tensor: boundary loss, averaged over mini-batch.
+            Tensor: boundary loss score, averaged over mini-batch.
         """
         n, c, _, _ = pred.shape
         logging.debug(f"Prediction shape: {gt.shape}")

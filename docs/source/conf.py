@@ -27,7 +27,7 @@ version = '0.1.0'
 master_doc = 'index'
 
 autodoc_mock_imports = [
-    'torch', 'numpy', 'ruamel_yaml', 
+    'torch', 'numpy', 'ruamel_yaml', 'mlflow', 
 ]
 
 # -- General configuration

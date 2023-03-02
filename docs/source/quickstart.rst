@@ -41,7 +41,7 @@ Running GDL
 
 This is an example of how to run **GDL** for a :ref:`segmentation` task on 
 the *massachusetts buildings* dataset (add the link).  
-**GDL** is using `Hydra <https://hydra.cc/>`_ library for more information 
+**GDL** is using `Hydra library <https://hydra.cc/>`_ for more information 
 see the :ref:`configuration` section or go visit their documentation.
 
 .. code-block:: console
