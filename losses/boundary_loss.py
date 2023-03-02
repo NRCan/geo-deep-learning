@@ -14,36 +14,9 @@ import torch.nn.functional as F
 
 logging.getLogger(__name__)
 
-class InvalidKindError(Exception):
-    """Raised if the kind is invalid."""
-    pass
-
-
-def get_random_ingredients(kind=None):
-    """
-    Return a list of random ingredients as strings.
-
-    :param kind: Optional "kind" of ingredients.
-    :type kind: list[str] or None
-    :raise lumache.InvalidKindError: If the kind is invalid.
-    :return: The ingredients list.
-    :rtype: list[str]
-    """
-    return ["shells", "gorgonzola", "parsley"]
-
-
 def one_hot(label, n_classes, requires_grad=True):
     """
     Return One Hot Label
-    
-    :param label: list of label.
-    :type label: list[str] or None
-    :param n_classes: number of classes.
-    :type n_classes: int
-    :param requires_grad: Optional "requires_grad" of ingredients.
-    :type requires_grad: bool
-    :return: The ingredients list.
-    :rtype: list[str]
     """
     # """Return One Hot Label"""
     device = label.device
@@ -63,14 +36,12 @@ class BoundaryLoss(nn.Module):
     """
 
     def __init__(self, theta0=19, theta=19, ignore_index=None):
-        """
-        Return a list of random ingredients as strings.
+        """Initialize the boundary loss.
 
-        :param kind: Optional "kind" of ingredients.
-        :type kind: list[str] or None
-        :raise lumache.InvalidKindError: If the kind is invalid.
-        :return: The ingredients list.
-        :rtype: list[str]
+        Args:
+            theta0 (int, optional): _description_. Defaults to 19.
+            theta (int, optional): _description_. Defaults to 19.
+            ignore_index (int, optional): _description_. Defaults to None.
         """
         super().__init__()
 

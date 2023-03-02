@@ -26,7 +26,9 @@ version = '0.1.0'
 # The master toctree document.
 master_doc = 'index'
 
-autodoc_mock_imports = ['torch']
+autodoc_mock_imports = [
+    'torch', 'numpy'
+]
 
 # -- General configuration
 

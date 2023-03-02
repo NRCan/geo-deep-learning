@@ -27,7 +27,7 @@ based on how far it is form the actual expected value.
 
 essaye
 
-.. automodule:: losses.boundary_loss.BoundaryLoss
+.. autofunction:: losses.boundary_loss.one_hot
 
 essaye
 
@@ -35,11 +35,10 @@ essaye
 
 essaye
 
-.. autofunction:: losses.lumache.get_random_ingredients
+.. automodule:: losses.boundary_loss
+   :members:
+   :special-members:
 
-essaye
-
-.. autoexception:: losses.lumache.InvalidKindError
 
 test
 
