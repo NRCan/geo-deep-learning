@@ -1,11 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Boundary Loss - Implementation of the loss of the same name.
-============================================================
-Created on Sun Nov 18 19:26:01 2018
-@author: Charles
-"""
-
 import logging
 
 import torch
@@ -14,11 +6,18 @@ import torch.nn.functional as F
 
 logging.getLogger(__name__)
 
+
 def one_hot(label, n_classes, requires_grad=True):
+    """Return One Hot Label
+
+    Args:
+        label (_type_): _description_
+        n_classes (_type_): _description_
+        requires_grad (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        _type_: label on a form of an one hot vector.
     """
-    Return One Hot Label
-    """
-    # """Return One Hot Label"""
     device = label.device
     one_hot_label = torch.eye(
         n_classes, device=device, requires_grad=requires_grad)[label]
@@ -39,9 +38,9 @@ class BoundaryLoss(nn.Module):
         """Initialize the boundary loss.
 
         Args:
-            theta0 (int, optional): _description_. Defaults to 19.
-            theta (int, optional): _description_. Defaults to 19.
-            ignore_index (int, optional): _description_. Defaults to None.
+            theta0 (int, optional): size of the sliding window. Defaults to 19.
+            theta (int, optional): predened threshold on a distance. Defaults to 19.
+            ignore_index (int, optional): index to be ignore during trainning. Defaults to None.
         """
         super().__init__()
 
@@ -51,17 +50,16 @@ class BoundaryLoss(nn.Module):
         if self.ignore_index:
             logging.error(f'Ignore_index not implemented for Boundary Loss. Got ignore_index "{ignore_index}"')
 
-    def forward(self, pred, gt):
-        """
-        Input:
-            - pred: the output from model (before softmax)
-                    shape (N, C, H, W)
-            - gt: ground truth map
-                    shape (N, H, w)
-        Return:
-            - boundary loss, averaged over mini-batch
-        """
+    def forward(self, pred, gt):        
+        """Foward function use during trainning. 
 
+        Args:
+            pred (torch.tensor):  the output from model (before softmax), shape (N, C, H, W).
+            gt (torch.tensor): ground truth map, shape (N, H, w).
+
+        Returns:
+            torch.tensor: boundary loss, averaged over mini-batch.
+        """
         n, c, _, _ = pred.shape
         logging.debug(f"Prediction shape: {gt.shape}")
 

@@ -24,6 +24,8 @@ output 0 or 1 and a score/loss is calculated that penalizes the probability
 based on how far it is form the actual expected value.
 
 .. autoclass:: losses.boundary_loss.BoundaryLoss
+   :members:
+   :special-members:
 
 essaye
 
