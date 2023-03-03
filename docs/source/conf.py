@@ -14,6 +14,9 @@ sys.path.insert(0, os.path.abspath('../..'))
 # Since we aren't installing package here, we mock imports of the dependencies.
 sys.path.insert(0, os.path.abspath('../../losses'))
 sys.path.insert(0, os.path.abspath('../../models'))
+sys.path.insert(0, os.path.abspath('../../config/tiling'))
+sys.path.insert(0, os.path.abspath('../../config/inference'))
+sys.path.insert(0, os.path.abspath('../../config/training'))
 
 # -- Project information
 

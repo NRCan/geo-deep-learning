@@ -53,17 +53,19 @@ have their functionality that will be explain.
     mode:  ...
     debug: ...
 
+.. _configurationdefaultparam:
+
 Defaults Parameters
 ===================
 
 The *defaults* section is where all default ``yaml`` files are loaded as input values for each category of parameters, 
-you dont have to specify all of them.
+you don't have to specify all of them.
 For example, ``model: gdl_unet`` means the ``config`` folder contains a subfolder called ``model`` which have a ``gdl_unet.yaml`` file.
 So for every time that **GDL** code call the parameter ``model``, it will have all the variables set in the ``gdl_unet.yaml``.
 If you want to run **GDL** with another model like ``smp_deeplabv3``, you only have to change ``model: gdl_unet`` to ``model: smp_deeplabv3``.
 Just be sure that you have ``smp_deeplabv3.yaml`` in your ``model`` folder 
 (the :ref:`confexample` section have an example on how to change this parameter in the command line).
-Options for each category of parameters are found in config subfolders by the same name.
+Options for each category of parameters are found in config subfolder by the same name.
 
 .. code-block:: yaml
 
@@ -94,26 +96,32 @@ you'll need to include ``# @package _global_`` at the beginning of each ``yaml``
 By doing so, the code in python will read ``model.parameters_name`` as a directory.
 If you accidentally omit the prefix ``# @package _global_``, 
 the python code will read ``model.unet.parameters_name`` (as set by default currently), 
-so to be more versatille we want to read ``model.parameters_name``.
+so to be more versatile we want to read ``model.parameters_name``.
 For example if you created ``new_model.yaml`` to be read as a model and you don't want
 to change the main code to read this file each time you change model.
 For more information about packages in Hydra,
 see `Hydra's documentation on Packages <https://hydra.cc/docs/advanced/overriding_packages>`_.
 
-The *tracker* is set to nothing by default, but will still log the information in the log folder.
+For the ``tiling`` parameter, you can find more information in the :ref:`datatiling`
+containing the information to execute the this job.
+Same for the ``training`` and ``inference`` parameter, the information can be found at 
+the :ref:`training` and :ref:`inference` section respectively.
+When *training* the ``inference`` part doesn't need to be filled 
+and vice versa.
+
+The ``tracker`` is set to nothing by default, but will still log the information in the log folder.
 If you want to set a tracker you can change the value in the config file or add the tracker
 parameter at execution time via the command line ``python GDL.py tracker=mlflow mode=train``.
-We recommend to use ``mlflow``, since the development team use it, but you can use watherver you want and 
+We recommend to use ``mlflow``, since the development team use it, but you can use whatever you want and 
 create a ``yaml`` for it.
 
-The *inference* contains the information to execute the inference job (more options will follow soon).
-This part doesn't need to be filled if you want to launch other task that not *inference*.
+.. _configurationgeneralparam:
 
 General Parameters
 ==================
 
 This section contains general parameters information that will be read by the code,
-normaly contain parameters offen changed or paths to important file.  
+normally contain parameters offend changed or paths to important file.  
 Other ``yaml`` files from the *defaults* section will read parameters from the *general* section.
 
 .. code-block:: yaml
@@ -149,7 +157,7 @@ Mode Parameter
     mode: {verify, tiling, train, inference, evaluate}
 
 For **GDL**, the mode available are:
-    - *verify*, verify the given datas and generate an ``csv`` with infos and stats on thoses images.
+    - *verify*, verify the given data and generate an ``csv`` with infos and stats on those images.
     - *tiling*, generates tiles from each source aoi (image & ground truth).
     - *train*, will train the model specified with all the parameters in the configuration file.
     - *inference*, generate the inference for the given images.
