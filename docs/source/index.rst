@@ -26,3 +26,4 @@ Documentation
    configuration
    model
    losses
+   dataset

@@ -52,11 +52,11 @@ this configuration file look a like:
     If True, the tiling script will ensure all pixels values in the rasterized ground truth have 
     continuous values starting at 1 (0 being background). 
     In most cases, this parameter has no impact as values may already be continuous. However, it becomes 
-    useful to set ``continuous_values == True`` when filtering polygons from a ground truth file using
+    useful to set to ``True`` when filtering polygons from a ground truth file using
     an attribute field and attribute values (see the dataset section). For example, filtering values
     ``[2,4]`` from a given attribute field will create ground truth rasterized patches with these same 
-    discontinuous values, unless ``continuous_values == True``. 
-    If you choose to set ``continuous_values == False``, errors may occur in metrics calculation, 
+    discontinuous values, unless the value is ``True``. 
+    If you choose to set to ``False``, errors may occur in metrics calculation, 
     training and outputted values at inference. We strongly recommend keeping the default ``True`` value.
 - ``save_preview_labels`` (bool)
     If True, a ``.png`` copy of rasterized ground truth patches will be written for quick visualization. 
@@ -67,7 +67,7 @@ this configuration file look a like:
 - ``multiprocessing`` (bool)
     If True, the tiling script uses Python's multiprocessing capability to process each AOI in parallel. 
     This greatly accelerates the tiling process. For testing or debugging purposes or for small dataset, 
-    we'd recommend keeping the default ``multiprocessing == False``.
+    we'd recommend keeping the default value ``False``.
 - ``clahe_clip_limit`` (int)
     Our teams empirical tests have shown that, in most satellite imagery with right skewed histogram 
     (ex.: most of Worldview imagery), histogram equalization with the 
@@ -163,17 +163,17 @@ will be found in :ref:`configurationdefaultparam` under ``inference`` and this c
     Directory in which to save the checkpoint file if url.
 - ``chunk_size`` (int)
     Size of chunk (in pixels) to read use for inference iterations over input imagery. The input patch will
-    be square, therefore ``chunk_size = 512`` will generate 512 x 512 patches.
+    be square, therefore set at ``512`` it will generate 512 x 512 patches.
 - ``max_pix_per_mb_gpu`` (int)
     If chunk_size is omitted, this defines a "*maximum number of pixels per MB of GPU Ram*" that should be 
     considered. E.g. if GPU has 1000 Mb of Ram and this parameter is set to 10, chunk_size will be set to 
     ``sqrt(1000 * 10) = 100``. By defaults it's set to 25. Since this feature is based on a rule-of-thumb 
     and assumes some prior empirical testing. WIP. 
 - ``prep_data_only`` (bool)
-    If True, the inference script will exit after preparation of input data:
-        1. If checkpoint path is url, then the checkpoint will be download.
-        2. If imagery points to urls, it will be downloaded.
-        3. If input model expects imagery with :ref:`histogram equalization <datatiling>`, this enhancement is applied and equalized images save to disk.
+    If True, the inference script will exit after preparation of input data.
+    If checkpoint path is url, then the checkpoint will be download, if imagery points to urls, it will be 
+    downloaded and if input model expects imagery with :ref:`histogram equalization <datatiling>`, this 
+    enhancement is applied and equalized images save to disk.
 - ``gpu`` (int)
     Number of gpus to use at inference. 
 - ``max_used_perc`` (int)

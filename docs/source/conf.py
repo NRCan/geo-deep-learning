@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.abspath('../../models'))
 sys.path.insert(0, os.path.abspath('../../config/tiling'))
 sys.path.insert(0, os.path.abspath('../../config/inference'))
 sys.path.insert(0, os.path.abspath('../../config/training'))
+sys.path.insert(0, os.path.abspath('../../config/dataset'))
 
 # -- Project information
 
