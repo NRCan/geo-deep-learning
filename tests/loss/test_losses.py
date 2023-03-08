@@ -24,8 +24,6 @@ class TestLossesZoo(object):
                 num_classes = 1 if dataset_type == 'binary' else 5
                 class_weights = [1/num_classes for i in range(num_classes)]
                 for loss_config in Path(to_absolute_path(f"config/loss/{dataset_type}")).glob('*.yaml'):
-                    print(loss_config)
-                    print(dataset_type)
                     cfg = compose(config_name="gdl_config_template",
                                   overrides=[f"loss={dataset_type}/{loss_config.stem}"],
                                   return_hydra_config=True)
@@ -55,6 +53,6 @@ class TestLossesZoo(object):
                     outputs = torch.ones(1, num_classes, 256, 256)
                     labels = torch.ones(1, 256, 256)
                     #loss = criterion(outputs, labels.unsqueeze(1).float())
-                    loss = criterion(outputs, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
+                    loss = criterion(outputs, labels, dtype=torch.long) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float(), dtype=torch.long)
                     print(loss)
                     # loss.backward()
