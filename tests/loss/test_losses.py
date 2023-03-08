@@ -26,6 +26,7 @@ class TestLossesZoo(object):
                     criterion = define_loss(loss_params=cfg.loss, class_weights=class_weights)
                     # test if binary and multiclass work
                     outputs = torch.randn(1, num_classes, 256, 256, requires_grad=True)
-                    labels = torch.randn(1, num_classes, 256, 256).softmax(dim=1)
+                    labels = torch.randn(1, 256, 256)
                     loss = criterion(outputs, labels.unsqueeze(1).float())
+                    #loss = criterion(outputs, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
                     loss.backward()
