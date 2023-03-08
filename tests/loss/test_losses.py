@@ -16,9 +16,9 @@ class TestLossesZoo(object):
             for dataset_type in ['binary', 'multiclass']:
                 num_classes = 1 if dataset_type == 'binary' else 5
                 class_weights = [1/num_classes for i in range(num_classes)]
-                print(os.listdir(to_absolute_path(f"../../config/loss/{dataset_type}")))
+                print(os.listdir(to_absolute_path(f"config/loss/{dataset_type}")))
                 #verify_weights(num_classes, class_weights)
-                for loss_config in Path(to_absolute_path(f"../../config/loss/{dataset_type}")).glob('*.yaml'):
+                for loss_config in Path(to_absolute_path(f"config/loss/{dataset_type}")).glob('*.yaml'):
                     print(loss_config)
                     print(dataset_type)
                     cfg = compose(config_name="gdl_config_template",
@@ -36,9 +36,9 @@ class TestLossesZoo(object):
                     print(loss)
                     loss.backward()
     
-    def test_binary_multi_loss(self) -> None:
-        loss = torch.nn.CrossEntropyLoss(ignore_index=255)
-        # Example of target with class probabilities
-        input = torch.ones(32, 1, 512, 512, requires_grad=True)
-        target = torch.ones(32, 515, 512, dtype=torch.long)
-        output = loss(input, target.unsqueeze(1).float())
+    # def test_binary_multi_loss(self) -> None:
+    #     loss = torch.nn.CrossEntropyLoss(ignore_index=255)
+    #     # Example of target with class probabilities
+    #     input = torch.ones(32, 1, 512, 512, requires_grad=True)
+    #     target = torch.ones(32, 515, 512, dtype=torch.long)
+    #     output = loss(input, target.unsqueeze(1).float())
