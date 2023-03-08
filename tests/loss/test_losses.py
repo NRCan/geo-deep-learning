@@ -34,7 +34,7 @@ class TestLossesZoo(object):
                     #loss = criterion(outputs, labels.unsqueeze(1).float())
                     loss = criterion(outputs, labels) #if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
                     print(loss)
-                    loss.backward()
+                    # loss.backward()
     
     # def test_binary_multi_loss(self) -> None:
     #     loss = torch.nn.CrossEntropyLoss(ignore_index=255)
