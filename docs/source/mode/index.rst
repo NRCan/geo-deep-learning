@@ -20,9 +20,9 @@ preparation phase creates `chips <https://torchgeo.readthedocs.io/en/latest/user
 (or patches) that will be used for either training, validation or testing with the dataloader.
 For this tiling step, **GDL** requires a csv as input with a list of rasters and labels to be
 used in the subsequent training phase.
-This csv need to have be specify as a ``path`` in the ``raw_data_csv`` from :ref:`configurationgeneralparam`.
+This csv must have been specified as a ``path`` in the ``raw_data_csv`` from :ref:`configurationgeneralparam`.
 The other parameter will be found in :ref:`configurationdefaultparam` under ``tiling`` and 
-this configuration file look a like:
+this configuration file looks like:
 
 .. literalinclude:: ../../../config/tiling/default_tiling.yaml
    :language: yaml
@@ -36,7 +36,7 @@ this configuration file look a like:
 - ``patch_size`` (int)
     Size of an individual patch. For example, a raster of 1024 x 1024 pixels will output 4 patchs 
     if patch_size is 512. The value for this parameter should remain relatively stable as varying 
-    patch sizes has little impact of the performance of model. Tiling is mostly aimed at making it 
+    patch sizes has little impact on the performance of model. Tiling is mostly aimed at making it 
     possible to fill a batch with at least 4 patch pairs of different AOIs without busting a 
     machine's memory while training. Defaults to 512.
 - ``min_annot_perc`` (int) 
@@ -109,17 +109,18 @@ Training
 Training, along with validation and testing phase is where the neural network learns to use the data prepared in 
 the previous phase to make all the predictions. The crux of the learning process is the training phase.  
 During the training the data are separated in three for training, validation and test. The samples labeled "*trn*"
-as per above are used to train the neural network, the samples labeled "*val*" are used to estimate the training
-error (i.e. loss) on a set of sub-images not used for training, after every epoch and at the end of all epochs, 
-the model with the lowest error on validation data is loaded and samples labeled "*tst*", if they exist, are used
-to estimate the accuracy of the model on sub-images unseen during training or validation.
+as per above are used to train the neural network. The samples labeled "*val*" are used to estimate the training
+error (i.e. loss) on a set of sub-images not used for training. After every epoch and at the end of all epochs, 
+the model with the lowest error on validation data is loaded and use on the samples labeled "*tst*" if they exist.
+The result of those "*tst*" images is used to estimate the accuracy of the model, since those images were 
+unseen during training nor validation.
 For all those steps, we have the parameters that can be found in :ref:`configurationdefaultparam` under ``training``
 and this configuration file look a like:
 
 .. literalinclude:: ../../../config/training/default_training.yaml
    :language: yaml
 
-blabla
+This section will follow soon.
 
 .. _inference:
 

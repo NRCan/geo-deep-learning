@@ -45,7 +45,8 @@ Dataset splits
 --------------
 
 Split in csv should be either "trn", "tst" or "inference". The validation split is automatically 
-created during tiling. Its proportion is set by the :ref:`tiling config <datatiling>`.
+created during training and taken from the "trn" set. Its proportion is set by the 
+:ref:`tiling config <datatiling>`.
 
 Raster and vector file compatibility
 ------------------------------------
@@ -64,11 +65,11 @@ Single-band vs multi-band imagery
 Remote sensing is known to deal with raster files from a wide variety of formats and flavors. 
 To provide as much 
 flexibility as possible with variable input formats for raster data, geo-deep-learning supports:
-1. Multi-band raster files, to be used as is (all bands needed, all bands is expected order)
-2. Multi-band raster files with more bands than needed (e.g. Actual is "BGRN", needed is "BGR")
-3. Multi-band raster files with bands in different order than needed (e.g. Actual is "BGR", needed is "RGB")
-4. Single-band raster files, identified with a common string pattern (see details below)
-5. Single-band raster files, identified as assets in a stac item (see details below)
+#. Multi-band raster files, to be used as is (all bands needed, all bands is expected order)
+#. Multi-band raster files with more bands than needed (e.g. Actual is "BGRN", needed is "BGR")
+#. Multi-band raster files with bands in different order than needed (e.g. Actual is "BGR", needed is "RGB")
+#. Single-band raster files, identified with a common string pattern (see details below)
+#. Single-band raster files, identified as assets in a stac item (see details below)
 
 To support these variable inputs, geo-deep-learning expects the first column of an input csv to be in the 
 following formats.
@@ -110,7 +111,7 @@ The ``bands`` parameter is set in the
 
     It's the user's responsibility to know which bands correspond to each index. When dealing with 
     multi-band source imagery, Geo-Deep-Learning doesn't "*know*" which bands are present in the file 
-    and in which order. Good to know, Geo-Deep-Learning following the GDAL convention, bands are 
+    and in which order. Good to know, Geo-Deep-Learning follows the GDAL convention, where bands are 
     indexed from 1 
     (`docs <https://rasterio.readthedocs.io/en/latest/quickstart.html#reading-raster-data>`_).
 
@@ -134,7 +135,7 @@ For example:
 
         dataset:
             [...]
-            bands: ["red", "green", "blue"]
+            bands: [R, G, B]
 
 2. `Input csv <https://github.com/NRCan/geo-deep-learning/blob/develop/tests/tiling/tiling_segmentation_binary_ci.csv>`_:
 
@@ -165,7 +166,7 @@ our `Worldview-2 example <https://datacube-stage.services.geo.ca/api/collections
 Also, the `STAC spec <https://github.com/radiantearth/stac-spec/blob/master/item-spec/item-spec.md>`_
 is young and quickly evolving. There exists multiple formats for stac item. Only a very specific format 
 of stac item is supported by geo-deep-learning. If using stac items with geo-deep-learning, make sure 
-they follow the structure if our *Worldview-2* example above. 
+they follow the structure of our *Worldview-2* example above. 
 
 Bands must be selected by `common name <https://github.com/stac-extensions/eo/#common-band-names>`_ 
 in dataset config:
@@ -211,7 +212,7 @@ Dataset configuration yaml file
     :ref:`single or multi bands imagery <datasetsinglemultiband>` section for more 
     information on input data and band selection and ordering.
 - ``attribute_field`` (str)
-    Filter only relevant classes from the ground truth data.
+    Name of the attribute from the ground truth data.
 - ``attribute_values`` (list)
     Filter only relevant classes from the ground truth data by listing the value associated to 
     the class you desire.
@@ -226,7 +227,7 @@ Dataset configuration yaml file
 - ``classes_dict`` (dict)
     Dictionary containing the name of the class and the value associated to them.
 - ``class_weights`` (dict)
-    Dictionary containing the class value and the minimum percentage that most be include 
+    Dictionary containing the class value and the minimum percentage that must be include 
     in the tiling dataset.
 - ``ignore_index`` (int)
     Specifies a target value that is ignored and does not contribute to the input gradient.

@@ -40,7 +40,7 @@ Running GDL
 -----------
 
 This is an example of how to run **GDL** for a :ref:`segmentation` task on 
-the *massachusetts buildings* dataset (add the link).  
+the *massachusetts buildings* dataset (`link <https://www.kaggle.com/datasets/balraj98/massachusetts-buildings-dataset>`_).  
 **GDL** is using `Hydra library <https://hydra.cc/>`_ for more information 
 see the :ref:`configuration` section or go visit their documentation.
 

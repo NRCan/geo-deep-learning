@@ -8,7 +8,7 @@ as they, along with the optimization functions, are directly responsible
 for fitting the model to the given training data.
 
 The choice of the loss function is very important, since each usecase
-and each model will proprably requirer a different loss.
+and each model will probably require a different loss.
 
 Here some losses available in **GDL**. 
 

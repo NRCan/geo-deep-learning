@@ -6,8 +6,8 @@ Configuration
 How to use **Hydra** config files
 ---------------------------------
 
-Since **GDL** use the `Hydra <https://hydra.cc/docs/intro/#quick-start-guide>`_ library, here how 
-**GDL** configuratiuon work. Through a main ``yaml`` file 
+Since **GDL** use the `Hydra <https://hydra.cc/docs/intro/#quick-start-guide>`_ library, here's how
+**GDL** configuration work. Through a main ``yaml`` file 
 `gdl_config_template.yaml <https://github.com/NRCan/geo-deep-learning/tree/develop/config/gdl_config_template.yaml>`_ 
 located in the `config <https://github.com/NRCan/geo-deep-learning/tree/develop/config/>`_ 
 folder which handles additional ``yaml`` files located in other subfolders.
@@ -121,7 +121,7 @@ General Parameters
 ==================
 
 This section contains general parameters information that will be read by the code,
-normally contain parameters offend changed or paths to important file.  
+normally contain parameters often changed or paths to important file.  
 Other ``yaml`` files from the *defaults* section will read parameters from the *general* section.
 
 .. code-block:: yaml
@@ -156,7 +156,7 @@ Mode Parameter
 
     mode: {verify, tiling, train, inference, evaluate}
 
-For **GDL**, the mode available are:
+For **GDL**, the modes available are:
     - *verify*, verify the given data and generate an ``csv`` with infos and stats on those images.
     - *tiling*, generates tiles from each source aoi (image & ground truth).
     - *train*, will train the model specified with all the parameters in the configuration file.
@@ -212,7 +212,7 @@ Adding a new parameters in the config without having to write it in the ``yaml``
 
     (geo_deep_env) $ python GDL.py mode=train +new.params=1.0
 
-The conficuration that will be save for this run will look like that: 
+The configuration that will be save for this run will look like that: 
 
 .. code-block:: yaml
 

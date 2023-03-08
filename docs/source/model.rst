@@ -10,7 +10,7 @@ distribution to extract features, group objects, and discover useful data patter
 Much like training machines for self-learning, this occurs at multiple levels,
 using the algorithms to make a inference on a image without annotation at the end.
 
-While no one network is considered perfect, some algorithms are better suited to 
+While not one network is considered perfect, some algorithms are better suited to 
 perform specific tasks or extract specific patterns.
 
 Here some models available in **GDL**. 
