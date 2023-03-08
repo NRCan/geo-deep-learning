@@ -65,6 +65,7 @@ Single-band vs multi-band imagery
 Remote sensing is known to deal with raster files from a wide variety of formats and flavors. 
 To provide as much 
 flexibility as possible with variable input formats for raster data, geo-deep-learning supports:
+
 #. Multi-band raster files, to be used as is (all bands needed, all bands is expected order)
 #. Multi-band raster files with more bands than needed (e.g. Actual is "BGRN", needed is "BGR")
 #. Multi-band raster files with bands in different order than needed (e.g. Actual is "BGR", needed is "RGB")
