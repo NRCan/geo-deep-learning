@@ -17,6 +17,8 @@ class TestLossesZoo(object):
                 class_weights = [1/num_classes for i in range(num_classes)]
                 verify_weights(num_classes, class_weights)
                 for loss_config in Path(to_absolute_path(f"../../config/loss/{dataset_type}")).glob('*.yaml'):
+                    print(loss_config)
+                    print(dataset_type)
                     cfg = compose(config_name="gdl_config_template",
                                   overrides=[f"loss={dataset_type}/{loss_config.stem}"],
                                   return_hydra_config=True)
@@ -27,6 +29,27 @@ class TestLossesZoo(object):
                     # test if binary and multiclass work
                     outputs = torch.randn(1, num_classes, 256, 256, requires_grad=True)
                     labels = torch.randn(1, 256, 256)
-                    loss = criterion(outputs, labels.unsqueeze(1).float())
-                    #loss = criterion(outputs, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
+                    #loss = criterion(outputs, labels.unsqueeze(1).float())
+                    loss = criterion(outputs, labels) #if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
                     loss.backward()
+    
+    # def test_define_loss(self) -> None:
+    #     with initialize(config_path="../../config", job_name="test_ci"):
+    #         for dataset_type in ['binary', 'multiclass']:
+    #             num_classes = 1 if dataset_type == 'binary' else 5
+    #             class_weights = [1/num_classes for i in range(num_classes)]
+    #             verify_weights(num_classes, class_weights)
+    #             for loss_config in Path(to_absolute_path(f"../../config/loss/{dataset_type}")).glob('*.yaml'):
+    #                 cfg = compose(config_name="gdl_config_template",
+    #                               overrides=[f"loss={dataset_type}/{loss_config.stem}"],
+    #                               return_hydra_config=True)
+    #                 hconf = HydraConfig()
+    #                 hconf.set_config(cfg)
+    #                 del cfg.loss.is_binary  # prevent exception at instantiation
+    #                 criterion = define_loss(loss_params=cfg.loss, class_weights=class_weights)
+    #                 # test if binary and multiclass work
+    #                 outputs = torch.randn(1, num_classes, 256, 256, requires_grad=True)
+    #                 labels = torch.randn(1, 256, 256)
+    #                 loss = criterion(outputs, labels.unsqueeze(1).float())
+    #                 #loss = criterion(outputs, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
+    #                 loss.backward()
