@@ -15,6 +15,7 @@ class TestLossesZoo(object):
             for dataset_type in ['binary', 'multiclass']:
                 num_classes = 1 if dataset_type == 'binary' else 5
                 class_weights = [1/num_classes for i in range(num_classes)]
+                print(Path(to_absolute_path(f"../../config/loss/{dataset_type}")).glob('*.yaml'))
                 #verify_weights(num_classes, class_weights)
                 for loss_config in Path(to_absolute_path(f"../../config/loss/{dataset_type}")).glob('*.yaml'):
                     print(loss_config)
