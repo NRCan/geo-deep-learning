@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import torch
 from hydra import initialize, compose
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import to_absolute_path
@@ -22,4 +23,9 @@ class TestLossesZoo(object):
                     hconf = HydraConfig()
                     hconf.set_config(cfg)
                     del cfg.loss.is_binary  # prevent exception at instantiation
-                    define_loss(loss_params=cfg.loss, class_weights=class_weights)
+                    criterion = define_loss(loss_params=cfg.loss, class_weights=class_weights)
+                    # test if binary and multiclass work
+                    outputs = torch.randn(1, num_classes, 256, 256, requires_grad=True)
+                    labels = torch.randn(1, num_classes, 256, 256).softmax(dim=1)
+                    loss = criterion(outputs, labels.unsqueeze(1).float())
+                    loss.backward()
