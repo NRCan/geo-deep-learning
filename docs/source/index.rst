@@ -21,8 +21,8 @@ Documentation
    :maxdepth: 1
 
    quickstart
-   mode/index
-   task/index
+   mode
+   task
    configuration
    model
    losses

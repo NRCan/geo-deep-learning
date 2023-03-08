@@ -39,7 +39,7 @@ Here some implementation found in the config `model <https://github.com/NRCan/ge
 
 And an implementation from 
 `smp model library <https://smp.readthedocs.io/en/latest/models.html#unet>`_. 
-Plus, the folder countain some specific combinaisons the *smp model* like :
+Plus, the folder contains some specific combinaisons the *smp model* like :
 unet++, unet pretrained on imagenet, unet with senet154 encoder, unet with resnext101 encoder and more.
 We invite you to see the config `model <https://github.com/NRCan/geo-deep-learning/tree/develop/config/model>`_ 
 folder to the complete list on different combinaisons.
