@@ -116,7 +116,10 @@ class Test_AOI(object):
         assert aoi.download_data is True
         assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif").is_file()
         aoi.close_raster()
-        os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif")
+        try:
+            os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif")
+        except PermissionError:
+            pass
 
     def test_missing_label(self):
         """Tests error when provided label file is missing"""
