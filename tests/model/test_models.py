@@ -19,7 +19,7 @@ class TestModelsZoo(object):
     """Tests all geo-deep-learning's models instantiation and forward method"""
     def test_net(self) -> None:
         with initialize(config_path="../../config", job_name="test_ci"):
-            for model_config in Path(to_absolute_path(f"../../config/model")).glob('*.yaml'):
+            for model_config in Path(to_absolute_path(f"config/model")).glob('*.yaml'):
                 print(model_config)
                 cfg = compose(config_name="gdl_config_template",
                               overrides=[f"model={model_config.stem}"],

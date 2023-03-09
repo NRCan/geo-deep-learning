@@ -140,10 +140,7 @@ class TestTiler(object):
         assert ds_crs == crs, "Initial and saved CRSs are different!"
         ds_gt = ds.GetGeoTransform()
         assert ds_gt == gt, "Initial and saved geotransforms are different!"
-        try:
-            shutil.rmtree(dst_dir)
-        except PermissionError:
-            pass
+        shutil.rmtree(dst_dir)
 
     def test__parse_torchgeo_batch(self):
         """ Test _parse_torchgeo_batch method of the Tiler class """
@@ -198,10 +195,9 @@ class TestTiler(object):
     def test__save_vec_mem_tile(self):
         """ Test _save_vec_mem_tile method of the Tiler class """
         """ Test _define_output_name method of the Tiler class """
-        try:
-            extract_archive(src="tests/data/massachusetts_buildings_kaggle_patch.zip")
-        except FileNotFoundError:
-            pass
+        
+        extract_archive(src="tests/data/massachusetts_buildings_kaggle_patch.zip")
+        
         gt = "tests/data/massachusetts_buildings_kaggle_patch/massachusetts_buildings_kaggle_patch.gpkg"
 
         gt_ds = ogr.Open(gt)
@@ -251,10 +247,8 @@ class TestTiler(object):
             assert gt_geom == saved_geom, f"Initial and saved feature geometries are different!"
             gt_feature = gt_layer.GetNextFeature()
             saved_feature = saved_layer.GetNextFeature()
-        try:
-            shutil.rmtree(dst_dir)
-        except PermissionError:
-            pass
+        
+        shutil.rmtree(dst_dir)
 
         del gt_ds
         del saved_ds

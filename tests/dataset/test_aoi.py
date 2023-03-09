@@ -62,6 +62,7 @@ class Test_AOI(object):
         row = data[0]
         bands_request = ["R", "G"]
         with pytest.raises(ValueError):
+            print('AOI')
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands_request)
             aoi.close_raster()
 
@@ -72,6 +73,7 @@ class Test_AOI(object):
         row = data[0]
         bands_request = [1, 2, 3, 4, 5]
         with pytest.raises(ValueError):
+            print('AOI')
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands_request)
 
     def test_singleband_input(self):
@@ -114,10 +116,7 @@ class Test_AOI(object):
         assert aoi.download_data is True
         assert Path("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif").is_file()
         aoi.close_raster()
-        try:
-            os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif")
-        except PermissionError:
-            pass
+        os.remove("data/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-R.tif")
 
     def test_missing_label(self):
         """Tests error when provided label file is missing"""
@@ -126,6 +125,7 @@ class Test_AOI(object):
         row = next(iter(data))
         row['gpkg'] = "missing_file.gpkg"
         with pytest.raises(AttributeError):
+            print('AOI')
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
             aoi.close_raster()
 
@@ -157,6 +157,7 @@ class Test_AOI(object):
         row = next(iter(data))
         row['tif'] = "tests/data/massachusetts_buildings_kaggle/corrupt_file.tif"
         with pytest.raises(BaseException):
+            print('AOI')
             aoi = AOI(raster=row['tif'], label=None)
             aoi.close_raster()
 
@@ -192,6 +193,7 @@ class Test_AOI(object):
         row = next(iter(data))
         row['tif'] = "missing_raster.tif"
         with pytest.raises(RasterioIOError):
+            print('AOI')
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
             aoi.close_raster()
 
@@ -202,6 +204,7 @@ class Test_AOI(object):
         row = next(iter(data))
         row['split'] = "missing_split"
         with pytest.raises(ValueError):
+            print('AOI')
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
             aoi.close_raster()
 

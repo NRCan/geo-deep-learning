@@ -145,10 +145,7 @@ class TestTiling(object):
         for result in results:
             print(result)
         for dir in list(Path(data_dir).glob(f"{proj_prefix}*")):
-            try:
-                shutil.rmtree(dir)
-            except PermissionError:
-                pass
+            shutil.rmtree(dir)
 
     def test_tiling_segmentation_parallel(self):
         data_dir = "data/patches"
