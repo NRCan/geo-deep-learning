@@ -18,10 +18,11 @@ def one_hot(label, n_classes, requires_grad=True):
     Returns:
         _type_: label on a form of an one hot vector.
     """
+    label = label.squeeze(1).type(torch.long)
     device = label.device
     one_hot_label = torch.eye(
         n_classes, device=device, requires_grad=requires_grad
-    )[label.type(torch.long)]
+    )[label]
     one_hot_label = one_hot_label.transpose(1, 3).transpose(2, 3)
 
     return one_hot_label
