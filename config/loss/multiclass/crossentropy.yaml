@@ -1,5 +1,5 @@
 # @package _global_
 loss:
-    _target_: torch.nn.CrossEntropyLoss
+    _target_: segmentation_models_pytorch.losses.SoftCrossEntropyLoss
     ignore_index: ${dataset.ignore_index}
     is_binary: False
