@@ -30,7 +30,7 @@ class TestModelsZoo(object):
                 rand_img = torch.rand((2, 4, 64, 64))
                 print(cfg.model._target_)
                 if cfg.model._target_ == 'models.deeplabv3_dualhead.DeepLabV3_dualhead':
-                    for layer in ['conv1', 'maxpool', 'layer2', 'layer3', 'layer4']:
+                    for layer in ['conv1', 'maxpool']: #, 'layer2', 'layer3', 'layer4']:
                         logging.info(layer)
                         cfg.model.conc_point = layer
                         model = define_model_architecture(

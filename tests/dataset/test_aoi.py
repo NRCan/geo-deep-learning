@@ -203,6 +203,7 @@ class Test_AOI(object):
         data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         row = next(iter(data))
         row['split'] = "missing_split"
+        print('AOI')
         with pytest.raises(ValueError):
             print('AOI')
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
