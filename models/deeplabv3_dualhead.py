@@ -14,50 +14,54 @@ logging.getLogger(__name__)
 
 class DeepLabV3_dualhead(nn.Module):
     """
-    Class create a model where 2 heads concatenate at a specific point.
+    Create a model where two models concatenate at a specific point.
 
-    This class copy the *model* in input when initialize, copy it,
-    change the input of the second *model* for the input dimension
-    of the second entry. Concatenate the 2 *models* at a specific
-    point chosen when initialize. Like that we have a new *model*
-    that take 2 entries with differents depth and combine it to
+    This method copy the model in input when initialize, copy it,
+    change the input of the second model for the input dimension
+    of the second entry. Concatenate the two models at a specific
+    point chosen when initialize. Like that we have a new model
+    that take two entries with differents depth and combine it to
     have an ouput with the depth of corresponding at the number of
     classes.
 
-    :param model: Model chose to be duplicate and concatenated.
-    :param conc_point: Position where the two models are concatenated (see `.yaml` for available point by model).
-    :type conc_point: str
-
     .. note:: Only available for **DeeplabV3** with a backbone of a **Resnet101**.
-    .. todo:: Make it more general to be able to be apply on a **UNet** or others.
     """
     
     def __init__(
             self,
             encoder_name: str = "resnet34",
             encoder_depth: int = 5,
-            encoder_weights: Optional[str] = "imagenet",
+            encoder_weights: str = "imagenet",
             decoder_channels: int = 256,
             in_channels: int = 3,
             classes: int = 1,
-            activation: Optional[str] = None,
+            activation: str = None,
             upsampling: int = 8,
-            aux_params: Optional[dict] = None,
-            conc_point: Optional[str] = 'conv1',
+            aux_params: dict = None,
+            conc_point: str = 'conv1',
     ):
         """
-        In the constructor we instantiate all the part needed for the* model*:
+        Initialization all the part needed for the dualhead.
+        ``modelRGB``, containing all the backbone layers before the concatenation point.
+        ``modelNIR``, containing all the backbone layers before the concatenation point 
+        and have the number of channels in input change for 1.
+        ``leftover``, containing all the backbone layers after the concatenation point.
+        For some points, this variables will be empty, since we concatenate after the backbone.
+        ``conv1x1``, an conv2D layer that will be use after the concatenation to go back at
+        the depth of one model, since the concatenation operation will double the depth.
 
-         - ``modelRGB``, containing all the backbone layers **before** the concatenation point.
-         - ``modelNIR``, containing all the backbone layers **before** the concatenation point
-           and have the number of channels in input change for 1.
-         - ``leftover``, containing all the backbone layers **after** the concatenation point.
-           For some points, this variables will be empty, since we concatenate after the backbone.
-         - ``conv1x1``, an conv2D layer that will be use after the concatenation to go back at
-           the depth of one model, since the concatenation operation will double the depth.
-
-        And assign them as member variables.
-        """
+        Args:
+            encoder_name (str, optional): name of the encoder use for the DeepLabV3 network. Defaults to "resnet34".
+            encoder_depth (int, optional): depth of the network. Defaults to 5.
+            encoder_weights (str, optional): name of the weith use tu initialize DeepLabV3. Defaults to "imagenet".
+            decoder_channels (int, optional): size of the decoder. Defaults to 256.
+            in_channels (int, optional): number of channels for the input. Defaults to 3.
+            classes (int, optional): number of classes wanted to predict. Defaults to 1.
+            activation (str, optional): _description_. Defaults to None.
+            upsampling (int, optional): level of upsampling. Defaults to 8.
+            aux_params (dict, optional): other parameter for the DeepLabV3. Defaults to None.
+            conc_point (str, optional): name of the layer where the concatenation have place. Defaults to 'conv1'.
+        """        
         super().__init__()
 
         self.nir_layers = {'conv1': 1, 'maxpool': 4, 'layer2': 6, 'layer3': 7, 'layer4': 8}
@@ -115,22 +119,25 @@ class DeepLabV3_dualhead(nn.Module):
 
     def forward(self, inputs):
         """
-        In the forward function we accept a list of Tensors in input data and return
-        a Tensor of output data.
+        Foward function use during trainning.
+        
+        Accepting a list of Tensors in input data to return a Tensor of output data.
+        With two tensor as input, the firt one containing the **RGB** images,
+        and the second one containing the **modalitie**.
 
-        So in the input list, they should have two tensor, the firt one need to be the
-        one containing the **RGB** images, the second one will be the other *modalitie*.
-
-        .. note:: for now we only accept **NIR** as second entry, with a shape of [1, h, w].
+        .. note:: for now this only accept **NIR** as second entry, with a shape of [1, h, w].
 
         The result of each partial model (RGB and the other) are concatenate on the depth
         dimension and pass by a convolution operation to recover the depth taht match the
-        ``leftover`` entry. Follow by the classifier and the interpolation to return a
+        *leftover* entry. Follow by the classifier and the interpolation to return a
         Tensor with the same [h, w] then the input Tensor.
+        Args:
+            inputs (list): List containing two Tensors, one containing the **RGB** tensor
+                           and the other containing the **NIR** tensor.
 
-        :param inputs: (list) List containing two Tensors
-        :return: (tensor) Result
-        """
+        Returns:
+            Tensor: Result from the bland of the two models.
+        """        
         x1, x2 = self.split_RGB_NIR(inputs)
         # Get the input shape for the interpolation
         input_shape = x1.shape[-2:]
@@ -155,12 +162,15 @@ class DeepLabV3_dualhead(nn.Module):
 
     @staticmethod
     def split_RGB_NIR(inputs):
-        """
-        Split RGB and NIR in input imagery being fed to models for training
-        @param inputs: tensors with shape [batch_size x channel x h x w]
-        @return: two tensors, one for all but last channel with shape [batch_size x (channel-1) x h x w]
-                 (ex.: RGB if RGBN imagery) and the other for NIR with shape [batch_size x 1 x h x w]
-        """
+        """Split RGB and NIR in input imagery being fed to models for training.
+
+        Args:
+            inputs (Tensor): Images with 4 channels RGBN, shape (N, C, H, W).
+
+        Returns:
+            Tensor: two tensors, one for all but last channel with shape (N, C-1, H, W)
+                    and the other for NIR with shape (N, 1, H, W).
+        """        
         if inputs.shape[1] != 4:
             logging.error(f'Expected 4 band imagery. Got input with {inputs.shape[1]} bands')
         logging.warning(f'Will split inputs in 2 : (1) RGB bands, (2) NIR band')

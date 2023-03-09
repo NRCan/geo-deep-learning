@@ -55,19 +55,32 @@ def lovasz_softmax_flat(prb, lbl, ignore_index, only_present):
 
 class LovaszSoftmax(nn.Module):
     """
-    Multi-class Lovasz-Softmax loss
-      logits: [B, C, H, W] class logits at each prediction (between 0 and 1)
-      labels: [B, H, W] Tensor, ground truth labels (between 0 and C - 1)
-      only_present: average only on classes present in ground truth
-      ignore_index: void class labels
+    Simple Lovasz loss for image segmentation task from
+    https://paperswithcode.com/method/lovasz-softmax. 
+    It supports binary and multiclass cases.
     """
 
     def __init__(self, ignore_index=None, only_present=True):
+        """Initialize the Lovasz-Softmax loss.
+
+        Args:
+            ignore_index (int, optional): target value that is ignored and does not contribute to the input gradient. Defaults to None.
+            only_present (bool, optional): average only on classes present in ground truth. Defaults to True.
+        """        
         super().__init__()
         self.ignore_index = ignore_index
         self.only_present = only_present
 
     def forward(self, logits, labels):
+        """Foward function use during trainning. 
+
+        Args:
+            logits (Tensor): the output from model, shape (N, C, H, W).
+            labels (Tensor): ground truth, shape (N, H, W).
+
+        Returns:
+            Tensor: score for the Multi-class Lovasz-Softmax loss.
+        """        
         probas = F.softmax(logits, dim=1)
         total_loss = 0
         batch_size = logits.shape[0]
