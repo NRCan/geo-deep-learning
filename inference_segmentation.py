@@ -36,6 +36,7 @@ from utils.utils import get_device_ids, get_key_def, \
 
 # Set the logging file
 logging = get_logger(__name__)
+
 def _pad(arr, chunk_size):
     """ Pads img_arr """
     w_diff = chunk_size - arr.shape[0]

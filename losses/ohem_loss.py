@@ -9,7 +9,19 @@ logging.getLogger(__name__)
 
 # Adapted from OCNet Repository (https://github.com/PkuRainBow/OCNet)
 class OhemCrossEntropy2d(nn.Module):
+    """
+    Adapted version of the Ohem Cross Entropy loss
+    from OCNet repository (https://github.com/PkuRainBow/OCNet).
+    """
     def __init__(self, thresh=0.6, min_kept=0, weight=None, ignore_index=255):
+        """Initialize the Ohem Cross Entropy loss.
+
+        Args:
+            thresh (float, optional): threshold index apply to the model prediction. Defaults to 0.6.
+            min_kept (int, optional): _description_. Defaults to 0.
+            weight (Tensor, optional): a manual rescaling weight given to each class. Defaults to None.
+            ignore_index (int, optional): target value that is ignored and does not contribute to the input gradient. Defaults to 255.
+        """        
         super().__init__()
         self.ignore_label = ignore_index
         self.thresh = float(thresh)
@@ -17,10 +29,14 @@ class OhemCrossEntropy2d(nn.Module):
         self.criterion = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
 
     def forward(self, predict, target):
-        """
-            Args:
-                predict:(n, c, h, w)
-                target:(n, h, w)
+        """Foward function use during trainning. 
+        
+        Args:
+            predict (Tensor): the output from model, shape (N, C, H, W).
+            target (Tensor): ground truth, shape (N, H, W).
+
+        Returns:
+            Tensor: Ohem loss score.
         """
 
         n, c, h, w = predict.size()
