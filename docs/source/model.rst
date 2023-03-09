@@ -44,23 +44,6 @@ unet++, unet pretrained on imagenet, unet with senet154 encoder, unet with resne
 We invite you to see the config `model <https://github.com/NRCan/geo-deep-learning/tree/develop/config/model>`_ 
 folder to the complete list on different combinaisons.
 
-`PAN <https://arxiv.org/abs/1805.10180>`_
-====
-
-Implementation of *PAN* (Pyramid Attention Network) from 
-`smp model library <https://smp.readthedocs.io/en/latest/models.html#pan>`_.
-
-`MAnet <https://ieeexplore.ieee.org/abstract/document/9201310>`_
-======
-
-*Multi-scale Attention Net*, the *MA-Net* can capture rich contextual dependencies based 
-on the attention mechanism, using two blocks:
-    - Position-wise Attention Block (PAB), which captures the spatial dependencies between pixels in a global view.
-    - Multi-scale Fusion Attention Block (MFAB), which captures the channel dependencies between any feature map by multi-scale semantic feature fusion.
-
-**GDL** use the implementation from 
-`smp model library <https://smp.readthedocs.io/en/latest/models.html#manet>`_.
-
 `DeepLabV3 <https://arxiv.org/abs/1706.05587>`_
 ==========
 
