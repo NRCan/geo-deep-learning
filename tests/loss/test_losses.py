@@ -50,4 +50,4 @@ class TestLossesZoo(object):
                     # test if binary and multiclass work
                     outputs = torch.ones(1, num_classes, 256, 256)
                     labels = torch.ones(1, 256, 256, dtype=torch.long)
-                    loss = criterion(outputs, labels.unsqueeze(1))#.float())
+                    loss = criterion(outputs, labels.unsqueeze(1).float())
