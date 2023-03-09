@@ -23,8 +23,8 @@ Each predicted class probability is compared to the current class desired
 output 0 or 1 and a score/loss is calculated that penalizes the probability
 based on how far it is form the actual expected value.
 
-We are using the torch implementation
-`here <https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html>`_.
+We are using the smp losses implementation
+`here <https://smp.readthedocs.io/en/latest/losses.html#softcrossentropyloss>`_.
 
 
 `Boundary Loss (multiclass) <https://arxiv.org/abs/1905.07852.pdf>`_
@@ -42,9 +42,8 @@ A differentiable surrogate of a metric accounting accuracy of boundary detection
 A loss using the dice coefficient that estimates the fraction of contour
 length that needs correction.
 
-.. autoclass:: losses.dice_loss.DiceLoss
-   :members:
-   :special-members:
+For the binary and multiclasses version, the configuration call the ``DiceLoss`` from 
+`smp losses library <https://smp.readthedocs.io/en/latest/losses.html#softcrossentropyloss>`_.
 
 `Focal Loss (multiclass) <https://arxiv.org/pdf/1708.02002.pdf>`_
 ========================
@@ -53,9 +52,8 @@ The focal loss focuses training on a sparse set of hard examples
 and prevents the vast number of easy negatives from overwhelming the
 detector during training.  
 
-.. autoclass:: losses.focal_loss.FocalLoss
-   :members:
-   :special-members:
+The configuration call the ``FocalLoss`` from 
+`smp losses library <https://smp.readthedocs.io/en/latest/losses.html#focalloss>`_.
 
 `Lovasz-Softmax Loss (binary & multiclass) <https://arxiv.org/pdf/1705.08790.pdf>`_
 ==========================================
@@ -63,11 +61,7 @@ detector during training.
 A tractable surrogate for the optimization of the intersection-over-union 
 measure in neural networks.
 
-.. autoclass:: losses.lovasz_loss.LovaszSoftmax
-   :members:
-   :special-members:
-
-For the binary version, the configuration call the ``LovaszLoss`` from 
+For the binary and multiclasses version, the configuration call the ``LovaszLoss`` from 
 `smp losses library <https://smp.readthedocs.io/en/latest/losses.html#lovaszloss>`_.
 
 `Ohem Loss (multiclass) <https://github.com/openseg-group/OCNet.pytorch>`_
@@ -88,7 +82,7 @@ Drop-in replacement for ``torch.nn.BCEWithLogitsLoss``
 with few additions: ``ignore_index`` and ``label_smoothing``
 
 We are using the segmentation models pytorch implementation
-`here <https://pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html>`_.
+`here <https://smp.readthedocs.io/en/latest/losses.html#softcrossentropyloss>`_.
 
 `Duo Loss (multiclass) <https://github.com/openseg-group/OCNet.pytorch>`_
 =======================
