@@ -188,5 +188,5 @@ will be found in :ref:`configurationdefaultparam` under ``inference`` and this c
 
 .. note:: 
 
-    Current implementation doesn't support a number of GPU superior to 1. 
+    Current implementation doesn't support a number of GPU superior to 1 at inference. 
 

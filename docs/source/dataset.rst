@@ -44,9 +44,9 @@ See the :ref:`yaml <yamlparameters>` section for more information.
 Dataset splits
 --------------
 
-Split in csv should be either "trn", "tst" or "inference". The validation split is automatically 
-created during training and taken from the "trn" set. Its proportion is set by the 
-:ref:`tiling config <datatiling>`.
+Split in csv should be either "trn", "tst" or "inference". The tiling script outputs lists of 
+patches for "trn", "val" and "tst" and these lists are used as is during training. 
+Its proportion is set by the :ref:`tiling config <datatiling>`.
 
 Raster and vector file compatibility
 ------------------------------------
@@ -228,7 +228,8 @@ Dataset configuration yaml file
 - ``classes_dict`` (dict)
     Dictionary containing the name of the class and the value associated to them.
 - ``class_weights`` (dict)
-    Dictionary containing the class value and the minimum percentage that must be include 
-    in the tiling dataset.
+    Dictionary containing the class value and the percentage that must be include 
+    in the tiling dataset. The class_weights is used as a balancing strategy 
+    during training and is implemented at the loss level.
 - ``ignore_index`` (int)
     Specifies a target value that is ignored and does not contribute to the input gradient.
