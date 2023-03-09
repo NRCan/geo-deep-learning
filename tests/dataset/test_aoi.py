@@ -128,9 +128,7 @@ class Test_AOI(object):
         row = next(iter(data))
         row['gpkg'] = "missing_file.gpkg"
         with pytest.raises(AttributeError):
-            print('AOI')
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
-            aoi.close_raster()
 
     def test_no_label(self):
         """Test when no label are provided. Should pass for inference. """
