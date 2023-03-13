@@ -62,7 +62,6 @@ class Test_AOI(object):
         row = data[0]
         bands_request = ["R", "G"]
         with pytest.raises(ValueError):
-            print('AOI')
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands_request)
             aoi.close_raster()
 
@@ -73,8 +72,8 @@ class Test_AOI(object):
         row = data[0]
         bands_request = [1, 2, 3, 4, 5]
         with pytest.raises(ValueError):
-            print('AOI')
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands_request)
+            aoi.close_raster()
 
     def test_singleband_input(self):
         """Tests reading a singleband raster as input with ${dataset.bands} pattern"""
@@ -158,7 +157,6 @@ class Test_AOI(object):
         row = next(iter(data))
         row['tif'] = "tests/data/massachusetts_buildings_kaggle/corrupt_file.tif"
         with pytest.raises(BaseException):
-            print('AOI')
             aoi = AOI(raster=row['tif'], label=None)
             aoi.close_raster()
 
@@ -194,7 +192,6 @@ class Test_AOI(object):
         row = next(iter(data))
         row['tif'] = "missing_raster.tif"
         with pytest.raises(RasterioIOError):
-            print('AOI')
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
             aoi.close_raster()
 
@@ -204,9 +201,7 @@ class Test_AOI(object):
         data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         row = next(iter(data))
         row['split'] = "missing_split"
-        print('AOI')
         with pytest.raises(ValueError):
-            print('AOI')
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
             aoi.close_raster()
 
