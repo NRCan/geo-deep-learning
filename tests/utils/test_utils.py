@@ -78,7 +78,6 @@ class TestUtils(unittest.TestCase):
             mp = get_key_def('raw_data_csv', cfg['inference'], expected_type=str, to_path=True)
             assert isinstance(mp, Path)
 
-
     def test_download_url_wcheck(self):
         """
         Tests parallel and simultaneous downloads of same file to make sure the second download doesn't consider file to
@@ -90,17 +89,11 @@ class TestUtils(unittest.TestCase):
         filename = Path(url).name
         root = to_absolute_path("tests/utils")
         fpath = Path(root) / filename
-        for wcheck in [True, False]:
-            for i in range(2):
-                init_sleep = 4 if i > 0 else 0
-                inputs.append([download_and_validate, url, root, filename, init_sleep, wcheck])
-            if not wcheck:
-                with pytest.raises(rasterio.errors.RasterioIOError):
-                    with multiprocessing.get_context('spawn').Pool(None) as pool:
-                        pool.map_async(map_wrapper, inputs).get()
-            else:
-                with multiprocessing.get_context('spawn').Pool(None) as pool:
-                    pool.map_async(map_wrapper, inputs).get()
+        for i in range(2):
+            init_sleep = 4 if i > 0 else 0
+            inputs.append([download_and_validate, url, root, filename, init_sleep])
+        with multiprocessing.get_context('spawn').Pool(None) as pool:
+            pool.map_async(map_wrapper, inputs).get()
             os.remove(fpath)
 
 
