@@ -73,6 +73,7 @@ class Test_AOI(object):
         bands_request = [1, 2, 3, 4, 5]
         with pytest.raises(ValueError):
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands_request)
+            aoi.close_raster()
 
     def test_singleband_input(self):
         """Tests reading a singleband raster as input with ${dataset.bands} pattern"""
@@ -127,7 +128,6 @@ class Test_AOI(object):
         row['gpkg'] = "missing_file.gpkg"
         with pytest.raises(AttributeError):
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
-            aoi.close_raster()
 
     def test_no_label(self):
         """Test when no label are provided. Should pass for inference. """
