@@ -191,7 +191,7 @@ class TestTiler(object):
             output_folder=dst_dir,
             window=window
         )
-
+        
         assert dst == os.path.join(dst_dir, "22978945_15_uint8_clipped_1_1_2_2"), "Output file name does not " \
                                                                                   "match the input parameters!"
 
