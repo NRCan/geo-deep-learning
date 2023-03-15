@@ -17,8 +17,8 @@ inference:
 
   # GPU parameters
   gpu: ${training.num_gpus}
-  max_used_perc: ${training.max_used_perc}  # If RAM usage of detected GPU exceeds this percentage, it will be ignored
-  max_used_ram: ${training.max_used_ram}  # If GPU's usage exceeds this percentage, it will be ignored
+  max_used_perc: ${training.max_used_perc}  # If GPU's usage exceeds this percentage, it will be ignored
+  max_used_ram: ${training.max_used_ram}  # If RAM usage of detected GPU exceeds this percentage, it will be ignored
 
   # Post-processing
   ras2vec: False  # if True, a polygonized version of the inference (.gpkg) will be created with rasterio tools

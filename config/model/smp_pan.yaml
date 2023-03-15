@@ -1,5 +1,0 @@
-# @package _global_
-model:
-  _target_: segmentation_models_pytorch.PAN
-  encoder_name: se_resnext101_32x4d
-  encoder_weights: imagenet
