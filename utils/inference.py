@@ -52,11 +52,32 @@ def class_from_heatmap(heatmap_arr: np.ndarray, heatmap_threshold: float = 0.5) 
         flattened_arr = heatmap_arr.argmax(axis=-1)
     return flattened_arr.astype(np.uint8)
 
+
 def window2d(window_size: int) -> np.ndarray:
+    """
+    Returns a 2D square signal image generated from hann window.
+
+    Args:
+        window_size (int): Same as Chunk/Tile size used at inference.
+
+    Returns:
+        ndarray (2D): Signal window with values ranging from 0 to 1.
+    """
     window = np.matrix(w.hann(M=window_size, sym=False))
     return window.T.dot(window)
 
+
 def generate_corner_windows(window_size: int) -> np.ndarray:
+    """
+    Generates 9 2D signal windows that covers edge and corner coordinates
+    
+    Args:
+        window_size:
+
+    Returns:
+        ndarray: 9 2D signal windows stacked in array (3, 3)
+
+    """
     step = window_size >> 1
     window = window2d(window_size)
     window_u = np.vstack([np.tile(window[step:step+1, :], (step, 1)), window[step:, :]])
@@ -73,9 +94,23 @@ def generate_corner_windows(window_size: int) -> np.ndarray:
                           [window_b[step:, :step], np.ones((step, step))]])
     return np.array([[window_ul, window_u, window_ur],
                      [window_l, window, window_r],
-                     [window_bl, window_b, window_br],])
+                     [window_bl, window_b, window_br]])
+
 
 def generate_patch_list(image_width: int, image_height: int, window_size: int, overlapping: bool=False)-> List[tuple]:
+    """
+    Generates a list of patches from an image with given width, height and window size
+    The patches can be generated with overlapping or non-overlapping windows
+    Args:
+        image_width (int): Width dimension of input image
+        image_height (int): Height dimension of input image
+        window_size (int): Size of the window used to generate patches
+        overlapping (bool): Boolean parameter to generate overlaps or non-overlaps patches
+
+    Returns:
+        list: List of overlap or non-overlap patches, position and size
+
+    """
     patch_list = []
     if overlapping:
         step = window_size >> 1
