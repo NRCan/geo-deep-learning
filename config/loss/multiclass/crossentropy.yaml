@@ -2,4 +2,5 @@
 loss:
     _target_: segmentation_models_pytorch.losses.SoftCrossEntropyLoss
     ignore_index: ${dataset.ignore_index}
+    smooth_factor: 0.0
     is_binary: False
