@@ -3,9 +3,11 @@ import csv
 import logging
 import numbers
 import subprocess
+import time
 from functools import reduce
 from pathlib import Path
-from typing import Sequence, List, Dict, Union
+from time import sleep
+from typing import Sequence, List, Dict, Union, Optional
 
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
@@ -17,13 +19,13 @@ from omegaconf import DictConfig, OmegaConf, ListConfig
 import torch
 from torchvision import models
 import numpy as np
-import scipy.signal
 import requests
 from urllib.parse import urlparse
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
 from affine import Affine
+from torchvision.datasets.utils import download_url
 
 from utils.logger import get_logger
 
@@ -372,48 +374,6 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
         metadata_dict['source_raster_bincount'][f'band{band_index}'] = {count for count in np.bincount(band.flatten())}
     return metadata_dict
 
-#### Image Patches Smoothing Functions ####
-""" Adapted from : https://github.com/Vooban/Smoothly-Blend-Image-Patches  """
-
-
-def _spline_window(window_size, power=2):
-    """
-    Squared spline (power=2) window function:
-    https://www.wolframalpha.com/input/?i=y%3Dx**2,+y%3D-(x-2)**2+%2B2,+y%3D(x-4)**2,+from+y+%3D+0+to+2
-    """
-    intersection = int(window_size/4)
-    wind_outer = (abs(2 * (scipy.signal.windows.triang(window_size))) ** power) / 2
-    wind_outer[intersection:-intersection] = 0
-
-    wind_inner = 1 - (abs(2 * (scipy.signal.windows.triang(window_size) - 1)) ** power) / 2
-    wind_inner[:intersection] = 0
-    wind_inner[-intersection:] = 0
-
-    wind = wind_inner + wind_outer
-    wind = wind / np.average(wind)
-    return wind
-
-
-cached_2d_windows = dict()
-def _window_2D(window_size, power=2):
-    """
-    Make a 1D window function, then infer and return a 2D window function.
-    Done with an augmentation, and self multiplication with its transpose.
-    Could be generalized to more dimensions.
-    """
-    # Memoization
-    global cached_2d_windows
-    key = "{}_{}".format(window_size, power)
-    if key in cached_2d_windows:
-        wind = cached_2d_windows[key]
-    else:
-        wind = _spline_window(window_size, power)
-        wind = np.expand_dims(np.expand_dims(wind, 1), -1)
-        wind = wind * wind.transpose(1, 0, 2)
-        cached_2d_windows[key] = wind
-    return wind
-
-
 def get_git_hash():
     """
     Get git hash during execution of python script
@@ -641,6 +601,54 @@ def update_gdl_checkpoint(checkpoint: Union[dict, DictConfig]) -> Dict:
             }
         })
     return checkpoint
+
+
+def wait_while_modif(fpath: Union[str, Path], sleep_secs: int = 10, timeout: int = 1800) -> None:
+    """
+    fpath (str or Path): Path to file potentially being modified
+    sleep_secs (int, optional): Seconds to wait before re-checking the size of file to be downloaded
+    timeout (int, optional): Maximum amount of time (seconds) to check if file size has changed
+    """
+    timeout_time = time.time() + timeout
+    if Path(fpath).is_file():
+        while True:
+            initial_size = os.stat(fpath).st_size
+            sleep(sleep_secs)
+            final_size = os.stat(fpath).st_size
+            if time.time() > timeout_time:
+                raise TimeoutError(f"File has been modified for more than {timeout} seconds. \nFile: {fpath}")
+            # if the initial size is equal to the final size, the file has most likely
+            # not changed, unless they are both False.
+            elif initial_size == final_size:
+                logging.debug(f"File has not changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
+                break
+            logging.debug(f"File has changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
+    else:
+        logging.debug(f"File doesn't exist: {fpath}")
+
+
+def download_url_wcheck(
+    url: str, root: str, filename: Optional[str] = None, md5: Optional[str] = None, max_redirect_hops: int = 3,
+        sleep_secs: int = 10, timeout: int = 1800
+) -> None:
+    """Download a file from a url and place it in root. If file to be downloaded exists, but its size varies within a
+    certain period, wait for size to remain stable.
+
+    Args:
+        url (str): URL to download file from
+        root (str): Directory to place downloaded file in
+        filename (str, optional): Name to save the file under. If None, use the basename of the URL
+        md5 (str, optional): MD5 checksum of the download. If None, do not check
+        max_redirect_hops (int, optional): Maximum number of redirect hops allowed
+        sleep_secs (int, optional): Seconds to wait before re-checking the size of file to be downloaded
+        timeout (int, optional): Maximum amount of time (seconds) to check if file size has change
+    """
+    timeout = int(time.time() + timeout)
+    fpath = Path(root) / filename
+    if fpath.is_file():
+        wait_while_modif(fpath=fpath, sleep_secs=sleep_secs, timeout=timeout)
+    else:
+        download_url(url=url, root=root, filename=filename, md5=md5, max_redirect_hops=max_redirect_hops)
 
 
 def map_wrapper(x):

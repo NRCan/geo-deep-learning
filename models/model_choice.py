@@ -136,8 +136,9 @@ def define_model(
         in_channels=in_channels,
         out_classes=out_classes,
     )
-    model = to_dp_model(model=model, devices=devices[1:]) if len(devices) > 1 else model
+    model = to_dp_model(model=model, devices=devices) if len(devices) > 1 else model
     model.to(main_device)
     if checkpoint_dict:
+        checkpoint_dict = adapt_checkpoint_to_dp_model(checkpoint_dict, model)
         model.load_state_dict(state_dict=checkpoint_dict['model_state_dict'], strict=checkpoint_dict_strict_load)
     return model
