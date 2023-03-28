@@ -468,6 +468,7 @@ def main(params: Union[DictConfig, dict]) -> None:
                 write_array=pred_heatmap,
                 dtype=heatmap_dtype,
                 checkpoint_path=state_dict,
+                classes_dict=classes_dict,
             )
             logging.info(f'\nSaved heatmap to {inference_heatmap}')
 
@@ -475,8 +476,9 @@ def main(params: Union[DictConfig, dict]) -> None:
             input_raster=aoi.raster,
             output_raster=output_path,
             write_array=pred_img,
-            checkpoint_path=state_dict
-            )
+            checkpoint_path=state_dict,
+            classes_dict=classes_dict,
+        )
         del pred_heatmap
 
         try:
