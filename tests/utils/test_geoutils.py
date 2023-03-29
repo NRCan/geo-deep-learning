@@ -100,14 +100,20 @@ class TestGeoutils(object):
         assert overlap_poly1_rto_poly2(label_bounds_box, raster_bounds_box) == 0.0
         
     def test_fetch_tag_raster(self):
-        """Test to verify if the function really fetch the right information from the raster"""
+        """
+        Test to verify if the function really fetch the right information from 
+        the raster.
+        """
         raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
         tag_raster = 'tests/data/massachusetts_buildings_kaggle/tag_raster.tif'
+        classes_dict = {'WAER':1, 'FORE':2, 'ROAI':3, 'BUIL':4}
         with rasterio.open(raster_file, 'r') as src_ds:
             with rasterio.open(tag_raster, 'w', **src_ds.meta) as dst_ds:
                 dst_ds.update_tags(checkpoint='test/path/to/checkpoint.pth')
+                dst_ds.update_tags(classes_dict=classes_dict)
                 dst_ds.write(src_ds.read())
         assert fetch_tag_raster(tag_raster, 'checkpoint') == 'test/path/to/checkpoint.pth'
+        assert fetch_tag_raster(tag_raster, 'classes_dict') == classes_dict
          
     def test_multi2poly(self):
         """Test the conversion from MultiPolygon to Polygon in a GPKG"""
