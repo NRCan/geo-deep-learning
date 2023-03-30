@@ -132,6 +132,7 @@ def segmentation(param,
                  num_classes: int,
                  model,
                  chunk_size: int,
+                 use_hanning: bool,
                  device,
                  scale: List,
                  tp_mem,
@@ -156,7 +157,6 @@ def segmentation(param,
     Returns:
 
     """
-    use_hanning = True
     sample = {"image": None, "mask": None, 'metadata': None}
     start_seg = time.time()
     print_log = True if logging.level == 20 else False  # 20 is INFO
@@ -390,6 +390,7 @@ def main(params: Union[DictConfig, dict]) -> None:
     clahe_clip_limit = get_key_def('clahe_clip_limit', params['tiling'], expected_type=Number, default=0)
     heatmap_dtype = get_key_def('heatmap_dtype', params['inference'], default=np.uint16)
     save_heatmap = get_key_def('save_heatmap', params['inference'], default=True, expected_type=bool)
+    use_hanning = get_key_def('use_hanning', params['inference'], default=True, expected_type=bool)
     heatmap_threshold = get_key_def('heatmap_threshold', params['inference'], default=0.5, expected_type=float)
 
     if raw_data_csv and input_stac_item:
@@ -442,6 +443,7 @@ def main(params: Union[DictConfig, dict]) -> None:
             num_classes=num_classes,
             model=model,
             chunk_size=chunk_size,
+            use_hanning=use_hanning,
             device=device,
             scale=scale,
             tp_mem=temp_file,
