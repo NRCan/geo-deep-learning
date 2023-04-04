@@ -6,6 +6,7 @@ from typing import List, Union, Sequence
 
 import ast
 import pyproj
+import fiona
 from fiona._err import CPLE_OpenFailedError
 from fiona.errors import DriverError
 import geopandas as gpd
@@ -174,11 +175,24 @@ def check_rasterio_im_load(im):
         raise ValueError("{} is not an accepted image format for rasterio.".format(im))
 
 
-def check_gdf_load(gdf):
+def check_gdf_load(gdf: Union[str, Path, gpd.GeoDataFrame]) -> gpd.GeoDataFrame:
     """
     Check if `gdf` is already loaded in, if not, load from geojson.
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L52
-    """
+    
+    We added a way to read all the layers from a given GPKG, this 
+    way if the GPKG contain more than one layer, it will stack all
+    geometry and other information find in all the layers.
+
+    Args:
+        gdf (Union[str, Path, gpd.GeoDataFrame]): Link or Geodataframe itself.
+
+    Raises:
+        ValueError: Error if the given `gdf` is not a format supported.
+        
+    Returns:
+        gpd.GeoDataFrame: GeoDataFrame containing all information and geometry.
+    """    
     if isinstance(gdf, (str, Path)):
         if not is_url(gdf):
             gdf = to_absolute_path(str(gdf))
@@ -190,7 +204,18 @@ def check_gdf_load(gdf):
                 gdf, GEOM_POSSIBLE_NAMES="geometry", KEEP_GEOM_COLUMNS="NO"
             )
         try:
-            return gpd.read_file(gdf)
+            layer_name = fiona.listlayers(gdf)
+            if len(layer_name) == 1:
+                return gpd.read_file(gdf)
+            else: 
+                # multi_layers = gpd.GeoDataFrame()
+                for count, layername in enumerate(layer_name):
+                    if count == 0: 
+                        multi_layers = gpd.read_file(gdf, layer=layername)
+                    else: 
+                        geopkg = gpd.read_file(gdf, layer=layername)
+                        multi_layers = multi_layers.append(geopkg, ignore_index=True)    
+                return multi_layers
         except (DriverError, CPLE_OpenFailedError):
             logging.warning(
                 f"GeoDataFrame couldn't be loaded: either {gdf} isn't a valid"
