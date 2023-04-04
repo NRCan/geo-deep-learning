@@ -10,6 +10,7 @@ import fiona
 from fiona._err import CPLE_OpenFailedError
 from fiona.errors import DriverError
 import geopandas as gpd
+import pandas as pd
 import numpy as np
 import pystac
 import rasterio
@@ -214,7 +215,10 @@ def check_gdf_load(gdf: Union[str, Path, gpd.GeoDataFrame]) -> gpd.GeoDataFrame:
                         multi_layers = gpd.read_file(gdf, layer=layername)
                     else: 
                         geopkg = gpd.read_file(gdf, layer=layername)
-                        multi_layers = multi_layers.append(geopkg, ignore_index=True)    
+                        multi_layers = pd.concat(
+                            [multi_layers, geopkg],
+                            ignore_index=True
+                        )    
                 return multi_layers
         except (DriverError, CPLE_OpenFailedError):
             logging.warning(
