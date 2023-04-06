@@ -345,6 +345,83 @@ def read_csv(csv_file_name: str) -> Dict:
     return list_values
 
 
+def read_csv_change_detection(csv_file_name: str) -> dict:
+    """
+    Open csv file and parse it, returning a list of dictionaries with keys:
+    - "tif": path to a single image.
+    - "gpkg": path to a single ground truth file.
+    - dataset: (str) "trn" or "tst"
+    - aoi_id: (str) a string id for area of interest
+
+    Args:
+        csv_file_name (str): path to csv file containing list of input data 
+                             with expected columns (imagery_t1, ground_truth_t1,
+                             imagery_t2, ground_truth_t2, dataset[, aoi id]).
+
+    Raises:
+        TypeError: error if a semicolon is use instead of a comma for 
+                   delimitation.
+        ValueError: error if each line contain different number of items.
+
+    Returns:
+        dict: dictionary of two list of dictionary with the contain of the csv.
+    """    
+    list_values = {'t1':[], 't2':[]}
+    with open(csv_file_name, 'r') as f:
+        reader = csv.reader(f)
+        row_lengths_set = set()
+        for row in reader:
+            row_lengths_set.update([len(row)])
+            if ";" in row[0]:
+                raise TypeError(
+                    f"Elements in rows should be delimited with comma, "
+                    f"not semicolon."
+                )
+            if not len(row_lengths_set) == 1:
+                raise ValueError(
+                    f"Rows in csv should be of same length. "
+                    f"Got rows with length: {row_lengths_set}"
+                )
+            # replace empty strings to None.
+            row = [str(i) or None for i in row]
+            # fill row with None values to obtain row of length == 7  
+            row.extend([None] * (6 - len(row)))
+            # Convert relative paths to absolute with hydra's util 
+            # to_absolute_path() function
+            row[0] = to_absolute_path(row[0]) if not is_url(row[0]) else row[0]
+            row[2] = to_absolute_path(row[2]) if not is_url(row[2]) else row[2]
+            try:
+                row[1] = str(
+                    to_absolute_path(row[1]) if not is_url(row[1]) else row[1]
+                )
+            except TypeError:
+                row[1] = None
+            try:
+                row[3] = str(
+                    to_absolute_path(row[3]) if not is_url(row[3]) else row[3]
+                )
+            except TypeError:
+                row[3] = None
+            # save all values
+            list_values['t1'].append({
+                'tif': str(row[0]), 'gpkg': row[1],
+                'split': row[4], 'aoi_id': row[5]
+            })
+            list_values['t2'].append({
+                'tif': str(row[2]), 'gpkg': row[3],
+                'split': row[4], 'aoi_id': row[5]
+            })
+    try:
+        # Try sorting according to dataset name 
+        # (i.e. group "train", "val" and "test" rows together)
+        list_values['t1'] = sorted(list_values['t1'], key=lambda k: k['split'])
+        list_values['t2'] = sorted(list_values['t2'], key=lambda k: k['split'])
+    except TypeError:
+        log.warning('Unable to sort csv rows')
+    # TODO add test that verify if the number of images is the same at t1 and t2
+    return list_values
+
+
 def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
                                        raster_handle: dict,
                                        raster_info: dict = None

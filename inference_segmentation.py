@@ -25,8 +25,8 @@ from pathlib import Path
 from omegaconf import OmegaConf, DictConfig, open_dict
 from omegaconf.listconfig import ListConfig
 
-from dataset.aoi import aois_from_csv
 from dataset.stacitem import SingleBandItemEO
+from utils.aoiutils import aois_from_csv
 from utils.geoutils import create_new_raster_from_base
 from utils.inference import stretch_heatmap, class_from_heatmap
 from utils.logger import get_logger, set_tracker
