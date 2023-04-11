@@ -22,7 +22,8 @@ from torchgeo.samplers import GridGeoSampler
 from torchgeo.datasets import stack_samples
 
 from dataset.create_dataset import DRDataset, GDLVectorDataset
-from dataset.aoi import aois_from_csv, AOI
+from dataset.aoi import AOI
+from utils.aoiutils import aois_from_csv
 from utils.geoutils import check_gdf_load, check_rasterio_im_load, bounds_gdf, bounds_riodataset, mask_nodata, \
     nodata_vec_mask
 from utils.utils import get_key_def, get_git_hash
