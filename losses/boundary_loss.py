@@ -8,23 +8,42 @@ logging.getLogger(__name__)
 
 
 def one_hot(label, n_classes, requires_grad=True):
-    """Return One Hot Label"""
+    """Return One Hot Label
+
+    Args:
+        label (_type_): _description_
+        n_classes (_type_): _description_
+        requires_grad (bool, optional): _description_. Defaults to True.
+
+    Returns:
+        _type_: label on a form of an one hot vector.
+    """
+    label = label.squeeze(1).type(torch.long)
     device = label.device
     one_hot_label = torch.eye(
-        n_classes, device=device, requires_grad=requires_grad)[label]
+        n_classes, device=device, requires_grad=requires_grad
+    )[label]
     one_hot_label = one_hot_label.transpose(1, 3).transpose(2, 3)
 
     return one_hot_label
 
 
 class BoundaryLoss(nn.Module):
-    """Boundary Loss proposed in:
-    Alexey Bokhovkin et al., Boundary Loss for Remote Sensing Imagery Semantic Segmentation
-    https://arxiv.org/abs/1905.07852
+    """
+    Boundary Loss proposed in the paper *Boundary Loss for Remote Sensing Imagery Semantic Segmentation*
+    from *Alexey Bokhovkin et al.* (https://arxiv.org/abs/1905.07852)
+    
     From: https://github.com/yiskw713/boundary_loss_for_remote_sensing
     """
 
     def __init__(self, theta0=19, theta=19, ignore_index=None):
+        """Initialize the boundary loss.
+
+        Args:
+            theta0 (int, optional): size of the sliding window. Defaults to 19.
+            theta (int, optional): predened threshold on a distance. Defaults to 19.
+            ignore_index (int, optional): index to be ignore during trainning. Defaults to None.
+        """
         super().__init__()
 
         self.theta0 = theta0
@@ -33,17 +52,16 @@ class BoundaryLoss(nn.Module):
         if self.ignore_index:
             logging.error(f'Ignore_index not implemented for Boundary Loss. Got ignore_index "{ignore_index}"')
 
-    def forward(self, pred, gt):
-        """
-        Input:
-            - pred: the output from model (before softmax)
-                    shape (N, C, H, W)
-            - gt: ground truth map
-                    shape (N, H, w)
-        Return:
-            - boundary loss, averaged over mini-batch
-        """
+    def forward(self, pred, gt):        
+        """Foward function use during trainning. 
 
+        Args:
+            pred (Tensor): the output from model (before softmax), shape (N, C, H, W).
+            gt (Tensor): ground truth, shape (N, H, W).
+
+        Returns:
+            Tensor: boundary loss score, averaged over mini-batch.
+        """
         n, c, _, _ = pred.shape
         logging.debug(f"Prediction shape: {gt.shape}")
 

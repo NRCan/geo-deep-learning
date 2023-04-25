@@ -438,7 +438,7 @@ def evaluation(eval_loader,
                                    ep_num=ep_idx + 1,
                                    scale=scale)
 
-            loss = criterion(outputs, labels.unsqueeze(1).float())
+            loss = criterion(outputs, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
 
             eval_metrics['loss'].update(loss.item(), batch_size)
 

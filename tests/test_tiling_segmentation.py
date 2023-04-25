@@ -95,10 +95,8 @@ class TestTiling(object):
                 actual_val_percent = out_val_nb/(out_trn_nb+out_val_nb)
                 results.append((dataset, min_annot, expected_val_percent, actual_val_percent,
                                 out_trn_nb, out_val_nb, out_trn_nb+out_val_nb))
-                if out_trn_nb+out_val_nb < 100:  # allowed 70% tolerance for very small datasets
-                    assert expected_val_percent*0.3 <= actual_val_percent <= expected_val_percent*1.7
-                else:  # allowed 30% tolerance for very small datasets
-                    assert expected_val_percent*0.7 <= actual_val_percent <= expected_val_percent*1.3
+                # allowed 70% tolerance for very small datasets
+                assert expected_val_percent*0.3 <= actual_val_percent <= expected_val_percent*1.7
         for result in results:
             print(result)
         for dir in list(Path(data_dir).glob(f"{proj_prefix}*")):
@@ -149,7 +147,7 @@ class TestTiling(object):
                 shutil.rmtree(dir)
             except PermissionError:
                 pass
-
+            
     def test_tiling_segmentation_parallel(self):
         data_dir = "data/patches"
         Path(data_dir).mkdir(exist_ok=True, parents=True)

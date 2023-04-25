@@ -12,7 +12,7 @@ class TestOptimizersZoo(object):
     """Tests all geo-deep-learning's optimizers instantiation"""
     def test_instantiate_optimizer(self) -> None:
         with initialize(config_path="../../config", job_name="test_ci"):
-            for optimizer_config in Path(to_absolute_path(f"../../config/optimizer")).glob('*.yaml'):
+            for optimizer_config in Path(to_absolute_path(f"config/optimizer")).glob('*.yaml'):
                 cfg = compose(config_name="gdl_config_template",
                               overrides=[f"optimizer={optimizer_config.stem}"],
                               return_hydra_config=True)
