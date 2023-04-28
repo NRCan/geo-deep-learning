@@ -1,15 +1,22 @@
+import multiprocessing
+import os
+import unittest
 from pathlib import Path
+from time import sleep
 
 import pytest
+import rasterio
+from hydra.utils import to_absolute_path
 from torchgeo.datasets.utils import extract_archive
+from torchvision.datasets.utils import download_url
 
 from hydra import initialize, compose
-from omegaconf import OmegaConf
-import unittest
 from hydra.core.hydra_config import HydraConfig
 
 from models.model_choice import read_checkpoint
-from utils.utils import read_csv, is_inference_compatible, update_gdl_checkpoint, get_key_def
+from utils.utils import read_csv, is_inference_compatible, update_gdl_checkpoint, get_key_def, download_url_wcheck, \
+    map_wrapper
+from utils.verifications import validate_raster
 
 
 class TestUtils(unittest.TestCase):
@@ -70,5 +77,32 @@ class TestUtils(unittest.TestCase):
             assert isinstance(mp, Path)
             mp = get_key_def('raw_data_csv', cfg['inference'], expected_type=str, to_path=True)
             assert isinstance(mp, Path)
-            
-        
+
+    def test_download_url_wcheck(self):
+        """
+        Tests parallel and simultaneous downloads of same file to make sure the second download doesn't consider file to
+        be downloaded.
+        """
+        inputs = []
+        # 94 MB
+        url = "http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/spacenet-samples/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-N.tif"
+        filename = Path(url).name
+        root = to_absolute_path("tests/utils")
+        fpath = Path(root) / filename
+        for i in range(2):
+            init_sleep = 4 if i > 0 else 0
+            inputs.append([download_and_validate, url, root, filename, init_sleep])
+        with multiprocessing.get_context('spawn').Pool(None) as pool:
+            pool.map_async(map_wrapper, inputs).get()
+            os.remove(fpath)
+
+
+def download_and_validate(url, root, filename, init_sleep, wcheck: bool = True):
+    sleep(init_sleep)
+    # basic download functions fails since multiple threads download same file
+    if not wcheck:
+        download_url(url, root, filename)
+    else:
+        # adapted function succeeds
+        download_url_wcheck(url, root, filename)
+    validate_raster(Path(root) / filename, extended=True)

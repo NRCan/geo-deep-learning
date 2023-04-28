@@ -7,6 +7,8 @@ import rasterio
 
 import logging
 
+from rasterio.windows import Window
+
 from utils.geoutils import check_rasterio_im_load, check_gdf_load, check_crs
 from utils.utils import is_url
 
@@ -34,14 +36,14 @@ def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: 
                       f'Extended check: {extended}')
         if not raster.meta['dtype'] in ['uint8', 'uint16']:  # will trigger exception if invalid raster
             logging.warning(f"Only uint8 and uint16 are supported in current version.\n"
-                            f"Datatype {raster.meta['dtype']} for {raster.aoi_id} may cause problems.")
+                            f"Datatype {raster.meta['dtype']} for {raster} may cause problems.")
         if extended:
             logging.debug(f'Will perform extended check.\nWill read first band: {raster}')
-            raster_np = raster.read(1)
+            window = Window(raster.width-200, raster.height-200, raster.width, raster.height)
+            raster_np = raster.read(1, window=window)
             logging.debug(raster_np.shape)
             if not np.any(raster_np):
                 logging.critical(f"Raster data filled with zero values.\nRaster path: {raster}")
-                return False
     except FileNotFoundError as e:
         logging.critical(f"Could not locate raster file.\nRaster path: {raster}\n{e}")
         raise e

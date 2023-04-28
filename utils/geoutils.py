@@ -4,6 +4,7 @@ from distutils.version import LooseVersion
 from pathlib import Path
 from typing import List, Union, Sequence
 
+import ast
 import pyproj
 from fiona._err import CPLE_OpenFailedError
 from fiona.errors import DriverError
@@ -66,10 +67,13 @@ def create_new_raster_from_base(input_raster, output_raster, write_array, dtype 
                        transform=src.transform,
                        compress='lzw') as dst:
         dst.write(write_array)
-        # add tag to transmit more informations
+        # add tag to transmit more information
         if 'checkpoint_path' in kwargs.keys():
             # add the path to the model checkpoint
-            dst.update_tags(checkpoint=kwargs['checkpoint_path'])
+            dst.update_tags(
+                checkpoint=kwargs['checkpoint_path'],
+                classes_dict=kwargs['classes_dict'],
+            )
 
 
 def get_key_recursive(key, config):
@@ -276,7 +280,10 @@ def fetch_tag_raster(raster_path, tag_wanted):
         tags = tiff_src.tags()
     # check if the tiff have the wanted tag save in
     if tag_wanted in tags.keys():
-        return tags[tag_wanted]
+        if 'dict' in tag_wanted:
+            return ast.literal_eval(tags[tag_wanted])
+        else: 
+            return tags[tag_wanted]
     else:
         logging.error(
             f"\nThe tag {tag_wanted} was not found in the {tags.keys()},"

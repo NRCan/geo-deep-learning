@@ -101,6 +101,7 @@ def generate_patch_list(image_width: int, image_height: int, window_size: int, o
     """
     Generates a list of patches from an image with given width, height and window size
     The patches can be generated with overlapping or non-overlapping windows
+    See reference: https://arxiv.org/abs/1910.07831
     Args:
         image_width (int): Width dimension of input image
         image_height (int): Height dimension of input image
@@ -113,11 +114,13 @@ def generate_patch_list(image_width: int, image_height: int, window_size: int, o
     """
     patch_list = []
     if overlapping:
+        logging.info(f'Overlapping is set to: {overlapping}, creating tiles with overlap (with smoothening)')
         step = window_size >> 1
         windows = generate_corner_windows(window_size)
         max_height = int(image_height/step - 1)*step
         max_width = int(image_width/step - 1)*step
     else:
+        logging.info(f'Overlapping is set to: {overlapping}, creating tiles without (no smoothening)')
         step = window_size
         windows = np.ones((window_size, window_size))
         max_height = int(image_height/step)*step

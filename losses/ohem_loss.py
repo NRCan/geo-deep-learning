@@ -69,6 +69,6 @@ class OhemCrossEntropy2d(nn.Module):
         input_label.fill(self.ignore_label)
         input_label[valid_inds] = label
         logging.info(np.sum(input_label != self.ignore_label))
-        target = torch.from_numpy(input_label.reshape(target.size())).long().cuda()
+        target = torch.from_numpy(input_label.reshape(target.size())).long()#.cuda()
 
         return self.criterion(predict, target)

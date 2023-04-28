@@ -3,9 +3,11 @@ import csv
 import logging
 import numbers
 import subprocess
+import time
 from functools import reduce
 from pathlib import Path
-from typing import Sequence, List, Dict, Union
+from time import sleep
+from typing import Sequence, List, Dict, Union, Optional
 
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
@@ -23,6 +25,7 @@ from urllib.parse import urlparse
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
 from affine import Affine
+from torchvision.datasets.utils import download_url
 
 from utils.logger import get_logger
 
@@ -342,6 +345,83 @@ def read_csv(csv_file_name: str) -> Dict:
     return list_values
 
 
+def read_csv_change_detection(csv_file_name: str) -> dict:
+    """
+    Open csv file and parse it, returning a list of dictionaries with keys:
+    - "tif": path to a single image.
+    - "gpkg": path to a single ground truth file.
+    - dataset: (str) "trn" or "tst"
+    - aoi_id: (str) a string id for area of interest
+
+    Args:
+        csv_file_name (str): path to csv file containing list of input data 
+                             with expected columns (imagery_t1, ground_truth_t1,
+                             imagery_t2, ground_truth_t2, dataset[, aoi id]).
+
+    Raises:
+        TypeError: error if a semicolon is use instead of a comma for 
+                   delimitation.
+        ValueError: error if each line contain different number of items.
+
+    Returns:
+        dict: dictionary of two list of dictionary with the contain of the csv.
+    """    
+    list_values = {'t1':[], 't2':[]}
+    with open(csv_file_name, 'r') as f:
+        reader = csv.reader(f)
+        row_lengths_set = set()
+        for row in reader:
+            row_lengths_set.update([len(row)])
+            if ";" in row[0]:
+                raise TypeError(
+                    f"Elements in rows should be delimited with comma, "
+                    f"not semicolon."
+                )
+            if not len(row_lengths_set) == 1:
+                raise ValueError(
+                    f"Rows in csv should be of same length. "
+                    f"Got rows with length: {row_lengths_set}"
+                )
+            # replace empty strings to None.
+            row = [str(i) or None for i in row]
+            # fill row with None values to obtain row of length == 7  
+            row.extend([None] * (6 - len(row)))
+            # Convert relative paths to absolute with hydra's util 
+            # to_absolute_path() function
+            row[0] = to_absolute_path(row[0]) if not is_url(row[0]) else row[0]
+            row[2] = to_absolute_path(row[2]) if not is_url(row[2]) else row[2]
+            try:
+                row[1] = str(
+                    to_absolute_path(row[1]) if not is_url(row[1]) else row[1]
+                )
+            except TypeError:
+                row[1] = None
+            try:
+                row[3] = str(
+                    to_absolute_path(row[3]) if not is_url(row[3]) else row[3]
+                )
+            except TypeError:
+                row[3] = None
+            # save all values
+            list_values['t1'].append({
+                'tif': str(row[0]), 'gpkg': row[1],
+                'split': row[4], 'aoi_id': row[5]
+            })
+            list_values['t2'].append({
+                'tif': str(row[2]), 'gpkg': row[3],
+                'split': row[4], 'aoi_id': row[5]
+            })
+    try:
+        # Try sorting according to dataset name 
+        # (i.e. group "train", "val" and "test" rows together)
+        list_values['t1'] = sorted(list_values['t1'], key=lambda k: k['split'])
+        list_values['t2'] = sorted(list_values['t2'], key=lambda k: k['split'])
+    except TypeError:
+        log.warning('Unable to sort csv rows')
+    # TODO add test that verify if the number of images is the same at t1 and t2
+    return list_values
+
+
 def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
                                        raster_handle: dict,
                                        raster_info: dict = None
@@ -598,6 +678,54 @@ def update_gdl_checkpoint(checkpoint: Union[dict, DictConfig]) -> Dict:
             }
         })
     return checkpoint
+
+
+def wait_while_modif(fpath: Union[str, Path], sleep_secs: int = 10, timeout: int = 1800) -> None:
+    """
+    fpath (str or Path): Path to file potentially being modified
+    sleep_secs (int, optional): Seconds to wait before re-checking the size of file to be downloaded
+    timeout (int, optional): Maximum amount of time (seconds) to check if file size has changed
+    """
+    timeout_time = time.time() + timeout
+    if Path(fpath).is_file():
+        while True:
+            initial_size = os.stat(fpath).st_size
+            sleep(sleep_secs)
+            final_size = os.stat(fpath).st_size
+            if time.time() > timeout_time:
+                raise TimeoutError(f"File has been modified for more than {timeout} seconds. \nFile: {fpath}")
+            # if the initial size is equal to the final size, the file has most likely
+            # not changed, unless they are both False.
+            elif initial_size == final_size:
+                logging.debug(f"File has not changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
+                break
+            logging.debug(f"File has changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
+    else:
+        logging.debug(f"File doesn't exist: {fpath}")
+
+
+def download_url_wcheck(
+    url: str, root: str, filename: Optional[str] = None, md5: Optional[str] = None, max_redirect_hops: int = 3,
+        sleep_secs: int = 10, timeout: int = 1800
+) -> None:
+    """Download a file from a url and place it in root. If file to be downloaded exists, but its size varies within a
+    certain period, wait for size to remain stable.
+
+    Args:
+        url (str): URL to download file from
+        root (str): Directory to place downloaded file in
+        filename (str, optional): Name to save the file under. If None, use the basename of the URL
+        md5 (str, optional): MD5 checksum of the download. If None, do not check
+        max_redirect_hops (int, optional): Maximum number of redirect hops allowed
+        sleep_secs (int, optional): Seconds to wait before re-checking the size of file to be downloaded
+        timeout (int, optional): Maximum amount of time (seconds) to check if file size has change
+    """
+    timeout = int(time.time() + timeout)
+    fpath = Path(root) / filename
+    if fpath.is_file():
+        wait_while_modif(fpath=fpath, sleep_secs=sleep_secs, timeout=timeout)
+    else:
+        download_url(url=url, root=root, filename=filename, md5=md5, max_redirect_hops=max_redirect_hops)
 
 
 def map_wrapper(x):
