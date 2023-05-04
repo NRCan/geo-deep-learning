@@ -300,8 +300,8 @@ class Tiler(object):
 
     def tiling_per_aoi(
             self,
-            aoi_index: int,
             aoi: AOI,
+            aoi_index: int,
             out_img_dir: Union[str, Path],
             out_label_dir: Union[str, Path] = None,
     ):
