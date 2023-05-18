@@ -55,10 +55,10 @@ To run it, you will need to add a new parameter in the command line `python GDL.
 We welcome all forms of user contributions including feature requests, bug reports, code, documentation requests, and code. Simply open an issue in the tracker.
 
 If you think you're not skilled or experienced enough to contribute, this is **not TRUE**!
-Don't be affraid to help us, every one start somewhere and it will be our pleasure to help you
+Don't be affraid to help us, every one start somewhere, and it will be our pleasure to help you
 to help us. 
 
-You can find more information on how to create a good issue on a github project [Here](https://docs.github.com/en/issues/tracking-your-work-with-issues/creating-an-issue).
+You can find more information on how to create a good issue on a GitHub project [Here](https://docs.github.com/en/issues/tracking-your-work-with-issues/creating-an-issue).
 
 ## **Citing Geo Deep Learning**
 Citations help us justify the effort that goes into building and maintaining this project.
