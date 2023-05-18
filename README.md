@@ -3,9 +3,9 @@
 
 ## **About**
 
-The **geo-deep-learning** project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced datasets.
+The **Geo-Deep-Learning** project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced datasets.
 
-In geo-deep-learning, the learning process comprises two broad stages: tiling and training, followed by inference, which makes use of a trained model to make new predictions on unseen imagery. 
+In **Geo-Deep-Learning**, the learning process comprises two broad stages: tiling and training, followed by inference, which makes use of a trained model to make new predictions on unseen imagery. 
 
 ## **Requirement**
 This project comprises a set of commands to be run at a shell command prompt.  Examples used here are for a bash shell in an Ubuntu GNU/Linux environment.
@@ -57,6 +57,8 @@ We welcome all forms of user contributions including feature requests, bug repor
 If you think you're not skilled or experienced enough to contribute, this is **not TRUE**!
 Don't be affraid to help us, every one start somewhere and it will be our pleasure to help you
 to help us. 
+
+You can find more information on how to create a good issue on a github project [Here](https://docs.github.com/en/issues/tracking-your-work-with-issues/creating-an-issue).
 
 ## **Citing Geo Deep Learning**
 Citations help us justify the effort that goes into building and maintaining this project.
