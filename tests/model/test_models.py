@@ -28,25 +28,13 @@ class TestModelsZoo(object):
                 del cfg.loss.is_binary  # prevent exception at instantiation
                 rand_img = torch.rand((2, 4, 64, 64))
                 print(cfg.model._target_)
-                if cfg.model._target_ == 'models.deeplabv3_dualhead.DeepLabV3_dualhead':
-                    for layer in ['conv1', 'maxpool']: #, 'layer2', 'layer3', 'layer4']:
-                        logging.info(layer)
-                        cfg.model.conc_point = layer
-                        model = define_model_architecture(
-                            net_params=cfg.model,
-                            in_channels=4,
-                            out_classes=4,
-                        )
-                        output = model(rand_img)
-                        print(output.shape)
-                else:
-                    model = define_model_architecture(
-                        net_params=cfg.model,
-                        in_channels=4,
-                        out_classes=4,
-                    )
-                    output = model(rand_img)
-                    print(output.shape)
+                model = define_model_architecture(
+                    net_params=cfg.model,
+                    in_channels=4,
+                    out_classes=4,
+                )
+                output = model(rand_img)
+                print(output.shape)
 
 
 class TestReadCheckpoint(object):

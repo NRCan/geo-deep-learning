@@ -615,10 +615,6 @@ def update_gdl_checkpoint(checkpoint: Union[dict, DictConfig]) -> Dict:
             '_target_': 'segmentation_models_pytorch.DeepLabV3', 'encoder_name': 'resnet101',
             'encoder_weights': 'imagenet'
         },
-        'deeplabv3_resnet101_dualhead': {
-            '_target_': 'models.deeplabv3_dualhead.DeepLabV3_dualhead', 'conc_point': 'conv1',
-            'encoder_weights': 'imagenet'
-        },
         'deeplabv3+_pretrained': {
             '_target_': 'segmentation_models_pytorch.DeepLabV3Plus', 'encoder_name': 'resnext50_32x4d',
             'encoder_weights': 'imagenet'
