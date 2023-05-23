@@ -38,3 +38,7 @@ Don't be afraid to help us, every one start somewhere, and it will be our pleasu
 to help us. 
 
 You can find more information on how to create a good issue on a GitHub project `Here <https://docs.github.com/en/issues/tracking-your-work-with-issues/creating-an-issue>`_.
+
+After creating an issue, you can start working on the solution. 
+When you have finish working on your code, it's time for the **PR**.
+All the information on how to create a good **PR** on a GitHub project `Here <https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request>`_.

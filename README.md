@@ -60,6 +60,11 @@ to help us.
 
 You can find more information on how to create a good issue on a GitHub project [Here](https://docs.github.com/en/issues/tracking-your-work-with-issues/creating-an-issue).
 
+
+After creating an issue, you can start working on the solution. 
+When you have finish working on your code, it's time for the **PR**.
+All the information on how to create a good **PR** on a GitHub project [Here](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request).
+
 ## **Citing Geo Deep Learning**
 Citations help us justify the effort that goes into building and maintaining this project.
 If you used _**Geo Deep Learning**_ for your research, please consider citing us.
