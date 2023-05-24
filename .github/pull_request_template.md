@@ -27,15 +27,15 @@ Otherwise, please describe tests that you added to the pytest codebase (if appli
 
 # Checklist:
 If you're unsure about any of these, don't hesitate to ask. We're here to help! 
-- [ ] My code follows the code style of this project.
+- [ ] My code follows the code style of this project
 - [ ] I have performed a self-review of my own code
 - [ ] My PR has a descriptive title
 - [ ] My code follows PEP8 (most of it)
 - [ ] My code have the proper documentation in the code
 - [ ] I have made corresponding changes to the documentation (if applicable)
 - [ ] My changes generate no new errors
-- [ ] My code is cover by the existing tests (if applicable)
-- [ ] I have added tests that prove my fix is effective or that my feature works
+- [ ] My code is covered by the existing tests (if applicable)
+- [ ] My code includes tests that show that my feature works
 - [ ] My PR passes Travis CI tests
 
 
