@@ -410,6 +410,7 @@ def main(params: Union[DictConfig, dict]) -> None:
         main_device=device,
         devices=[list(gpu_devices_dict.keys())],
         checkpoint_dict=checkpoint,
+        checkpoint_dict_strict_load=False,
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
