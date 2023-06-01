@@ -552,8 +552,6 @@ def train(cfg: DictConfig) -> None:
         )
     if class_weights:
         verify_weights(num_classes, class_weights)
-    # Read the concatenation point if requested model is deeplabv3 dualhead
-    conc_point = get_key_def('conc_point', cfg['model'], None)
     step_size = get_key_def('step_size', cfg['scheduler']['params'], default=4, expected_type=int)
     gamma = get_key_def('gamma', cfg['scheduler']['params'], default=0.9, expected_type=float)
 
