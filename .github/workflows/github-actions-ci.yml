@@ -22,7 +22,8 @@ jobs:
           echo $CONDA/bin >> $GITHUB_PATH
       - name: Install dependencies
         run: |
-          conda env create --file environment.yml
+          conda install mamba -c conda-forge
+          mamba env create --file environment.yml
       - name: test GDL
         run: |
           source /usr/share/miniconda/etc/profile.d/conda.sh
