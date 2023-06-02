@@ -29,9 +29,9 @@ channels:
   - pytorch
   - conda-forge
 dependencies:
+  - python>=3.10
   - pip>=23.1
   - pip:
-    - python>=3.10
     - coverage>=6.5.0
     - hydra-colorlog>=1.1.0
     - hydra-optuna-sweeper>=1.1.0
