@@ -33,8 +33,11 @@ dependencies:
   - pip>=23.1
   - gdal>=3.5.3
   - ruamel_yaml>=0.15.80
+  - pytorch==1.12.0
+  - torchvision==0.13.0
+  - torchaudio==0.12.0
+  - cudatoolkit=11.6
   - pip:
-    - torch==1.12.0+cu116 torchvision==0.13.0+cu116 torchaudio==0.12.0 --extra-index-url https://download.pytorch.org/whl/cu116
     - pytorch-lightning>=1.7.7
     - segmentation-models-pytorch>=0.3.3
     - coverage>=6.5.0
