@@ -52,9 +52,3 @@ folder to the complete list on different combinaisons.
 
 Also from the same library, another version of *DeepLabV3*, named *DeepLabV3+* of the
 *Encoder-Decoder with Atrous Separable Convolution for Semantic Image Segmentation* paper.
-
-**GDL** have his own version of *DeepLabV3* with a dualhead that concatenate at a specify point.
-
-.. autoclass:: models.deeplabv3_dualhead.DeepLabV3_dualhead
-   :members:
-   :special-members:
