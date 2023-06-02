@@ -34,8 +34,8 @@ dependencies:
   - gdal>=3.5.3
   - ruamel_yaml>=0.15.80
   - pip:
-    - pytorch==1.12.1
-    - torchvision>=0.13.1
+    - torch==1.12.0+cu116
+    - torchvision>=0.13.0+cu116
     - pytorch-lightning>=1.7.7
     - segmentation-models-pytorch>=0.3.3
     - coverage>=6.5.0
