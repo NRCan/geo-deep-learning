@@ -11,7 +11,7 @@ dependencies:
   - pynvml>=11.0
   - pystac>=0.3.0
   - pytest>=7.1
-  - python>=3.10
+  - python>=3.9
   - pytorch==1.12
   - rich>=11.1
   - ruamel_yaml>=0.15
