@@ -5,29 +5,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v2
       - run: |
           echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
-#      - name: Actions checkout
-#      - uses: actions/checkout@v3
-#      - uses: actions/setup-python@v3
-#        with:
-#          python-version: 3.9
-#      - name: Replace pytorch requirement with pytorch-cpu to speed up CI
-#        run: |
-#          sed -i -e 's/pytorch..*$/pytorch-cpu/g' environment.yml
-#          sed -i -e 's/torchvision..*$/torchvision-cpu/g' environment.yml
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.9
+      - name: Replace pytorch requirement with pytorch-cpu to speed up CI
+        run: |
+          sed -i -e 's/pytorch..*$/pytorch-cpu/g' environment.yml
+          sed -i -e 's/torchvision..*$/torchvision-cpu/g' environment.yml
       - name: Add conda to system path
         run: |
           # $CONDA is an environment variable pointing to the root of the miniconda directory
           echo $CONDA/bin >> $GITHUB_PATH
-      - name: Set Conda Priority
-        run: |
-          conda config --set channel_priority strict
-#      - name: Checkout Repository
-#        uses: actions/checkout@v3
-      - name: Dependency Review
-        uses: actions/dependency-review-action@v3
       - name: Install dependencies
         run: |
           conda env create --file environment.yml
