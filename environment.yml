@@ -31,7 +31,9 @@ channels:
 dependencies:
   - python>=3.10
   - pip>=23.1
+  - gdal>=3.5.3
   - pip:
+    - pytorch-lightning>=1.7.7
     - coverage>=6.5.0
     - hydra-colorlog>=1.1.0
     - hydra-optuna-sweeper>=1.1.0
