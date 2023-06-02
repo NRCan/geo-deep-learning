@@ -29,6 +29,7 @@ channels:
   - pytorch
   - conda-forge
 dependencies:
+  - pip>=23.1
   - pip:
     - python>=3.10
     - coverage>=6.5.0
