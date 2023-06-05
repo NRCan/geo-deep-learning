@@ -12,10 +12,10 @@ jobs:
         uses: actions/setup-python@v2
         with:
           python-version: 3.9
-      - name: Replace pytorch requirement with pytorch-cpu to speed up CI
-        run: |
-          sed -i -e 's/pytorch..*$/pytorch-cpu/g' environment.yml
-          sed -i -e 's/torchvision..*$/torchvision-cpu/g' environment.yml
+#      - name: Replace pytorch requirement with pytorch-cpu to speed up CI
+#        run: |
+#          sed -i -e 's/pytorch..*$/pytorch-cpu/g' environment.yml
+#          sed -i -e 's/torchvision..*$/torchvision-cpu/g' environment.yml
       - name: Add conda to system path
         run: |
           # $CONDA is an environment variable pointing to the root of the miniconda directory
