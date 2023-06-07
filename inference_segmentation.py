@@ -287,7 +287,7 @@ def override_model_params_from_checkpoint(
 
     if model_ckpt != params.model or classes_ckpt != classes or bands_ckpt != bands \
             or clip_limit != clip_limit_ckpt:
-        logging.info(f"\nParameters from checkpoint will override inputted parameters."
+        logging.info("\nParameters from checkpoint will override inputted parameters."
                      f"\n\t\t\t Inputted | Overriden"
                      f"\nModel:\t\t {params.model} | {model_ckpt}"
                      f"\nInput bands:\t\t{bands} | {bands_ckpt}"
