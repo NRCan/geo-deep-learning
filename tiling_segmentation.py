@@ -741,7 +741,7 @@ def main(cfg: DictConfig) -> None:
     # TODO: use mp.Manager() to modify aoi.tiling_pairs_list from within tiling_per_aoi
     tiler.src_aoi_list = []
     for tiled_aoi, rs_tiler_paths, vec_tiler_paths in tqdm(
-            tilers, desc="Updating AOIs' information about their patches paths"):
+            tilers, desc=f"Updating AOIs' information about their patches paths"):
         tiled_aoi.patches_pairs_list = [(rs_ptch, gt_ptch) for rs_ptch, gt_ptch in zip(rs_tiler_paths, vec_tiler_paths)]
         tiler.src_aoi_list.append(tiled_aoi)
 
