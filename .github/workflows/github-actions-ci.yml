@@ -2,7 +2,8 @@ name: GitHub Actions Demo
 on: [push, pull_request]
 jobs:
   Github-Actions-CI:
-    runs-on: ubuntu-latest
+#    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - name: Check out repository code
         uses: actions/checkout@v2
