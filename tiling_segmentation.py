@@ -322,8 +322,6 @@ class Tiler(object):
         # Create TorchGeo-based custom DRDataset dataset:
         dr_dataset = DRDataset(aoi.raster)
 
-        x = 1 / 0
-
         if not self.for_inference:
             nodata_mask = nodata_vec_mask(raster=aoi.raster, nodata_val=nodata)
             vec_dataset = GDLVectorDataset(vec_ds=aoi.label, nodata_mask=nodata_mask)
