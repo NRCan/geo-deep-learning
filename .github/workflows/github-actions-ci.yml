@@ -11,6 +11,9 @@ jobs:
     # checkout your code from your repository
     # and runs pytest in your pipenv environment
     steps:
+      - name: Install pipenv
+        run: |
+          pip install pipenv
       - uses: actions/checkout@v2
       - name: Test with pytest
         run: |
