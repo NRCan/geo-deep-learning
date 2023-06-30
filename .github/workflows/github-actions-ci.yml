@@ -7,6 +7,7 @@ jobs:
     # runs within your Docker container
     container:
       image: docker://geobaserepo/gdl-cuda11:latest
+      options: --user root
     # checkout your code from your repository
     # and runs pytest in your pipenv environment
     steps:
