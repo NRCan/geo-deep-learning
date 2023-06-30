@@ -202,7 +202,7 @@ class AOI(object):
         if label:
             self.label = Path(label)
             layer_name = {"layer": self.aoi_id}
-            self.label_gdf = check_gdf_load(label)
+            self.label_gdf = check_gdf_load(label, layer_name)
             self.label_invalid_features = validate_features_from_gpkg(label)
 
             self.label_bounds = bounds_gdf(self.label_gdf)
