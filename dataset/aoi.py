@@ -155,6 +155,17 @@ class AOI(object):
             bands_list=self.raster_bands_request,
             root_dir=self.root_dir,
         )
+        
+        # Check aoi_id string
+        if aoi_id and not isinstance(aoi_id, str):
+            raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
+        elif not aoi_id:
+            aoi_id = self.raster_name.stem  # Defaults to name of image without suffix
+        self.aoi_id = aoi_id
+
+        # Check collection string
+        if collection and not isinstance(collection, str):
+            raise TypeError(f'Collection name should be a string. Got {collection} of type {type(collection)}')
 
         # output processing-ready destination raster if needed
         self.raster_dest, self.raster_is_vrt = self.raster_src_to_dest()
@@ -190,6 +201,7 @@ class AOI(object):
         # Check label data
         if label:
             self.label = Path(label)
+            layer_name = {"layer": self.aoi_id}
             self.label_gdf = check_gdf_load(label)
             self.label_invalid_features = validate_features_from_gpkg(label)
 
@@ -221,18 +233,6 @@ class AOI(object):
                             f"\nOriginal split: {split}")
             split = 'inference'
         self.split = split
-
-        # Check aoi_id string
-        if aoi_id and not isinstance(aoi_id, str):
-            raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
-        elif not aoi_id:
-            aoi_id = self.raster_name.stem  # Defaults to name of image without suffix
-        self.aoi_id = aoi_id
-
-        # Check collection string
-        if collection and not isinstance(collection, str):
-            raise TypeError(f'Collection name should be a string. Got {collection} of type {type(collection)}')
-        self.aoi_id = aoi_id
 
         # If ground truth is provided, check attribute field
         if label and attr_field_filter:
