@@ -24,17 +24,17 @@ class TestVerify(object):
         assert aoi_dict['raster_area'] == 23870.0
         assert aoi_dict['label_features_filtered_mean_exterior_vertices_nb'] == 36.093023255813954
         assert aoi_dict['band_0_mean'] == 159.36075617930456
-    #
-    # def test_verify_segmentation_parallel(self):
-    #     """Integration test to check verify mode without specific assert"""
-    #     with initialize(config_path="../config", job_name="test_ci"):
-    #         cfg = compose(config_name="gdl_config_template",
-    #                       overrides=[f"mode=verify",
-    #                                  f"dataset=test_ci_segmentation_multiclass",
-    #                                  f"verify.multiprocessing=True",
-    #                                  "hydra.job.num=0"],
-    #                       return_hydra_config=True)
-    #         hconf = HydraConfig()
-    #         hconf.set_config(cfg)
-    #         run_gdl(cfg)
+
+    def test_verify_segmentation_parallel(self):
+        """Integration test to check verify mode without specific assert"""
+        with initialize(config_path="../config", job_name="test_ci"):
+            cfg = compose(config_name="gdl_config_template",
+                          overrides=[f"mode=verify",
+                                     f"dataset=test_ci_segmentation_multiclass",
+                                     f"verify.multiprocessing=True",
+                                     "hydra.job.num=0"],
+                          return_hydra_config=True)
+            hconf = HydraConfig()
+            hconf.set_config(cfg)
+            run_gdl(cfg)
 
