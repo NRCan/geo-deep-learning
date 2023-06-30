@@ -147,7 +147,6 @@ class Tiler(object):
                              f'Set of bands requested: {bands_set}')
         self.bands_num = len(self.bands_requested)
 
-
         if val_percent and not isinstance(val_percent, int):
             raise TypeError(f'Validation percentage should be an integer.\n'
                             f'Got {val_percent} of type {type(val_percent)}')
@@ -322,6 +321,8 @@ class Tiler(object):
 
         # Create TorchGeo-based custom DRDataset dataset:
         dr_dataset = DRDataset(aoi.raster)
+
+        x = 1 / 0
 
         if not self.for_inference:
             nodata_mask = nodata_vec_mask(raster=aoi.raster, nodata_val=nodata)

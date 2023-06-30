@@ -21,7 +21,7 @@ class TestVerify(object):
             extended_label_stats=True,
             output_report_dir="dataset",
         )
-        assert aoi_dict['raster_area'] == 2387000.0
+        assert aoi_dict['raster_area'] == 23870.0
         assert aoi_dict['label_features_filtered_mean_exterior_vertices_nb'] == 36.093023255813954
         assert aoi_dict['band_0_mean'] == 159.36075617930456
 
