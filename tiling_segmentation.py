@@ -146,6 +146,8 @@ class Tiler(object):
                              f'Check source imagery and define a unique list of bands to keep. \n'
                              f'Set of bands requested: {bands_set}')
         self.bands_num = len(self.bands_requested)
+
+
         if val_percent and not isinstance(val_percent, int):
             raise TypeError(f'Validation percentage should be an integer.\n'
                             f'Got {val_percent} of type {type(val_percent)}')
