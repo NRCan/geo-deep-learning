@@ -172,8 +172,8 @@ def segmentation(param,
     img_gen = gen_img_samples(src=input_image, patch_list=patch_list, chunk_size=chunk_size)
     single_class_mode = False if num_classes > 1 else True
     for sub_image, h_idxs, w_idxs, hann_win in tqdm(
-            img_gen, position=0, leave=True, desc='Inferring on patches',
-            total=len(patch_list)
+        img_gen, position=0, leave=True, desc='Inferring on patches',
+        total=len(patch_list)
     ):
         hann_win = np.expand_dims(hann_win, -1)
         image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
