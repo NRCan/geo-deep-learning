@@ -65,6 +65,10 @@ def create_new_raster_from_base(input_raster, output_raster, write_array, dtype 
                        crs=src.crs,
                        dtype=dtype,
                        transform=src.transform,
+                       tiled=True,
+                       blockxsize=256,
+                       blockysize=256,
+                       BIGTIFF='YES',
                        compress='lzw') as dst:
         dst.write(write_array)
         # add tag to transmit more information
