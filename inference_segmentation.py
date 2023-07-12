@@ -338,7 +338,7 @@ def main(params: Union[DictConfig, dict]) -> None:
     override = get_key_def('override_model_params', params['inference'], default=False, expected_type=bool)
 
     # Override params from checkpoint
-    checkpoint = read_checkpoint(state_dict, out_dir=models_dir, update=False)
+    checkpoint = read_checkpoint(state_dict, out_dir=models_dir, update=True)
     if override:
         params = override_model_params_from_checkpoint(params=params,checkpoint_params=checkpoint['params'])
 
@@ -409,7 +409,7 @@ def main(params: Union[DictConfig, dict]) -> None:
         out_classes=num_classes,
         main_device=device,
         devices=[list(gpu_devices_dict.keys())],
-        checkpoint_dict=checkpoint
+        checkpoint_dict=checkpoint,
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE

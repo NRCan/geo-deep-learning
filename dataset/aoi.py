@@ -156,17 +156,6 @@ class AOI(object):
             bands_list=self.raster_bands_request,
             root_dir=self.root_dir,
         )
-        
-        # Check aoi_id string
-        if aoi_id and not isinstance(aoi_id, str):
-            raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
-        elif not aoi_id:
-            aoi_id = self.raster_name.stem  # Defaults to name of image without suffix
-        self.aoi_id = aoi_id
-
-        # Check collection string
-        if collection and not isinstance(collection, str):
-            raise TypeError(f'Collection name should be a string. Got {collection} of type {type(collection)}')
 
         # output processing-ready destination raster if needed
         self.raster_dest, self.raster_is_vrt = self.raster_src_to_dest()
@@ -203,8 +192,7 @@ class AOI(object):
         # Check label data
         if label:
             self.label = Path(label)
-            layer_name = {"layer": self.label.stem}
-            self.label_gdf = check_gdf_load(label, layer_name)
+            self.label_gdf = check_gdf_load(label)
             self.label_invalid_features = validate_features_from_gpkg(label)
 
             self.label_bounds = bounds_gdf(self.label_gdf)
@@ -235,6 +223,18 @@ class AOI(object):
                             f"\nOriginal split: {split}")
             split = 'inference'
         self.split = split
+
+        # Check aoi_id string
+        if aoi_id and not isinstance(aoi_id, str):
+            raise TypeError(f'AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}')
+        elif not aoi_id:
+            aoi_id = self.raster_name.stem  # Defaults to name of image without suffix
+        self.aoi_id = aoi_id
+
+        # Check collection string
+        if collection and not isinstance(collection, str):
+            raise TypeError(f'Collection name should be a string. Got {collection} of type {type(collection)}')
+        self.aoi_id = aoi_id
 
         # If ground truth is provided, check attribute field
         if label and attr_field_filter:
@@ -427,7 +427,6 @@ class AOI(object):
                 stats[band]["statistics"]["median"] = np.median(self.raster_np[index])
                 stats[band]["statistics"]["std"] = self.raster_np[index].std()
                 stats[band]["histogram"]["buckets"] = list(np.bincount(self.raster_np.flatten()))
-        
         mean_minimum = np.mean([band_stat["statistics"]["minimum"] for band_stat in stats.values()])
         mean_maximum = np.mean([band_stat["statistics"]["maximum"] for band_stat in stats.values()])
         mean_mean = np.mean([band_stat["statistics"]["mean"] for band_stat in stats.values()])
@@ -440,10 +439,16 @@ class AOI(object):
             "statistics": {"minimum": mean_minimum, "maximum": mean_maximum, "mean": mean_mean,
                            "median": mean_median, "std": mean_std, "low_contrast": self.high_or_low_contrast},
             "histogram": {"buckets": mean_hist}}
-        # self.close_raster()
         return stats
     
     def is_low_contrast(self, fraction_threshold=0.3):
+        """This function checks if a raster is low contrast 
+        https://scikit-image.org/docs/stable/api/skimage.exposure.html#skimage.exposure.is_low_contrast
+        Args:
+            fraction_threshold (float, optional): low contrast fraction threshold. Defaults to 0.3.
+        Returns:
+            bool: False for high contrast image | True for low contrast image 
+        """
         if self.raster_np is None:
                 self.raster_np = self.raster.read()
         data_type = self.raster_np.dtype

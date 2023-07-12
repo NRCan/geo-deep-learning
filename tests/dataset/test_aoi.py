@@ -364,7 +364,31 @@ class Test_AOI(object):
         for input, expected in zip(inputs, expected_list):
             actual = AOI.name_raster(root_dir="tests/data/spacenet/", input_path=input[0], bands_list=input[1])
             assert Path(expected) == actual
-
+    
+    def test_is_low_contrast(self):
+        """Test raster contrast (high | low)"""
+        extract_archive(src="tests/data/spacenet.zip")
+        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
+        row = data[0]
+        aoi = AOI(
+            raster=row['tif'],
+            label=None,
+            split=row['split'],
+            raster_bands_request=[1, 2, 3]
+        )
+        raster_shape = aoi.raster_np.shape
+        high_contrast_image = np.zeros(raster_shape, dtype=np.uint8)
+        high_contrast_image[:, :, :raster_shape[2]//2] = 0
+        high_contrast_image[:, :, raster_shape[2]//2:] = 255
+        aoi.raster_np = high_contrast_image
+        result = aoi.is_low_contrast()
+        assert result == False, "Expected high contrast image"
+        
+        low_contrast_image = np.random.randint(100, 156, size=raster_shape, dtype=np.uint8)
+        aoi.raster_np = low_contrast_image
+        result = aoi.is_low_contrast()
+        assert result == True, "Expected low contrast image"
+    
     def test_equalize_hist_raster(self):
         """Test equalize input raster with CLAHE transform"""
         extract_archive(src="tests/data/spacenet.zip")
@@ -383,7 +407,7 @@ class Test_AOI(object):
             assert no_equ_arr.shape == equ_arr.shape
             assert 100 < equ_arr.mean() < 150
             assert no_equ_arr.mean() < equ_arr.mean()
-
+        
     def test_equalize_hist_raster_per_band(self):
         """Test equalize input raster per band with CLAHE transform"""
         extract_archive(src="tests/data/spacenet.zip")

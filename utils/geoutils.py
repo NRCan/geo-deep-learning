@@ -174,7 +174,7 @@ def check_rasterio_im_load(im):
         raise ValueError("{} is not an accepted image format for rasterio.".format(im))
 
 
-def check_gdf_load(gdf, layer_name={}):
+def check_gdf_load(gdf):
     """
     Check if `gdf` is already loaded in, if not, load from geojson.
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L52
@@ -187,9 +187,10 @@ def check_gdf_load(gdf, layer_name={}):
         # https://github.com/geopandas/geopandas/issues/1234
         if str(gdf).lower().endswith("csv"):
             return gpd.read_file(
-                gdf, GEOM_POSSIBLE_NAMES="geometry", KEEP_GEOM_COLUMNS="NO", **layer_name)
+                gdf, GEOM_POSSIBLE_NAMES="geometry", KEEP_GEOM_COLUMNS="NO"
+            )
         try:
-            return gpd.read_file(gdf, **layer_name)
+            return gpd.read_file(gdf)
         except (DriverError, CPLE_OpenFailedError):
             logging.warning(
                 f"GeoDataFrame couldn't be loaded: either {gdf} isn't a valid"
