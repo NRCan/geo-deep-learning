@@ -402,32 +402,16 @@ class AOI(object):
         """ For stac items formatted as expected, reads mean and std of raster imagery, per band.
         See stac item example: tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
         If source imagery is not a stac item or stac item lacks stats assets, stats are calculed on the fly"""
-        if self.raster_bands_request:
-            stats = {name: {} for name in self.raster_bands_request}
-        else:
-            stats = {f"band_{index}": {} for index in range(self.raster.count)}
-        try:
-            stats_asset = self.raster_stac_item.item.assets['STATS']
-            if is_url(stats_asset.href):
-                download_url_wcheck(stats_asset.href, root=str(self.root_dir), filename=Path(stats_asset.href).name)
-                stats_href = self.root_dir / Path(stats_asset.href).name
-            else:
-                stats_href = to_absolute_path(stats_asset.href)
-            with open(stats_href, 'r') as ifile:
-                stac_stats = json.loads(ifile.read())
-            stac_stats = {bandwise_stats['asset']: bandwise_stats for bandwise_stats in stac_stats}
-            for band in self.raster_stac_item.bands:
-                stats[band.common_name] = stac_stats[band.name]
-        except (AttributeError, KeyError):
-            self.raster_np = self.raster_read()
-            for index, band in enumerate(stats.keys()):
-                stats[band] = {"statistics": {}, "histogram": {}}
-                stats[band]["statistics"]["minimum"] = self.raster_np[index].min()
-                stats[band]["statistics"]["maximum"] = self.raster_np[index].max()
-                stats[band]["statistics"]["mean"] = self.raster_np[index].mean()
-                stats[band]["statistics"]["median"] = np.median(self.raster_np[index])
-                stats[band]["statistics"]["std"] = self.raster_np[index].std()
-                stats[band]["histogram"]["buckets"] = list(np.bincount(self.raster_np.flatten()))
+        stats = {f"band_{index}": {} for index in range(self.raster.count)}
+        self.raster_np = self.raster_read()
+        for index, band in enumerate(stats.keys()):
+            stats[band] = {"statistics": {}, "histogram": {}}
+            stats[band]["statistics"]["minimum"] = self.raster_np[index].min()
+            stats[band]["statistics"]["maximum"] = self.raster_np[index].max()
+            stats[band]["statistics"]["mean"] = self.raster_np[index].mean()
+            stats[band]["statistics"]["median"] = np.median(self.raster_np[index])
+            stats[band]["statistics"]["std"] = self.raster_np[index].std()
+            stats[band]["histogram"]["buckets"] = list(np.bincount(self.raster_np.flatten()))
         
         mean_minimum = np.mean([band_stat["statistics"]["minimum"] for band_stat in stats.values()])
         mean_maximum = np.mean([band_stat["statistics"]["maximum"] for band_stat in stats.values()])
