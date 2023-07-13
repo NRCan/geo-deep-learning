@@ -119,6 +119,7 @@ class AOI(object):
             item = SingleBandItemEO(item=pystac.Item.from_file(self.raster_raw_input),
                                     bands_requested=self.raster_bands_request)
             self.raster_stac_item = item
+            self.raster_bands_request = item.bands_requested
         else:
             self.raster_stac_item = None
 
