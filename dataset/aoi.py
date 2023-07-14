@@ -617,6 +617,7 @@ def aois_from_csv(
                 )
                 logging.debug(new_aoi)
                 aois.append(new_aoi)
+                del new_aoi
             except FileNotFoundError as e:
                 logging.error(f"{e}\nGround truth file may not exist or is empty.\n"
                               f"Failed to create AOI:\n{aoi_dict}\n"
