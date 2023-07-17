@@ -285,7 +285,7 @@ class Test_AOI(object):
             'blue': {'statistics': {'minimum': 0, 'maximum': 255, 'mean': 21.429019052130965, 'median': 24.0,
                                     'std': 13.91999326196311}},
             'all': {'statistics': {'minimum': 0.0, 'maximum': 255.0, 'mean': 16.98176567459573,
-                                   'median': 17.666666666666668, 'std': 12.566239874581086}}}
+                                   'median': 17.666666666666668, 'std': 12.566239874581086}, 'low_contrast': False}}
         row = next(iter(data))
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'], raster_bands_request=bands_request)
         stats = aoi.calc_raster_stats()
@@ -306,7 +306,7 @@ class Test_AOI(object):
             'band_2': {'statistics': {'minimum': 26, 'maximum': 254, 'mean': 119.60827398408044, 'median': 117.0,
                                       'std': 41.85516710316288}},
             'all': {'statistics': {'minimum': 16.333333333333332, 'maximum': 254.33333333333334,
-                                   'mean': 142.8522378159475, 'median': 145.33333333333334, 'std': 45.68388743111347}}}
+                                   'mean': 142.8522378159475, 'median': 145.33333333333334, 'std': 45.68388743111347, 'low_contrast': False}}}
         row = next(iter(data))
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
         stats = aoi.calc_raster_stats()
