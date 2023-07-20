@@ -8,6 +8,7 @@ import numpy as np
 import pyproj
 import pystac
 import rasterio
+from skimage import exposure
 from hydra.utils import to_absolute_path
 from kornia import image_to_tensor, tensor_to_image
 from kornia.enhance import equalize_clahe
@@ -182,8 +183,9 @@ class AOI(object):
             raise ValueError(f"Enhance clip limit should be an integer. See documentation.\n"
                              f"Got {type(equalize_clahe_clip_limit)}.")
         self.enhance_clip_limit = equalize_clahe_clip_limit
-
-        if self.enhance_clip_limit > 0:
+        self.high_or_low_contrast = self.is_low_contrast()
+        
+        if self.enhance_clip_limit > 0 and self.high_or_low_contrast:
             self.raster_dest = self.equalize_hist_raster(clip_limit=self.enhance_clip_limit)
             self.raster = rasterio.open(self.raster_dest)
 
@@ -435,11 +437,26 @@ class AOI(object):
         mean_hist = list(mean_hist_np.astype(int))
         stats["all"] = {
             "statistics": {"minimum": mean_minimum, "maximum": mean_maximum, "mean": mean_mean,
-                           "median": mean_median, "std": mean_std},
+                           "median": mean_median, "std": mean_std, "low_contrast": self.high_or_low_contrast},
             "histogram": {"buckets": mean_hist}}
-        self.close_raster()
         return stats
-
+    
+    def is_low_contrast(self, fraction_threshold=0.3):
+        """This function checks if a raster is low contrast 
+        https://scikit-image.org/docs/stable/api/skimage.exposure.html#skimage.exposure.is_low_contrast
+        Args:
+            fraction_threshold (float, optional): low contrast fraction threshold. Defaults to 0.3.
+        Returns:
+            bool: False for high contrast image | True for low contrast image 
+        """
+        if self.raster_np is None:
+                self.raster_np = self.raster.read()
+        data_type = self.raster_np.dtype
+        grayscale = np.mean(self.raster_np, axis=0)
+        grayscale = np.round(grayscale).astype(data_type)
+        high_or_low_contrast = exposure.is_low_contrast(grayscale, fraction_threshold=fraction_threshold)
+        return high_or_low_contrast
+        
     def equalize_hist_raster(self, clip_limit: int = 0, per_band: bool = True, overwrite: bool = False):
         """
         Applies clahe equalization on the input raster, then saved a copy of result to disk.
