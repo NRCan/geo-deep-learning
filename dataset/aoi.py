@@ -252,7 +252,7 @@ class AOI(object):
             except (KeyError, ValueError) as e:
                 logging.critical(f"\nAttribute field \"{attr_field_filter}\" not found in label attributes:\n"
                                     f"{self.label_gdf.columns}")
-            raise e
+                raise e
         self.attr_field_filter = attr_field_filter
 
         # If ground truth is provided, check attribute values to filter from
