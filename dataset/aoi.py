@@ -243,12 +243,16 @@ class AOI(object):
             if not isinstance(attr_field_filter, str):
                 raise TypeError(f'Attribute field name should be a string.\n'
                                 f'Got {attr_field_filter} of type {type(attr_field_filter)}')
-            elif attr_field_filter not in self.label_gdf.columns:
-                # fiona and geopandas don't expect attribute name exactly the same way: "properties/class" vs "class"
-                attr_field_filter = attr_field_filter.split('/')[-1]
-                if attr_field_filter not in self.label_gdf.columns:
-                    raise ValueError(f"\nAttribute field \"{attr_field_filter}\" not found in label attributes:\n"
-                                     f"{self.label_gdf.columns}")
+            # fiona and geopandas don't expect attribute name exactly the same way: "properties/class" vs "class"
+            attr_field_filter = attr_field_filter.split('/')[-1]
+            old_field_id = "Quatreclasses"
+            field_id = set([old_field_id, attr_field_filter])
+            try:
+                attr_field_filter = field_id.intersection(self.label_gdf.columns).pop()
+            except (KeyError, ValueError) as e:
+                logging.critical(f"\nAttribute field \"{attr_field_filter}\" not found in label attributes:\n"
+                                    f"{self.label_gdf.columns}")
+            raise e
         self.attr_field_filter = attr_field_filter
 
         # If ground truth is provided, check attribute values to filter from
