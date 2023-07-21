@@ -190,12 +190,13 @@ def check_gdf_load(gdf, layer_name={}):
             return gpd.read_file(
                 gdf, GEOM_POSSIBLE_NAMES="geometry", KEEP_GEOM_COLUMNS="NO", **layer_name)
         try:
-            layers = fiona.listlayers(gdf)
-            existing_layer_name = next((item for item in layers if item != 'extent_2'), None)
-            expected_layer_name = layer_name["layer"]
-            if expected_layer_name != existing_layer_name:
-                logging.warning(f"Did not find the expected layer name {expected_layer_name}, layer name is set to None")
-                layer_name["layer"] = None    
+            if layer_name:
+                layers = fiona.listlayers(gdf)
+                existing_layer_name = next((item for item in layers if item != 'extent_2'), None)
+                expected_layer_name = layer_name["layer"]
+                if expected_layer_name != existing_layer_name:
+                    logging.warning(f"Did not find the expected layer name {expected_layer_name}, layer name is set to None")
+                    layer_name["layer"] = None    
             return gpd.read_file(gdf, **layer_name)
         except (DriverError, CPLE_OpenFailedError):
             logging.warning(
