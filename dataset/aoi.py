@@ -600,6 +600,7 @@ def aois_from_csv(
     N.B.: See AOI docstring for information on other parameters.
     Returns: a list of AOIs objects
     """
+    aois = []
     data_list = read_csv(csv_path)
     logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
                  f'\tNumber of rows: {len(data_list)}\n'
@@ -620,9 +621,11 @@ def aois_from_csv(
                     equalize_clahe_clip_limit=equalize_clahe_clip_limit,
                 )
                 logging.debug(new_aoi)
-                yield new_aoi
+                aois.append(new_aoi)
+                del new_aoi
+                gc.collect()
             except FileNotFoundError as e:
                 logging.error(f"{e}\nGround truth file may not exist or is empty.\n"
                               f"Failed to create AOI:\n{aoi_dict}\n"
                               f"Index: {i}")
-                yield None
+    return aois
