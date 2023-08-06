@@ -784,7 +784,7 @@ def main(cfg: DictConfig) -> None:
                 except Exception as e:
                     logging.error(f'\nInvalid ground truth patch: {img_patch}. '
                                   f'\n{e}')
-
+        print(aoi)
         for img_patch, gt_patch in tqdm(
                 aoi.patches_pairs_list, position=1,
                 desc=f'Filter {len(aoi.patches_pairs_list)} patches and burn ground truth'):
