@@ -180,6 +180,7 @@ def check_gdf_load(gdf, layer_name={}):
     Check if `gdf` is already loaded in, if not, load from geojson.
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L52
     """
+    # print(f"GDF: {gdf} \nLayer Name: {layer_name}")
     if isinstance(gdf, (str, Path)):
         if not is_url(gdf):
             gdf = to_absolute_path(str(gdf))
