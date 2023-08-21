@@ -531,9 +531,7 @@ class AOI(object):
             GeoDataFrame or path to GeoDataFrame to filter feature from
         @return: Subset of source GeoDataFrame with only filtered features (deep copy)
         """
-        print(f"gdf_patch: {gdf_patch}")
         gdf_patch = check_gdf_load(gdf_patch)
-        print(f"gdf_patch_: {gdf_patch}")
         if gdf_patch.empty or not attr_field or not attr_vals:
             return gdf_patch
         try:
