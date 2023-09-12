@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.2.0-cudnn8-runtime-ubuntu20.04
+FROM nvidia/cuda:11.2.2-cudnn8-runtime-ubuntu20.04
 
 ARG CONDA_PYTHON_VERSION=3
 ARG CONDA_DIR=/opt/conda
@@ -37,7 +37,7 @@ WORKDIR /home/$USERNAME/
 
 RUN cd /home/$USERNAME && git clone --depth 1 "https://github.com/NRCan/geo-deep-learning.git" --branch $GIT_TAG
 RUN conda config --set ssl_verify no
-RUN conda install mamba -c conda-forge
+RUN conda install libarchive mamba -c conda-forge
 RUN mamba env create -f /home/$USERNAME/geo-deep-learning/environment.yml
 
 ENV PATH $CONDA_DIR/envs/geo_deep_env/bin:$PATH

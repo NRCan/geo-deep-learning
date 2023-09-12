@@ -171,8 +171,10 @@ def segmentation(param,
     fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(tf_len, h_padded, w_padded, num_classes))
     img_gen = gen_img_samples(src=input_image, patch_list=patch_list, chunk_size=chunk_size)
     single_class_mode = False if num_classes > 1 else True
-    for sub_image, h_idxs, w_idxs, hann_win in tqdm(img_gen, position=0, leave=True,
-                    desc=f'Inferring on patches'):
+    for sub_image, h_idxs, w_idxs, hann_win in tqdm(
+        img_gen, position=0, leave=True, desc='Inferring on patches',
+        total=len(patch_list)
+    ):
         hann_win = np.expand_dims(hann_win, -1)
         image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
                                                             raster_handle=input_image,
@@ -285,7 +287,7 @@ def override_model_params_from_checkpoint(
 
     if model_ckpt != params.model or classes_ckpt != classes or bands_ckpt != bands \
             or clip_limit != clip_limit_ckpt:
-        logging.info(f"\nParameters from checkpoint will override inputted parameters."
+        logging.info("\nParameters from checkpoint will override inputted parameters."
                      f"\n\t\t\t Inputted | Overriden"
                      f"\nModel:\t\t {params.model} | {model_ckpt}"
                      f"\nInput bands:\t\t{bands} | {bands_ckpt}"
@@ -338,7 +340,7 @@ def main(params: Union[DictConfig, dict]) -> None:
     override = get_key_def('override_model_params', params['inference'], default=False, expected_type=bool)
 
     # Override params from checkpoint
-    checkpoint = read_checkpoint(state_dict, out_dir=models_dir, update=False)
+    checkpoint = read_checkpoint(state_dict, out_dir=models_dir, update=True)
     if override:
         params = override_model_params_from_checkpoint(params=params,checkpoint_params=checkpoint['params'])
 
@@ -409,7 +411,7 @@ def main(params: Union[DictConfig, dict]) -> None:
         out_classes=num_classes,
         main_device=device,
         devices=[list(gpu_devices_dict.keys())],
-        checkpoint_dict=checkpoint
+        checkpoint_dict=checkpoint,
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE

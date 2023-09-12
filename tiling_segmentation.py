@@ -270,20 +270,18 @@ class Tiler(object):
         return sample_image, sample_mask, sample_crs, window
 
     @staticmethod
-    def _define_output_name(aoi, aoi_index, output_folder, window):
+    def _define_output_name(aoi, output_folder, window):
         """
         Generate the output file name without the file extention.
         Args:
             aoi: current AOI object.
-            aoi_index: AOI object index
             output_folder: output folder name.
             window: current bounding box coordinates.
 
         Returns: output file name without the file extention
 
         """
-        out_name = str(aoi_index) + "_" + aoi.raster_name.stem + "_" + "_".join([str(x).replace(".", "_") 
-                                                                                 for x in window[:2]])
+        out_name = aoi.raster_name.stem + "_" + "_".join([str(x).replace(".", "_") for x in window[:2]])
         return join(output_folder, out_name)
 
     @staticmethod
@@ -301,7 +299,6 @@ class Tiler(object):
     def tiling_per_aoi(
             self,
             aoi: AOI,
-            aoi_index: int,
             out_img_dir: Union[str, Path],
             out_label_dir: Union[str, Path] = None,
     ):
@@ -383,15 +380,14 @@ class Tiler(object):
                 bboxes.append(sample_window)
 
                 # Define the output raster patch filename:
-                dst_raster_name = self._define_output_name(aoi, aoi_index, out_img_dir, sample_window) + ".tif"
+                dst_raster_name = self._define_output_name(aoi, out_img_dir, sample_window) + ".tif"
                 raster_tile_paths.append(dst_raster_name)
 
                 # Append all the raster patch data for later parallel writing to the disk:
                 raster_tile_data.append([sample_image, dst_raster_name, sample_window, sample_crs])
                 if not self.for_inference:
                     # Define the output vector patch filename:
-                    dst_vector_name = self._define_output_name(aoi, aoi_index, 
-                                                               out_label_dir, sample_window) + ".geojson"
+                    dst_vector_name = self._define_output_name(aoi, out_label_dir, sample_window) + ".geojson"
                     vector_tile_paths.append(dst_vector_name)
                     # Clip vector labels having bounding boxes from the raster patches:
                     self._save_vec_mem_tile(sample_mask, dst_vector_name)
@@ -722,10 +718,7 @@ def main(cfg: DictConfig) -> None:
                 input_args.append([tiler.tiling_per_aoi, aoi, tiling_dir_img, tiling_dir_gt])
             else:
                 try:
-                    tiler_pair = tiler.tiling_per_aoi(aoi, 
-                                                      aoi_index=index, 
-                                                      out_img_dir=tiling_dir_img, 
-                                                      out_label_dir=tiling_dir_gt)
+                    tiler_pair = tiler.tiling_per_aoi(aoi, out_img_dir=tiling_dir_img, out_label_dir=tiling_dir_gt)
                     tilers.append(tiler_pair)
                 except ValueError as e:
                     logging.debug(f'Failed to tile\n'
@@ -748,7 +741,7 @@ def main(cfg: DictConfig) -> None:
     # TODO: use mp.Manager() to modify aoi.tiling_pairs_list from within tiling_per_aoi
     tiler.src_aoi_list = []
     for tiled_aoi, rs_tiler_paths, vec_tiler_paths in tqdm(
-            tilers, desc=f"Updating AOIs' information about their patches paths"):
+            tilers, desc="Updating AOIs' information about their patches paths"):
         tiled_aoi.patches_pairs_list = [(rs_ptch, gt_ptch) for rs_ptch, gt_ptch in zip(rs_tiler_paths, vec_tiler_paths)]
         tiler.src_aoi_list.append(tiled_aoi)
 

@@ -66,6 +66,10 @@ def create_new_raster_from_base(input_raster, output_raster, write_array, dtype 
                        crs=src.crs,
                        dtype=dtype,
                        transform=src.transform,
+                       tiled=True,
+                       blockxsize=256,
+                       blockysize=256,
+                       BIGTIFF='YES',
                        compress='lzw') as dst:
         dst.write(write_array)
         # add tag to transmit more information
@@ -175,7 +179,7 @@ def check_rasterio_im_load(im):
         raise ValueError("{} is not an accepted image format for rasterio.".format(im))
 
 
-def check_gdf_load(gdf, layer_name={}):
+def check_gdf_load(gdf):
     """
     Check if `gdf` is already loaded in, if not, load from geojson.
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L52
@@ -189,17 +193,10 @@ def check_gdf_load(gdf, layer_name={}):
         # https://github.com/geopandas/geopandas/issues/1234
         if str(gdf).lower().endswith("csv"):
             return gpd.read_file(
-                gdf, GEOM_POSSIBLE_NAMES="geometry", KEEP_GEOM_COLUMNS="NO", **layer_name)
+                gdf, GEOM_POSSIBLE_NAMES="geometry", KEEP_GEOM_COLUMNS="NO"
+            )
         try:
-            # if layer_name:
-            layers = fiona.listlayers(gdf)
-            existing_layer_name = next((item for item in layers if item != 'extent_2'), None)
-            if layer_name:
-                expected_layer_name = layer_name["layer"]
-                if expected_layer_name != existing_layer_name:
-                    logging.warning(f"Did not find the expected layer name {expected_layer_name}, layer name is set to {existing_layer_name}")
-            layer_name["layer"] = existing_layer_name    
-            return gpd.read_file(gdf, **layer_name)
+            return gpd.read_file(gdf)
         except (DriverError, CPLE_OpenFailedError):
             logging.warning(
                 f"GeoDataFrame couldn't be loaded: either {gdf} isn't a valid"

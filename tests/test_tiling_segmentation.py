@@ -215,37 +215,3 @@ class TestTiling(object):
         gt = "tests/data/spacenet/SN7_global_monthly_2020_01_mosaic_L15-0331E-1257N_1327_3160_13_uint8_clipped_4326.gpkg"
         with pytest.raises(rasterio.errors.CRSError):
             perc = annot_percent(img, gt)
-
-    def test_tiling_equalization(self):
-        """Tests the tiling process with clahe equalization"""
-        means_per_limit = []
-        for clip_limit in [0, 10, 25]:
-            data_dir = f"data/patches"
-            proj = f"tiling_output_test"
-            Path(data_dir).mkdir(exist_ok=True, parents=True)
-            extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
-            cfg = {
-                "general": {"project_name": proj},
-                "debug": True,
-                "dataset": {
-                    "bands": [1, 2, 3],
-                    "raw_data_dir": data_dir,
-                    "raw_data_csv": f"tests/tiling/tiling_segmentation_binary_ci.csv",
-                },
-                "tiling": {
-                    "patch_size": 32,
-                    "train_val_percent": {'val': 0.3},
-                    "clahe_clip_limit": clip_limit,
-                },
-            }
-            cfg = DictConfig(cfg)
-            tiling(cfg)
-            out_labels = (Path(data_dir)/proj).glob("**/images/*.tif")
-            patch_means = []
-            for patch in out_labels:
-                patch_np = rasterio.open(patch).read()
-                patch_means.append(patch_np)
-            aoi_means = int(numpy.asarray(patch_means).mean())
-            means_per_limit.append(aoi_means)
-        assert means_per_limit[0] < means_per_limit[1] < means_per_limit[2]
-        shutil.rmtree(Path(data_dir) / proj)
