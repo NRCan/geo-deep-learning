@@ -202,21 +202,23 @@ class GDLVectorDataset(GeoDataset):
             Initializes vector dataset (subclass of the GeoDataset).
         """
         super().__init__()
-        self.res = res
+
         # Read the dataset as an OGR datasouce:
         vec_ds = ogr.Open(str(vec_ds))
+        self.res = res
+
         assert vec_ds is not None, "The vector dataset is empty."
 
         # Copy the datasource to memory:
         src_mem_driver = ogr.GetDriverByName('MEMORY')
         mem_vec_ds = src_mem_driver.CopyDataSource(vec_ds, 'src_mem_ds')
-        self.vec_srs = self._read_layer(mem_vec_ds).GetSpatialRef()
+        self.vec_srs = mem_vec_ds.GetLayer().GetSpatialRef()
         vec_srs_wkt = self.vec_srs.ExportToPrettyWkt()
         self._crs = CRS.from_wkt(wkt=vec_srs_wkt)
 
         # Clip vector labels with raster nodata mask:
         self.ds = self._clip_nodata(vec_ds=mem_vec_ds, nodata_mask=nodata_mask)
-        vec_ds_layer = self._read_layer(self.ds)
+        vec_ds_layer = self.ds.GetLayer()
         minx, maxx, miny, maxy = vec_ds_layer.GetExtent()
         del vec_ds_layer
 
@@ -227,12 +229,6 @@ class GDLVectorDataset(GeoDataset):
 
         vec_ds = None
         mem_vec_ds = None
-        
-    def _read_layer(self, vec_ds: ogr.DataSource):
-        # Iterate through layers and find the first suitable layer
-        feature_layer = next((layer for layer in vec_ds if layer.GetName() != "extent_2"), None)
-        return feature_layer
-        
 
     def _clip_nodata(self, vec_ds: ogr.DataSource, nodata_mask: ogr.DataSource | None) -> ogr.DataSource:
         """
@@ -251,7 +247,7 @@ class GDLVectorDataset(GeoDataset):
         out_driver = ogr.GetDriverByName('MEMORY')
         cropped_mem_ds = out_driver.CreateDataSource('memdata')
         cropped_layer = cropped_mem_ds.CreateLayer('0', self.vec_srs, geom_type=ogr.wkbMultiPolygon)
-        ogr.Layer.Clip(self._read_layer(vec_ds), nodata_mask.GetLayer(), cropped_layer)
+        ogr.Layer.Clip(vec_ds.GetLayer(), nodata_mask.GetLayer(), cropped_layer)
 
         return cropped_mem_ds
 
@@ -319,7 +315,7 @@ class GDLVectorDataset(GeoDataset):
         out_mem_ds = out_driver.CreateDataSource('memdata')
         # Clip it with the bounding box:
         out_layer = out_mem_ds.CreateLayer('0', self.vec_srs, geom_type=ogr.wkbMultiPolygon)
-        ogr.Layer.Clip(self._read_layer(self.ds), mem_layer, out_layer)
+        ogr.Layer.Clip(self.ds.GetLayer(), mem_layer, out_layer)
 
         # Check that there is no curve geometry in the output patch:
         self._check_curve(layer=out_layer)

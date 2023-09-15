@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import List, Union, Sequence
 
 import ast
-import fiona
 import pyproj
 from fiona._err import CPLE_OpenFailedError
 from fiona.errors import DriverError
@@ -184,7 +183,6 @@ def check_gdf_load(gdf):
     Check if `gdf` is already loaded in, if not, load from geojson.
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L52
     """
-    # print(f"GDF: {gdf} \nLayer Name: {layer_name}")
     if isinstance(gdf, (str, Path)):
         if not is_url(gdf):
             gdf = to_absolute_path(str(gdf))

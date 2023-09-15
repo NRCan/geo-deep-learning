@@ -1,6 +1,5 @@
 import functools
 import json
-import gc
 from pathlib import Path
 from typing import Union, Sequence, Tuple, List
 
@@ -120,7 +119,6 @@ class AOI(object):
             item = SingleBandItemEO(item=pystac.Item.from_file(self.raster_raw_input),
                                     bands_requested=self.raster_bands_request)
             self.raster_stac_item = item
-            self.raster_bands_request = item.bands_requested
         else:
             self.raster_stac_item = None
 
@@ -243,16 +241,12 @@ class AOI(object):
             if not isinstance(attr_field_filter, str):
                 raise TypeError(f'Attribute field name should be a string.\n'
                                 f'Got {attr_field_filter} of type {type(attr_field_filter)}')
-            # fiona and geopandas don't expect attribute name exactly the same way: "properties/class" vs "class"
-            attr_field_filter = attr_field_filter.split('/')[-1]
-            old_field_id = "Quatreclasses"
-            field_id = set([old_field_id, attr_field_filter])
-            try:
-                attr_field_filter = field_id.intersection(self.label_gdf.columns).pop()
-            except (KeyError, ValueError) as e:
-                logging.critical(f"\nAttribute field \"{attr_field_filter}\" not found in label attributes:\n"
-                                    f"{self.label_gdf.columns}")
-                raise e
+            elif attr_field_filter not in self.label_gdf.columns:
+                # fiona and geopandas don't expect attribute name exactly the same way: "properties/class" vs "class"
+                attr_field_filter = attr_field_filter.split('/')[-1]
+                if attr_field_filter not in self.label_gdf.columns:
+                    raise ValueError(f"\nAttribute field \"{attr_field_filter}\" not found in label attributes:\n"
+                                     f"{self.label_gdf.columns}")
         self.attr_field_filter = attr_field_filter
 
         # If ground truth is provided, check attribute values to filter from
@@ -643,8 +637,6 @@ def aois_from_csv(
                 )
                 logging.debug(new_aoi)
                 aois.append(new_aoi)
-                del new_aoi
-                gc.collect()
             except FileNotFoundError as e:
                 logging.error(f"{e}\nGround truth file may not exist or is empty.\n"
                               f"Failed to create AOI:\n{aoi_dict}\n"

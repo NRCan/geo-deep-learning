@@ -95,7 +95,6 @@ class Test_AOI(object):
         aoi = AOI(
             raster=row['tif'], label=row['gpkg'], split=row['split'],
             raster_bands_request=bands)
-        assert aoi.raster_bands_request == bands
         for band, actual_raster in zip(["R", "G", "B"], aoi.raster_parsed):
             root_raster = "http://datacube-stage-data-public.s3.ca-central-1.amazonaws.com/store/imagery/optical/" \
                           "spacenet-samples/"

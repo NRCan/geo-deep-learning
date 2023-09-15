@@ -34,11 +34,6 @@ class SingleBandItemEO(ItemEOExtension):
         self.item = item
         self._assets_by_common_name = None
 
-        if not all([self.is_valid_cname(band) for band in bands_requested]):
-            logging.warning(f"Requested bands are not valid stac item common names. Got: {bands_requested}")
-            bands_requested = [self.band_to_cname(band) for band in bands_requested]
-            logging.warning(f"Will request: {bands_requested}")
-
         if not bands_requested:
             raise ValueError(f"At least one band should be chosen if assets need to be reached")
 
