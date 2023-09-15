@@ -1,5 +1,8 @@
+import csv
 import itertools
 from math import sqrt
+from numbers import Number
+from tempfile import mkstemp
 from typing import List, Union, Sequence
 
 import torch
@@ -10,47 +13,40 @@ import time
 import fiona  # keep this import. it sets GDAL_DATA to right value
 import rasterio
 import ttach as tta
+from scipy.special import softmax
 from collections import OrderedDict
 from fiona.crs import to_string
+from ruamel_yaml.comments import CommentedSeq
 from tqdm import tqdm
 from rasterio import features
 from rasterio.windows import Window
-from rasterio.plot import reshape_as_image
+from rasterio.plot import reshape_as_image, reshape_as_raster
 from pathlib import Path
 from omegaconf import OmegaConf, DictConfig, open_dict
 from omegaconf.listconfig import ListConfig
 
-from dataset.aoi import aois_from_csv
+from dataset.stacitem import SingleBandItemEO
+from utils.aoiutils import aois_from_csv
+from utils.geoutils import create_new_raster_from_base
+from utils.inference import stretch_heatmap, class_from_heatmap
 from utils.logger import get_logger, set_tracker
 from models.model_choice import define_model, read_checkpoint
 from utils import augmentation
+from utils.inference import generate_patch_list
 from utils.utils import get_device_ids, get_key_def, \
-    add_metadata_from_raster_to_sample, _window_2D, set_device
+add_metadata_from_raster_to_sample, set_device
 
 # Set the logging file
 logging = get_logger(__name__)
 
-
-def _pad_diff(arr, w, h, arr_shape):
-    """ Pads img_arr width or height < samples_size with zeros """
-    w_diff = arr_shape - w
-    h_diff = arr_shape - h
-
-    if len(arr.shape) > 2:
-        padded_arr = np.pad(arr, ((0, w_diff), (0, h_diff), (0, 0)), mode="constant", constant_values=np.nan)
-    else:
-        padded_arr = np.pad(arr, ((0, w_diff), (0, h_diff)), mode="constant", constant_values=np.nan)
-
-    return padded_arr
-
-
 def _pad(arr, chunk_size):
     """ Pads img_arr """
-    aug = int(round(chunk_size * (1 - 1.0 / 2.0)))
+    w_diff = chunk_size - arr.shape[0]
+    h_diff = chunk_size - arr.shape[1]
     if len(arr.shape) > 2:
-        padded_arr = np.pad(arr, ((aug, aug), (aug, aug), (0, 0)), mode="reflect")
+        padded_arr = np.pad(arr, ((0, w_diff), (0, h_diff), (0, 0)), mode="reflect")
     else:
-        padded_arr = np.pad(arr, ((aug, aug), (aug, aug)), mode="reflect")
+        padded_arr = np.pad(arr, ((0, w_diff), (0, h_diff)), mode="reflect")
 
     return padded_arr
 
@@ -103,32 +99,32 @@ def ras2vec(raster_file, output_path):
     print("Number of features written: {}".format(i))
 
 
-def gen_img_samples(src, chunk_size, step, *band_order):
+def gen_img_samples(src, patch_list, chunk_size, *band_order):
     """
     TODO
     Args:
         src: input image (rasterio object)
+        patch_list: list of patches index
         chunk_size: image tile size
-        step: stride used during inference (in pixels)
         *band_order: ignore
 
     Returns: generator object
 
     """
-    for row in range(0, src.height, step):
-        for column in range(0, src.width, step):
-            window = Window.from_slices(slice(row, row + chunk_size),
-                                        slice(column, column + chunk_size))
-            if band_order:
-                window_array = reshape_as_image(src.read(band_order[0], window=window))
-            else:
-                window_array = reshape_as_image(src.read(window=window))
-            if window_array.shape[0] < chunk_size or window_array.shape[1] < chunk_size:
-                window_array = _pad_diff(window_array, window_array.shape[0], window_array.shape[1], chunk_size)
-            window_array = _pad(window_array, chunk_size)
+    for patch in patch_list:
+        patch_x, patch_y, patch_width, patch_height, hann_window = patch
+        window = Window.from_slices(slice(patch_y, patch_y + patch_height),
+                                    slice(patch_x, patch_x + patch_width))
+        if band_order:
+            patch_array = reshape_as_image(src.read(band_order[0], window=window))
+        else:
+            patch_array = reshape_as_image(src.read(window=window))
+        patch_array = _pad(patch_array, chunk_size)
 
-            yield window_array, row, column
+        yield patch_array, (patch_y, patch_height), (patch_x, patch_width), hann_window
 
+def sigmoid(x):
+   return 1/(1+np.exp(-x))
 
 @torch.no_grad()
 def segmentation(param,
@@ -136,9 +132,11 @@ def segmentation(param,
                  num_classes: int,
                  model,
                  chunk_size: int,
+                 use_hanning: bool,
                  device,
                  scale: List,
                  tp_mem,
+                 heatmap_dtype=np.uint16,
                  debug=False,
                  ):
     """
@@ -153,36 +151,31 @@ def segmentation(param,
         scale: scale range
         tp_mem: memory temp file for saving numpy array to disk
         debug: True/False
+        heatmap_dtype:
+            Output data type for heatmap. Ex.: Uint16 captures more information, but takes more space in memory or disk.
 
     Returns:
 
     """
-    subdiv = 2
-    threshold = 0.5
-    sample = {'sat_img': None, 'map_img': None, 'metadata': None}
+    sample = {"image": None, "mask": None, 'metadata': None}
     start_seg = time.time()
     print_log = True if logging.level == 20 else False  # 20 is INFO
-    pad = chunk_size * 2
-    h_padded, w_padded = [side + pad for side in input_image.shape]
-    dist_samples = int(round(chunk_size * (1 - 1.0 / 2.0)))
-
     model.eval()  # switch to evaluate mode
 
     # initialize test time augmentation
-    transforms = tta.Compose([tta.HorizontalFlip(), ])
-    # construct window for smoothing
-    WINDOW_SPLINE_2D = _window_2D(window_size=pad, power=2.0)
-    WINDOW_SPLINE_2D = torch.as_tensor(np.moveaxis(WINDOW_SPLINE_2D, 2, 0), ).type(torch.float)
-    WINDOW_SPLINE_2D = WINDOW_SPLINE_2D.to(device)
+    transforms = tta.aliases.d4_transform()
+    tf_len = len(transforms)
+    h_padded, w_padded = input_image.height + chunk_size, input_image.width + chunk_size
+    patch_list = generate_patch_list(w_padded, h_padded, chunk_size, use_hanning)
 
-    fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(h_padded, w_padded, num_classes))
-    step = int(chunk_size / subdiv)
-    total_inf_windows = int(np.ceil(input_image.height / step) * np.ceil(input_image.width / step))
-    img_gen = gen_img_samples(src=input_image, chunk_size=chunk_size, step=step)
+    fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(tf_len, h_padded, w_padded, num_classes))
+    img_gen = gen_img_samples(src=input_image, patch_list=patch_list, chunk_size=chunk_size)
     single_class_mode = False if num_classes > 1 else True
-    for sub_image, row, col in tqdm(img_gen, position=1, leave=False,
-                    desc=f'Inferring on window slices of size {chunk_size}',
-                    total=total_inf_windows):
+    for sub_image, h_idxs, w_idxs, hann_win in tqdm(
+        img_gen, position=0, leave=True, desc='Inferring on patches',
+        total=len(patch_list)
+    ):
+        hann_win = np.expand_dims(hann_win, -1)
         image_metadata = add_metadata_from_raster_to_sample(sat_img_arr=sub_image,
                                                             raster_handle=input_image,
                                                             raster_info={})
@@ -193,9 +186,9 @@ def segmentation(param,
                                                              scale=scale,
                                                              aug_type='totensor',
                                                              print_log=print_log)
-        sample['sat_img'] = sub_image
+        sample["image"] = sub_image
         sample = totensor_transform(sample)
-        inputs = sample['sat_img'].unsqueeze_(0)
+        inputs = sample["image"].unsqueeze_(0)
         inputs = inputs.to(device)
         if inputs.shape[1] == 4 and any("module.modelNIR" in s for s in model.state_dict().keys()):
             # Init NIR   TODO: make a proper way to read the NIR channel
@@ -214,47 +207,37 @@ def segmentation(param,
                 augmented_output = augmented_output['out']
             logging.debug(f'Shape of augmented output: {augmented_output.shape}')
             # reverse augmentation for outputs
-            deaugmented_output = transformer.deaugment_mask(augmented_output)
-            if single_class_mode:
-                deaugmented_output = deaugmented_output.squeeze(dim=0)
-            else:
-                deaugmented_output = F.softmax(deaugmented_output, dim=1).squeeze(dim=0)
+            deaugmented_output = transformer.deaugment_mask(augmented_output).squeeze(dim=0)
             output_lst.append(deaugmented_output)
         outputs = torch.stack(output_lst)
-        outputs = torch.mul(outputs, WINDOW_SPLINE_2D)
-        outputs, _ = torch.max(outputs, dim=0)
-        if single_class_mode:
-            outputs = torch.sigmoid(outputs)
-        outputs = outputs.permute(1, 2, 0)
-        outputs = outputs.reshape(pad, pad, num_classes).cpu().numpy().astype('float16')
-        outputs = outputs[dist_samples:-dist_samples, dist_samples:-dist_samples, :]
-        fp[row:row + chunk_size, col:col + chunk_size, :] = \
-            fp[row:row + chunk_size, col:col + chunk_size, :] + outputs
+        outputs = outputs.permute(0, 2, 3, 1).squeeze(dim=0)
+        outputs = outputs.cpu().numpy() * hann_win
+        fp[:, h_idxs[0]:h_idxs[0] + h_idxs[1], w_idxs[0]:w_idxs[0] + w_idxs[1], :] += outputs
     fp.flush()
     del fp
 
-    fp = np.memmap(tp_mem, dtype='float16', mode='r', shape=(h_padded, w_padded, num_classes))
-    pred_img = np.zeros((h_padded, w_padded), dtype=np.uint8)
-    for row, col in tqdm(itertools.product(range(0, input_image.height, step), range(0, input_image.width, step)),
-                         leave=False,
-                         total=total_inf_windows,
-                         desc="Writing to array"):
-        arr1 = fp[row:row + chunk_size, col:col + chunk_size, :] / (2 ** 2)
+    fp = np.memmap(tp_mem, dtype='float16', mode='r', shape=(tf_len, h_padded, w_padded, num_classes))
+    pred_heatmap = np.zeros((h_padded, w_padded, num_classes), dtype=heatmap_dtype)
+    for row, col in tqdm(itertools.product(range(0, h_padded, chunk_size),
+                                           range(0, w_padded, chunk_size)),
+                         leave=False, position=0, desc="Writing to array"):
+        arr1 = (fp[:, row:row + chunk_size, col:col + chunk_size, :]).mean(axis=0)
         if single_class_mode:
-            arr1 = (arr1 > threshold)
-            arr1 = np.squeeze(arr1, axis=2).astype(np.uint8)
+            arr1 = sigmoid(arr1)
         else:
-            arr1 = arr1.argmax(axis=-1).astype('uint8')
-        pred_img[row:row + chunk_size, col:col + chunk_size] = arr1
-    pred_img = pred_img[:h_padded-pad, :w_padded-pad]
+            arr1 = softmax(arr1, axis=-1)
+        heatmap_max = np.iinfo(heatmap_dtype).max
+        arr1 = stretch_heatmap(heatmap_arr=arr1, out_max=heatmap_max)
+
+        pred_heatmap[row:row + chunk_size, col:col + chunk_size, :] = arr1.astype(heatmap_dtype)
+
     end_seg = time.time() - start_seg
     logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
 
     if debug:
-        logging.debug(f'Bin count of final output: {np.unique(pred_img, return_counts=True)}')
+        logging.debug(f'Bin count of final output: {np.unique(pred_heatmap, return_counts=True)}')
     input_image.close()
-
-    return pred_img
+    return pred_heatmap[:input_image.height, :input_image.width]
 
 
 def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200, default: int = 512) -> int:
@@ -278,31 +261,56 @@ def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 
 
 def override_model_params_from_checkpoint(
         params: DictConfig,
-        checkpoint_params):
+        checkpoint_params) -> DictConfig:
     """
     Overrides model-architecture related parameters from provided checkpoint parameters
     @param params: Original parameters as inputted through hydra
     @param checkpoint_params: Checkpoint parameters as saved during checkpoint creation when training
     @return:
     """
-    modalities = get_key_def('modalities', params['dataset'], expected_type=Sequence)
+    bands = get_key_def('bands', params['dataset'], expected_type=Sequence)
     classes = get_key_def('classes_dict', params['dataset'], expected_type=(dict, DictConfig))
+    clip_limit = get_key_def('clahe_clip_limit', params['tiling'], expected_type=int)
+    normalization = get_key_def('normalization', params['augmentation'], expected_type=DictConfig)
+    scale_data = get_key_def('scale_data', params['augmentation'], expected_type=ListConfig)
 
-    modalities_ckpt = get_key_def('modalities', checkpoint_params['dataset'], expected_type=Sequence)
+    bands_ckpt = get_key_def('bands', checkpoint_params['dataset'], expected_type=Sequence)
     classes_ckpt = get_key_def('classes_dict', checkpoint_params['dataset'], expected_type=(dict, DictConfig))
     model_ckpt = get_key_def('model', checkpoint_params, expected_type=(dict, DictConfig))
+    clip_limit_ckpt = get_key_def('clahe_clip_limit', checkpoint_params['tiling'], expected_type=int)
+    normalization_ckpt = get_key_def('normalization', checkpoint_params['augmentation'], expected_type=(dict, DictConfig))
+    # Workaround for "omegaconf.errors.UnsupportedValueType: Value 'CommentedSeq' is not a supported primitive type"
+    if normalization_ckpt is not None and isinstance(list(normalization_ckpt.values())[0], CommentedSeq):
+        normalization_ckpt = {k: [float(val) for val in v] for k, v in normalization_ckpt.items()}
+    scale_data_ckpt = get_key_def('scale_data', checkpoint_params['augmentation'], expected_type=(List, ListConfig))
+    scale_data_ckpt = list(scale_data_ckpt)
 
-    if model_ckpt != params.model or classes_ckpt != classes or modalities_ckpt != modalities:
-        logging.warning(f"\nParameters from checkpoint will override inputted parameters."
-                        f"\n\t\t\t Inputted | Overriden"
-                        f"\nModel:\t\t {params.model} | {model_ckpt}"
-                        f"\nInput bands:\t\t{modalities} | {modalities_ckpt}"
-                        f"\nOutput classes:\t\t{classes} | {classes_ckpt}")
+    if model_ckpt != params.model or classes_ckpt != classes or bands_ckpt != bands \
+            or clip_limit != clip_limit_ckpt:
+        logging.info("\nParameters from checkpoint will override inputted parameters."
+                     f"\n\t\t\t Inputted | Overriden"
+                     f"\nModel:\t\t {params.model} | {model_ckpt}"
+                     f"\nInput bands:\t\t{bands} | {bands_ckpt}"
+                     f"\nOutput classes:\t\t{classes} | {classes_ckpt}"
+                     f"\nNormalization means and stds:\t\t{normalization} | {normalization_ckpt}"
+                     f"\nScale data range:\t\t{scale_data} | {scale_data_ckpt}"
+                     f"\nRaster enhance clip limit:\t\t{clip_limit} | {clip_limit_ckpt}")
         with open_dict(params):
-            OmegaConf.update(params, 'dataset.modalities', modalities_ckpt)
-            OmegaConf.update(params, 'dataset.classes_dict', classes_ckpt)
-            OmegaConf.update(params, 'model', model_ckpt)
+            params['model'] = model_ckpt
+            params['dataset']['bands'] = bands_ckpt
+            params['dataset']['classes_dict'] = classes_ckpt
+            params['augmentation']['normalization'] = normalization_ckpt
+            params['augmentation']['scale_data'] = scale_data_ckpt
+            params['tiling']['clahe_clip_limit'] = clip_limit_ckpt
     return params
+
+
+def stac_input_to_temp_csv(input_stac_item: Union[str, Path]) -> Path:
+    """Saves a stac item path or url to a temporary csv"""
+    _, stac_temp_csv = mkstemp(suffix=".csv")
+    with open(stac_temp_csv, "w", newline="") as fh:
+        csv.writer(fh).writerow([str(input_stac_item), None, "inference", Path(input_stac_item).stem])
+    return Path(stac_temp_csv)
 
 
 def main(params: Union[DictConfig, dict]) -> None:
@@ -314,17 +322,27 @@ def main(params: Union[DictConfig, dict]) -> None:
     -------
     :param params: (dict) Parameters inputted during execution.
     """
-    # SETTING OUTPUT DIRECTORY
+    # Main params
+    working_folder = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
+    working_folder.mkdir(exist_ok=True)
+
     state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
                              validate_path_exists=True,
                              wildcard='*pth.tar')
+    inference_image = get_key_def(key='output_path', config=params['inference'], to_path=True, expected_type=str)
+    if inference_image:
+        inference_image.parent.mkdir(exist_ok=True)
+
+    models_dir = get_key_def('checkpoint_dir', params['inference'], default=working_folder / 'checkpoints', to_path=True)
+    models_dir.mkdir(exist_ok=True)
+    data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
+    download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
+    override = get_key_def('override_model_params', params['inference'], default=False, expected_type=bool)
 
     # Override params from checkpoint
-    checkpoint = read_checkpoint(state_dict)
-    params = override_model_params_from_checkpoint(
-        params=params,
-        checkpoint_params=checkpoint['params']
-    )
+    checkpoint = read_checkpoint(state_dict, out_dir=models_dir, update=True)
+    if override:
+        params = override_model_params_from_checkpoint(params=params,checkpoint_params=checkpoint['params'])
 
     # Dataset params
     bands_requested = get_key_def('bands', params['dataset'], default=[1, 2, 3], expected_type=Sequence)
@@ -333,18 +351,17 @@ def main(params: Union[DictConfig, dict]) -> None:
     num_classes = num_classes + 1 if num_classes > 1 else num_classes  # multiclass account for background
     num_bands = len(bands_requested)
 
-    working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
-    logging.info("\nThe state dict path directory used '{}'".format(working_folder))
-    Path.mkdir(working_folder, parents=True, exist_ok=True)
-    logging.info(f'\nInferences will be saved to: {working_folder}\n\n')
     # Default input directory based on default output directory
-    raw_data_csv = get_key_def('raw_data_csv', params['inference'], default=working_folder,
-                                 expected_type=str, to_path=True, validate_path_exists=True)
+    raw_data_csv = get_key_def('raw_data_csv', params['inference'], expected_type=str, to_path=True,
+                               validate_path_exists=True)
+    input_stac_item = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True,
+                                  validate_path_exists=True)
+    prep_data_only = get_key_def('prep_data_only', params['inference'], default=False, expected_type=bool)
 
     # LOGGING PARAMETERS
     exper_name = get_key_def('project_name', params['general'], default='gdl-training')
     run_name = get_key_def(['tracker', 'run_name'], params, default='gdl')
-    tracker_uri = get_key_def(['tracker', 'uri'], params, default=None, expected_type=str, to_path=True)
+    tracker_uri = get_key_def(['tracker', 'uri'], params, default=None, expected_type=str, to_path=False)
     set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
                 tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
 
@@ -371,8 +388,22 @@ def main(params: Union[DictConfig, dict]) -> None:
                                                 max_pix_per_mb_gpu=max_pix_per_mb_gpu, default=512)
     chunk_size = get_key_def('chunk_size', params['inference'], default=auto_chunk_size, expected_type=int)
     device = set_device(gpu_devices_dict=gpu_devices_dict)
-    # Read the concatenation point if requested model is deeplabv3 dualhead
-    conc_point = get_key_def('conc_point', params['model'], None)
+
+    clahe_clip_limit = get_key_def('clahe_clip_limit', params['tiling'], expected_type=Number, default=0)
+    heatmap_dtype = get_key_def('heatmap_dtype', params['inference'], default=np.uint16)
+    save_heatmap = get_key_def('save_heatmap', params['inference'], default=True, expected_type=bool)
+    use_hanning = get_key_def('use_hanning', params['inference'], default=True, expected_type=bool)
+    heatmap_threshold = get_key_def('heatmap_threshold', params['inference'], default=0.5, expected_type=float)
+
+    if raw_data_csv and input_stac_item:
+        raise ValueError(f"Input imagery should be either a csv of stac item. Got inputs from both \"raw_data_csv\" "
+                         f"and \"input stac item\"")
+    if input_stac_item:
+        raw_data_csv = stac_input_to_temp_csv(input_stac_item)
+        if not all([SingleBandItemEO.is_valid_cname(band) for band in bands_requested]):
+            logging.warning(f"Requested bands are not valid stac item common names. Got: {bands_requested}")
+            bands_requested = [SingleBandItemEO.band_to_cname(band) for band in bands_requested]
+            logging.warning(f"Will request: {bands_requested}")
 
     model = define_model(
         net_params=params.model,
@@ -380,49 +411,87 @@ def main(params: Union[DictConfig, dict]) -> None:
         out_classes=num_classes,
         main_device=device,
         devices=[list(gpu_devices_dict.keys())],
-        state_dict_path=state_dict,
+        checkpoint_dict=checkpoint,
     )
 
     # GET LIST OF INPUT IMAGES FOR INFERENCE
-    list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested)
+    list_aois = aois_from_csv(
+        csv_path=raw_data_csv,
+        bands_requested=bands_requested,
+        download_data=download_data,
+        data_dir=data_dir,
+        equalize_clahe_clip_limit=clahe_clip_limit,
+    )
+
+    if len(list_aois) > 1 and inference_image:
+        raise ValueError(f"\n\"inference.output_path\" should be set for a single inference only. \n"
+                         f"Got {len(list_aois)} AOIs for inference.\n")
+
+    if prep_data_only:
+        logging.info(f"[prep_data_only mode] Data preparation for inference is complete. Exiting...")
+        exit()
 
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
-        Path.mkdir(working_folder / aoi.raster_name.parent.name, parents=True, exist_ok=True)
-        inference_image = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_inference.tif"
-        temp_file = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}.dat"
-        logging.info(f'\nReading image: {aoi.raster_name}')
+        output_path = working_folder / f"{aoi.aoi_id}_pred.tif" if not inference_image else inference_image
+        inference_heatmap = output_path.parent / f"{output_path.stem}_heatmap.tif"
+        temp_file = output_path.parent / f"{output_path.stem}_heatmap.dat"
+        logging.info(f'\nReading image: {aoi.aoi_id}')
         inf_meta = aoi.raster.meta
 
-        pred = segmentation(param=params,
-                            input_image=aoi.raster,
-                            num_classes=num_classes,
-                            model=model,
-                            chunk_size=chunk_size,
-                            device=device,
-                            scale=scale,
-                            tp_mem=temp_file,
-                            debug=debug)
+        pred_heatmap = segmentation(
+            param=params,
+            input_image=aoi.raster,
+            num_classes=num_classes,
+            model=model,
+            chunk_size=chunk_size,
+            use_hanning=use_hanning,
+            device=device,
+            scale=scale,
+            tp_mem=temp_file,
+            heatmap_dtype=heatmap_dtype,
+            debug=debug
+        )
 
-        pred = pred[np.newaxis, :, :].astype(np.uint8)
         inf_meta.update({"driver": "GTiff",
-                         "height": pred.shape[1],
-                         "width": pred.shape[2],
-                         "count": pred.shape[0],
+                         "height": pred_heatmap.shape[1],
+                         "width": pred_heatmap.shape[2],
+                         "count": pred_heatmap.shape[0],
                          "dtype": 'uint8',
                          "compress": 'lzw'})
-        logging.info(f'\nSuccessfully inferred on {aoi.raster_name}\nWriting to file: {inference_image}')
-        with rasterio.open(inference_image, 'w+', **inf_meta) as dest:
-            dest.write(pred)
-        del pred
+        logging.info(f'\nSuccessfully inferred on {aoi.aoi_id}\nWriting to file: {output_path}')
+
+        pred_img = class_from_heatmap(heatmap_arr=pred_heatmap, heatmap_threshold=heatmap_threshold)
+
+        if save_heatmap:
+            logging.info(f"\nSaving heatmap...")
+            pred_heatmap = reshape_as_raster(pred_heatmap)
+            create_new_raster_from_base(
+                input_raster=aoi.raster,
+                output_raster=inference_heatmap,
+                write_array=pred_heatmap,
+                dtype=heatmap_dtype,
+                checkpoint_path=state_dict,
+                classes_dict=classes_dict,
+            )
+            logging.info(f'\nSaved heatmap to {inference_heatmap}')
+
+        create_new_raster_from_base(
+            input_raster=aoi.raster,
+            output_raster=output_path,
+            write_array=pred_img,
+            checkpoint_path=state_dict,
+            classes_dict=classes_dict,
+        )
+        del pred_heatmap
+
         try:
             temp_file.unlink()
         except OSError as e:
             logging.warning(f'File Error: {temp_file, e.strerror}')
         if raster_to_vec:
             start_vec = time.time()
-            inference_vec = working_folder.joinpath(aoi.raster_name.parent.name,
-                                                    f"{aoi.raster_name.split('.')[0]}_inference.gpkg")
-            ras2vec(inference_image, inference_vec)
+            inference_vec = working_folder.joinpath(f"{aoi.aoi_id}_pred.gpkg")
+            ras2vec(output_path, inference_vec)
             end_vec = time.time() - start_vec
             logging.info('Vectorization completed in {:.0f}m {:.0f}s'.format(end_vec // 60, end_vec % 60))

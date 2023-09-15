@@ -3,9 +3,11 @@ import csv
 import logging
 import numbers
 import subprocess
+import time
 from functools import reduce
 from pathlib import Path
-from typing import Sequence, List, Dict, Union
+from time import sleep
+from typing import Sequence, List, Dict, Union, Optional
 
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
@@ -17,24 +19,18 @@ from omegaconf import DictConfig, OmegaConf, ListConfig
 import torch
 from torchvision import models
 import numpy as np
-import scipy.signal
 import requests
 from urllib.parse import urlparse
 
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
 from affine import Affine
+from torchvision.datasets.utils import download_url
 
 from utils.logger import get_logger
 
 # Set the logging file
 log = get_logger(__name__)  # need to be different from logging in this case
-
-# AWS module
-try:
-    import boto3
-except ModuleNotFoundError:
-    logging.warning('The boto3 library counldn\'t be imported. Ignore if not using AWS s3 buckets', ImportWarning)
 
 
 class Interpolate(torch.nn.Module):
@@ -168,10 +164,9 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
             pass
         else:
             val = config[key] if config[key] != 'None' else None
-            if expected_type and val is not False:
-                if not isinstance(val, expected_type):
-                    raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
+            
     if not val:  # Skips below if statements if val is None
+        logging.error(f"The key {key} as a None value.")
         return val
     if is_url(val):
         logging.info(f"\nProvided path is url. Cannot validate it's existence nor convert to Path object. Got:"
@@ -182,6 +177,7 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
             val = Path(to_absolute_path(val))
         except TypeError:
             logging.error(f"Couldn't convert value {val} to a pathlib.Path object")
+        expected_type = Path if expected_type == str else expected_type  # allows "str" and "Path" as expected_type
     if validate_path_exists:
         if not isinstance(val, Path):
             val = Path(to_absolute_path(val))
@@ -196,36 +192,32 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
             logging.critical(f"Couldn't locate path: {val}.\nProvided key: {key}")
             raise FileNotFoundError()
 
+    if expected_type and val is not False:
+        if not isinstance(val, expected_type):
+            raise TypeError(f"{val} is of type {type(val)}, expected {expected_type}")
+
     return val
 
 
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     """
-    scale data values from original range to specified range
+    Scale data values from original range to specified range
     :param img: (numpy array) Image to be scaled
     :param scale_range: Desired range of transformed data (0, 1) or (-1, 1).
     :param orig_range: Original range of input data.
     :return: (numpy array) Scaled image
     """
-    assert scale_range == (0, 1) or scale_range == (-1, 1), 'expects scale_range as (0, 1) or (-1, 1)'
-    if scale_range == (0, 1):
-        scale_img = (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0])
+    if img.min() < orig_range[0] or img.max() > orig_range[1]:
+        raise ValueError(f"Actual original range exceeds expected original range.\n"
+                         f"Expected: {orig_range}\n"
+                         f"Actual: ({img.min()}, {img.max()})")
+    o_r = (orig_range[1] - orig_range[0])
+    s_r = (scale_range[1] - scale_range[0])
+    if isinstance(img, (np.ndarray, torch.Tensor)):
+        scale_img = (s_r * (img - orig_range[0]) / o_r) + scale_range[0]
     else:
-        scale_img = 2.0 * (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0]) - 1.0
+        raise TypeError(f"Expected a numpy array or torch tensor, got {type(img)}")
     return scale_img
-
-
-def unscale(img, float_range=(0, 1), orig_range=(0, 255)):
-    """
-    unscale data values from float range (0, 1) or (-1, 1) to original range (0, 255)
-    :param img: (numpy array) Image to be scaled
-    :param float_range: (0, 1) or (-1, 1).
-    :param orig_range: (0, 255) or (0, 65535).
-    :return: (numpy array) Unscaled image
-    """
-    f_r = float_range[1] - float_range[0]
-    o_r = orig_range[1] - orig_range[0]
-    return (o_r * (img - float_range[0]) / f_r) + orig_range[0]
 
 
 def pad(img, padding, fill=0):
@@ -353,6 +345,83 @@ def read_csv(csv_file_name: str) -> Dict:
     return list_values
 
 
+def read_csv_change_detection(csv_file_name: str) -> dict:
+    """
+    Open csv file and parse it, returning a list of dictionaries with keys:
+    - "tif": path to a single image.
+    - "gpkg": path to a single ground truth file.
+    - dataset: (str) "trn" or "tst"
+    - aoi_id: (str) a string id for area of interest
+
+    Args:
+        csv_file_name (str): path to csv file containing list of input data 
+                             with expected columns (imagery_t1, ground_truth_t1,
+                             imagery_t2, ground_truth_t2, dataset[, aoi id]).
+
+    Raises:
+        TypeError: error if a semicolon is use instead of a comma for 
+                   delimitation.
+        ValueError: error if each line contain different number of items.
+
+    Returns:
+        dict: dictionary of two list of dictionary with the contain of the csv.
+    """    
+    list_values = {'t1':[], 't2':[]}
+    with open(csv_file_name, 'r') as f:
+        reader = csv.reader(f)
+        row_lengths_set = set()
+        for row in reader:
+            row_lengths_set.update([len(row)])
+            if ";" in row[0]:
+                raise TypeError(
+                    f"Elements in rows should be delimited with comma, "
+                    f"not semicolon."
+                )
+            if not len(row_lengths_set) == 1:
+                raise ValueError(
+                    f"Rows in csv should be of same length. "
+                    f"Got rows with length: {row_lengths_set}"
+                )
+            # replace empty strings to None.
+            row = [str(i) or None for i in row]
+            # fill row with None values to obtain row of length == 7  
+            row.extend([None] * (6 - len(row)))
+            # Convert relative paths to absolute with hydra's util 
+            # to_absolute_path() function
+            row[0] = to_absolute_path(row[0]) if not is_url(row[0]) else row[0]
+            row[2] = to_absolute_path(row[2]) if not is_url(row[2]) else row[2]
+            try:
+                row[1] = str(
+                    to_absolute_path(row[1]) if not is_url(row[1]) else row[1]
+                )
+            except TypeError:
+                row[1] = None
+            try:
+                row[3] = str(
+                    to_absolute_path(row[3]) if not is_url(row[3]) else row[3]
+                )
+            except TypeError:
+                row[3] = None
+            # save all values
+            list_values['t1'].append({
+                'tif': str(row[0]), 'gpkg': row[1],
+                'split': row[4], 'aoi_id': row[5]
+            })
+            list_values['t2'].append({
+                'tif': str(row[2]), 'gpkg': row[3],
+                'split': row[4], 'aoi_id': row[5]
+            })
+    try:
+        # Try sorting according to dataset name 
+        # (i.e. group "train", "val" and "test" rows together)
+        list_values['t1'] = sorted(list_values['t1'], key=lambda k: k['split'])
+        list_values['t2'] = sorted(list_values['t2'], key=lambda k: k['split'])
+    except TypeError:
+        log.warning('Unable to sort csv rows')
+    # TODO add test that verify if the number of images is the same at t1 and t2
+    return list_values
+
+
 def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
                                        raster_handle: dict,
                                        raster_info: dict = None
@@ -381,48 +450,6 @@ def add_metadata_from_raster_to_sample(sat_img_arr: np.ndarray,
         band = sat_img_arr[..., band_index]
         metadata_dict['source_raster_bincount'][f'band{band_index}'] = {count for count in np.bincount(band.flatten())}
     return metadata_dict
-
-#### Image Patches Smoothing Functions ####
-""" Adapted from : https://github.com/Vooban/Smoothly-Blend-Image-Patches  """
-
-
-def _spline_window(window_size, power=2):
-    """
-    Squared spline (power=2) window function:
-    https://www.wolframalpha.com/input/?i=y%3Dx**2,+y%3D-(x-2)**2+%2B2,+y%3D(x-4)**2,+from+y+%3D+0+to+2
-    """
-    intersection = int(window_size/4)
-    wind_outer = (abs(2 * (scipy.signal.windows.triang(window_size))) ** power) / 2
-    wind_outer[intersection:-intersection] = 0
-
-    wind_inner = 1 - (abs(2 * (scipy.signal.windows.triang(window_size) - 1)) ** power) / 2
-    wind_inner[:intersection] = 0
-    wind_inner[-intersection:] = 0
-
-    wind = wind_inner + wind_outer
-    wind = wind / np.average(wind)
-    return wind
-
-
-cached_2d_windows = dict()
-def _window_2D(window_size, power=2):
-    """
-    Make a 1D window function, then infer and return a 2D window function.
-    Done with an augmentation, and self multiplication with its transpose.
-    Could be generalized to more dimensions.
-    """
-    # Memoization
-    global cached_2d_windows
-    key = "{}_{}".format(window_size, power)
-    if key in cached_2d_windows:
-        wind = cached_2d_windows[key]
-    else:
-        wind = _spline_window(window_size, power)
-        wind = np.expand_dims(np.expand_dims(wind, 1), -1)
-        wind = wind * wind.transpose(1, 0, 2)
-        cached_2d_windows[key] = wind
-    return wind
-
 
 def get_git_hash():
     """
@@ -588,10 +615,6 @@ def update_gdl_checkpoint(checkpoint: Union[dict, DictConfig]) -> Dict:
             '_target_': 'segmentation_models_pytorch.DeepLabV3', 'encoder_name': 'resnet101',
             'encoder_weights': 'imagenet'
         },
-        'deeplabv3_resnet101_dualhead': {
-            '_target_': 'models.deeplabv3_dualhead.DeepLabV3_dualhead', 'conc_point': 'conv1',
-            'encoder_weights': 'imagenet'
-        },
         'deeplabv3+_pretrained': {
             '_target_': 'segmentation_models_pytorch.DeepLabV3Plus', 'encoder_name': 'resnext50_32x4d',
             'encoder_weights': 'imagenet'
@@ -651,6 +674,54 @@ def update_gdl_checkpoint(checkpoint: Union[dict, DictConfig]) -> Dict:
             }
         })
     return checkpoint
+
+
+def wait_while_modif(fpath: Union[str, Path], sleep_secs: int = 10, timeout: int = 1800) -> None:
+    """
+    fpath (str or Path): Path to file potentially being modified
+    sleep_secs (int, optional): Seconds to wait before re-checking the size of file to be downloaded
+    timeout (int, optional): Maximum amount of time (seconds) to check if file size has changed
+    """
+    timeout_time = time.time() + timeout
+    if Path(fpath).is_file():
+        while True:
+            initial_size = os.stat(fpath).st_size
+            sleep(sleep_secs)
+            final_size = os.stat(fpath).st_size
+            if time.time() > timeout_time:
+                raise TimeoutError(f"File has been modified for more than {timeout} seconds. \nFile: {fpath}")
+            # if the initial size is equal to the final size, the file has most likely
+            # not changed, unless they are both False.
+            elif initial_size == final_size:
+                logging.debug(f"File has not changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
+                break
+            logging.debug(f"File has changed. \nInitial size: {initial_size}\nFinal size: {final_size}")
+    else:
+        logging.debug(f"File doesn't exist: {fpath}")
+
+
+def download_url_wcheck(
+    url: str, root: str, filename: Optional[str] = None, md5: Optional[str] = None, max_redirect_hops: int = 3,
+        sleep_secs: int = 10, timeout: int = 1800
+) -> None:
+    """Download a file from a url and place it in root. If file to be downloaded exists, but its size varies within a
+    certain period, wait for size to remain stable.
+
+    Args:
+        url (str): URL to download file from
+        root (str): Directory to place downloaded file in
+        filename (str, optional): Name to save the file under. If None, use the basename of the URL
+        md5 (str, optional): MD5 checksum of the download. If None, do not check
+        max_redirect_hops (int, optional): Maximum number of redirect hops allowed
+        sleep_secs (int, optional): Seconds to wait before re-checking the size of file to be downloaded
+        timeout (int, optional): Maximum amount of time (seconds) to check if file size has change
+    """
+    timeout = int(time.time() + timeout)
+    fpath = Path(root) / filename
+    if fpath.is_file():
+        wait_while_modif(fpath=fpath, sleep_secs=sleep_secs, timeout=timeout)
+    else:
+        download_url(url=url, root=root, filename=filename, md5=md5, max_redirect_hops=max_redirect_hops)
 
 
 def map_wrapper(x):

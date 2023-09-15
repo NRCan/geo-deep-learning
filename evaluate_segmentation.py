@@ -9,11 +9,11 @@ import pandas as pd
 import rasterio
 from mlflow import log_metrics
 from shapely.geometry import Polygon
+from solaris import vector
 from tqdm import tqdm
 import geopandas as gpd
 
 from dataset.aoi import aois_from_csv
-from utils.geoutils import vector_to_raster
 from utils.metrics import ComputePixelMetrics
 from utils.utils import get_key_def
 from utils.logger import get_logger
@@ -77,10 +77,15 @@ def main(params):
     @return:
     """
     start_seg = time.time()
-    state_dict = get_key_def('state_dict_path', params['inference'], to_path=True, validate_path_exists=True)
-    bands_requested = get_key_def('bands', params['dataset'], default=None, expected_type=Sequence)
+    state_dict = get_key_def('state_dict_path', params['inference'], to_path=True,
+                             validate_path_exists=True,
+                             wildcard='*pth.tar')
+    inference_image = get_key_def(key='output_path', config=params['inference'], to_path=True, expected_type=str)
+
+    bands_requested = get_key_def('bands', params['dataset'], default=[], expected_type=Sequence)
     num_bands = len(bands_requested)
-    working_folder = state_dict.parent.joinpath(f'inference_{num_bands}bands')
+    working_folder = get_key_def('root_dir', params['inference'], default="inference", to_path=True)
+    working_folder.mkdir(exist_ok=True)
     raw_data_csv = get_key_def('raw_data_csv', params['inference'], default=working_folder,
                                  expected_type=str, to_path=True, validate_path_exists=True)
     num_classes = len(get_key_def('classes_dict', params['dataset']).keys())
@@ -90,7 +95,7 @@ def main(params):
 
     # benchmark (ie when gkpgs are inputted along with imagery)
     out_gpkg = get_key_def('out_benchmark_gpkg', params['inference'], default=working_folder/"benchmark.gpkg",
-                           expected_type=str)
+                           expected_type=str, to_path=True)
     chunk_size = get_key_def('chunk_size', params['inference'], default=512, expected_type=int)
     dontcare = get_key_def("ignore_index", params["dataset"], -1)
     attribute_field = get_key_def('attribute_field', params['dataset'], None, expected_type=str)
@@ -104,6 +109,10 @@ def main(params):
 
     list_aois = aois_from_csv(csv_path=raw_data_csv, bands_requested=bands_requested)
 
+    if len(list_aois) > 1 and inference_image:
+        raise ValueError(f"\n\"inference.output_path\" should be set for a single evaluation only. \n"
+                         f"Got {len(list_aois)} AOIs for evaluation.\n")
+
     # VALIDATION: anticipate problems with imagery and label (if provided) before entering main for loop
     for aoi in tqdm(list_aois, desc='Validating ground truth'):
         if aoi.label is None:
@@ -115,25 +124,32 @@ def main(params):
     gpkg_name_ = []
 
     for aoi in tqdm(list_aois, desc='Evaluating from input list', position=0, leave=True):
-        Path.mkdir(working_folder / aoi.raster_name.parent.name, parents=True, exist_ok=True)
-        inference_image = working_folder / aoi.raster_name.parent.name / f"{aoi.raster_name.stem}_inference.tif"
-        if not inference_image.is_file():
-            raise FileNotFoundError(f"Couldn't locate inference to evaluate metrics with. Make inferece has been run "
+        output_path = working_folder / f"{aoi.aoi_id}_pred.tif" if not inference_image else inference_image
+        if not output_path.is_file():
+            raise FileNotFoundError(f"Couldn't locate inference to evaluate metrics with. Make inference has been run "
                                     f"before you run evaluate mode.")
 
-        pred = rasterio.open(inference_image).read()[0, ...]
+        pred = rasterio.open(output_path).read()[0, ...]
 
         logging.info(f'\nBurning label as raster: {aoi.label}')
         raster = rasterio.open(aoi.raster_name, 'r')
         logging.info(f'\nReading image: {raster.name}')
         inf_meta = raster.meta
 
-        label = vector_to_raster(vector_file=aoi.label,
-                                 input_image=raster,
-                                 out_shape=(inf_meta['height'], inf_meta['width']),
-                                 attribute_name=attribute_field,
-                                 fill=0,  # background value in rasterized vector.
-                                 attribute_values=attr_vals)
+        # TODO: temporary replacement until merge from 222 is complete
+        logging.info(f"Burning ground truth to raster")
+        if num_classes == 1 or (not aoi.attr_field_filter and not aoi.attr_values_filter):
+            burn_val = 1
+            burn_field = None
+        else:
+            burn_val = None
+            burn_field = aoi.attr_field_filter
+        label = vector.mask.footprint_mask(
+            df=aoi.label_gdf_filtered,
+            reference_im=aoi.raster,
+            burn_field=burn_field,
+            burn_value=burn_val)
+
         if debug:
             logging.debug(f'\nUnique values in loaded label as raster: {np.unique(label)}\n'
                           f'Shape of label as raster: {label.shape}')
@@ -150,7 +166,7 @@ def main(params):
             log_metrics(pixelMetrics.update(pixelMetrics.dice))
 
     if not len(gdf_) == len(gpkg_name_):
-        raise logging.critical(ValueError('\nbenchmarking unable to complete'))
+        raise ValueError('\nbenchmarking unable to complete')
     all_gdf = pd.concat(gdf_)  # Concatenate all geo data frame into one geo data frame
     all_gdf.reset_index(drop=True, inplace=True)
     gdf_x = gpd.GeoDataFrame(all_gdf, crs=4326)

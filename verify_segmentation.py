@@ -6,12 +6,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Sequence, Union
 
+import rasterio
 from matplotlib import pyplot as plt
 from omegaconf import open_dict, DictConfig
 from rasterio.plot import show_hist, show
 from tqdm import tqdm
 
-from dataset.aoi import aois_from_csv, AOI
+from dataset.aoi import AOI
+from utils.aoiutils import aois_from_csv
 from utils.utils import get_key_def, get_git_hash, map_wrapper
 
 
@@ -38,7 +40,8 @@ def verify_per_aoi(
         Returns info on AOI or error raised, if any.
     """
     try:
-        aoi.raster_open()  # in case of multiprocessing
+        if not aoi.raster:  # in case of multiprocessing
+            aoi.raster = rasterio.open(aoi.raster_dest)
 
         # get aoi info
         logging.info(f"\nGetting data info for {aoi.aoi_id}...")
@@ -92,7 +95,7 @@ def main(cfg: DictConfig) -> None:
     """
     # PARAMETERS
     num_classes = len(cfg.dataset.classes_dict.keys())
-    bands_requested = get_key_def('bands', cfg['dataset'], default=None, expected_type=Sequence)
+    bands_requested = get_key_def('bands', cfg['dataset'], default=[], expected_type=Sequence)
     csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
     data_dir = get_key_def('raw_data_dir', cfg['dataset'], default="data", to_path=True, validate_path_exists=True)
     download_data = get_key_def('download_data', cfg['dataset'], default=False, expected_type=bool)
@@ -109,8 +112,9 @@ def main(cfg: DictConfig) -> None:
     output_raster_plots = get_key_def('output_raster_plots', cfg['verify'], default=False, expected_type=bool)
     extended_label_stats = get_key_def('extended_label_stats', cfg['verify'], default=False, expected_type=bool)
     parallel = get_key_def('multiprocessing', cfg['verify'], default=False, expected_type=bool)
+    write_dest_raster = get_key_def('write_dest_raster', cfg['verify'], default=False, expected_type=bool)
 
-    # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to hdf5s).
+    # ADD GIT HASH FROM CURRENT COMMIT TO PARAMETERS (if available and parameters will be saved to patches).
     with open_dict(cfg):
         cfg.general.git_hash = get_git_hash()
 
@@ -123,6 +127,7 @@ def main(cfg: DictConfig) -> None:
         download_data=download_data,
         data_dir=data_dir,
         for_multiprocessing=parallel,
+        write_dest_raster=write_dest_raster,
     )
 
     outpath_csv = output_report_dir / f"report_info_{csv_file.stem}.csv"
@@ -158,7 +163,7 @@ def main(cfg: DictConfig) -> None:
 
     logging.info(f"\nWriting to csv: {outpath_csv}...")
     with open(outpath_csv, 'w', newline='') as output_file:
-        dict_writer = csv.DictWriter(output_file, report_list[0].keys(), delimiter=';')
+        dict_writer = csv.DictWriter(output_file, report_list[0].keys())
         dict_writer.writeheader()
         dict_writer.writerows(report_list)
 

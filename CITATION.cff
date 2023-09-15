@@ -1,0 +1,15 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: Geo-deep-learning
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - affiliation: 'Natural Resources Canada, Government of Canada'
+repository-code: 'https://github.com/NRCan/geo-deep-learning'
+license: MIT
+version: 1.2.0
+date-released: '2020-10-13'

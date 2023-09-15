@@ -1,5 +1,0 @@
-# @package _global_
-model:
-  _target_: models.deeplabv3_dualhead.DeepLabV3_dualhead
-  conc_point: conv1  # Choose concatenation point in resnet encoder: 'conv1', 'maxpool', 'layer2', 'layer3', 'layer4'
-  encoder_weights: imagenet

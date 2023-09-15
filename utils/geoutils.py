@@ -1,115 +1,46 @@
 import collections
 import logging
+from distutils.version import LooseVersion
 from pathlib import Path
 from typing import List, Union, Sequence
 
+import ast
+import pyproj
+from fiona._err import CPLE_OpenFailedError
+from fiona.errors import DriverError
+import geopandas as gpd
 import numpy as np
-
-import fiona
-
 import pystac
 import rasterio
-from rasterio import MemoryFile
-from rasterio.features import is_valid_geom
+from hydra.utils import to_absolute_path
+from pandas.io.common import is_url
+from rasterio import MemoryFile, DatasetReader
 from rasterio.plot import reshape_as_raster
 from rasterio.shutil import copy as riocopy
 import xml.etree.ElementTree as ET
+from osgeo import gdal, gdalconst, ogr, osr
 
-from solaris.utils.core import _check_rasterio_im_load
+from shapely.geometry import box, Polygon
 
 logger = logging.getLogger(__name__)
 
 
-def lst_ids(list_vector, attr_name, target_ids=None, merge_all=True):
-    '''
-    Generates a dictionary from a list of vectors where keys are class numbers and values are corresponding features in a list.
-    :param list_vector: list of vectors as returned by fiona.open
-    :param attr_name: Attribute containing the identifier for a vector (may contain slashes if recursive)
-    :param target_ids: list of identifiers to burn from the vector file (None = use all)
-    :param merge_all: defines whether all vectors should be burned with their identifiers in a
-            single layer or in individual layers (in the order provided by 'target_ids')
-    :return: list of tuples in format (vector, class_id).
-    '''
-    lst_vector_tuple = {}
-    for vector in list_vector:
-        att_val = int(get_key_recursive(attr_name, vector)) if attr_name is not None else None
-        if target_ids is None or att_val in target_ids:
-            if att_val not in lst_vector_tuple:
-                lst_vector_tuple[att_val] = []
-            if merge_all:
-                # here, we assume that the id can be cast to int!
-                lst_vector_tuple[att_val].append((vector['geometry'], int(att_val) if att_val is not None else 0))
-            else:
-                # if not merging layers, just use '1' as the value for each target
-                lst_vector_tuple[att_val].append((vector['geometry'], 1))
-    return lst_vector_tuple
-
-
-def vector_to_raster(vector_file, input_image, out_shape, attribute_name, fill=0, attribute_values=None, merge_all=True):
-    """Function to rasterize vector data.
-    Args:
-        vector_file: Path and name of reference GeoPackage
-        input_image: Rasterio file handle holding the (already opened) input raster
-        attribute_name: Attribute containing the identifier for a vector (may contain slashes if recursive)
-        fill: default background value to use when filling non-contiguous regions
-        attribute_values: list of identifiers to burn from the vector file (None = use all)
-        merge_all: defines whether all vectors should be burned with their identifiers in a
-            single layer or in individual layers (in the order provided by 'target_ids')
-
-    Return:
-        numpy array of the burned image
-    """
-    # Extract vector features to burn in the raster image
-    with fiona.open(vector_file, 'r') as src:
-        lst_vector = [vector for vector in src]
-
-    # Sort feature in order to priorize the burning in the raster image (ex: vegetation before roads...)
-    if attribute_name is not None:
-        lst_vector.sort(key=lambda vector: get_key_recursive(attribute_name, vector))
-
-    lst_vector_tuple = lst_ids(list_vector=lst_vector, attr_name=attribute_name, target_ids=attribute_values,
-                               merge_all=merge_all)
-
-    if not lst_vector_tuple:
-        raise ValueError("No vector features found")
-    elif merge_all:
-        np_label_raster = rasterio.features.rasterize([v for vecs in lst_vector_tuple.values() for v in vecs],
-                                           fill=fill,
-                                           out_shape=out_shape,
-                                           transform=input_image.transform,
-                                           dtype=np.int16)
-    else:
-        burned_rasters = [rasterio.features.rasterize(lst_vector_tuple[id],
-                                                      fill=fill,
-                                                      out_shape=out_shape,
-                                                      transform=input_image.transform,
-                                                      dtype=np.int16) for id in lst_vector_tuple]
-        np_label_raster = np.stack(burned_rasters, axis=-1)
-
-    # overwritte label values to make sure they are continuous
-    if attribute_values:
-        for index, target_id in enumerate(attribute_values):
-            if index+1 == target_id:
-                continue
-            else:
-                np_label_raster[np_label_raster == target_id] = (index + 1)
-
-    return np_label_raster
-
-
-def create_new_raster_from_base(input_raster, output_raster, write_array):
+def create_new_raster_from_base(input_raster, output_raster, write_array, dtype = np.uint8, **kwargs):
     """Function to use info from input raster to create new one.
     Args:
         input_raster: input raster path and name
         output_raster: raster name and path to be created with info from input
         write_array (optional): array to write into the new raster
+        dtype (optional): data type of output raster
+        kwargs (optional): Complementary parameter(s)
 
     Return:
-        none
+        None
     """
-    src = _check_rasterio_im_load(input_raster)
+    src = check_rasterio_im_load(input_raster)
     if len(write_array.shape) == 2:  # 2D array
         count = 1
+        write_array = write_array[np.newaxis, :, :]
     elif len(write_array.shape) == 3:  # 3D array
         if write_array.shape[0] > 100:
             logging.warning(f"\nGot {write_array.shape[0]} bands. "
@@ -119,6 +50,10 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
     else:
         raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
 
+    if write_array.shape[-2:] != (src.height, src.width):
+        raise ValueError(f"Output array's width and height should be identical to dimensions of input reference raster"
+                         f"\nInput reference raster shape (h x w): ({src.height}, {src.width})"
+                         f"\nOutput array shape (h x w): {write_array.shape[1:]}")
     # Cannot write to 'VRT' driver
     driver = 'GTiff' if src.driver == 'VRT' else src.driver
 
@@ -128,12 +63,21 @@ def create_new_raster_from_base(input_raster, output_raster, write_array):
                        height=src.height,
                        count=count,
                        crs=src.crs,
-                       dtype=np.uint8,
-                       transform=src.transform) as dst:
-        if count == 1:
-            dst.write(write_array[:, :], 1)
-        else:
-            dst.write(write_array)
+                       dtype=dtype,
+                       transform=src.transform,
+                       tiled=True,
+                       blockxsize=256,
+                       blockysize=256,
+                       BIGTIFF='YES',
+                       compress='lzw') as dst:
+        dst.write(write_array)
+        # add tag to transmit more information
+        if 'checkpoint_path' in kwargs.keys():
+            # add the path to the model checkpoint
+            dst.update_tags(
+                checkpoint=kwargs['checkpoint_path'],
+                classes_dict=kwargs['classes_dict'],
+            )
 
 
 def get_key_recursive(key, config):
@@ -174,7 +118,7 @@ def stack_singlebands_vrt(srcs: List, band: int = 1):
     """
     vrt_bands = []
     for srcnum, src in enumerate(srcs, start=1):
-        with rasterio.open(src) as ras, MemoryFile() as mem:
+        with check_rasterio_im_load(src) as ras, MemoryFile() as mem:
             riocopy(ras, mem.name, driver='VRT')
             vrt_xml = mem.read().decode('utf-8')
             vrt_dataset = ET.fromstring(vrt_xml)
@@ -200,7 +144,6 @@ def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
     @return:
         RasterDataset object containing VRT
     """
-    vrt_bands = []
     if not isinstance(src, (str, Path)) and not Path(src).is_file():
         raise ValueError(f"Invalid source multiband raster.\n"
                          f"Got {src}")
@@ -209,14 +152,253 @@ def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
         vrt_xml = mem.read().decode('utf-8')
         vrt_dataset = ET.fromstring(vrt_xml)
         vrt_dataset_dict = {int(band.get('band')): band for band in vrt_dataset.iter("VRTRasterBand")}
+        for band in vrt_dataset_dict.values():
+            vrt_dataset.remove(band)
+
         for dest_band_idx, src_band_idx in enumerate(band_request, start=1):
             vrt_band = vrt_dataset_dict[src_band_idx]
             vrt_band.set('band', str(dest_band_idx))
-            vrt_bands.append(vrt_band)
-            vrt_dataset.remove(vrt_band)
-        for leftover_band in vrt_dataset.iter("VRTRasterBand"):
-            vrt_dataset.remove(leftover_band)
-    for vrt_band in vrt_bands:
-        vrt_dataset.append(vrt_band)
+            vrt_dataset.append(vrt_band)
 
     return ET.tostring(vrt_dataset).decode('UTF-8')
+
+
+def check_rasterio_im_load(im):
+    """
+    Check if `im` is already loaded in; if not, load it in.
+    Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L17
+    """
+    if isinstance(im, (str, Path)):
+        if not is_url(im) and 'VRTDataset' not in str(im):
+            im = to_absolute_path(str(im))
+        return rasterio.open(im)
+    elif isinstance(im, rasterio.DatasetReader):
+        return im
+    else:
+        raise ValueError("{} is not an accepted image format for rasterio.".format(im))
+
+
+def check_gdf_load(gdf):
+    """
+    Check if `gdf` is already loaded in, if not, load from geojson.
+    Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L52
+    """
+    if isinstance(gdf, (str, Path)):
+        if not is_url(gdf):
+            gdf = to_absolute_path(str(gdf))
+        # as of geopandas 0.6.2, using the OGR CSV driver requires some add'nal
+        # kwargs to create a valid geodataframe with a geometry column. see
+        # https://github.com/geopandas/geopandas/issues/1234
+        if str(gdf).lower().endswith("csv"):
+            return gpd.read_file(
+                gdf, GEOM_POSSIBLE_NAMES="geometry", KEEP_GEOM_COLUMNS="NO"
+            )
+        try:
+            return gpd.read_file(gdf)
+        except (DriverError, CPLE_OpenFailedError):
+            logging.warning(
+                f"GeoDataFrame couldn't be loaded: either {gdf} isn't a valid"
+                " path or it isn't a valid vector file. Returning an empty"
+                " GeoDataFrame."
+            )
+            return gpd.GeoDataFrame()
+    elif isinstance(gdf, gpd.GeoDataFrame):
+        return gdf
+    else:
+        raise ValueError(f"{gdf} is not an accepted GeoDataFrame format.")
+
+
+def check_crs(input_crs, return_rasterio=False):
+    """Convert CRS to the ``pyproj.CRS`` object passed by ``solaris``."""
+    if not isinstance(input_crs, pyproj.CRS) and input_crs is not None:
+        out_crs = pyproj.CRS(input_crs)
+    else:
+        out_crs = input_crs
+
+    if return_rasterio:
+        if LooseVersion(rasterio.__gdal_version__) >= LooseVersion("3.0.0"):
+            out_crs = rasterio.crs.CRS.from_wkt(out_crs.to_wkt())
+        else:
+            out_crs = rasterio.crs.CRS.from_wkt(out_crs.to_wkt("WKT1_GDAL"))
+
+    return out_crs
+
+
+def bounds_riodataset(raster: DatasetReader) -> box:
+    """Returns bounds of a rasterio DatasetReader as shapely box instance"""
+    return box(*list(raster.bounds))
+
+
+def bounds_gdf(gdf: gpd.GeoDataFrame) -> box:
+    """Returns bounds of a GeoDataFrame as shapely box instance"""
+    if gdf.empty:
+        return Polygon()
+    gdf_bounds = gdf.total_bounds
+    gdf_bounds_box = box(*gdf_bounds.tolist())
+    return gdf_bounds_box
+
+
+def overlap_poly1_rto_poly2(polygon1: Polygon, polygon2: Polygon) -> float:
+    """Calculate intersection of extents from polygon 1 and 2 over extent of a polygon 2"""
+    intersection = polygon1.intersection(polygon2).area
+    return intersection / (polygon2.area + 1e-30)
+
+
+def multi2poly(returned_vector_pred, layer_name=None):
+    """
+    Converts shapely multipolygon to polygon. If fails, returns a logging error.
+    This function will read a PATH string, create a geodataframe, explode all
+    multipolygon to polygon and save the geodataframe at the same PATH.
+    Args:
+        returned_vector_pred: string, geopackage PATH where the post-processing
+                              results are saved.
+        layer_name (optional): string, the name of layer to look into for multipolygons.
+                               For example, if using during post-processing, the layer
+                               name could represent the class name if class are stored
+                               in separate layers. Default None.
+                    
+    Return:
+        none
+    """
+    try: # Try to convert multipolygon to polygon
+        df = gpd.read_file(returned_vector_pred, layer=layer_name)
+        if 'MultiPolygon' in df['geometry'].geom_type.values:
+            logging.info("\nConverting multiPolygon to Polygon...")
+            gdf_exploded = df.explode(index_parts=True, ignore_index=True)
+            gdf_exploded.to_file(returned_vector_pred, layer=layer_name) # overwrite the layer readed
+    except Exception as e:
+        logging.error(f"\nSomething went wrong during the conversion of Polygon. \nError {type(e)}: {e}")
+
+
+def fetch_tag_raster(raster_path, tag_wanted):
+    """
+    Fetch the tag(s) information saved inside the tiff.
+    TODO, change the `tag_wanted` to accept str or list of str.
+    Args:
+        raster_path: string, raster path
+        tag_wanted: string, tag name, ex. 'checkpoint'
+    Return:
+        string containing associate information to the `tag_wanted`
+    """
+    with rasterio.open(raster_path) as tiff_src:
+        tags = tiff_src.tags()
+    # check if the tiff have the wanted tag save in
+    if tag_wanted in tags.keys():
+        if 'dict' in tag_wanted:
+            return ast.literal_eval(tags[tag_wanted])
+        else: 
+            return tags[tag_wanted]
+    else:
+        logging.error(
+            f"\nThe tag {tag_wanted} was not found in the {tags.keys()},"
+            f" try again with one inside that list."
+        )
+        raise ValueError('Tag not found.')
+
+
+def gdf_mean_vertices_nb(gdf: gpd.GeoDataFrame):
+    """
+    Counts vertices of all polygons inside a given GeoDataFrame
+    @param gdf: input GeoDataFrame to count vertices from
+    """
+    if len(gdf.geometry) == 0:
+        print("No features in GeoDataFrame")
+        return None
+    vertices_per_polygon = []
+    for geom in gdf.geometry:
+        if geom is None:
+            logging.warning(f"GeoDataFrame contains a \"None\" geometry")
+        elif geom.geom_type == "MultiPolygon":
+            for polygon in geom.geoms:
+                vertices_per_polygon.append(len(polygon.exterior.coords))
+        elif geom.geom_type == "Polygon":
+            vertices_per_polygon.append(len(geom.exterior.coords))
+        else:
+            logging.warning(f"Only supports MultiPolygon or Polygon. \nGot {geom.geom_type}")
+    mean_ext_vert_nb = np.mean(vertices_per_polygon)
+    return mean_ext_vert_nb
+
+
+def mask_nodata(img_patch: Union[str, Path], gt_patch: Union[str, Path], nodata_val: int, mask_val: int = 255) -> None:
+    """
+    Masks label raster file with "ignore_index" value where pixels are "nodata" in the corresponding raster image.
+    Args:
+        img_patch: raster tile image path
+        gt_patch: raster tile label path
+        nodata_val: nodata value
+        mask_val: masking value (255 by default)
+
+    Returns:
+        Masks label tile or None if no nadata pixels
+    """
+    image_ds = gdal.Open(str(img_patch), gdalconst.GA_ReadOnly)
+    image_arr = image_ds.ReadAsArray()
+    nodata_mask = image_arr != nodata_val
+    nodata_mask_flat = np.sum(nodata_mask, axis=0) != 0
+
+    if nodata_mask_flat.min() == 1:
+        image_ds = None
+        return
+
+    gt_patch_ds = gdal.Open(str(gt_patch), gdalconst.GA_Update)
+    gt_patch_arr = gt_patch_ds.ReadAsArray()
+    masked_gt_arr = np.where(nodata_mask_flat == 1, gt_patch_arr, mask_val)
+    gt_patch_ds.GetRasterBand(1).WriteArray(masked_gt_arr)
+    gt_patch_ds = None
+    image_ds = None
+
+
+def nodata_vec_mask(raster: rasterio.DatasetReader, nodata_val: int = None) -> ogr.DataSource | None:
+    """
+    Fetches nodata mask from the raster image.
+    Args:
+        raster: raster dataset (DatasetReader) object.
+        nodata_val: either None or predefined by a user integer value.
+        If None, tries to fetch nodata value from the raster.
+
+    Returns:
+        Either None or vector nodata mask as an OGR datasource.
+    """
+    if nodata_val is None:
+        nodata_val = raster.nodata
+        if not isinstance(nodata_val, int | float):
+            return None
+
+    # Get original CRS and transform:
+    crs_wkt = raster.crs.to_wkt()
+    crs_gt = raster.transform
+
+    # Read the data and calculate a nodata mask:
+    image_arr = raster.read()
+    nodata_mask = image_arr != nodata_val
+    nodata_mask_flat = np.sum(nodata_mask, axis=0) != 0
+    nodata_mask_flat = nodata_mask_flat.astype('uint8')
+
+    raster_drv = gdal.GetDriverByName("MEM")
+    dst = raster_drv.Create("/vsimem/raster", int(nodata_mask_flat.shape[1]),
+                            int(nodata_mask_flat.shape[0]), 1, gdal.GDT_Byte)
+
+    gdal_src_gt = [crs_gt[2], crs_gt[0], crs_gt[1], crs_gt[5], crs_gt[3], crs_gt[4]]
+    dst.SetGeoTransform(gdal_src_gt)
+    dst.SetProjection(crs_wkt)
+    dst.GetRasterBand(1).WriteArray(nodata_mask_flat)
+    dst.GetRasterBand(1).SetNoDataValue(0)
+    src_band = dst.GetRasterBand(1)
+
+    # Create vector datasource in memory:
+    drv = ogr.GetDriverByName("MEMORY")
+    vec_ds = drv.CreateDataSource('memdata')
+
+    # Initialize projection:
+    spatial_ref = osr.SpatialReference()
+    spatial_ref.ImportFromWkt(crs_wkt)
+    layer = vec_ds.CreateLayer('0', spatial_ref, geom_type=ogr.wkbPolygon)
+
+    # Vectorize the raster nodata mask:
+    gdal.Polygonize(src_band, src_band, layer, -1, [], callback=None)
+
+    return vec_ds
+
+
+if __name__ == "__main__":
+    pass

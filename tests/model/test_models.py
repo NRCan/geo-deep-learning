@@ -19,8 +19,7 @@ class TestModelsZoo(object):
     """Tests all geo-deep-learning's models instantiation and forward method"""
     def test_net(self) -> None:
         with initialize(config_path="../../config", job_name="test_ci"):
-            for model_config in Path(to_absolute_path(f"../../config/model")).glob('*.yaml'):
-                print(model_config)
+            for model_config in Path(to_absolute_path(f"config/model")).glob('*.yaml'):
                 cfg = compose(config_name="gdl_config_template",
                               overrides=[f"model={model_config.stem}"],
                               return_hydra_config=True)
@@ -29,25 +28,13 @@ class TestModelsZoo(object):
                 del cfg.loss.is_binary  # prevent exception at instantiation
                 rand_img = torch.rand((2, 4, 64, 64))
                 print(cfg.model._target_)
-                if cfg.model._target_ == 'models.deeplabv3_dualhead.DeepLabV3_dualhead':
-                    for layer in ['conv1', 'maxpool', 'layer2', 'layer3', 'layer4']:
-                        logging.info(layer)
-                        cfg.model.conc_point = layer
-                        model = define_model_architecture(
-                            net_params=cfg.model,
-                            in_channels=4,
-                            out_classes=4,
-                        )
-                        output = model(rand_img)
-                        print(output.shape)
-                else:
-                    model = define_model_architecture(
-                        net_params=cfg.model,
-                        in_channels=4,
-                        out_classes=4,
-                    )
-                    output = model(rand_img)
-                    print(output.shape)
+                model = define_model_architecture(
+                    net_params=cfg.model,
+                    in_channels=4,
+                    out_classes=4,
+                )
+                output = model(rand_img)
+                print(output.shape)
 
 
 class TestReadCheckpoint(object):
@@ -102,12 +89,12 @@ class TestDefineModelMultigpu(object):
     if len(gpu_devices_dict.keys()) == 0:
         logging.critical(f"No GPUs available. Cannot perform multi-gpu testing.")
     else:
-        define_model(
+        checkpoint = read_checkpoint(filename)
+        model = define_model(
             net_params={'_target_': 'models.unet.UNet'},
             in_channels=4,
             out_classes=4,
             main_device=device,
             devices=list(gpu_devices_dict.keys()),
-            state_dict_path=filename,
-            state_dict_strict_load=True,
+            checkpoint_dict=checkpoint
         )

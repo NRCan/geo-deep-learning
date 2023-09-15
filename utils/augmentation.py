@@ -11,7 +11,7 @@ import torch
 # Unclear issue, mentioned here: https://github.com/pytorch/pytorch/issues/2083
 import random
 import numpy as np
-from skimage import transform, exposure
+from skimage import transform
 from torchvision import transforms
 from utils.utils import get_key_def, pad, minmax_scale
 
@@ -43,14 +43,10 @@ def compose_transforms(params,
     lst_trans = []
     norm_mean = get_key_def('mean', params['augmentation']['normalization'])
     norm_std = get_key_def('std', params['augmentation']['normalization'])
-    random_radiom_trim_range = get_key_def('random_radiom_trim_range', params['augmentation'], None)
 
     if dataset == 'trn':
         if aug_type == 'radiometric':
             noise = get_key_def('noise', params['augmentation'], None)
-            if random_radiom_trim_range:  # Contrast stretching
-                # FIXME: test this. Assure compatibility with CRIM devs (don't trim metadata)
-                lst_trans.append(RadiometricTrim(random_range=random_radiom_trim_range))
             if noise:
                 lst_trans.append(AddGaussianNoise(std=noise))
         elif aug_type == 'geometric':
@@ -72,16 +68,6 @@ def compose_transforms(params,
                 lst_trans.append(RandomCrop(sample_size=crop_size, ignore_index=dontcare))
 
     if aug_type == 'totensor':
-        # Contrast stretching at eval. Use mean of provided range
-        if not dataset == 'trn' and random_radiom_trim_range:
-            # Assert range is number or 2 element sequence
-            RadiometricTrim.input_checker(random_radiom_trim_range)
-            if isinstance(random_radiom_trim_range, numbers.Number):
-                trim_at_eval = random_radiom_trim_range
-            else:
-                trim_at_eval = round((random_radiom_trim_range[-1] - random_radiom_trim_range[0]) / 2, 1)
-            lst_trans.append(RadiometricTrim(random_range=[trim_at_eval, trim_at_eval]))
-
         if scale:
             lst_trans.append(Scale(scale))  # TODO: assert coherence with below normalization
         else:
@@ -99,65 +85,6 @@ def compose_transforms(params,
         lst_trans.append(ToTensorTarget(dontcare2backgr=dontcare2backgr, dontcare_val=dontcare))
 
     return transforms.Compose(lst_trans)
-
-
-class RadiometricTrim(object):
-    """Trims values left and right of the raster's histogram. Also called linear scaling or enhancement.
-    Percentile, chosen randomly based on inputted range, applies to both left and right sides of the histogram.
-    Ex.: Values below the 1.7th and above the 98.3th percentile will be trimmed if random value is 1.7"""
-    def __init__(self, random_range):
-        """
-        :param random_range: numbers.Number (float or int) or Sequence (list or tuple) with length of 2
-        """
-        random_range = self.input_checker(random_range)
-        self.range = random_range
-
-    @staticmethod
-    def input_checker(input_param):
-        if not isinstance(input_param, (numbers.Number, Sequence)):
-            raise TypeError('Got inappropriate range arg')
-
-        if isinstance(input_param, Sequence) and len(input_param) != 2:
-            raise ValueError(f"Range must be an int or a 2 element tuple or list, "
-                             f"not a {len(input_param)} element {type(input_param)}.")
-
-        if isinstance(input_param, numbers.Number):
-            input_param = [input_param, input_param]
-        return input_param
-
-    def __call__(self, sample):
-        # Choose trimming percentile withing inputted range
-        trim = round(random.uniform(self.range[0], self.range[-1]), 1)
-        # Determine output range from datatype
-        out_dtype = sample['metadata']['dtype']
-        # Create empty array with shape of input image
-        rescaled_sat_img = np.empty(sample['sat_img'].shape, dtype=sample['sat_img'].dtype)
-        # Loop through bands
-        for band_idx in range(sample['sat_img'].shape[2]):
-            band = sample['sat_img'][:, :, band_idx]
-            band_histogram = sample['metadata']['source_raster_bincount'][f'band{band_idx}']
-            # Determine what is the index of nonzero pixel corresponding to left and right trim percentile
-            sum_nonzero_pix_per_band = sum(band_histogram)
-            left_pixel_idx = round(sum_nonzero_pix_per_band / 100 * trim)
-            right_pixel_idx = round(sum_nonzero_pix_per_band / 100 * (100-trim))
-            cumulative_pixel_count = 0
-            # TODO: can this for loop be optimized? Also, this hasn't been tested with non 8-bit data. Should be fine though.
-            # Loop through pixel values of given histogram
-            for pixel_val, count_per_pix_val in enumerate(band_histogram):
-                lower_limit = cumulative_pixel_count
-                upper_limit = cumulative_pixel_count + count_per_pix_val
-                # Check if left and right pixel indices are contained in current lower and upper pixels count limits
-                if lower_limit <= left_pixel_idx <= upper_limit:
-                    left_pix_val = pixel_val
-                if lower_limit <= right_pixel_idx <= upper_limit:
-                    right_pix_val = pixel_val
-                cumulative_pixel_count += count_per_pix_val
-            # Enhance using above left and right pixel values as in_range
-            rescaled_band = exposure.rescale_intensity(band, in_range=(left_pix_val, right_pix_val), out_range=out_dtype)
-            # Write each enhanced band to empty array
-            rescaled_sat_img[:, :, band_idx] = rescaled_band
-        sample['sat_img'] = rescaled_sat_img
-        return sample
 
 
 class Scale(object):
@@ -202,8 +129,8 @@ class Scale(object):
             ndarray: Scaled image.
         """
         out_dtype = sample['metadata']['dtype']
-        orig_range = self.range_values_raster(sample['sat_img'], out_dtype)
-        sample['sat_img'] = minmax_scale(img=sample['sat_img'], orig_range=orig_range, scale_range=(self.sc_min, self.sc_max))
+        orig_range = self.range_values_raster(sample["image"], out_dtype)
+        sample["image"] = minmax_scale(img=sample["image"], orig_range=orig_range, scale_range=(self.sc_min, self.sc_max))
 
         return sample
 
@@ -215,12 +142,12 @@ class GeometricScale(object):
 
     def __call__(self, sample):
         scale_factor = round(random.uniform(range[0], range[-1]), 1)
-        output_width = sample['sat_img'].shape[0] * scale_factor
-        output_height =  sample['sat_img'].shape[1] * scale_factor
-        sat_img = transform.resize(sample['sat_img'], output_shape=(output_height, output_width))
-        map_img = transform.resize(sample['map_img'], output_shape=(output_height, output_width))
-        sample['sat_img'] = sat_img
-        sample['map_img'] = map_img
+        output_width = sample["image"].shape[0] * scale_factor
+        output_height = sample["image"].shape[1] * scale_factor
+        sat_img = transform.resize(sample["image"], output_shape=(output_height, output_width))
+        map_img = transform.resize(sample["mask"], output_shape=(output_height, output_width))
+        sample["image"] = sat_img
+        sample["mask"] = map_img
         return sample
 
 
@@ -234,10 +161,10 @@ class RandomRotationTarget(object):
     def __call__(self, sample):
         if random.random() < self.prob:
             angle = np.random.uniform(-self.limit, self.limit)
-            sat_img = transform.rotate(sample['sat_img'], angle, preserve_range=True, cval=np.nan)
-            map_img = transform.rotate(sample['map_img'], angle, preserve_range=True, order=0, cval=self.ignore_index)
-            sample['sat_img'] = sat_img
-            sample['map_img'] = map_img
+            sat_img = transform.rotate(sample["image"], angle, preserve_range=True, cval=np.nan)
+            map_img = transform.rotate(sample["mask"], angle, preserve_range=True, order=0, cval=self.ignore_index)
+            sample["image"] = sat_img
+            sample["mask"] = map_img
             return sample
         else:
             return sample
@@ -250,14 +177,14 @@ class HorizontalFlip(object):
 
     def __call__(self, sample):
         if random.random() < self.prob:
-            sat_img = np.ascontiguousarray(sample['sat_img'][:, ::-1, ...])
-            map_img = np.ascontiguousarray(sample['map_img'][:, ::-1, ...])
-            sample['sat_img'] = sat_img
-            sample['map_img'] = map_img
+            sat_img = np.ascontiguousarray(sample["image"][:, ::-1, ...])
+            map_img = np.ascontiguousarray(sample["mask"][:, ::-1, ...])
+            sample["image"] = sat_img
+            sample["mask"] = map_img
         return sample
 
 
-class RandomCrop(object):  
+class RandomCrop(object):
     # TODO: what to do with overlap in samples_prep (images_to_samples, l.106)?
     #       overlap doesn't need to be larger than, say, 5%
     """Randomly crop image according to a certain dimension.
@@ -300,8 +227,8 @@ class RandomCrop(object):
         Returns:
             ndarray: Cropped image.
         """
-        sat_img = sample['sat_img']
-        map_img = sample['map_img']
+        sat_img = sample["image"]
+        map_img = sample["mask"]
 
         if self.padding is not None:
             sat_img = pad(sat_img, self.padding, np.nan)  # Pad with nan values for sat_img
@@ -326,8 +253,8 @@ class RandomCrop(object):
         sat_img = sat_img[i:i + h, j:j + w]
         map_img = map_img[i:i + h, j:j + w]
 
-        sample['sat_img'] = sat_img
-        sample['map_img'] = map_img
+        sample["image"] = sat_img
+        sample["mask"] = map_img
         return sample
 
     def __repr__(self):
@@ -342,8 +269,8 @@ class Normalize(object):
 
     def __call__(self, sample):
         if self.mean or self.std != []:
-            sat_img = (sample['sat_img'] - self.mean) / self.std
-            sample['sat_img'] = sat_img
+            sat_img = (sample["image"] - self.mean) / self.std
+            sample["image"] = sat_img
             return sample
         else:
             return sample
@@ -360,18 +287,18 @@ class ToTensorTarget(object):
         self.dontcare_val = dontcare_val
 
     def __call__(self, sample):
-        sat_img = np.nan_to_num(sample['sat_img'], copy=False)
+        sat_img = np.nan_to_num(sample["image"], copy=False)
         sat_img = np.float32(np.transpose(sat_img, (2, 0, 1)))
         sat_img = torch.from_numpy(sat_img)
 
         map_img = None
-        if 'map_img' in sample.keys():
-            if sample['map_img'] is not None:  # This can also be used in inference.
-                map_img = np.int64(sample['map_img'])
+        if "mask" in sample.keys():
+            if sample["mask"] is not None:  # This can also be used in inference.
+                map_img = np.int64(sample["mask"])
                 if self.dontcare2backgr:
                     map_img[map_img == self.dontcare_val] = 0
                 map_img = torch.from_numpy(map_img)
-        return {'sat_img': sat_img, 'map_img': map_img}
+        return {"image": sat_img, "mask": map_img}
 
 
 class AddGaussianNoise(object):
@@ -382,7 +309,7 @@ class AddGaussianNoise(object):
         self.mean = mean
 
     def __call__(self, sample):
-        sample['sat_img'] = sample['sat_img'] + np.random.randn(*sample['sat_img'].shape) * self.std + self.mean
+        sample["image"] = sample["image"] + np.random.randn(*sample["image"].shape) * self.std + self.mean
         return sample
 
     def __repr__(self):

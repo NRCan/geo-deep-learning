@@ -1,0 +1,8 @@
+tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg
+tests/data/massachusetts_buildings_kaggle/23429155_15.gpkg
+tests/data/massachusetts_buildings_kaggle_patch/massachusetts_buildings_kaggle_patch.gpkg
+tests/data/new_brunswick_aerial/BakerLake_2017_clipped.gpkg
+tests/data/spacenet/SN7_global_monthly_2020_01_mosaic_L15-0331E-1257N_1327_3160_13_uint8_clipped.gpkg
+tests/data/spacenet/SN7_global_monthly_2020_01_mosaic_L15-0331E-1257N_1327_3160_13_uint8_clipped_4326.gpkg
+tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.gpkg
+tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03_pred.gpkg
