@@ -177,13 +177,13 @@ class TestTiling(object):
         assert len(val_labels) > 0
         assert len(tst_labels) > 0
         
-        patch_sze = cfg.tiling.patch_size
+        patch_size = cfg.tiling.patch_size
         for label_list in [trn_labels, val_labels, tst_labels]:
             num_tifs_to_check = min(5, len(label_list))
             for tif_file in label_list[:num_tifs_to_check]:
                 with rasterio.open(tif_file) as src:
                     width, height = src.width, src.height
-                    assert width == patch_sze and height == patch_sze
+                    assert width == patch_size and height == patch_size
         shutil.rmtree(Path(data_dir) / proj)
 
     def test_tiling_inference(self):
