@@ -33,7 +33,10 @@ class TestModelsZoo(object):
                     in_channels=3,
                     out_classes=4,
                 )
-                output = model(rand_img)
+                if cfg.model._target_ == "models.hrnet.hrnet_ocr.HRNet":
+                    output, output_aux = model(rand_img)
+                else:
+                    output = model(rand_img)
                 print(output.shape)
 
 
