@@ -8,9 +8,12 @@ from models.hrnet.backbone import hrnetv2
 
 
 class HRNet(nn.Module):
-    """
-    High Resolution Network (hrnet_w48_v2) with Object Contextual Representation module
-    
+    """High Resolution Network (hrnet_w48_v2) with Object Contextual Representation module
+
+    Args:
+        pretrained (bool): use pretrained weights 
+        in_channels (int): number of bands/channels
+        classes (int): number of classes
     """
     def __init__(self, pretrained, in_channels, classes) -> None:
         super(HRNet, self).__init__()

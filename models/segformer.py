@@ -71,6 +71,12 @@ class Decoder(nn.Module):
 
 
 class SegFormer(nn.Module):
+    """Segformer Model
+    Args:
+        encoder (str): encoder name 
+        in_channels (int): number of bands/channels
+        classes (int): number of classes
+    """    
     def __init__(self, encoder, in_channels, classes) -> None:
         super().__init__()
         self.encoder = smp.encoders.get_encoder(name=encoder, in_channels=in_channels, depth=5, drop_path_rate=0.1)
