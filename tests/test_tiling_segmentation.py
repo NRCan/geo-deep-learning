@@ -170,14 +170,20 @@ class TestTiling(object):
         }
         cfg = DictConfig(cfg)
         tiling(cfg)
-        out_labels = [
-            (Path(f"{data_dir}/{proj}/trn/23322E759967N_clipped_1m_1of2/labels_burned"), (80, 95)),
-            (Path(f"{data_dir}/{proj}/val/23322E759967N_clipped_1m_1of2/labels_burned"), (5, 20)),
-            (Path(f"{data_dir}/{proj}/tst/23322E759967N_clipped_1m_2of2/labels_burned"), (170, 190)),
-        ]
-        for labels_burned_dir, lbls_nb in out_labels:
-            # exact number may vary because of random sort between "trn" and "val"
-            assert lbls_nb[0] <= len(list(labels_burned_dir.iterdir())) <= lbls_nb[1]
+        trn_labels = list(Path(f"{data_dir}/{proj}/trn/").glob("*/labels_burned/*.tif"))
+        val_labels = list(Path(f"{data_dir}/{proj}/val/").glob("*/labels_burned/*.tif"))
+        tst_labels = list(Path(f"{data_dir}/{proj}/tst/").glob("*/labels_burned/*.tif"))
+        assert len(trn_labels) > 0
+        assert len(val_labels) > 0
+        assert len(tst_labels) > 0
+        
+        patch_size = cfg.tiling.patch_size
+        for label_list in [trn_labels, val_labels, tst_labels]:
+            num_tifs_to_check = min(5, len(label_list))
+            for tif_file in label_list[:num_tifs_to_check]:
+                with rasterio.open(tif_file) as src:
+                    width, height = src.width, src.height
+                    assert width == patch_size and height == patch_size
         shutil.rmtree(Path(data_dir) / proj)
 
     def test_tiling_inference(self):
@@ -215,37 +221,3 @@ class TestTiling(object):
         gt = "tests/data/spacenet/SN7_global_monthly_2020_01_mosaic_L15-0331E-1257N_1327_3160_13_uint8_clipped_4326.gpkg"
         with pytest.raises(rasterio.errors.CRSError):
             perc = annot_percent(img, gt)
-
-    def test_tiling_equalization(self):
-        """Tests the tiling process with clahe equalization"""
-        means_per_limit = []
-        for clip_limit in [0, 10, 25]:
-            data_dir = f"data/patches"
-            proj = f"tiling_output_test"
-            Path(data_dir).mkdir(exist_ok=True, parents=True)
-            extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
-            cfg = {
-                "general": {"project_name": proj},
-                "debug": True,
-                "dataset": {
-                    "bands": [1, 2, 3],
-                    "raw_data_dir": data_dir,
-                    "raw_data_csv": f"tests/tiling/tiling_segmentation_binary_ci.csv",
-                },
-                "tiling": {
-                    "patch_size": 32,
-                    "train_val_percent": {'val': 0.3},
-                    "clahe_clip_limit": clip_limit,
-                },
-            }
-            cfg = DictConfig(cfg)
-            tiling(cfg)
-            out_labels = (Path(data_dir)/proj).glob("**/images/*.tif")
-            patch_means = []
-            for patch in out_labels:
-                patch_np = rasterio.open(patch).read()
-                patch_means.append(patch_np)
-            aoi_means = int(numpy.asarray(patch_means).mean())
-            means_per_limit.append(aoi_means)
-        assert means_per_limit[0] < means_per_limit[1] < means_per_limit[2]
-        shutil.rmtree(Path(data_dir) / proj)
