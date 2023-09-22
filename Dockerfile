@@ -19,10 +19,10 @@ RUN apt-get update \
     && sudo mv cuda-ubuntu2004-keyring.gpg /usr/share/keyrings/cuda-archive-keyring.gpg \
     && rm -f cuda-keyring_1.0-1_all.deb && rm -f /etc/apt/sources.list.d/cuda.list
 
-# Install miniconda
+# Install Mamba directly
 ENV PATH $CONDA_DIR/bin:$PATH
-RUN wget https://repo.continuum.io/miniconda/Miniconda$CONDA_PYTHON_VERSION-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
-    /bin/bash /tmp/miniconda.sh -b -p $CONDA_DIR && \
+RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh -O /tmp/mamba.sh && \
+    /bin/bash /tmp/mamba.sh -b -p $CONDA_DIR && \
     rm -rf /tmp/* && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
@@ -32,12 +32,12 @@ RUN useradd --create-home -s /bin/bash --no-user-group -u $USERID $USERNAME && \
     chown $USERNAME $CONDA_DIR -R && \
     adduser $USERNAME sudo && \
     echo "$USERNAME ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
 USER $USERNAME
 WORKDIR /home/$USERNAME/
 
 RUN cd /home/$USERNAME && git clone --depth 1 "https://github.com/NRCan/geo-deep-learning.git" --branch $GIT_TAG
 RUN conda config --set ssl_verify no
-RUN conda install libarchive mamba -c conda-forge
 RUN mamba env create -f /home/$USERNAME/geo-deep-learning/environment.yml
 
 ENV PATH $CONDA_DIR/envs/geo_deep_env/bin:$PATH
