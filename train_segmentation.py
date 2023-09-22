@@ -297,6 +297,7 @@ def training(train_loader,
           device,
           scale,
           vis_params,
+          aux_output: bool = False,
           debug=False):
     """
     Train the model and return the metrics of the training epoch
@@ -327,7 +328,10 @@ def training(train_loader,
 
         # forward
         optimizer.zero_grad()
-        outputs = model(inputs)
+        if aux_output:
+                outputs, outputs_aux = model(inputs)
+        else:
+            outputs = model(inputs)
         # added for torchvision models that output an OrderedDict with outputs in 'out' key.
         # More info: https://pytorch.org/hub/pytorch_vision_deeplabv3_resnet101/
         if isinstance(outputs, OrderedDict):
@@ -349,9 +353,13 @@ def training(train_loader,
                                dataset='trn',
                                ep_num=ep_idx + 1,
                                scale=scale)
-
-        loss = criterion(outputs, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
-
+        if aux_output:
+            loss_main = criterion(outputs, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
+            loss_aux = criterion(outputs_aux, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())
+            loss = 0.4 * loss_aux + loss_main
+        else:
+            loss = criterion(outputs, labels) if num_classes > 1 else criterion(outputs, labels.unsqueeze(1).float())  
+        
         train_metrics['loss'].update(loss.item(), batch_size)
 
         if device.type == 'cuda' and debug:
@@ -628,6 +636,7 @@ def train(cfg: DictConfig) -> None:
 
     # INSTANTIATE MODEL AND LOAD CHECKPOINT FROM PATH
     checkpoint = read_checkpoint(train_state_dict_path)
+    aux_output = False
     model = define_model(
         net_params=cfg.model,
         in_channels=num_bands,
@@ -637,7 +646,9 @@ def train(cfg: DictConfig) -> None:
         checkpoint_dict=checkpoint,
         checkpoint_dict_strict_load=state_dict_strict
     )
-
+    
+    if cfg.model._target_ == "models.hrnet.hrnet_ocr.HRNet":
+        aux_output = True
     criterion = define_loss(loss_params=cfg.loss, class_weights=class_weights)
     criterion = criterion.to(device)
     optimizer = instantiate(cfg.optimizer, params=model.parameters())
@@ -717,6 +728,7 @@ def train(cfg: DictConfig) -> None:
                               device=device,
                               scale=scale,
                               vis_params=vis_params,
+                              aux_output=aux_output,
                               debug=debug)
         if 'trn_log' in locals():  # only save the value if a tracker is setup
             trn_log.add_values(trn_report, epoch, ignore=['precision', 'recall', 'fscore', 'iou'])
