@@ -52,3 +52,20 @@ folder to the complete list on different combinaisons.
 
 Also from the same library, another version of *DeepLabV3*, named *DeepLabV3+* of the
 *Encoder-Decoder with Atrous Separable Convolution for Semantic Image Segmentation* paper.
+
+Segformer
+================================================
+
+*Segformer* model implementation is based on the  `SegFormer: Simple and Efficient Design for Semantic Segmentation with Transformers <https://arxiv.org/abs/2105.15203>`_ paper.
+The encoder is called from `SMP <https://github.com/qubvel/segmentation_models.pytorch>`_. For more code implementation details check this `repo <https://github.com/NVlabs/SegFormer>`_.
+
+.. autoclass:: models.segformer.SegFormer
+
+
+HRNet + OCR
+================================================
+
+*HRNet + OCR* model implementation is based on the  `HRNet paper <https://ieeexplore.ieee.org/document/9052469>`_ and `OCR paper <https://arxiv.org/pdf/1909.11065.pdf>`_.
+For more code implementation details check this `repo <https://github.com/NVIDIA/semantic-segmentation>`_.
+
+.. autoclass:: models.hrnet.hrnet_ocr.HRNet

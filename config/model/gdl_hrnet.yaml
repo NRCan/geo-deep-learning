@@ -1,0 +1,4 @@
+# @package _global_
+model:
+  _target_: models.hrnet.hrnet_ocr.HRNet
+  pretrained: True

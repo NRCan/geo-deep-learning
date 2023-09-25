@@ -26,14 +26,17 @@ class TestModelsZoo(object):
                 hconf = HydraConfig()
                 hconf.set_config(cfg)
                 del cfg.loss.is_binary  # prevent exception at instantiation
-                rand_img = torch.rand((2, 4, 64, 64))
+                rand_img = torch.rand((2, 3, 64, 64))
                 print(cfg.model._target_)
                 model = define_model_architecture(
                     net_params=cfg.model,
-                    in_channels=4,
+                    in_channels=3,
                     out_classes=4,
                 )
-                output = model(rand_img)
+                if cfg.model._target_ == "models.hrnet.hrnet_ocr.HRNet":
+                    output, output_aux = model(rand_img)
+                else:
+                    output = model(rand_img)
                 print(output.shape)
 
 
@@ -41,7 +44,7 @@ class TestReadCheckpoint(object):
     """
     Tests reading a checkpoint saved outside GDL into memory
     """
-    var = 4
+    var = 3
     dummy_model = models.unet.UNetSmall(classes=var, in_channels=var)
     dummy_optimizer = instantiate({'_target_': 'torch.optim.Adam'}, params=dummy_model.parameters())
     filename = "test.pth.tar"
@@ -80,7 +83,7 @@ class TestDefineModelMultigpu(object):
     """
     Tests defining model architecture with weights from provided checkpoint and pushing to multiple devices if possible
     """
-    dummy_model = unet.UNet(4, 4, True, 0.5)
+    dummy_model = unet.UNet(4, 3, True, 0.5)
     filename = "test.pth.tar"
     torch.save(dummy_model.state_dict(), filename)
 
@@ -92,7 +95,7 @@ class TestDefineModelMultigpu(object):
         checkpoint = read_checkpoint(filename)
         model = define_model(
             net_params={'_target_': 'models.unet.UNet'},
-            in_channels=4,
+            in_channels=3,
             out_classes=4,
             main_device=device,
             devices=list(gpu_devices_dict.keys()),

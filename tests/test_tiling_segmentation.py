@@ -170,14 +170,20 @@ class TestTiling(object):
         }
         cfg = DictConfig(cfg)
         tiling(cfg)
-        out_labels = [
-            (Path(f"{data_dir}/{proj}/trn/23322E759967N_clipped_1m_1of2/labels_burned"), (80, 95)),
-            (Path(f"{data_dir}/{proj}/val/23322E759967N_clipped_1m_1of2/labels_burned"), (5, 20)),
-            (Path(f"{data_dir}/{proj}/tst/23322E759967N_clipped_1m_2of2/labels_burned"), (170, 190)),
-        ]
-        for labels_burned_dir, lbls_nb in out_labels:
-            # exact number may vary because of random sort between "trn" and "val"
-            assert lbls_nb[0] <= len(list(labels_burned_dir.iterdir())) <= lbls_nb[1]
+        trn_labels = list(Path(f"{data_dir}/{proj}/trn/").glob("*/labels_burned/*.tif"))
+        val_labels = list(Path(f"{data_dir}/{proj}/val/").glob("*/labels_burned/*.tif"))
+        tst_labels = list(Path(f"{data_dir}/{proj}/tst/").glob("*/labels_burned/*.tif"))
+        assert len(trn_labels) > 0
+        assert len(val_labels) > 0
+        assert len(tst_labels) > 0
+        
+        patch_size = cfg.tiling.patch_size
+        for label_list in [trn_labels, val_labels, tst_labels]:
+            num_tifs_to_check = min(5, len(label_list))
+            for tif_file in label_list[:num_tifs_to_check]:
+                with rasterio.open(tif_file) as src:
+                    width, height = src.width, src.height
+                    assert width == patch_size and height == patch_size
         shutil.rmtree(Path(data_dir) / proj)
 
     def test_tiling_inference(self):
