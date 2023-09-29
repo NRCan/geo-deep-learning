@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v2
       - name: Run pytest
         run: |
-          docker run -v "$(pwd)":/gdl geobaserepo/gdl-cuda11:v2.8.1 pytest tests/
+          docker run -v "$(pwd)":/gdl geobaserepo/gdl-cuda11:v2.8.1 pytest geo-deep-learning/tests/
 #      - name: Install pipenv
 #        run: |
 #          pip install pipenv
