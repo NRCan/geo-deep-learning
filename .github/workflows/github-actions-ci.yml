@@ -35,7 +35,7 @@ jobs:
       - name: Set Permissions
         run: |
           sudo chown -R $USER:$USER .
-          
+
       - name: Run pytest
         run: |
-          docker run -v "$(pwd)":/gdl geobaserepo/gdl-cuda11:v2.8.1 bash -c "cd /gdl && pytest tests/"
+          sudo docker run -v "$(pwd)":/gdl geobaserepo/gdl-cuda11:v2.8.1 bash -c "cd /gdl && pytest tests/"
