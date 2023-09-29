@@ -31,15 +31,6 @@ jobs:
         run: docker pull geobaserepo/gdl-cuda11:v2.8.1
 
       - uses: actions/checkout@v2
-
       - name: Run pytest
         run: |
-#          docker run -v "$(pwd)":/gdl geobaserepo/gdl-cuda11:v2.8.1 pytest geo-deep-learning/tests/
           docker run -v "$(pwd)":/gdl geobaserepo/gdl-cuda11:v2.8.1 bash -c "cd /gdl && pytest tests/"
-#      - name: Install pipenv
-#        run: |
-#          pip install pipenv
-#
-#      - name: Test with pytest
-#        run: |
-#          pipenv run pytest tests/
