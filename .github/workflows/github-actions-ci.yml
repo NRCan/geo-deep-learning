@@ -3,10 +3,9 @@ on: [push, pull_request]
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
-
     # runs within your Docker container
     container:
-      image: docker://geobaserepo/gdl-cuda11:latest
+      image: docker://geobaserepo/gdl-cuda11:v2.8.1
       options: --user root
     # checkout your code from your repository
     # and runs pytest in your pipenv environment
