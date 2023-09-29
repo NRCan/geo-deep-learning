@@ -27,6 +27,8 @@ RUN wget https://github.com/conda-forge/miniforge/releases/latest/download/Mamba
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+ENV LD_LIBRARY_PATH $CONDA_DIR/lib:$LD_LIBRARY_PATH
+
 # Create the user
 RUN useradd --create-home -s /bin/bash --no-user-group -u $USERID $USERNAME && \
     chown $USERNAME $CONDA_DIR -R && \
