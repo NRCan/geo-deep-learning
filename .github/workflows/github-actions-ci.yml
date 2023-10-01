@@ -62,7 +62,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          /opt/conda/bin/mamba env create -f environment.yml \
+          /opt/conda/bin/mamba env create -f environment.yml
           echo '/opt/conda/envs/geo_deep_env/bin' >> $GITHUB_PATH
 #          source $GITHUB_PATH
 
