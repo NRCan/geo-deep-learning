@@ -48,6 +48,7 @@ jobs:
       - name: Install pyenv
         run: |
           pip install pipenv
+          pip install pytest
       - uses: actions/checkout@v2
       - name: Test with pytest
         run: |
