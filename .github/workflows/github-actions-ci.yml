@@ -39,8 +39,6 @@ jobs:
         run: |
           echo 'export PATH=$PATH:$CONDA_DIR' >> $GITHUB_ENV
           echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_DIR/lib' >> $GITHUB_ENV
-          echo '::add-path::$CONDA_DIR' >> $GITHUB_ENV
-          echo '::set-env name=LD_LIBRARY_PATH::$CONDA_DIR/lib' >> $GITHUB_ENV
           source $GITHUB_ENV
 
       - name: Check if Custom Paths are Added
