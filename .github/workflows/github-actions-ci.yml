@@ -42,12 +42,11 @@ jobs:
 
       - name: Check if Custom Paths are Added
         run: |
-          echo $PATH
-          echo $LD_LIBRARY_PATH
+          echo "$PATH"
+          echo "$LD_LIBRARY_PATH"
 
       - name: Install Mamba
         run: |
-#          echo "export PATH=$CONDA_DIR:$PATH"
           sudo wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh -O /tmp/mamba.sh && \
           /bin/bash /tmp/mamba.sh -b -p /opt/conda && \
           sudo rm -rf /tmp/* && \
