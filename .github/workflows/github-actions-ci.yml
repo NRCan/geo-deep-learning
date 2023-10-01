@@ -1,16 +1,15 @@
 name: GitHub Actions Unit Tests
 on: [push, pull_request]
 jobs:
-  unit-tests:
-    runs-on: ubuntu-latest
-
-    # runs within your Docker container
-#    container:
-#      image: docker://geobaserepo/gdl-cuda11:v2.8.1
-#      options: --user root
-    # checkout your code from your repository
-    # and runs pytest in your pipenv environment
-    steps:
+  jobs:
+    clean-and-deploy-env:
+      name: Clean the space
+      runs-on: ubuntu-latest
+      env:
+        CONDA_DIR: "/opt/conda"
+        USERNAME: "gdl_user"
+        USERID: "1000"
+      steps:
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
@@ -27,15 +26,49 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: Pull the Docker Image
-        run: docker pull geobaserepo/gdl-cuda11:v2.8.1
-
-      - uses: actions/checkout@v2
-
-      - name: Set Permissions
+      - name: Update the environment
         run: |
-          sudo chown -R $USER:$USER .
+          apt-get update \
+          && apt-get install -y --no-install-recommends git wget unzip bzip2 build-essential sudo \
+          && apt-key del 7fa2af80 \
+          && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb \
+          && sudo dpkg -i cuda-keyring_1.0-1_all.deb \
+          && wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004-keyring.gpg \
+          && sudo mv cuda-ubuntu2004-keyring.gpg /usr/share/keyrings/cuda-archive-keyring.gpg \
+          && rm -f cuda-keyring_1.0-1_all.deb && rm -f /etc/apt/sources.list.d/cuda.list
 
-      - name: Run pytest
+      - name: Install Mamba
         run: |
-          sudo docker run -v "$(pwd)":/gdl geobaserepo/gdl-cuda11:v2.8.1 bash -c "cd /gdl && pytest tests/"
+          export PATH="$CONDA_DIR:$PATH"
+          PATH $CONDA_DIR/bin:$PATH
+          wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh -O /tmp/mamba.sh && \
+          /bin/bash /tmp/mamba.sh -b -p $CONDA_DIR && \
+          rm -rf /tmp/* && \
+          apt-get clean && \
+          rm -rf /var/lib/apt/lists/*
+          export LD_LIBRARY_PATH="$CONDA_DIR:LD_LIBRARY_PATH"
+
+      - name: Checkout the repo
+        uses: actions/checkout@v2
+
+      - name: Test with pytest
+        run: |
+          pytest tests/
+
+#    unit-tests:
+#      runs-on: ubuntu-latest
+#      needs: clean-and-deploy
+#      # runs within your Docker container
+#      container:
+#        image: geobaserepo/gdl-cuda11:v2.8.1
+#        options: --user root
+#      # checkout your code from your repository
+#      # and runs pytest in your pipenv environment
+#      steps:
+#        - name: Install pipenv
+#          run: |
+#            pip install pipenv
+#        - uses: actions/checkout@v2
+#        - name: Test with pytest
+#          run: |
+#            pipenv run pytest tests/
