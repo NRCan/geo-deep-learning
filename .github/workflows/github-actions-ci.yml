@@ -38,7 +38,6 @@ jobs:
       - name: Install Mamba
         run: |
           echo "export PATH=$CONDA_DIR:$PATH"
-          PATH $CONDA_DIR/bin:$PATH
           sudo wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh -O /tmp/mamba.sh && \
           /bin/bash /tmp/mamba.sh -b -p $CONDA_DIR && \
           sudo rm -rf /tmp/* && \
