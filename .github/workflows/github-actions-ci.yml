@@ -1,15 +1,13 @@
 name: GitHub Actions Unit Tests
 on: [push, pull_request]
 jobs:
-  jobs:
-    clean-and-deploy-env:
-      name: Clean the space
-      runs-on: ubuntu-latest
-      env:
-        CONDA_DIR: "/opt/conda"
-        USERNAME: "gdl_user"
-        USERID: "1000"
-      steps:
+  clean-and-deploy-env:
+    runs-on: ubuntu-latest
+    env:
+      CONDA_DIR: "/opt/conda"
+      USERNAME: "gdl_user"
+      USERID: "1000"
+    steps:
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
