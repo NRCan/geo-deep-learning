@@ -7,6 +7,7 @@ jobs:
       CONDA_DIR: "/opt/conda"
       USERNAME: "gdl_user"
       USERID: "1000"
+      LD_LIBRARY_PATH: "/opt/conda/lib"
     steps:
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
@@ -37,9 +38,7 @@ jobs:
 
       - name: Set system variables
         run: |
-          echo 'export PATH=$PATH:$CONDA_DIR' >> $GITHUB_ENV
-          echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_DIR/lib' >> $GITHUB_ENV
-          source $GITHUB_ENV
+          echo '$CONDA_DIR' >> $GITHUB_PATH
 
       - name: Check if Custom Paths are Added
         run: |
@@ -48,9 +47,9 @@ jobs:
 
       - name: Install Mamba
         run: |
-          echo "export PATH=$CONDA_DIR:$PATH"
+#          echo "export PATH=$CONDA_DIR:$PATH"
           sudo wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh -O /tmp/mamba.sh && \
-          /bin/bash /tmp/mamba.sh -b -p $CONDA_DIR && \
+          /bin/bash /tmp/mamba.sh -b -p /opt/conda && \
           sudo rm -rf /tmp/* && \
           sudo apt-get clean && \
           sudo rm -rf /var/lib/apt/lists/*
