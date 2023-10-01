@@ -50,6 +50,12 @@ jobs:
           pip install pipenv
           pip install pytest
       - uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          sudo mamba env create -f environment.yml \
+          echo "export PATH=$CONDA_DIR/envs/geo_deep_env/bin:$PATH"
+
       - name: Test with pytest
         run: |
           pipenv run pytest tests/
