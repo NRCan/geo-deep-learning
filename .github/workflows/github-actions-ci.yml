@@ -18,17 +18,17 @@ jobs:
           # all of these default to true, but feel free to set to
           # "false" if necessary for your workflow
           android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
+          dotnet: false
+          haskell: false
+          large-packages: false
+          docker-images: false
+          swap-storage: false
 
       - name: Update the environment
         run: |
           sudo apt-get update \
           && sudo apt-get install -y --no-install-recommends git wget unzip bzip2 build-essential sudo \
-          && apt-key del 7fa2af80 \
+          && sudo apt-key del 7fa2af80 \
           && sudo wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb \
           && sudo dpkg -i cuda-keyring_1.0-1_all.deb \
           && sudo wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004-keyring.gpg \
