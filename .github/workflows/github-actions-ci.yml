@@ -39,7 +39,7 @@ jobs:
       - name: Set system variables
         run: |
           echo '/opt/conda' >> $GITHUB_PATH
-          source $GITHUB_PATH
+#          source $GITHUB_PATH
 
       - name: Check if Custom Paths are Added
         run: |
