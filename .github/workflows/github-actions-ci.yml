@@ -36,16 +36,6 @@ jobs:
           && sudo mv cuda-ubuntu2004-keyring.gpg /usr/share/keyrings/cuda-archive-keyring.gpg \
           && sudo rm -f cuda-keyring_1.0-1_all.deb && sudo rm -f /etc/apt/sources.list.d/cuda.list
 
-      - name: Set system variables
-        run: |
-          echo '/opt/conda' >> $GITHUB_PATH
-#          source $GITHUB_PATH
-
-      - name: Check if Custom Paths are Added
-        run: |
-          echo "$PATH"
-          echo "$LD_LIBRARY_PATH"
-
       - name: Install Mamba
         run: |
           sudo wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh -O /tmp/mamba.sh && \
@@ -53,7 +43,16 @@ jobs:
           sudo rm -rf /tmp/* && \
           sudo apt-get clean && \
           sudo rm -rf /var/lib/apt/lists/*
-          
+
+      - name: Set system variables
+        run: |
+          echo '/opt/conda' >> $GITHUB_PATH
+          source $GITHUB_PATH
+
+      - name: Check if Custom Paths are Added
+        run: |
+          echo "$PATH"
+          echo "$LD_LIBRARY_PATH"
 
       - name: Install pyenv
         run: |
@@ -63,7 +62,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo /opt/conda/mamba env create -f environment.yml \
+          /opt/conda/mamba env create -f environment.yml \
           echo '/opt/conda/envs/geo_deep_env/bin' >> $GITHUB_PATH
           source $GITHUB_PATH
 
