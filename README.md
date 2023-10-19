@@ -17,13 +17,30 @@ This project comprises a set of commands to be run at a shell command prompt.  E
 - nvidia GPU (highly recommended)
 
 ## **Installation**
+Miniconda is suggested as the package manager for GDL. However, users are advised to [switch to libmamba](https://github.com/NRCan/geo-deep-learning#quickstart-with-conda) as conda's default solver or to __directly use mamba__ instead of conda if they are facing extended installation time or other issues. Additional problems are grouped in the [troubleshooting section](https://github.com/NRCan/geo-deep-learning#troubleshooting). If issues persist, users are encouraged to open a new issue for assistance.
+
+> Tested on Ubuntu 20.04, Windows 10 and WSL 2.
+
+### Quickstart with conda
 To execute scripts in this project, first create and activate your python environment with the following commands:  
 ```shell
 $ conda env create -f environment.yml
 $ conda activate geo_deep_env
 ```
-> Tested on Ubuntu 20.04 and Windows 10 using miniconda.
-> 
+
+### Change conda's default solver for faster install (__Optional__)
+```shell
+conda install -n base conda-libmamba-solver
+conda config --set solver libmamba
+```
+
+### Troubleshooting
+- *ImportError: /lib/x86_64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.29' not found*
+  - Export path to library or set it permenantly in your .bashrc file (example with conda) :
+    ```bash
+    export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/
+    ```
+
 ## **How to use?**
 This is an example of how to run GDL with hydra in simple steps with the _**massachusetts buildings**_ dataset in the `tests/data/` folder, for segmentation on buildings: 
 
