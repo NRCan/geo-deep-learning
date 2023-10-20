@@ -10,7 +10,7 @@ In **Geo-Deep-Learning**, the learning process comprises two broad stages: tilin
 ## **Requirement**
 This project comprises a set of commands to be run at a shell command prompt.  Examples used here are for a bash shell in an Ubuntu GNU/Linux environment.
 
-- [Python 3.9](https://www.python.org/downloads/release/python-390/), see the full list of dependencies in [environment.yml](environment.yml)
+- [Python 3.10](https://www.python.org/downloads/release/python-3100/), see the full list of dependencies in [environment.yml](environment.yml)
 - [hydra](https://hydra.cc/docs/intro/)
 - [mlflow](https://mlflow.org/)
 - [miniconda](https://docs.conda.io/en/latest/miniconda.html) (highly recommended)
