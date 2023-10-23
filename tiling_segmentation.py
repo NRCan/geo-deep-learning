@@ -706,8 +706,8 @@ def main(cfg: DictConfig) -> None:
     for index, aoi in tqdm(enumerate(tiler.src_aoi_list), position=0, leave=False):
         if aoi.overlap_label_rto_raster == 0.0:
             logging.error(
-                f"Features in label file {aoi.label} do not intersect with bounds of raster file "
-                f"{aoi.raster.name}, thus this AOI will be skipped.")
+                f"Features in label file {aoi.label.name} do not intersect with bounds of raster file "
+                f"{aoi.raster_name.name}, thus this AOI will be skipped.")
             continue
         try:
             tiling_dir = exp_dir / aoi.split.strip() / aoi.aoi_id.strip()
