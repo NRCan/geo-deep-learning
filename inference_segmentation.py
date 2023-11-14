@@ -158,12 +158,13 @@ def segmentation(param,
 
     """
     sample = {"image": None, "mask": None, 'metadata': None}
-    start_seg = time.time()
+    # start_seg = time.time()
     print_log = True if logging.level == 20 else False  # 20 is INFO
     model.eval()  # switch to evaluate mode
 
     # initialize test time augmentation
-    transforms = tta.aliases.d4_transform()
+    # transforms = tta.aliases.d4_transform()
+    transforms = tta.Compose([])
     tf_len = len(transforms)
     h_padded, w_padded = input_image.height + chunk_size, input_image.width + chunk_size
     patch_list = generate_patch_list(w_padded, h_padded, chunk_size, use_hanning)
@@ -171,6 +172,7 @@ def segmentation(param,
     fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(tf_len, h_padded, w_padded, num_classes))
     img_gen = gen_img_samples(src=input_image, patch_list=patch_list, chunk_size=chunk_size)
     single_class_mode = False if num_classes > 1 else True
+    start_seg = time.time()
     for sub_image, h_idxs, w_idxs, hann_win in tqdm(
         img_gen, position=0, leave=True, desc='Inferring on patches',
         total=len(patch_list)
