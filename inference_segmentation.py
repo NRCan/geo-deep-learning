@@ -172,7 +172,7 @@ def segmentation(param,
     fp = np.memmap(tp_mem, dtype='float16', mode='w+', shape=(tf_len, h_padded, w_padded, num_classes))
     img_gen = gen_img_samples(src=input_image, patch_list=patch_list, chunk_size=chunk_size)
     single_class_mode = False if num_classes > 1 else True
-    start_seg = time.time()
+    start_time = time.time()
     for sub_image, h_idxs, w_idxs, hann_win in tqdm(
         img_gen, position=0, leave=True, desc='Inferring on patches',
         total=len(patch_list)
@@ -233,8 +233,10 @@ def segmentation(param,
 
         pred_heatmap[row:row + chunk_size, col:col + chunk_size, :] = arr1.astype(heatmap_dtype)
 
-    end_seg = time.time() - start_seg
-    logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
+    # end_seg = time.time() - start_seg
+    end_time = time.time() - start_time
+    # logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
+    logging.info('Segmentation Completed in {:.0f}m {:.0f}s'.format(end_time // 60, end_time % 60))
 
     if debug:
         logging.debug(f'Bin count of final output: {np.unique(pred_heatmap, return_counts=True)}')
