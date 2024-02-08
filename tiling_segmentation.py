@@ -7,6 +7,7 @@ import shutil
 from numbers import Number
 from typing import Union, Sequence, List
 from concurrent.futures import ThreadPoolExecutor
+import random
 
 import geopandas as gpd
 import matplotlib.pyplot
@@ -494,6 +495,7 @@ class Tiler(object):
             aoi: AOI,
             img_patch: Union[str, Path],
             gt_patch: Union[str, Path],
+            split: str,
             continuous_vals: bool = True,
             save_preview_labels: bool = True,
     ):
@@ -517,11 +519,10 @@ class Tiler(object):
             aoi.raster = rasterio.open(aoi.raster_dest)
         nodata = aoi.raster.nodata
 
-        random_val = np.random.randint(1, 101)
         if not {'trn', 'val'}.issubset(set(self.datasets)):
             raise ValueError(f"Tiler should contain a 'trn' and 'val' dataset. Got {self.datasets}")
         # for trn patches, sort between trn and val based on random number
-        dataset = 'val' if aoi.split == 'trn' and random_val <= self.val_percent else aoi.split
+        dataset = split if aoi.split == 'trn' else aoi.split
         if dataset == 'val':  # val dataset
             img_patch = move_patch_trn_to_val(patch=img_patch, src_split=aoi.split, dest_split='val')
             gt_patch = move_patch_trn_to_val(patch=gt_patch, src_split=aoi.split, dest_split='val')
@@ -778,9 +779,20 @@ def main(cfg: DictConfig) -> None:
                     logging.error(f'\nInvalid ground truth patch: {img_patch}. '
                                   f'\n{e}')
 
-        for img_patch, gt_patch in tqdm(
+        # Define trn - val parts:
+        val_part = int(len(aoi.patches_pairs_list) * tiler.val_percent / 100)
+        all_indices = list(range(len(aoi.patches_pairs_list)))
+        val_indices = set(random.sample(all_indices, val_part))
+
+        trn_indices = set(all_indices) - val_indices
+
+        val_indices = {i: 'val' for i in val_indices}
+        trn_indices = {i: 'trn' for i in trn_indices}
+        indices = val_indices | trn_indices
+
+        for i, (img_patch, gt_patch) in enumerate(tqdm(
                 aoi.patches_pairs_list, position=1,
-                desc=f'Filter {len(aoi.patches_pairs_list)} patches and burn ground truth'):
+                desc=f'Filter {len(aoi.patches_pairs_list)} patches and burn ground truth')):
             datasets_total[aoi.split] += 1
             # If for inference, write only image patch since there's no ground truth
             if tiler.for_inference:
@@ -794,6 +806,7 @@ def main(cfg: DictConfig) -> None:
                     line_tuple = tiler.filter_and_burn_dataset(aoi,
                                                                img_patch=img_patch,
                                                                gt_patch=gt_patch,
+                                                               split=indices[i],
                                                                continuous_vals=continuous_vals,
                                                                save_preview_labels=save_prev_labels)
                     dataset_lines.append(line_tuple)
