@@ -100,7 +100,7 @@ def create_dataloader(patches_folder: Path,
         # TODO: should user point to the paths of these csvs directly?
         dataset_file, _ = Tiler.make_dataset_file_name(experiment_name, min_annot_perc, subset, attr_vals)
         dataset_filepath = patches_folder / dataset_file
-        datasets.append(dataset_constr(dataset_filepath, subset, num_bands,
+        datasets.append(dataset_constr(dataset_filepath, num_bands,
                                        max_sample_count=num_patches[subset],
                                        radiom_transform=aug.compose_transforms(params=cfg,
                                                                                dataset=subset,
