@@ -16,7 +16,7 @@ dependencies:
   - rich>=11.1
   - ruamel_yaml>=0.15
   - scikit-image>=0.18
-  - torchgeo>=0.3
+  - torchgeo=0.3.1
   - torchvision>=0.12
   - pip:
     - hydra-colorlog>=1.1.0
