@@ -593,6 +593,17 @@ def map_wrapper(x):
     return x[0](*(x[1:]))
 
 
+def get_train_val_indices(list_length: int, val_percent: int) -> dict[int[str]]:
+    val_part = int(list_length * val_percent / 100)
+    all_indices = list(range(list_length))
+    val_indices = set(random.sample(all_indices, val_part))
+    trn_indices = set(all_indices) - val_indices
+    val_indices = {i: 'val' for i in val_indices}
+    trn_indices = {i: 'trn' for i in trn_indices}
+    indices = val_indices | trn_indices
+    return indices
+
+
 def main(cfg: DictConfig) -> None:
     """
     Creates training, validation and testing datasets preparation. The tiling process consists of cutting up the imagery
@@ -780,15 +791,10 @@ def main(cfg: DictConfig) -> None:
                                   f'\n{e}')
 
         # Define trn - val parts:
-        val_part = int(len(aoi.patches_pairs_list) * tiler.val_percent / 100)
-        all_indices = list(range(len(aoi.patches_pairs_list)))
-        val_indices = set(random.sample(all_indices, val_part))
-
-        trn_indices = set(all_indices) - val_indices
-
-        val_indices = {i: 'val' for i in val_indices}
-        trn_indices = {i: 'trn' for i in trn_indices}
-        indices = val_indices | trn_indices
+        indices = get_train_val_indices(
+            list_length=len(aoi.patches_pairs_list),
+            val_percent=tiler.val_percent
+        )
 
         for i, (img_patch, gt_patch) in enumerate(tqdm(
                 aoi.patches_pairs_list, position=1,
@@ -801,7 +807,7 @@ def main(cfg: DictConfig) -> None:
             # if for train, validation or test dataset, then filter, burn and provided complete line to write to file
             else:
                 if parallel:
-                    input_args.append([tiler.filter_and_burn_dataset, aoi, img_patch, gt_patch])
+                    input_args.append([tiler.filter_and_burn_dataset, aoi, img_patch, gt_patch, indices[i]])
                 else:
                     line_tuple = tiler.filter_and_burn_dataset(aoi,
                                                                img_patch=img_patch,
