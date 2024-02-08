@@ -593,7 +593,7 @@ def map_wrapper(x):
     return x[0](*(x[1:]))
 
 
-def get_train_val_indices(list_length: int, val_percent: int) -> dict[int[str]]:
+def get_train_val_indices(list_length: int, val_percent: int) -> dict[int, str]:
     val_part = int(list_length * val_percent / 100)
     all_indices = list(range(list_length))
     val_indices = set(random.sample(all_indices, val_part))
@@ -793,7 +793,7 @@ def main(cfg: DictConfig) -> None:
         # Define trn - val parts:
         indices = get_train_val_indices(
             list_length=len(aoi.patches_pairs_list),
-            val_percent=tiler.val_percent
+            val_percent=val_percent
         )
 
         for i, (img_patch, gt_patch) in enumerate(tqdm(
@@ -807,7 +807,8 @@ def main(cfg: DictConfig) -> None:
             # if for train, validation or test dataset, then filter, burn and provided complete line to write to file
             else:
                 if parallel:
-                    input_args.append([tiler.filter_and_burn_dataset, aoi, img_patch, gt_patch, indices[i]])
+                    split = indices[i]
+                    input_args.append([tiler.filter_and_burn_dataset, aoi, img_patch, gt_patch, split])
                 else:
                     line_tuple = tiler.filter_and_burn_dataset(aoi,
                                                                img_patch=img_patch,
