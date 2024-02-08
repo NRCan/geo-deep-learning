@@ -1,20 +1,66 @@
 name: GitHub Actions Unit Tests
 on: [push, pull_request]
 jobs:
-  unit-tests:
+  clean-and-deploy-env:
     runs-on: ubuntu-latest
-
-    # runs within your Docker container
-    container:
-      image: docker://geobaserepo/gdl-cuda11:latest
-      options: --user root
-    # checkout your code from your repository
-    # and runs pytest in your pipenv environment
+    env:
+      LD_LIBRARY_PATH: "/opt/conda/lib"
     steps:
-      - name: Install pipenv
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          # this might remove tools that are actually needed,
+          # if set to "true" but frees about 6 GB
+          tool-cache: false
+
+          # all of these default to true, but feel free to set to
+          # "false" if necessary for your workflow
+          android: true
+          dotnet: false
+          haskell: false
+          large-packages: false
+          docker-images: false
+          swap-storage: false
+
+      - name: Update the environment
+        run: |
+          sudo apt-get update \
+          && sudo apt-get install -y --no-install-recommends git wget unzip bzip2 build-essential sudo \
+          && sudo apt-key del 7fa2af80 \
+          && sudo wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb \
+          && sudo dpkg -i cuda-keyring_1.0-1_all.deb \
+          && sudo wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004-keyring.gpg \
+          && sudo mv cuda-ubuntu2004-keyring.gpg /usr/share/keyrings/cuda-archive-keyring.gpg \
+          && sudo rm -f cuda-keyring_1.0-1_all.deb && sudo rm -f /etc/apt/sources.list.d/cuda.list
+
+      - name: Install Mamba
+        run: |
+          sudo wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh -O /tmp/mamba.sh && \
+          /bin/bash /tmp/mamba.sh -b -p /opt/conda && \
+          sudo rm -rf /tmp/* && \
+          sudo apt-get clean && \
+          sudo rm -rf /var/lib/apt/lists/*
+
+      - name: Set system variables
+        run: |
+          echo '/opt/conda' >> $GITHUB_PATH
+
+      - name: Check if Custom Paths are Added
+        run: |
+          echo "$PATH"
+          echo "$LD_LIBRARY_PATH"
+
+      - name: Install pyenv
         run: |
           pip install pipenv
+          pip install pytest
       - uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          /opt/conda/bin/mamba env create -f environment.yml
+          echo '/opt/conda/envs/geo_deep_env/bin' >> $GITHUB_PATH
+
       - name: Test with pytest
         run: |
           pipenv run pytest tests/
