@@ -1,4 +1,3 @@
-import pytest
 from pathlib import Path
 
 from hydra import initialize, compose
@@ -8,7 +7,6 @@ from torchgeo.datasets.utils import extract_archive
 from GDL import run_gdl
 
 
-@pytest.mark.run('last')
 class Test_GH_Actions(object):
     """Tests geo-deep-learning's pipeline"""
     def test_ci(self) -> None:
