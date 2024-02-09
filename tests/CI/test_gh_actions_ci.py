@@ -11,11 +11,12 @@ from GDL import run_gdl
 class Test_GH_Actions(object):
     """Tests geo-deep-learning's pipeline"""
     def test_ci(self) -> None:
-        data_dir = "data"
-        Path(data_dir).mkdir(exist_ok=True, parents=True)
+        # data_dir = "data"
+        # Path(data_dir).mkdir(exist_ok=True, parents=True)
         with initialize(config_path="../../config", job_name="test_ci"):
             cfg = compose(config_name="gdl_config_template")
             modes = cfg.mode
+            modes = ['tiling', 'train', 'inference', 'evaluate']
             for dataset_type in ['binary', 'multiclass']:
                 for mode in modes:
                     cfg = compose(config_name="gdl_config_template",
