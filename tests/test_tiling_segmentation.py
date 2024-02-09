@@ -45,7 +45,7 @@ class TestTiling(object):
             number_labels_actual = len(list(out[0].iterdir()))
             number_labels_expected = out[-1]
             assert number_labels_actual == number_labels_expected
-        # shutil.rmtree(Path(data_dir) / proj)
+        shutil.rmtree(Path(data_dir) / proj)
 
     def test_min_annotated_percent_filter(self):
         """Tests the minimum annotated percent filter"""
