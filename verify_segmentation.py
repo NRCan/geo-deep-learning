@@ -97,7 +97,7 @@ def main(cfg: DictConfig) -> None:
     num_classes = len(cfg.dataset.classes_dict.keys())
     bands_requested = get_key_def('bands', cfg['dataset'], default=[], expected_type=Sequence)
     csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
-    data_dir = get_key_def('raw_data_dir', cfg['dataset'], default="data", to_path=True, validate_path_exists=False)
+    data_dir = get_key_def('raw_data_dir', cfg['dataset'], default="data", to_path=True, validate_path_exists=True)
     download_data = get_key_def('download_data', cfg['dataset'], default=False, expected_type=bool)
 
     dontcare = cfg.dataset.ignore_index if cfg.dataset.ignore_index is not None else -1
