@@ -6,7 +6,7 @@ dependencies:
   - coverage>=6.3.1
   - docker-py>=4.4.4
   - geopandas>=0.10.2
-  - hydra-core>=1.2.0
+  - hydra-core=1.2.0
   - pip
   - pynvml>=11.0
   - pystac>=0.3.0
