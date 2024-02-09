@@ -31,7 +31,7 @@ general:
   workspace: your_name
   max_epochs: 2 # for train only
   min_epochs: 1 # for train only
-  raw_data_dir: data
+  raw_data_dir: ${hydra:runtime.cwd}/data
   raw_data_csv: tests/tiling/tiling_segmentation_binary_ci.csv
   tiling_data_dir: ${general.raw_data_dir}/patches # where the patches will be saved
   save_weights_dir: saved_model/${general.project_name}
