@@ -21,7 +21,7 @@ Examples used here are for a bash shell in an Ubuntu GNU/Linux environment.
 
 Installation
 ------------
-Miniconda is suggested as the package manager for GDL. However, users are advised to `switch to libmamba <https://github.com/NRCan/geo-deep-learning#quickstart-with-conda>`_ as conda's default solver or to directly use mamba instead of conda if they are facing extended installation time or other issues. Additional problems are grouped in the `troubleshooting section <https://github.com/NRCan/geo-deep-learning#troubleshooting>`_. If issues persist, users are encouraged to open a new issue for assistance.
+Miniconda is suggested as the package manager for GDL. However, users are advised to `switch to libmamba <https://github.com/NRCan/geo-deep-learning#quickstart-with-conda>`_ as conda's default solver or to directly use mamba instead of conda if they are facing extended installation time or other issues. Additional problems are grouped in the :ref:`troubleshooting`. If issues persist, users are encouraged to open a new issue for assistance.
 
 Quickstart with conda
 
@@ -44,15 +44,14 @@ Change conda's default solver for faster install (Optional)
    $ conda install -n base conda-libmamba-solver
    $ conda config --set solver libmamba
 
+
 .. _troubleshooting:
  
- Troubleshooting
-----------------
+Troubleshooting
+---------------
 
  .. code-block:: console
    $ *ImportError: /lib/x86_64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.29' not found*
-
-.. code-block:: console
    $ # Export path to library or set it permenantly in your .bashrc file (example with conda) :
    $ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/
 
