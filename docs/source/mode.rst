@@ -111,9 +111,9 @@ Training
    # Training the neural network
    (geo_deep_env) $ python GDL.py mode=train
 
-Training, along with validation and testing phase is where the neural network learns to use the data prepared in 
-the previous phase to make all the predictions. The crux of the learning process is the training phase.  
-During the training the data are separated in three for training, validation and test. The samples labeled "*trn*"
+Training, along with validation and testing phase is where the neural network learns, from the data prepared in 
+the tiling mode to make all the predictions. The crux of the learning process is the training phase.  
+During the training the data are separated in three datasets for training, validation and test. The samples labeled "*trn*"
 as per above are used to train the neural network. The samples labeled "*val*" are used to estimate the training
 error (i.e. loss) on a set of sub-images not used for training. After every epoch and at the end of all epochs, 
 the model with the lowest error on validation data is loaded and use on the samples labeled "*tst*" if they exist.
@@ -125,7 +125,42 @@ and this configuration file look a like:
 .. literalinclude:: ../../../config/training/default_training.yaml
    :language: yaml
 
-This section will follow soon.
+
+- ``num_gpus`` (int)
+    Number of GPUs used for training. The value does not matter if Pytorch is installed cpu-only. 
+- ``batch_size`` (int)
+    Number of training tiles in one forward/backward pass.
+- ``eval_batch_size`` (int)
+    Number of validation tiles in one forward/backward pass.
+- ``batch_metrics`` (int)
+    Compute metrics every n batches. If set to 1, will calculate metrics for every batch during validation. Calculating 
+    metrics is time-consuming, therefore it is not always required to calculate it on every batch, for every epoch. 
+- ``lr`` (float) 
+    Learning rate at first epoch.
+- ``max_epochs`` (int)
+    Maximum number of epoch for one training session. 
+- ``min_epochs`` (int)
+    Minimum number of epoch for one training session.
+- ``num_workers`` (int, optional)
+    Number of workers assigned for the dataloader. If not provided, will be deduced from the number of GPU (num_workers = 4 * num_GPU). 
+    `References <https://discuss.pytorch.org/t/guidelines-for-assigning-num-workers-to-dataloader/813/5>`_
+- ``mode`` (str)
+   'min' or 'max', will minimize or maximize the chosen loss.
+- ``max_used_ram`` (int, optional)
+    Used to calculate wether or not the process can use the GPU. If a GPU is already used by another process, the training can still be 
+    pushed to this GPU if ``max_used_ram`` is not met. 
+- ``max_used_perc`` (int, optional)
+    Value between 0-100. Used to calculate wether or not the process can use the GPU. If a GPU is already used by another process, 
+    the training can still be pushed to this GPU if ``max_used_perc`` is not met. 
+- ``state_dict_path`` (str, optional)
+    Path to a pretrained model (.pth.tar).
+- ``state_dict_strict_load`` (bool, optional)
+    Defines whether to strictly enforce that the keys in state_dict match the keys returned by this Pytorch's state_dict() function. 
+    Default: True. `Reference <https://pytorch.org/docs/stable/generated/torch.nn.Module.html#torch.nn.Module.load_state_dict>`_
+- ``compute_sampler_weights`` (bool, optional)
+    If provided, estimate sample weights by class for unbalanced datasets. 
+    Uses `Sk-learn <https://scikit-learn.org/stable/modules/generated/sklearn.utils.class_weight.compute_sample_weight.html>`_
+
 
 .. _inference:
 
