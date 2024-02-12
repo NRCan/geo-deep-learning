@@ -120,7 +120,7 @@ the model with the lowest error on validation data is loaded and use on the samp
 The result of those "*tst*" images is used to estimate the accuracy of the model, since those images were 
 unseen during training nor validation.
 For all those steps, we have the parameters that can be found in :ref:`configurationdefaultparam` under ``training``
-and this configuration file look a like:
+and this configuration file looks like:
 
 .. literalinclude:: ../../../config/training/default_training.yaml
    :language: yaml
@@ -175,7 +175,7 @@ Inference
 The inference phase is the last one, it allows the use of a trained model to predict on new input data without
 ground truth. For this final step in the process, it need to assign every pixel in the original image a value 
 corresponding to the most probable class with a certain level of confidence. Like the other two mode, the parameter 
-will be found in :ref:`configurationdefaultparam` under ``inference`` and this configuration file look a like 
+will be found in :ref:`configurationdefaultparam` under ``inference`` and this configuration file looks like 
 (for binary inference):
 
 .. literalinclude:: ../../../config/inference/default_binary.yaml
