@@ -5,6 +5,10 @@ Mode
 
 The **mode** represent the assignment that you give to the code. 
 
+The following schema describes GDL's modes and concepts.  
+.. image:: img/overview.png
+   :width: 600
+
 .. _datatiling:
 
 Data Tiling
@@ -21,7 +25,7 @@ preparation phase creates `chips <https://torchgeo.readthedocs.io/en/latest/user
 For this tiling step, **GDL** requires a csv as input with a list of rasters and labels to be
 used in the subsequent training phase.
 This csv must have been specified as a ``path`` in the ``raw_data_csv`` from :ref:`configurationgeneralparam`.
-The other parameter will be found in :ref:`configurationdefaultparam` under ``tiling`` and 
+The other parameters will be found in :ref:`configurationdefaultparam` under ``tiling`` and 
 this configuration file looks like:
 
 .. literalinclude:: ../../../config/tiling/default_tiling.yaml
