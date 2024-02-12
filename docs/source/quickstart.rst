@@ -21,7 +21,7 @@ Examples used here are for a bash shell in an Ubuntu GNU/Linux environment.
 
 Installation
 ------------
-Miniconda is suggested as the package manager for GDL. However, users are advised to `switch to libmamba <https://github.com/NRCan/geo-deep-learning#quickstart-with-conda>` as conda's default solver or to __directly use mamba__ instead of conda if they are facing extended installation time or other issues. Additional problems are grouped in the `troubleshooting section <https://github.com/NRCan/geo-deep-learning#troubleshooting>`. If issues persist, users are encouraged to open a new issue for assistance.
+Miniconda is suggested as the package manager for GDL. However, users are advised to `switch to libmamba <https://github.com/NRCan/geo-deep-learning#quickstart-with-conda>`_ as conda's default solver or to directly use mamba instead of conda if they are facing extended installation time or other issues. Additional problems are grouped in the `troubleshooting section <https://github.com/NRCan/geo-deep-learning#troubleshooting>`_. If issues persist, users are encouraged to open a new issue for assistance.
 
 Quickstart with conda
 
@@ -37,14 +37,15 @@ python environment with the following commands:
 
    Tested on Ubuntu 20.04, Windows 10 and WSL 2.
 
-Change conda's default solver for faster install (__Optional__)
+Change conda's default solver for faster install (Optional)
 
 .. code-block:: console
 
    $ conda install -n base conda-libmamba-solver
    $ conda config --set solver libmamba
 
-.. _troubleshooting
+.. _troubleshooting:
+ 
  Troubleshooting
 ----------------
 
