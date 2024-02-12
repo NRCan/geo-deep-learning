@@ -49,9 +49,12 @@ Change conda's default solver for faster install (Optional)
  
 Troubleshooting
 ---------------
+Import error:  
 
- .. code-block:: console
+.. code-block:: console
+
    $ *ImportError: /lib/x86_64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.29' not found*
+   $
    $ # Export path to library or set it permenantly in your .bashrc file (example with conda) :
    $ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/
 
