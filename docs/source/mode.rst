@@ -7,7 +7,7 @@ The **mode** represent the assignment that you give to the code.
 
 The following schema describes GDL's modes and concepts.  
 
-.. image:: docs/img/overview.png
+.. image:: ../img/overview.png
    :width: 600
 
 .. _datatiling:
