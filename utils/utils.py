@@ -170,7 +170,7 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
         return val
     if is_url(val):
         logging.info(f"\nProvided path is url. Cannot validate it's existence nor convert to Path object. Got:"
-                        f"\n{val}")
+                     f"\n{val}")
         validate_path_exists = False
     elif to_path:
         try:
