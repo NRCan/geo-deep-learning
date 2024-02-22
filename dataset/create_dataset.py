@@ -1,119 +1,169 @@
-import numpy as np
-from pathlib import Path
-from typing import Any, Dict, cast
 import sys
+from pathlib import Path
+from typing import Any, Dict, List, cast
 
-from rasterio.windows import from_bounds
+import kornia as K
+import numpy as np
+import pandas as pd
 import rasterio
-from rasterio.io import DatasetReader
-from rasterio.plot import reshape_as_image
-from torch.utils.data import Dataset
-from torchgeo.datasets import GeoDataset
-from rasterio.vrt import WarpedVRT
-from torchgeo.datasets.utils import BoundingBox
 import torch
+from affine import Affine
 from osgeo import ogr
-
-from utils.logger import get_logger
-
 # These two import statements prevent exception when using eval(metadata) in SegmentationDataset()'s __init__()
 from rasterio.crs import CRS
-from affine import Affine
+from rasterio.io import DatasetReader
+from rasterio.plot import reshape_as_image
+from rasterio.vrt import WarpedVRT
+from rasterio.windows import from_bounds
+from torch.utils.data import Dataset
+from torchgeo.datasets import GeoDataset
+from torchgeo.datasets.utils import BoundingBox
+
+from utils.logger import get_logger
 
 # Set the logging file
 logging = get_logger(__name__)  # import logging
 
 
-def append_to_dataset(dataset, sample):
-    """
-    Append a new sample to a provided dataset. The dataset has to be expanded before we can add value to it.
-    :param dataset:
-    :param sample: data to append
-    :return: Index of the newly added sample.
-    """
-    old_size = dataset.shape[0]  # this function always appends samples on the first axis
-    dataset.resize(old_size + 1, axis=0)
-    dataset[old_size, ...] = sample
-    return old_size
-
-
 class SegmentationDataset(Dataset):
-    """Semantic segmentation dataset based on input csvs listing pairs of imagery and ground truth patches as .tif."""
+    """Semantic segmentation dataset based on input csvs listing pairs of imagery and ground truth patches as .tif.
+
+    Args:
+        dataset_list_path (str): The path to the dataset list file.
+        num_bands (int): The number of bands in the imagery.
+        dontcare (Optional[int]): The value to be ignored in the label.
+        max_sample_count (Optional[int]): The maximum number of samples to load from the dataset.
+        radiom_transform (Optional[Callable]): The radiometric transform function to be applied to the samples.
+        geom_transform (Optional[Callable]): The geometric transform function to be applied to the samples.
+        totensor_transform (Optional[Callable]): The transform function to convert samples to tensors.
+        debug (bool): Whether to enable debug mode.
+
+    Attributes:
+        max_sample_count (int): The maximum number of samples to load from the dataset.
+        num_bands (int): The number of bands in the imagery.
+        radiom_transform (Optional[Callable]): The radiometric transform function to be applied to the samples.
+        geom_transform (Optional[Callable]): The geometric transform function to be applied to the samples.
+        totensor_transform (Optional[Callable]): The transform function to convert samples to tensors.
+        debug (bool): Whether debug mode is enabled.
+        dontcare (Optional[int]): The value to be ignored in the label.
+        list_path (str): The path to the dataset list file.
+        assets (List[Dict[str, str]]): The list of filepaths to images and labels.
+
+    """
 
     def __init__(self,
                  dataset_list_path,
-                 dataset_type,
                  num_bands,
+                 dontcare=None,
                  max_sample_count=None,
                  radiom_transform=None,
                  geom_transform=None,
                  totensor_transform=None,
                  debug=False):
-        # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.max_sample_count = max_sample_count
-        self.dataset_type = dataset_type
         self.num_bands = num_bands
         self.radiom_transform = radiom_transform
         self.geom_transform = geom_transform
         self.totensor_transform = totensor_transform
         self.debug = debug
+        self.dontcare = dontcare
         self.list_path = dataset_list_path
+        
         if not Path(self.list_path).is_file():
             logging.error(f"Couldn't locate dataset list file: {self.list_path}.\n"
                           f"If purposely omitting test set, this error can be ignored")
-            self.max_sample_count = 0
-        else:
-            with open(self.list_path, 'r') as datafile:
-                datalist = datafile.readlines()
-                if self.max_sample_count is None:
-                    self.max_sample_count = len(datalist)
-
+        self.assets = self._load_data()
+    
     def __len__(self):
-        return self.max_sample_count
-
+        return len(self.assets)
+    
     def __getitem__(self, index):
-        with open(self.list_path, 'r') as datafile:
-            datalist = datafile.readlines()
-            data_line = datalist[index]
-            with rasterio.open(data_line.split(';')[0], 'r') as sat_handle:
-                sat_img = reshape_as_image(sat_handle.read())
-                metadata = sat_handle.meta
-            with rasterio.open(data_line.split(';')[1].rstrip('\n'), 'r') as label_handle:
-                map_img = reshape_as_image(label_handle.read())
-                map_img = map_img[..., 0]
+        
+        sat_img, metadata = self._load_image(index)
+        map_img = self._load_label(index)
 
-            assert self.num_bands <= sat_img.shape[-1]
-
-            if isinstance(metadata, np.ndarray) and len(metadata) == 1:
-                metadata = metadata[0]
-            elif isinstance(metadata, bytes):
-                metadata = metadata.decode('UTF-8')
-            try:
-                metadata = eval(metadata)
-            except TypeError:
-                pass
-
+        if isinstance(metadata, np.ndarray) and len(metadata) == 1:
+            metadata = metadata[0]
+        elif isinstance(metadata, bytes):
+            metadata = metadata.decode('UTF-8')
+        try:
+            metadata = eval(metadata)
+        except TypeError:
+            pass
+        
         sample = {"image": sat_img, "mask": map_img, "metadata": metadata, "list_path": self.list_path}
-
-        if self.radiom_transform:  # radiometric transforms should always precede geometric ones
+        # radiometric transforms should always precede geometric ones
+        if self.radiom_transform:  
             sample = self.radiom_transform(sample)
-        if self.geom_transform:  # rotation, geometric scaling, flip and crop. Will also put channels first and convert to torch tensor from numpy.
+        # rotation, geometric scaling, flip and crop. 
+        # Will also put channels first and convert to torch tensor from numpy.
+        if self.geom_transform:
             sample = self.geom_transform(sample)
-
-        sample = self.totensor_transform(sample)
+        if self.totensor_transform:
+            sample = self.totensor_transform(sample)
 
         if self.debug:
             # assert no new class values in map_img
             initial_class_ids = set(np.unique(map_img))
-            final_class_ids = set(np.unique(sample["mask"].numpy()))
+            if self.dontcare is not None:
+                initial_class_ids.add(self.dontcare)
+            final_class_ids = set(np.unique(sample['mask'].numpy()))
             if not final_class_ids.issubset(initial_class_ids):
+                logging.debug(f"WARNING: Class ids for label before and after augmentations don't match. "
+                              f"Ignore if overwritting ignore_index in ToTensorTarget")
                 logging.warning(f"\nWARNING: Class values for label before and after augmentations don't match."
                                 f"\nUnique values before: {initial_class_ids}"
                                 f"\nUnique values after: {final_class_ids}"
                                 f"\nIgnore if some augmentations have padded with dontcare value.")
         sample['index'] = index
-        return sample
 
+        return sample
+    
+    def _load_data(self) -> List[str]:
+        """Load the filepaths to images and labels
+        
+        Returns:
+            List[str]: a list of filepaths to train/test data  
+        """
+        df = pd.read_csv(self.list_path, sep=';', header=None, usecols=[i for i in range(2)])
+        assets = [{"image": x, "label": y} for x, y in zip(df[0], df[1])]
+        
+        return assets
+    
+    def _load_image(self, index: int):
+        """ Load image 
+
+        Args:
+            index: poosition of image
+
+        Returns:
+            image array and metadata
+        """
+        image_path = self.assets[index]["image"]
+        with rasterio.open(image_path, 'r') as image_handle:
+                image = reshape_as_image(image_handle.read())
+                metadata = image_handle.meta
+        assert self.num_bands <= image.shape[-1]
+        
+        return image, metadata
+    
+    def _load_label(self, index: int):
+        """ Load label 
+
+        Args:
+            index: poosition of label
+
+        Returns:
+            label array and metadata
+        """
+        label_path = self.assets[index]["label"]
+        
+        with rasterio.open(label_path, 'r') as label_handle:
+                label = reshape_as_image(label_handle.read())
+                label = label[..., 0]
+        
+        return label
+    
 
 class DRDataset(GeoDataset):
     def __init__(self, dr_ds: DatasetReader) -> None:
