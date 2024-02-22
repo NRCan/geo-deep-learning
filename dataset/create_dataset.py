@@ -26,7 +26,30 @@ logging = get_logger(__name__)  # import logging
 
 
 class SegmentationDataset(Dataset):
-    """Semantic segmentation dataset based on input csvs listing pairs of imagery and ground truth patches as .tif."""
+    """Semantic segmentation dataset based on input csvs listing pairs of imagery and ground truth patches as .tif.
+
+    Args:
+        dataset_list_path (str): The path to the dataset list file.
+        num_bands (int): The number of bands in the imagery.
+        dontcare (Optional[int]): The value to be ignored in the label.
+        max_sample_count (Optional[int]): The maximum number of samples to load from the dataset.
+        radiom_transform (Optional[Callable]): The radiometric transform function to be applied to the samples.
+        geom_transform (Optional[Callable]): The geometric transform function to be applied to the samples.
+        totensor_transform (Optional[Callable]): The transform function to convert samples to tensors.
+        debug (bool): Whether to enable debug mode.
+
+    Attributes:
+        max_sample_count (int): The maximum number of samples to load from the dataset.
+        num_bands (int): The number of bands in the imagery.
+        radiom_transform (Optional[Callable]): The radiometric transform function to be applied to the samples.
+        geom_transform (Optional[Callable]): The geometric transform function to be applied to the samples.
+        totensor_transform (Optional[Callable]): The transform function to convert samples to tensors.
+        debug (bool): Whether debug mode is enabled.
+        dontcare (Optional[int]): The value to be ignored in the label.
+        list_path (str): The path to the dataset list file.
+        assets (List[Dict[str, str]]): The list of filepaths to images and labels.
+
+    """
 
     def __init__(self,
                  dataset_list_path,
@@ -37,7 +60,6 @@ class SegmentationDataset(Dataset):
                  geom_transform=None,
                  totensor_transform=None,
                  debug=False):
-        # note: if 'max_sample_count' is None, then it will be read from the dataset at runtime
         self.max_sample_count = max_sample_count
         self.num_bands = num_bands
         self.radiom_transform = radiom_transform
