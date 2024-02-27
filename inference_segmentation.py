@@ -158,7 +158,6 @@ def segmentation(param,
 
     """
     sample = {"image": None, "mask": None, 'metadata': None}
-    # start_seg = time.time()
     print_log = True if logging.level == 20 else False  # 20 is INFO
     model.eval()  # switch to evaluate mode
 
@@ -232,8 +231,6 @@ def segmentation(param,
         arr1 = stretch_heatmap(heatmap_arr=arr1, out_max=heatmap_max)
 
         pred_heatmap[row:row + chunk_size, col:col + chunk_size, :] = arr1.astype(heatmap_dtype)
-
-    # end_seg = time.time() - start_seg
     end_time = time.time() - start_time
     # logging.info('Segmentation operation completed in {:.0f}m {:.0f}s'.format(end_seg // 60, end_seg % 60))
     logging.info('Segmentation Completed in {:.0f}m {:.0f}s'.format(end_time // 60, end_time % 60))
