@@ -68,7 +68,7 @@ class SegmentationDataset(Dataset):
         self.debug = debug
         self.dontcare = dontcare
         self.list_path = dataset_list_path
-        self.parent_folder = dataset_list_path.parent
+        self.parent_folder = Path(self.list_path).parent
         
         if not Path(self.list_path).is_file():
             logging.error(f"Couldn't locate dataset list file: {self.list_path}.\n"
