@@ -1,2 +1,2 @@
-tests/data/tiles/tiled_image_1.tif;tests/data/tiles/tiled_label_1.tif
-tests/data/tiles/tiled_image_2.tif;tests/data/tiles/tiled_label_2.tif
+tiled_image_1.tif;tiled_label_1.tif
+tiled_image_2.tif;tiled_label_2.tif

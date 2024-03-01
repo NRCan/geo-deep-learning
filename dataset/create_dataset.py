@@ -68,6 +68,7 @@ class SegmentationDataset(Dataset):
         self.debug = debug
         self.dontcare = dontcare
         self.list_path = dataset_list_path
+        self.parent_folder = Path(self.list_path).parent
         
         if not Path(self.list_path).is_file():
             logging.error(f"Couldn't locate dataset list file: {self.list_path}.\n"
@@ -139,10 +140,10 @@ class SegmentationDataset(Dataset):
         Returns:
             image array and metadata
         """
-        image_path = self.assets[index]["image"]
+        image_path = self.parent_folder.joinpath(self.assets[index]["image"])
         with rasterio.open(image_path, 'r') as image_handle:
-                image = reshape_as_image(image_handle.read())
-                metadata = image_handle.meta
+            image = reshape_as_image(image_handle.read())
+            metadata = image_handle.meta
         assert self.num_bands <= image.shape[-1]
         
         return image, metadata
@@ -156,8 +157,7 @@ class SegmentationDataset(Dataset):
         Returns:
             label array and metadata
         """
-        label_path = self.assets[index]["label"]
-        
+        label_path = self.parent_folder.joinpath(self.assets[index]["label"])
         with rasterio.open(label_path, 'r') as label_handle:
                 label = reshape_as_image(label_handle.read())
                 label = label[..., 0]

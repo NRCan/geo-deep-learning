@@ -554,8 +554,10 @@ class Tiler(object):
                     nodata_val=int(nodata),
                     mask_val=255
                 )
+            line_img_path = Path(*Path(img_patch).absolute().parts[-4:])
+            line_out_gt_burned_path = Path(*Path(out_gt_burned_path).absolute().parts[-4:])
 
-            dataset_line = f'{Path(img_patch).absolute()};{Path(out_gt_burned_path).absolute()};{round(annot_perc)}\n'
+            dataset_line = f'{line_img_path};{line_out_gt_burned_path};{round(annot_perc)}\n'
             return dataset, dataset_line
         else:
             return dataset, None
