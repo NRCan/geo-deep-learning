@@ -3,11 +3,10 @@
 Dataset
 +++++++
 
-The dataset configuration can be found :ref:`here <configurationdefaultparam>`, this file contain 
-specific information about input data parameters for the execution of your command. The documentation
-on the parameters use is explain in the :ref:`yaml <yamlparameters>` section.
+The dataset configuration defines the data (images, ground truth) and their parameters. The documentation
+on the parameters used is explained in the :ref:`yaml <yamlparameters>` section.
 
-The sampling and inference steps requires a csv referencing input data. An example of input csv for
+The tiling and inference steps requires a csv referencing input data. An example of input csv for
 massachusetts buildings dataset can be found in 
 `tests <https://github.com/NRCan/geo-deep-learning/blob/develop/tests/tiling/tiling_segmentation_binary_ci.csv>`_. 
 Each row of this csv is considered, in geo-deep-learning terms, to be an 
@@ -46,7 +45,22 @@ Dataset splits
 
 Split in csv should be either "trn", "tst" or "inference". The tiling script outputs lists of 
 patches for "trn", "val" and "tst" and these lists are used as is during training. 
-Its proportion is set by the :ref:`tiling config <datatiling>`.
+Its proportion is set by the :ref:`tiling config <datatiling>`.  
+
+AOI
+---
+An AOI is defined as an image (single imagery scene or mosaic), its content and metadata and the associated ground truth vector (optional).  
+
+.. note::
+    
+     AOI without ground truth vector can only be used for inference purposes.
+
+
+The AOI's implementation in the code is as follow:  
+
+.. autoclass:: dataset.aoi.AOI
+   :members:
+   :special-members:
 
 Raster and vector file compatibility
 ------------------------------------
@@ -66,15 +80,15 @@ Remote sensing is known to deal with raster files from a wide variety of formats
 To provide as much 
 flexibility as possible with variable input formats for raster data, geo-deep-learning supports:
 
-#. Multi-band raster files, to be used as is (all bands needed, all bands is expected order)
-#. Multi-band raster files with more bands than needed (e.g. Actual is "BGRN", needed is "BGR")
-#. Multi-band raster files with bands in different order than needed (e.g. Actual is "BGR", needed is "RGB")
-#. Single-band raster files, identified with a common string pattern (see details below)
-#. Single-band raster files, identified as assets in a stac item (see details below)
+#. :ref:`Multi-band raster files, used as is <datasetmultiband>` (all bands needed, all bands is in the expected order)
+#. :ref:`Multi-band raster files with more bands or different order than needed <datasetmultibandmorebands>` (e.g. Actual is "BGRN", needed is "BGR" OR Actual is "BGR", needed is "RGB")
+#. :ref:`Single-band raster files, identified with a common string pattern <datasetsingleband>` (see details below)
+#. :ref:`Single-band raster files, identified as assets in a stac item <datasetstacitem>` (see details below)
 
 To support these variable inputs, geo-deep-learning expects the first column of an input csv to be in the 
 following formats.
 
+.. _datasetmultiband:
 Multi-band raster files, used as is
 ====================================
 
@@ -87,7 +101,8 @@ This is the default and basic use.
      - ...
    * - my_dir/my_multiband_geofile.tif
      - ...
-   
+
+.. _datasetmultibandmorebands:
 Multi-band raster files with more bands or different order than needed 
 ======================================================================
 
@@ -116,7 +131,7 @@ The ``bands`` parameter is set in the
     indexed from 1 
     (`docs <https://rasterio.readthedocs.io/en/latest/quickstart.html#reading-raster-data>`_).
 
-
+.. _datasetsingleband:
 Single-band raster files, identified with a common string pattern
 =================================================================
 
