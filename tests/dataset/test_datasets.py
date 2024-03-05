@@ -1,18 +1,53 @@
-from typing import List
 from tempfile import NamedTemporaryFile
+from typing import List
 
 import pytest
 import rasterio
-from rasterio.io import DatasetReader
-from rasterio.crs import CRS
-from torchgeo.datasets.utils import extract_archive
-from torchgeo.datasets.utils import BoundingBox
-from osgeo import ogr
-from _pytest.fixtures import SubRequest
 import torch
+from _pytest.fixtures import SubRequest
+from osgeo import ogr
+from rasterio.crs import CRS
+from rasterio.io import DatasetReader
+from torchgeo.datasets.utils import BoundingBox, extract_archive
 
-from dataset.create_dataset import DRDataset, GDLVectorDataset
+from dataset.create_dataset import (DRDataset, GDLVectorDataset,
+                                    SegmentationDataset)
 
+
+class TestSegmentationDataset:
+    @pytest.fixture
+    def data(self):
+        dataset_list_path = 'tests/data/tiles/tiles.csv'
+        num_bands = 3
+        dataset = SegmentationDataset(dataset_list_path, num_bands)
+        return dataset
+
+    def test_len(self, data):
+        expected_length = 2
+        assert len(data) == expected_length
+
+    def test_getitem(self, data):
+        sample = data[0]
+        assert "image" in sample
+        assert 'mask' in sample
+        assert 'metadata' in sample
+        assert 'list_path' in sample
+
+    def test_load_data(self, data):
+        # Test that _load_data returns the expected number of assets
+        assets = data._load_data()
+        assert len(assets) == len(data)
+
+    def test_load_image(self, data):
+        # Test that _load_image returns an image and metadata
+        image, metadata = data._load_image(0)
+        assert image is not None
+        assert metadata is not None
+
+    def test_load_label(self, data):
+        # Test that _load_label returns a label
+        label = data._load_label(0)
+        assert label is not None
 
 class TestDRDataset:
     @pytest.fixture(params=["tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif",
