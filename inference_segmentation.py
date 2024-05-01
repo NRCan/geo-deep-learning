@@ -93,10 +93,7 @@ def main(params:Union[DictConfig, Dict]):
     
     
     chunk_size = get_key_def('chunk_size', params['inference'], default=auto_chunk_size, expected_type=int)
-    batch_size = calc_eval_batchsize(gpu_devices_dict=gpu_devices_dict,
-                                     batch_size=8,
-                                     sample_size=chunk_size,
-                                     max_pix_per_mb_gpu=1000)
+    batch_size = get_key_def('batch_size', params['inference'], default=8, expected_type=int)
     device = set_device(gpu_devices_dict=gpu_devices_dict)
     
     
@@ -145,5 +142,5 @@ def main(params:Union[DictConfig, Dict]):
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
         logging.info(f'\nReading image: {aoi.aoi_id}')
         input_path = aoi.raster.name
-        geo_inference(input_path, patch_size=chunk_size)
+        geo_inference(input_path, patch_size=chunk_size, stride_size=chunk_size//2)
         
