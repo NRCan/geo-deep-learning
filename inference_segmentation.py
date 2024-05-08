@@ -16,7 +16,7 @@ import ttach as tta
 from scipy.special import softmax
 from collections import OrderedDict
 from fiona.crs import to_string
-from ruamel.yaml.comments import CommentedSeq
+from ruamel_yaml.comments import CommentedSeq
 from tqdm import tqdm
 from rasterio import features
 from rasterio.windows import Window
