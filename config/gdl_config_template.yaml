@@ -34,7 +34,7 @@ general:
   raw_data_dir: data
   raw_data_csv: tests/tiling/tiling_segmentation_binary_ci.csv
   tiling_data_dir: ${general.raw_data_dir}/patches # where the patches will be saved
-  save_weights_dir:
+  save_weights_dir: saved_model/${general.project_name}
 
 print_config: True # save the config in the log folder
 mode: {verify, tiling, train, inference, evaluate}
