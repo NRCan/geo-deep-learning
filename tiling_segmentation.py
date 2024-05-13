@@ -645,6 +645,7 @@ def main(cfg: DictConfig) -> None:
     csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
     download_data = get_key_def('download_data', cfg['dataset'], default=False, expected_type=bool)
     tiling_root_dir = get_key_def('tiling_data_dir', cfg['tiling'], default=data_dir, to_path=True)
+    dsm_dir = get_key_def('dsm_dir', cfg['dataset'], to_path=True, validate_path_exists=True, expected_type=str)
 
     # TILING PARAMETERS
     patch_size = get_key_def('patch_size', cfg['tiling'], default=512, expected_type=int)
@@ -684,6 +685,7 @@ def main(cfg: DictConfig) -> None:
         attr_field_filter=attr_field,
         attr_values_filter=attr_vals,
         download_data=download_data,
+        dsm_dir=dsm_dir,
         data_dir=data_dir,
         for_multiprocessing=parallel,
         write_dest_raster=write_dest_raster,

@@ -7,7 +7,7 @@ defaults:
   - optimizer: adamw
   - callbacks: default_callbacks
   - scheduler: plateau
-  - dataset: test_ci_segmentation_binary
+  - dataset: test_ci_segmentation_binary_RGBL
   - augmentation: basic_augmentation_segmentation
   - tracker: # set logger here or use command line (e.g. `python GDL.py tracker=mlflow`)
   - visualization: default_visualization

@@ -45,6 +45,7 @@ class AOI(object):
                  attr_field_filter: str = None,
                  attr_values_filter: Sequence = None,
                  download_data: bool = False,
+                 dsm_dir: str = None,
                  root_dir: str = "data",
                  for_multiprocessing: bool = False,
                  raster_stats: bool = False,
@@ -100,6 +101,7 @@ class AOI(object):
         self.overlap_label_rto_raster = self.overlap_raster_rto_label = None
         self.epsg_raster = self.epsg_label = None
         self.crs_match = None
+        self.dsm_dir = dsm_dir
 
         # Check and parse raster data
         if not isinstance(raster, str):
@@ -145,7 +147,16 @@ class AOI(object):
                     download_url_wcheck(single_raster, root=str(out_name.parent), filename=out_name.name)
                     # replace with local copy
                     raster_parsed[index] = str(out_name)
-
+       
+        # Adding DSM layer if dsm_dir is given
+        if self.dsm_dir:
+            if raster_parsed[0].endswith("-R.tif"):
+                #TODO Move to external function and remove os import from this file
+                dsm_fname = os.path.basename(raster_parsed[0]).replace('-R.tif', '-DSM.tif')
+                raster_parsed.append(os.path.join(self.dsm_dir, dsm_fname))
+            else:
+                raise NotImplementedError("This error means that there was no R band in a dataset where DSM is needed. Use case must be implemented to work")
+            
         # validate raster data
         for single_raster in raster_parsed:
             validate_raster(single_raster)
@@ -287,6 +298,7 @@ class AOI(object):
                   attr_field_filter: str = None,
                   attr_values_filter: list = None,
                   download_data: bool = False,
+                  dsm_dir: str = None,
                   root_dir: str = "data",
                   for_multiprocessing: bool = False,
                   write_dest_raster: bool = False,
@@ -313,6 +325,7 @@ class AOI(object):
             attr_values_filter=attr_values_filter,
             aoi_id=aoi_dict['aoi_id'],
             download_data=download_data,
+            dsm_dir=dsm_dir,
             root_dir=root_dir,
             for_multiprocessing=for_multiprocessing,
             write_dest_raster=write_dest_raster,
@@ -603,6 +616,7 @@ def aois_from_csv(
         attr_field_filter: str = None,
         attr_values_filter: str = None,
         download_data: bool = False,
+        dsm_dir: str = None,
         data_dir: str = "data",
         for_multiprocessing = False,
         write_dest_raster = False,
@@ -630,6 +644,7 @@ def aois_from_csv(
                     attr_field_filter=attr_field_filter,
                     attr_values_filter=attr_values_filter,
                     download_data=download_data,
+                    dsm_dir=dsm_dir,
                     root_dir=data_dir,
                     for_multiprocessing=for_multiprocessing,
                     write_dest_raster=write_dest_raster,
