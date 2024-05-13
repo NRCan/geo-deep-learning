@@ -7,7 +7,7 @@ dataset:
   download_data: False
 
   # imagery
-  bands: [red,green,blue]
+  bands: [R,G,B]
   dsm_dir: null
 
   # ground truth
