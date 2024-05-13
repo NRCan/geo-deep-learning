@@ -1,29 +1,44 @@
 import functools
 import json
+import os
 from pathlib import Path
-from typing import Union, Sequence, Tuple, List
+from typing import List, Sequence, Tuple, Union
 
 import geopandas as gpd
 import numpy as np
 import pyproj
 import pystac
 import rasterio
-from skimage import exposure
 from hydra.utils import to_absolute_path
 from kornia import image_to_tensor, tensor_to_image
 from kornia.enhance import equalize_clahe
+from omegaconf import ListConfig, listconfig
 from pandas.io.common import is_url
-from omegaconf import listconfig, ListConfig
 from rasterio.plot import reshape_as_image, reshape_as_raster
+from skimage import exposure
 from tqdm import tqdm
 
 from dataset.stacitem import SingleBandItemEO
-from utils.geoutils import stack_singlebands_vrt, is_stac_item, create_new_raster_from_base, subset_multiband_vrt, \
-    check_rasterio_im_load, check_gdf_load, bounds_gdf, bounds_riodataset, overlap_poly1_rto_poly2, gdf_mean_vertices_nb
+from utils.geoutils import (
+    bounds_gdf,
+    bounds_riodataset,
+    check_gdf_load,
+    check_rasterio_im_load,
+    create_new_raster_from_base,
+    gdf_mean_vertices_nb,
+    is_stac_item,
+    overlap_poly1_rto_poly2,
+    stack_singlebands_vrt,
+    subset_multiband_vrt,
+)
 from utils.logger import get_logger
-from utils.utils import read_csv, minmax_scale, download_url_wcheck, wait_while_modif
-from utils.verifications import assert_crs_match, validate_raster, \
-    validate_num_bands, validate_features_from_gpkg
+from utils.utils import download_url_wcheck, minmax_scale, read_csv, wait_while_modif
+from utils.verifications import (
+    assert_crs_match,
+    validate_features_from_gpkg,
+    validate_num_bands,
+    validate_raster,
+)
 
 logging = get_logger(__name__)  # import logging
 
