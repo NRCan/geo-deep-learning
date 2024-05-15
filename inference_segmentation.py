@@ -13,6 +13,7 @@ from utils.aoiutils import aois_from_csv
 from utils.logger import get_logger, set_tracker
 from geo_inference.geo_inference import GeoInference
 from utils.utils import get_device_ids, get_key_def, set_device
+from utils.utils import get_device_ids, get_key_def, set_device
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -23,6 +24,7 @@ def stac_input_to_temp_csv(input_stac_item: Union[str, Path]) -> Path:
     with open(stac_temp_csv, "w", newline="") as fh:
         csv.writer(fh).writerow([str(input_stac_item), None, "inference", Path(input_stac_item).stem])
     return Path(stac_temp_csv)
+
 
 def calc_inference_chunk_size(
     gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200, default: int = 512
@@ -115,6 +117,17 @@ def main(params:Union[DictConfig, Dict]):
     set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
                 tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
     
+    set_tracker(
+        mode="inference",
+        type="mlflow",
+        task="segmentation",
+        experiment_name=exper_name,
+        run_name=run_name,
+        tracker_uri=tracker_uri,
+        params=params,
+        keys2log=["general", "dataset", "model", "inference"],
+    )
+
     # GET LIST OF INPUT IMAGES FOR INFERENCE
     list_aois = aois_from_csv(
         csv_path=raw_data_csv,
