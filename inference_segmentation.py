@@ -12,8 +12,7 @@ from dataset.stacitem import SingleBandItemEO
 from utils.aoiutils import aois_from_csv
 from utils.logger import get_logger, set_tracker
 from geo_inference.geo_inference import GeoInference
-from utils.utils import get_device_ids, get_key_def, \
-add_metadata_from_raster_to_sample, set_device
+from utils.utils import get_device_ids, get_key_def, set_device
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -24,29 +23,6 @@ def stac_input_to_temp_csv(input_stac_item: Union[str, Path]) -> Path:
     with open(stac_temp_csv, "w", newline="") as fh:
         csv.writer(fh).writerow([str(input_stac_item), None, "inference", Path(input_stac_item).stem])
     return Path(stac_temp_csv)
-
-def calc_eval_batchsize(gpu_devices_dict: dict, batch_size: int, sample_size: int, max_pix_per_mb_gpu: int = 280):
-    """
-    Calculate maximum batch size that could fit on GPU during evaluation based on thumb rule with harcoded
-    "pixels per MB of GPU RAM" as threshold. The batch size often needs to be smaller if crop is applied during training
-    @param gpu_devices_dict: dictionary containing info on GPU devices as returned by lst_device_ids (utils.py)
-    @param batch_size: batch size for training
-    @param sample_size: size of patches
-    @return: returns a downgraded evaluation batch size if the original batch size is considered too high compared to
-    the GPU's memory
-    """
-    eval_batch_size_rd = batch_size
-    # get max ram for smallest gpu
-    smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
-    # rule of thumb to determine eval batch size based on approximate max pixels a gpu can handle during evaluation
-    pix_per_mb_gpu = (batch_size / len(gpu_devices_dict.keys()) * sample_size ** 2) / smallest_gpu_ram
-    if pix_per_mb_gpu >= max_pix_per_mb_gpu:
-        eval_batch_size = smallest_gpu_ram * max_pix_per_mb_gpu / sample_size ** 2
-        eval_batch_size_rd = int(eval_batch_size - eval_batch_size % len(gpu_devices_dict.keys()))
-        eval_batch_size_rd = 1 if eval_batch_size_rd < 1 else eval_batch_size_rd
-        logging.warning(f'Validation and test batch size downgraded from {batch_size} to {eval_batch_size} '
-                        f'based on max ram of smallest GPU available')
-    return eval_batch_size_rd
 
 def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200, default: int = 512) -> int:
     """
@@ -116,6 +92,13 @@ def main(params:Union[DictConfig, Dict]):
             logging.warning(f"Requested bands are not valid stac item common names. Got: {bands_requested}")
             bands_requested = [SingleBandItemEO.band_to_cname(band) for band in bands_requested]
             logging.warning(f"Will request: {bands_requested}")
+            
+    # LOGGING PARAMETERS
+    exper_name = get_key_def('project_name', params['general'], default='gdl-training')
+    run_name = get_key_def(['tracker', 'run_name'], params, default='gdl')
+    tracker_uri = get_key_def(['tracker', 'uri'], params, default=None, expected_type=str, to_path=False)
+    set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
+                tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
     
     # GET LIST OF INPUT IMAGES FOR INFERENCE
     list_aois = aois_from_csv(
