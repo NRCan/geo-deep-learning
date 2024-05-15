@@ -142,5 +142,5 @@ def main(params:Union[DictConfig, Dict]):
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
         logging.info(f'\nReading image: {aoi.aoi_id}')
         input_path = aoi.raster.name
-        geo_inference(input_path, patch_size=chunk_size, stride_size=chunk_size//2)
+        geo_inference(input_path, patch_size=chunk_size)
         
