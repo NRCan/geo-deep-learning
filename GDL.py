@@ -8,7 +8,7 @@ from omegaconf import DictConfig, OmegaConf, open_dict
 from utils.utils import print_config, get_git_hash
 
 
-@hydra.main(config_path="config", config_name="gdl_config_template")
+@hydra.main(config_path="config", config_name="gdl_config_template", version_base=None)
 def run_gdl(cfg: DictConfig) -> None:
     """
     Function general for Geo Deep-Learning using Hydra library to rules all the
