@@ -199,18 +199,30 @@ def get_key_def(key, config, default=None, expected_type=None, to_path: bool = F
     return val
 
 def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
+    """Scale image to desired range
+
+    Args:
+        img (tensor or ndarray): Image to be scaled  
+        scale_range (tuple, optional): Desired range of transformed data (0, 1) or (-1, 1).. Defaults to (0, 1).
+        orig_range (tuple, optional): Original range of input data. Defaults to (0, 255).
+
+    Returns:
+        np.ndarray or tensor: Scaled image
     """
-    scale data values from original range to specified range
-    :param img: (numpy array) Image to be scaled
-    :param scale_range: Desired range of transformed data (0, 1) or (-1, 1).
-    :param orig_range: Original range of input data.
-    :return: (numpy array) Scaled image
-    """
-    assert scale_range == (0, 1) or scale_range == (-1, 1), 'expects scale_range as (0, 1) or (-1, 1)'
-    if scale_range == (0, 1):
-        scale_img = (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0])
-    else:
-        scale_img = 2.0 * (img.astype(np.float32) - orig_range[0]) / (orig_range[1] - orig_range[0]) - 1.0
+    assert scale_range in [(0, 1), (-1, 1)], 'expects scale_range as (0, 1) or (-1, 1)'
+    assert orig_range[1] > orig_range[0], 'invalid orig_range'
+    assert isinstance(img, (np.ndarray, torch.Tensor)), 'img should be a numpy array or a PyTorch tensor'
+    assert img.size > 0, 'img should not be empty'
+
+    if isinstance(img, np.ndarray):
+        img = img.astype(np.float32)
+    elif isinstance(img, torch.Tensor):
+        img = img.float()
+
+    scale_img = (img - orig_range[0]) / (orig_range[1] - orig_range[0])
+    if scale_range == (-1, 1):
+        scale_img = 2.0 * scale_img - 1.0
+
     return scale_img
 
 def pad(img, padding, fill=0):
