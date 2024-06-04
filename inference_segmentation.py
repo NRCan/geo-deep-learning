@@ -51,7 +51,7 @@ def main(params:Union[DictConfig, Dict]):
                              params['inference'], 
                              to_path=True,
                              validate_path_exists=True,
-                             wildcard='*pt')
+                             wildcard='*.pt')
     
     # Set the device
     num_devices = get_key_def('gpu', params['inference'], default=0, expected_type=(int, bool))
