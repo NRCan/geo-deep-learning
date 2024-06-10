@@ -57,7 +57,7 @@ def get_device_ids(
     :return: (list) Unused GPU devices.
     """
     lst_free_devices = {}
-    if not number_requested:
+    if not number_requested or number_requested == 0:
         logging.warning(f"No GPUs requested. This process will run on CPU")
         return lst_free_devices
     if not torch.cuda.is_available():
