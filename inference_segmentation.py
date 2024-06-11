@@ -52,6 +52,7 @@ def main(params:Union[DictConfig, Dict]):
                              to_path=True,
                              validate_path_exists=True,
                              wildcard='*.pt')
+    mask_to_vector = get_key_def('mask_to_vector', params['inference'], default=False, expected_type=bool)
     
     # Set the device
     num_devices = get_key_def('gpu', params['inference'], default=0, expected_type=(int, bool))
@@ -116,7 +117,7 @@ def main(params:Union[DictConfig, Dict]):
     geo_inference = GeoInference(model=str(model_path),
                                  work_dir=str(working_folder),
                                  batch_size=batch_size,
-                                 mask_to_vec=False,
+                                 mask_to_vec=mask_to_vector,
                                  device=device_str,
                                  gpu_id=gpu_index,
                                  )
