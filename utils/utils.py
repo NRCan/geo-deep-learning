@@ -212,7 +212,6 @@ def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
     assert scale_range in [(0, 1), (-1, 1)], 'expects scale_range as (0, 1) or (-1, 1)'
     assert orig_range[1] > orig_range[0], 'invalid orig_range'
     assert isinstance(img, (np.ndarray, torch.Tensor)), 'img should be a numpy array or a PyTorch tensor'
-    assert img.size > 0, 'img should not be empty'
 
     if isinstance(img, np.ndarray):
         img = img.astype(np.float32)
@@ -224,6 +223,21 @@ def minmax_scale(img, scale_range=(0, 1), orig_range=(0, 255)):
         scale_img = 2.0 * scale_img - 1.0
 
     return scale_img
+
+def unscale(img, float_range=(0, 1), orig_range=(0, 255)):
+    """Unscale the image from a given float range to the original range.
+
+    Args:
+        img (np.ndarray or torch.Tensor): Image to be unscaled.
+        float_range (tuple, optional): Float range of the scaled image. Defaults to (0, 1).
+        orig_range (tuple, optional): Original range of the image. Defaults to (0, 255).
+
+    Returns:
+        np.ndarray or torch.Tensor: Unscaled image.
+    """
+    f_r = float_range[1] - float_range[0]
+    o_r = orig_range[1] - orig_range[0]
+    return (o_r * (img - float_range[0]) / f_r) + orig_range[0]
 
 def pad(img, padding, fill=0):
     r"""Pad the given ndarray on all sides with specified padding mode and fill value.
