@@ -1,4 +1,4 @@
-name: geo_ml_env
+name: geo_deep_env
 channels:
   - pytorch
   - nvidia
