@@ -20,6 +20,7 @@ from models.model_choice import read_checkpoint, define_model, adapt_checkpoint_
 from tiling_segmentation import Tiler
 from utils import augmentation as aug
 from dataset import create_dataset
+from utils.script_model import ScriptModel
 from utils.logger import InformationLogger, tsv_line, get_logger, set_tracker
 from utils.loss import verify_weights, define_loss
 from utils.metrics import create_metrics_dict, calculate_batch_metrics
@@ -100,7 +101,7 @@ def create_dataloader(patches_folder: Path,
         # TODO: should user point to the paths of these csvs directly?
         dataset_file, _ = Tiler.make_dataset_file_name(experiment_name, min_annot_perc, subset, attr_vals)
         dataset_filepath = patches_folder / dataset_file
-        datasets.append(dataset_constr(dataset_filepath, subset, num_bands,
+        datasets.append(dataset_constr(dataset_filepath, num_bands,
                                        max_sample_count=num_patches[subset],
                                        radiom_transform=aug.compose_transforms(params=cfg,
                                                                                dataset=subset,
@@ -553,6 +554,7 @@ def train(cfg: DictConfig) -> None:
     train_state_dict_path = get_key_def('state_dict_path', cfg['training'], default=None, expected_type=str)
     state_dict_strict = get_key_def('state_dict_strict_load', cfg['training'], default=True, expected_type=bool)
     dropout_prob = get_key_def('factor', cfg['scheduler']['params'], default=None, expected_type=float)
+    scriptmodel = get_key_def('script_model', cfg['training'], default=False, expected_type=bool)
     # if error
     if train_state_dict_path and not Path(train_state_dict_path).is_file():
         raise logging.critical(
@@ -792,6 +794,19 @@ def train(cfg: DictConfig) -> None:
 
         cur_elapsed = time.time() - since
         # logging.info(f'\nCurrent elapsed time {cur_elapsed // 60:.0f}m {cur_elapsed % 60:.0f}s')
+    
+    # Script model
+    if scriptmodel:
+        model_to_script = ScriptModel(model,
+                                      device=device,
+                                      input_shape=(1, num_bands, patches_size, patches_size),
+                                      mean=mean,
+                                      std=std,
+                                      min=scale[0],
+                                      max=scale[1])
+        
+        scripted_model = torch.jit.script(model_to_script)
+        scripted_model.save(output_path.joinpath('scripted_model.pt'))
 
     # load checkpoint model and evaluate it on test dataset.
     if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set
