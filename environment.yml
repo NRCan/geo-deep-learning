@@ -21,7 +21,7 @@ dependencies:
   - torchgeo>=0.3
   - torchvision>=0.13
   - pip:
-    - geo-inference>=2.0.5 --install-option="--no-deps"
+    - geo-inference>=2.0.5 "torch==1.12.0"
     - hydra-colorlog>=1.1.0
     - hydra-optuna-sweeper>=1.1.0
     - segmentation-models-pytorch>=0.3.3
