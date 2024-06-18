@@ -11,7 +11,7 @@ from typing import Sequence, List, Dict, Union, Optional
 
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
-from pytorch_lightning.utilities import rank_zero_only
+from pytorch_lightning.utilities.rank_zero import rank_zero_only
 import rich.syntax
 import rich.tree
 from omegaconf import DictConfig, OmegaConf, ListConfig
