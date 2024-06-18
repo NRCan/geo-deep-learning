@@ -1,7 +1,5 @@
 name: geo_deep_env
 channels:
-  - pytorch
-  - nvidia
   - conda-forge
 dependencies:
   - python==3.11.5
