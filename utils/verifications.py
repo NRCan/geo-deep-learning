@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Union
+from typing import Union, Tuple
 
 import geopandas as gpd
 import numpy as np
@@ -15,7 +15,9 @@ from utils.utils import is_url
 logger = logging.getLogger(__name__)
 
 
-def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: bool = False) -> None:
+def validate_raster(
+    raster: Union[str, Path, rasterio.DatasetReader], extended: bool = False
+) -> None:
     """
     Checks if raster is valid, i.e. not corrupted (based on metadata, or actual byte info if under size threshold)
     @param raster: Path to raster to be validated
@@ -31,19 +33,76 @@ def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: 
         raise e
     try:
         size = Path(raster.name).stat().st_size if not is_url(raster.name) else None
-        logging.debug(f'Raster to validate: {raster}\n'
-                      f'Size: {size}\n'
-                      f'Extended check: {extended}')
-        if not raster.meta['dtype'] in ['uint8', 'uint16']:  # will trigger exception if invalid raster
-            logging.warning(f"Only uint8 and uint16 are supported in current version.\n"
-                            f"Datatype {raster.meta['dtype']} for {raster} may cause problems.")
+        logging.debug(
+            f"Raster to validate: {raster}\n"
+            f"Size: {size}\n"
+            f"Extended check: {extended}"
+        )
+        if not raster.meta["dtype"] in [
+            "uint8",
+            "uint16",
+        ]:  # will trigger exception if invalid raster
+            logging.warning(
+                f"Only uint8 and uint16 are supported in current version.\n"
+                f"Datatype {raster.meta['dtype']} for {raster} may cause problems."
+            )
         if extended:
-            logging.debug(f'Will perform extended check.\nWill read first band: {raster}')
-            window = Window(raster.width-200, raster.height-200, raster.width, raster.height)
+            logging.debug(
+                f"Will perform extended check.\nWill read first band: {raster}"
+            )
+            window = Window(
+                raster.width - 200, raster.height - 200, raster.width, raster.height
+            )
             raster_np = raster.read(1, window=window)
             logging.debug(raster_np.shape)
             if not np.any(raster_np):
-                logging.critical(f"Raster data filled with zero values.\nRaster path: {raster}")
+                logging.critical(
+                    f"Raster data filled with zero values.\nRaster path: {raster}"
+                )
+    except FileNotFoundError as e:
+        logging.critical(f"Could not locate raster file.\nRaster path: {raster}\n{e}")
+        raise e
+    except (rasterio.errors.RasterioIOError, TypeError) as e:
+        logging.critical(f"\nRasterio can't open the provided raster: {raster}\n{e}")
+        raise e
+
+
+def validate_raster_dask(
+    raster: rasterio.DatasetReader, extended: bool = False
+) -> None:
+    """
+    Checks if raster is valid, i.e. not corrupted (based on metadata, or actual byte info if under size threshold)
+    @param raster: Path to raster to be validated
+    @param extended: if True, raster data will be entirely read to detect any problem
+    @return: if raster is valid, returns True, else False (with logging.critical)
+    """
+    if not raster:
+        raise FileNotFoundError(f"No raster provided. Got: {raster}")
+
+    try:
+        if raster.meta["dtype"] not in [
+            "uint8",
+            "uint16",
+        ]:  # will trigger exception if invalid raster
+            logging.warning(
+                f"Only uint8 and uint16 are supported in current version.\n"
+                f"Datatype {raster.meta['dtype']} for {raster} may cause problems."
+            )
+        if extended:
+            logging.debug(
+                f"Will perform extended check.\nWill read first band: {raster}"
+            )
+            window = Window(
+                raster.width - 200, raster.height - 200, raster.width, raster.height
+            )
+            print("**************************")
+            print(window)
+            raster_np = raster.read(1, window=window)
+            logging.debug(raster_np.shape)
+            if not np.any(raster_np):
+                logging.critical(
+                    f"Raster data filled with zero values.\nRaster path: {raster}"
+                )
     except FileNotFoundError as e:
         logging.critical(f"Could not locate raster file.\nRaster path: {raster}\n{e}")
         raise e
@@ -60,18 +119,21 @@ def validate_num_bands(raster_path: Union[str, Path], num_bands: int) -> None:
     @return: if expected and actual number of bands match, returns True, else False (with logging.critical)
     """
     raster = check_rasterio_im_load(raster_path)
-    input_band_count = raster.meta['count']
+    input_band_count = raster.meta["count"]
     if not input_band_count == num_bands:
-        logging.critical(f"The number of bands expected doesn't match number of bands in input image.\n"
-                         f"Expected: {num_bands} bands\n"
-                         f"Got: {input_band_count} bands\n"
-                         f"Raster path: {raster.name}")
+        logging.critical(
+            f"The number of bands expected doesn't match number of bands in input image.\n"
+            f"Expected: {num_bands} bands\n"
+            f"Got: {input_band_count} bands\n"
+            f"Raster path: {raster.name}"
+        )
         raise ValueError()
 
 
 def assert_crs_match(
-        raster: Union[str, Path, rasterio.DatasetReader],
-        label: Union[str, Path, gpd.GeoDataFrame]):
+    raster: Union[str, Path, rasterio.DatasetReader],
+    label: Union[str, Path, gpd.GeoDataFrame],
+):
     """
     Assert Coordinate reference system between raster and gpkg match.
     :param raster: (str or Path) path to raster file
@@ -91,14 +153,52 @@ def assert_crs_match(
             return False, raster_crs, gt_crs
 
         if epsg_raster != epsg_gt:
-            logging.error(f"CRS mismatch: \n"
-                          f"TIF file \"{raster}\" has {epsg_raster} CRS; \n"
-                          f"GPKG file \"{label}\" has {epsg_gt} CRS.")
+            logging.error(
+                f"CRS mismatch: \n"
+                f'TIF file "{raster}" has {epsg_raster} CRS; \n'
+                f'GPKG file "{label}" has {epsg_gt} CRS.'
+            )
             return False, raster_crs, gt_crs
         else:
             return True, raster_crs, gt_crs
     except AttributeError as e:
-        logging.critical(f'Problem reading crs from image or label.')
+        logging.critical(f"Problem reading crs from image or label.")
+        logging.critical(e)
+        return False, raster_crs, gt_crs
+
+
+def assert_crs_match_dask(
+    raster_mata: dict,
+    label: Union[str, Path, gpd.GeoDataFrame],
+):
+    """
+    Assert Coordinate reference system between raster and gpkg match.
+    :param raster: (str or Path) path to raster file
+    :param label: (str or Path) path to gpkg file
+    """
+    raster_crs = raster_mata["crs"]
+    gt = check_gdf_load(label)
+    gt_crs = gt.crs
+
+    epsg_gt = check_crs(gt_crs.to_epsg())
+    try:
+        if raster_crs.is_epsg_code:
+            epsg_raster = check_crs(raster_crs.to_epsg())
+        else:
+            logging.warning(f"Cannot parse epsg code from raster's crs '{raster.name}'")
+            return False, raster_crs, gt_crs
+
+        if epsg_raster != epsg_gt:
+            logging.error(
+                f"CRS mismatch: \n"
+                f'TIF file "{raster}" has {epsg_raster} CRS; \n'
+                f'GPKG file "{label}" has {epsg_gt} CRS.'
+            )
+            return False, raster_crs, gt_crs
+        else:
+            return True, raster_crs, gt_crs
+    except AttributeError as e:
+        logging.critical(f"Problem reading crs from image or label.")
         logging.critical(e)
         return False, raster_crs, gt_crs
 

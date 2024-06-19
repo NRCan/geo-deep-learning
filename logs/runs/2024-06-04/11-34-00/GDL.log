@@ -1,0 +1,12 @@
+[2024-06-04 11:34:06,043][root][INFO] - 
+Overwritten parameters in the config: 
+dataset.bands=[1,2,3,4],dataset.raw_data_dir=/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/operationalization/data,dataset=test_ci_segmentation_binary,general.project_name=planetscope_CSPP_inference,inference.chunk_size=1024,inference.ras2vec=True,inference.raw_data_csv=/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/models/single/NRGB/hydro/csvs/planetscope_CSSP_NRGB.csv,inference.root_dir=/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/models/single/NRGB/hydro/mitb5_planetscope_CSSP_inference,inference=default_binary,mode=inference,model.encoder=mit_b5,model=gdl_segformer,tiling.clahe_clip_limit=25,tracker.run_name=mitb5_hydro_NRGB_planetscope_CSPP_inference,tracker.uri=/space/partner/nrcan/geobase/work/transfer/work/deep_learning/mlflow/mlruns/,tracker=mlflow,training.num_gpus=1
+[2024-06-04 11:34:06,043][root][INFO] - 
+------------------------------------------
+Let's start inference for segmentation !!!
+------------------------------------------
+[2024-06-04 11:34:17,541][fiona.session][DEBUG] - Could not import boto3, continuing with reduced functionality.
+[2024-06-04 11:34:17,747][fiona._env][DEBUG] - GDAL_DATA found in environment.
+[2024-06-04 11:34:17,748][fiona._env][DEBUG] - PROJ_DATA found in environment.
+[2024-06-04 11:34:37,755][root][CRITICAL] - Couldn't locate path: /gpfs/fs5/nrcan/nrcan_geobase/work/dev/datacube/parallel/deep_learning/geo-deep-learning/saved_model/planetscope_CSPP_inference.
+Provided key: model_path

@@ -1,0 +1,6 @@
+- mode=inference
+- dataset=test_ci_segmentation_binary
+- inference=default_binary
+- dataset.bands=[1,2,3,4]
+- dataset.raw_data_dir=/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/operationalization/data
+- tiling.clahe_clip_limit=25

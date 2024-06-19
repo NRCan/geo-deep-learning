@@ -11,8 +11,9 @@ from dataset.stacitem import SingleBandItemEO
 
 from utils.aoiutils import aois_from_csv
 from utils.logger import get_logger, set_tracker
-from geo_inference.geo_inference import GeoInference
-from utils.utils import get_device_ids, get_key_def, set_device
+
+# from geo_inference.geo_inference import GeoInference
+from utils.utils import get_device_ids, set_device, fetch_param
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -22,6 +23,9 @@ def stac_input_to_temp_csv(input_stac_item: Union[str, Path]) -> Path:
     """Saves a stac item path or url to a temporary csv"""
     _, stac_temp_csv = mkstemp(suffix=".csv")
     with open(stac_temp_csv, "w", newline="") as fh:
+        csv.writer(fh).writerow(
+            [str(input_stac_item), None, "inference", Path(input_stac_item).stem]
+        )
         csv.writer(fh).writerow(
             [str(input_stac_item), None, "inference", Path(input_stac_item).stem]
         )
@@ -56,111 +60,119 @@ def calc_inference_chunk_size(
 
 
 def main(params: Union[DictConfig, Dict]):
-    working_folder = get_key_def(
-        "root_dir", params["inference"], default="inference", to_path=True
-    )
-    working_folder.mkdir(exist_ok=True)
-    model_path = get_key_def(
-        "model_path",
-        params["inference"],
-        to_path=True,
-        validate_path_exists=True,
-        wildcard="*pt",
+    # all inference params in one spot --> adding/deleting is easier
+    inference_params = {
+        "root_dir": {"default": "inference", "to_path": True},
+        "model_path": {
+            "to_path": True,
+            "validate_path_exists": True,
+            "wildcard": "*pt",
+        },
+        "gpu": {"default": 0, "expected_type": (int, bool)},
+        "max_used_ram": {"default": 25, "expected_type": int},
+        "max_used_perc": {"default": 25, "expected_type": int},
+        "max_pix_per_mb_gpu": {"default": 25, "expected_type": int},
+        "chunk_size": {"default": None, "expected_type": int},  # Will be set later
+        "batch_size": {"default": 8, "expected_type": int},
+        "download_data": {
+            "default": False,
+            "expected_type": bool,
+        },  # can be changed to streaming data
+        "raw_data_csv": {
+            "expected_type": str,
+            "to_path": True,
+            "validate_path_exists": True,
+        },
+        "input_stac_item": {
+            "expected_type": str,
+            "to_path": True,
+            "validate_path_exists": True,
+        },
+    }
+    tiling_params = {
+        "clahe_clip_limit": {"default": 0, "expected_type": Number},
+    }
+    dataset_params = {
+        "bands": {"default": [1, 2, 3], "expected_type": Sequence},
+        "raw_data_dir": {
+            "default": "data",
+            "to_path": True,
+            "validate_path_exists": True,
+        },
+    }
+
+    # Merge all parameter with their corresponding categories
+    global_params = {
+        **{key: (attributes, "dataset") for key, attributes in dataset_params.items()},
+        **{
+            key: (attributes, "inference")
+            for key, attributes in inference_params.items()
+        },
+        **{key: (attributes, "tiling") for key, attributes in tiling_params.items()},
+    }
+
+    # Fetch and assign all parameters to global variables
+    for key, (attributes, cat) in global_params.items():
+        globals()[key] = fetch_param(params, key, cat, **attributes)
+
+    # Additional processing for specific parameters
+
+    global_params["root_dir"].mkdir(exist_ok=True)
+    if global_params["gpu"] > 1:
+        logging.warning(
+            "Inference is not yet implemented for multi-gpu use. Will request only 1 GPU."
+        )
+        gpu = 1
+    print(global_params["max_used_ram"])
+    if not (0 <= global_params["max_used_ram"] <= 100):
+        raise ValueError(
+            f"\nMax used ram parameter should be a percentage. Got {global_params['max_used_ram']}."
+        )
+
+    gpu_devices_dict = get_device_ids(
+        num_devices=gpu,
+        max_used_ram_perc=global_params["max_used_ram"],
+        max_used_perc=global_params["max_used_perc"],
     )
 
-    # Set the device
-    num_devices = get_key_def(
-        "gpu", params["inference"], default=0, expected_type=(int, bool)
-    )
-    if num_devices > 1:
-        logging.warning(
-            f"Inference is not yet implemented for multi-gpu use. Will request only 1 GPU."
-        )
-        num_devices = 1
-    max_used_ram = get_key_def(
-        "max_used_ram", params["inference"], default=25, expected_type=int
-    )
-    if not (0 <= max_used_ram <= 100):
-        raise ValueError(
-            f"\nMax used ram parameter should be a percentage. Got {max_used_ram}."
-        )
-    max_used_perc = get_key_def(
-        "max_used_perc", params["inference"], default=25, expected_type=int
-    )
-    gpu_devices_dict = get_device_ids(
-        num_devices, max_used_ram_perc=max_used_ram, max_used_perc=max_used_perc
-    )
-    max_pix_per_mb_gpu = get_key_def(
-        "max_pix_per_mb_gpu", params["inference"], default=25, expected_type=int
-    )
     auto_chunk_size = calc_inference_chunk_size(
         gpu_devices_dict=gpu_devices_dict,
-        max_pix_per_mb_gpu=max_pix_per_mb_gpu,
+        max_pix_per_mb_gpu=global_params["max_pix_per_mb_gpu"],
         default=512,
     )
+    chunk_size = global_params["chunk_size"] or auto_chunk_size
 
-    chunk_size = get_key_def(
-        "chunk_size", params["inference"], default=auto_chunk_size, expected_type=int
-    )
-    batch_size = get_key_def(
-        "batch_size", params["inference"], default=8, expected_type=int
-    )
     device = set_device(gpu_devices_dict=gpu_devices_dict)
 
-    # Dataset params
-    bands_requested = get_key_def(
-        "bands", params["dataset"], default=[1, 2, 3], expected_type=Sequence
-    )
-    download_data = get_key_def(
-        "download_data", params["inference"], default=False, expected_type=bool
-    )
-    data_dir = get_key_def(
-        "raw_data_dir",
-        params["dataset"],
-        default="data",
-        to_path=True,
-        validate_path_exists=True,
-    )
-    clahe_clip_limit = get_key_def(
-        "clahe_clip_limit", params["tiling"], expected_type=Number, default=0
-    )
-    raw_data_csv = get_key_def(
-        "raw_data_csv",
-        params["inference"],
-        expected_type=str,
-        to_path=True,
-        validate_path_exists=True,
-    )
-    input_stac_item = get_key_def(
-        "input_stac_item",
-        params["inference"],
-        expected_type=str,
-        to_path=True,
-        validate_path_exists=True,
-    )
-
-    if raw_data_csv and input_stac_item:
+    # Validate raw data input
+    # maybe we can have both?
+    if global_params["raw_data_csv"] and global_params["input_stac_item"]:
         raise ValueError(
-            f'Input imagery should be either a csv of stac item. Got inputs from both "raw_data_csv" '
-            f'and "input stac item"'
+            'Input imagery should be either a csv or a stac item. Got inputs from both "raw_data_csv" '
+            'and "input stac item".'
         )
-    if input_stac_item:
-        raw_data_csv = stac_input_to_temp_csv(input_stac_item)
-        if not all([SingleBandItemEO.is_valid_cname(band) for band in bands_requested]):
-            logging.warning(
-                f"Requested bands are not valid stac item common names. Got: {bands_requested}"
-            )
-            bands_requested = [
-                SingleBandItemEO.band_to_cname(band) for band in bands_requested
-            ]
-            logging.warning(f"Will request: {bands_requested}")
 
-    # LOGGING PARAMETERS
-    exper_name = get_key_def("project_name", params["general"], default="gdl-training")
-    run_name = get_key_def(["tracker", "run_name"], params, default="gdl")
-    tracker_uri = get_key_def(
-        ["tracker", "uri"], params, default=None, expected_type=str, to_path=False
+    if global_params["input_stac_item"]:
+        raw_data_csv = stac_input_to_temp_csv(global_params["input_stac_item"])
+        if not all(
+            [SingleBandItemEO.is_valid_cname(band) for band in global_params["bands"]]
+        ):
+            logging.warning(
+                f"Requested bands are not valid stac item common names. Got: {global_params['bands']}"
+            )
+            # returns red, blue, green
+            bands = [
+                SingleBandItemEO.band_to_cname(band) for band in global_params["bands"]
+            ]
+            logging.warning(f"Will request: {bands}")
+
+    # Logging parameters
+    exper_name = fetch_param(params, "project_name", "general", default="gdl-training")
+    run_name = fetch_param(params, "run_name", ["tracker"], default="gdl")
+    tracker_uri = fetch_param(
+        params, "uri", ["tracker"], default=None, expected_type=str, to_path=False
     )
+
     set_tracker(
         mode="inference",
         type="mlflow",
@@ -175,27 +187,29 @@ def main(params: Union[DictConfig, Dict]):
     # GET LIST OF INPUT IMAGES FOR INFERENCE
     list_aois = aois_from_csv(
         csv_path=raw_data_csv,
-        bands_requested=bands_requested,
-        download_data=download_data,
-        data_dir=data_dir,
-        equalize_clahe_clip_limit=clahe_clip_limit,
+        bands_requested=bands,
+        download_data=global_params["download_data"],
+        data_dir=global_params["raw_data_dir"],
+        equalize_clahe_clip_limit=global_params["clahe_clip_limit"],
     )
 
     # Create the inference object
     device_str = "gpu" if device.type == "cuda" else "cpu"
     gpu_index = device.index if device.type == "cuda" else 0
-
+    """ 
     geo_inference = GeoInference(
-        model=str(model_path),
-        work_dir=str(working_folder),
-        batch_size=batch_size,
+        model=str(global_params["model_path"]),
+        work_dir=str(global_params["root_dir"]),
+        batch_size=global_params["batch_size"],
         mask_to_vec=False,
         device=device_str,
         gpu_id=gpu_index,
     )
 
+    # every time we are training with a single band
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc="Inferring from images", position=0, leave=True):
         logging.info(f"\nReading image: {aoi.aoi_id}")
         input_path = aoi.raster.name
         geo_inference(input_path, patch_size=chunk_size)
+    """

@@ -1,0 +1,12 @@
+[2024-06-03 19:43:35,461][root][INFO] - 
+Overwritten parameters in the config: 
+dataset.bands=[1,2,3,4],dataset.raw_data_dir=/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/operationalization/data,dataset=test_ci_segmentation_binary,inference=default_binary,mode=inference,tiling.clahe_clip_limit=25
+[2024-06-03 19:43:35,462][root][INFO] - 
+------------------------------------------
+Let's start inference for segmentation !!!
+------------------------------------------
+[2024-06-03 19:43:45,679][fiona.session][DEBUG] - Could not import boto3, continuing with reduced functionality.
+[2024-06-03 19:43:45,947][fiona._env][DEBUG] - GDAL_DATA found in environment.
+[2024-06-03 19:43:45,948][fiona._env][DEBUG] - PROJ_DATA found in environment.
+[2024-06-03 19:44:05,443][root][CRITICAL] - Couldn't locate path: /gpfs/fs5/nrcan/nrcan_geobase/work/dev/datacube/parallel/deep_learning/geo-deep-learning/saved_model/template_project.
+Provided key: model_path
