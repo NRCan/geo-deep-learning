@@ -97,7 +97,7 @@ class SingleBandItemEO(ItemEOExtension):
         Naive conversion of a band to a valid common name
         See: https://github.com/stac-extensions/eo/issues/13
         """
-        bands_ref = (("red", "R"), ("green", "G"), ("blue", "B"), ('nir', "N"))
+        bands_ref = (("red", "R"), ("green", "G"), ("blue", "B"), ("nir", "N"))
         if isinstance(input_band, int) and 1 <= input_band <= 4:
             return bands_ref[input_band-1][0]
         elif isinstance(input_band, str) and len(input_band) == 1:

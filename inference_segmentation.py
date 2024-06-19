@@ -64,7 +64,7 @@ def main(params:Union[DictConfig, Dict]):
     num_devices = get_key_def('gpu', params['inference'], default=0, expected_type=(int, bool))
     if num_devices > 1:
         logging.warning(
-            f"Inference is not yet implemented for multi-gpu use. Will request only 1 GPU."
+            "Inference is not yet implemented for multi-gpu use. Will request only 1 GPU."
         )
         num_devices = 1
     max_used_ram = get_key_def(
@@ -96,17 +96,21 @@ def main(params:Union[DictConfig, Dict]):
     
     if raw_data_csv and input_stac_item:
         raise ValueError(
-            f'Input imagery should be either a csv of stac item. Got inputs from both "raw_data_csv" '
-            f'and "input stac item"'
+            'Input imagery should be either a csv or a stac item. Got inputs from both "raw_data_csv" '
+            'and "input stac item".'
         )
-    if input_stac_item:
-        raw_data_csv = stac_input_to_temp_csv(input_stac_item)
-        if not all([SingleBandItemEO.is_valid_cname(band) for band in bands_requested]):
+
+    if global_params["input_stac_item"]:
+        raw_data_csv = stac_input_to_temp_csv(global_params["input_stac_item"])
+        if not all(
+            [SingleBandItemEO.is_valid_cname(band) for band in global_params["bands"]]
+        ):
             logging.warning(
-                f"Requested bands are not valid stac item common names. Got: {bands_requested}"
+                f"Requested bands are not valid stac item common names. Got: {global_params['bands']}"
             )
-            bands_requested = [
-                SingleBandItemEO.band_to_cname(band) for band in bands_requested
+            # returns red, blue, green
+            bands = [
+                SingleBandItemEO.band_to_cname(band) for band in global_params["bands"]
             ]
             logging.warning(f"Will request: {bands_requested}")
             

@@ -25,11 +25,11 @@ def trim_memory():
 def test_inference_segmentation():
     """Test inference segmentation"""
     model_path = "/gpfs/fs5/nrcan/nrcan_geobase/work/dev/datacube/parallel/deep_learning/geo-deep-learning/rgb-4class-segformer-b5.pt"
-    raw_data_csv = "tests/data/inference/test.csv"
+    raw_data_csv = "tests/data/inference/test2.csv"
     data_dir = "tests/data/inference"
     # bands_requested = ["B", "G", "R"]
-    # bands_requested = ["nir", "green", "red"]
-    bands_requested = [1, 2, 3]
+    bands_requested = ["blue", "green", "red"]
+
     cluster = LocalCluster(n_workers=14, memory_limit="50GB")
     data_tiff_paths = get_tiff_paths_from_csv(csv_path=raw_data_csv)
     for aoi_dict in data_tiff_paths:
@@ -38,16 +38,16 @@ def test_inference_segmentation():
             bands_requested=bands_requested,
             data_dir=data_dir,
             equalize_clahe_clip_limit=0.25,
-            raster_stats=True,
+            raster_stats=False,
             chunk_size=1024,
         )
         with daskclient(cluster, timeout="60s") as client:
             try:
                 print(f"The dashboard link for dask cluster is {client.dashboard_link}")
                 start_time = time.time()
+
                 # create a dask array on the cluster
-                aoi_dask_array = aoi.create_dask_array()
-                print(aoi_dask_array)
+                aoi_dask_array = aoi.create_dask_array_2()
                 # check the contrast and if the contrast is low, apply the enhancement method on it
                 if aoi.high_or_low_contrast and aoi.enhance_clip_limit > 0:
                     aoi_dask_array = da.map_overlap(
@@ -81,7 +81,7 @@ def test_inference_segmentation():
                     chunk_size=aoi.chunk_size,
                     dtype=aoi_dask_array.dtype,
                 )
-                print(aoi_dask_array)
+
                 # now we run the model on each chunk
                 raster_model = da.map_blocks(
                     aoi.runModel,
@@ -95,6 +95,7 @@ def test_inference_segmentation():
                     model_path=model_path,
                     dtype=aoi_dask_array.dtype,
                 )
+
                 raster_torch = da.map_blocks(
                     aoi.apply_window_on_chunks,
                     raster_model,
@@ -106,6 +107,7 @@ def test_inference_segmentation():
                     chunk_size=aoi.chunk_size,
                     dtype=aoi_dask_array.dtype,
                 )
+
                 print(raster_torch)
                 raster_model_output = da.map_overlap(
                     aoi.sum_overlapped_chunks,
@@ -122,9 +124,14 @@ def test_inference_segmentation():
                 )
 
                 print(raster_model_output)
+
                 aoi_dask_array = client.gather(raster_model_output)
                 print(aoi_dask_array)
-                final_array = aoi_dask_array.compute()
+                final_array = aoi_dask_array.blocks[
+                    :,
+                    : aoi_dask_array.numblocks[1] - 2,
+                    :,
+                ].compute()
 
                 aoi.write_inference_to_tif(final_array)
                 end_time = time.time()

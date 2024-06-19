@@ -16,6 +16,11 @@ import pathlib
 
 if str(pathlib.Path(__file__).parents[2]) not in sys.path:
     sys.path.insert(0, str(pathlib.Path(__file__).parents[2]))
+import sys
+import pathlib
+
+if str(pathlib.Path(__file__).parents[2]) not in sys.path:
+    sys.path.insert(0, str(pathlib.Path(__file__).parents[2]))
 
 from dataset.aoi import AOI, aois_from_csv
 from utils.utils import read_csv

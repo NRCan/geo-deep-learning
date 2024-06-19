@@ -134,6 +134,8 @@ def set_device(gpu_devices_dict: dict = {}):
             device = torch.device(f'cuda')
     return device
 
+def fetch_param(params, key, category, default=None, to_path=False, validate_path_exists=False, expected_type=None, wildcard=None):
+    return get_key_def(key, params[category], default=default, to_path=to_path, validate_path_exists=validate_path_exists, expected_type=expected_type, wildcard=wildcard)
 
 def get_key_def(key, config, default=None, expected_type=None, to_path: bool = False,
                 validate_path_exists: bool = False, wildcard=None):
