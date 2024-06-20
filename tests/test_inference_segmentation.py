@@ -27,10 +27,10 @@ def test_inference_segmentation():
     model_path = "/gpfs/fs5/nrcan/nrcan_geobase/work/dev/datacube/parallel/deep_learning/geo-deep-learning/rgb-4class-segformer-b5.pt"
     raw_data_csv = "tests/data/inference/test.csv"
     data_dir = "tests/data/inference"
-    # bands_requested = ["B", "G", "R"]
+    # bands_requested = ["R", "G", "B"]
     # bands_requested = ["nir", "green", "red"]
     bands_requested = [1, 2, 3]
-    cluster = LocalCluster(n_workers=14, memory_limit="50GB")
+    cluster = LocalCluster(n_workers=15, memory_limit="50GB")
     data_tiff_paths = get_tiff_paths_from_csv(csv_path=raw_data_csv)
     for aoi_dict in data_tiff_paths:
         aoi = single_aoi(

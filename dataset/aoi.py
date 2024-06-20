@@ -249,17 +249,25 @@ class AOI(object):
             if raster_count > 1:
                 self.raster_src_is_multiband = True
         else:
-            desired_bands = (
-                ["R", "G", "B"]
-                if not self.raster_stac_item
-                else ["red", "green", "blue"]
-            )
+            if len(raster_parsed) == 3:
+                desired_bands = (
+                    ["R", "G", "B"]
+                    if not self.raster_stac_item
+                    else ["red", "green", "blue"]
+                )
+            elif len(raster_parsed) == 4:
+                desired_bands = (
+                    ["N", "R", "G", "B"]
+                    if not self.raster_stac_item
+                    else ["nir", "red", "green", "blue"]
+                )
             # Create a new dictionary with the desired key order
             raster_parsed = {
                 key: raster_parsed[key]
                 for key in desired_bands
                 if key in self.raster_bands_request
             }
+            print(raster_parsed)
             # TODO: how to handle Nir?
 
         # Chack the size of tiff files
@@ -796,8 +804,10 @@ class AOI(object):
                         ]
                         + window_u[: int(chunk_size / 2), : int(chunk_size / 2)]
                     )
+                """ 
                 if not np.all(windows_up == 0):
                     aoi_chunk_up /= windows_up
+                """
                 if aoi_chunk_up.shape[0] == 1:
                     aoi_chunk_up = expit(aoi_chunk_up)
                     aoi_chunk_up = (
@@ -909,8 +919,10 @@ class AOI(object):
                             : int(chunk_size / 2),
                         ]
                     )
+                """ 
                 if not np.all(windows_up == 0):
                     aoi_chunk_up /= windows_up
+                """
                 if aoi_chunk_up.shape[0] == 1:
                     aoi_chunk_up = expit(aoi_chunk_up)
                     aoi_chunk_up = (
@@ -994,8 +1006,10 @@ class AOI(object):
                             int(chunk_size / 2) : int(chunk_size / 2) * 2,
                         ]
                     )
+                """ 
                 if not np.all(windows_up == 0):
                     aoi_chunk_up /= windows_up
+                """
                 if aoi_chunk_up.shape[0] == 1:
                     aoi_chunk_up = expit(aoi_chunk_up)
                     aoi_chunk_up = (
@@ -1111,8 +1125,10 @@ class AOI(object):
                         + window_u[int(chunk_size / 2) :, : int(chunk_size / 2)]
                         + window[: int(chunk_size / 2), : int(chunk_size / 2)]
                     )
+                """ 
                 if not np.all(windows_up == 0):
                     aoi_chunk_up /= windows_up
+                """
                 if aoi_chunk_up.shape[0] == 1:
                     aoi_chunk_up = expit(aoi_chunk_up)
                     aoi_chunk_up = (
@@ -1156,9 +1172,10 @@ class AOI(object):
                         : int(chunk_size / 2),
                     ]
                 )
+                """ 
                 if not np.all(windows_up == 0):
-                    aoi_chunk_top /= windows_up
-
+                    aoi_chunk_up /= windows_up
+                """
                 if aoi_chunk_top.shape[0] == 1:
                     aoi_chunk_top = expit(aoi_chunk_top)
                     aoi_chunk_top = (
@@ -1196,8 +1213,10 @@ class AOI(object):
                         : int(chunk_size / 2),
                     ]
                 )
+                """ 
                 if not np.all(windows_up == 0):
-                    aoi_chunk_top /= windows_up
+                    aoi_chunk_up /= windows_up
+                """
                 if aoi_chunk_top.shape[0] == 1:
                     aoi_chunk_top = expit(aoi_chunk_top)
                     aoi_chunk_top = (
@@ -1279,8 +1298,10 @@ class AOI(object):
                         + window_u[int(chunk_size / 2) :, : int(chunk_size / 2)]
                         + window[: int(chunk_size / 2), : int(chunk_size / 2)]
                     )
+                """ 
                 if not np.all(windows_up == 0):
                     aoi_chunk_up /= windows_up
+                """
                 if aoi_chunk_up.shape[0] == 1:
                     aoi_chunk_up = expit(aoi_chunk_up)
                     aoi_chunk_up = (
@@ -1326,8 +1347,10 @@ class AOI(object):
                         : int(chunk_size / 2),
                     ]
                 )
+                """ 
                 if not np.all(windows_up == 0):
-                    aoi_chunk_top /= windows_up
+                    aoi_chunk_up /= windows_up
+                """
                 if aoi_chunk_top.shape[0] == 1:
                     aoi_chunk_top = expit(aoi_chunk_top)
                     aoi_chunk_top = (
@@ -1424,8 +1447,10 @@ class AOI(object):
                         + window_ur[int(chunk_size / 2) :, : int(chunk_size / 2)]
                         + window_r[: int(chunk_size / 2), : int(chunk_size / 2)]
                     )
+                """ 
                 if not np.all(windows_up == 0):
                     aoi_chunk_up /= windows_up
+                """
                 if aoi_chunk_up.shape[0] == 1:
                     aoi_chunk_up = expit(aoi_chunk_up)
                     aoi_chunk_up = (
@@ -1675,18 +1700,21 @@ class AOI(object):
         ):
             device = torch.device("cpu")
             if torch.cuda.is_available():
-                res = {"gpu": torch.cuda.utilization(0)}
-                torch_cuda_mem = torch.cuda.mem_get_info(0)
-                mem = {
-                    "used": torch_cuda_mem[-1] - torch_cuda_mem[0],
-                    "total": torch_cuda_mem[-1],
-                }
-                used_ram = mem["used"] / (1024**2)
-                max_ram = mem["total"] / (1024**2)
-                used_ram_percentage = (used_ram / max_ram) * 100
-                if used_ram_percentage < 25:
-                    if res["gpu"] < 15:
-                        device = torch.device("cuda:0")
+                num_devices = torch.cuda.device_count()
+                for i in range(num_devices):
+                    res = {"gpu": torch.cuda.utilization(i)}
+                    torch_cuda_mem = torch.cuda.mem_get_info(i)
+                    mem = {
+                        "used": torch_cuda_mem[-1] - torch_cuda_mem[0],
+                        "total": torch_cuda_mem[-1],
+                    }
+                    used_ram = mem["used"] / (1024**2)
+                    max_ram = mem["total"] / (1024**2)
+                    used_ram_percentage = (used_ram / max_ram) * 100
+                    if used_ram_percentage < 25:
+                        if res["gpu"] < 15:
+                            device = torch.device("cuda:0")
+                            break
 
             # Put the data into a shape PyTorch expects(Channel x Width x Height)
             chunk_data_ = chunk_data[None, :, :, :]
