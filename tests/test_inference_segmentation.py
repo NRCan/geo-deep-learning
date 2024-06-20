@@ -41,10 +41,11 @@ def test_inference_segmentation():
             raster_stats=True,
             chunk_size=1024,
         )
-        with daskclient(cluster, timeout="60s") as client:
+        with daskclient(cluster, timeout="90s") as client:
             try:
                 print(f"The dashboard link for dask cluster is {client.dashboard_link}")
                 start_time = time.time()
+                print(torch.cuda.device_count())
                 # create a dask array on the cluster
                 aoi_dask_array = aoi.create_dask_array()
                 print(aoi_dask_array)

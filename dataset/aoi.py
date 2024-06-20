@@ -1698,45 +1698,54 @@ class AOI(object):
             chunk_location[2] != num_chunks[2] - 1
             and chunk_location[1] != num_chunks[1] - 1
         ):
-            device = torch.device("cpu")
-            if torch.cuda.is_available():
-                num_devices = torch.cuda.device_count()
-                for i in range(num_devices):
-                    res = {"gpu": torch.cuda.utilization(i)}
-                    torch_cuda_mem = torch.cuda.mem_get_info(i)
-                    mem = {
-                        "used": torch_cuda_mem[-1] - torch_cuda_mem[0],
-                        "total": torch_cuda_mem[-1],
-                    }
-                    used_ram = mem["used"] / (1024**2)
-                    max_ram = mem["total"] / (1024**2)
-                    used_ram_percentage = (used_ram / max_ram) * 100
-                    if used_ram_percentage < 25:
-                        if res["gpu"] < 15:
-                            device = torch.device("cuda:0")
-                            break
+            try:
+                device = torch.device("cpu")
+                device_code = 0
+                if torch.cuda.is_available():
+                    num_devices = torch.cuda.device_count()
+                    for i in range(num_devices):
+                        res = {"gpu": torch.cuda.utilization(i)}
+                        torch_cuda_mem = torch.cuda.mem_get_info(i)
+                        mem = {
+                            "used": torch_cuda_mem[-1] - torch_cuda_mem[0],
+                            "total": torch_cuda_mem[-1],
+                        }
+                        used_ram = mem["used"] / (1024**2)
+                        max_ram = mem["total"] / (1024**2)
+                        used_ram_percentage = (used_ram / max_ram) * 100
+                        if used_ram_percentage < 80:
+                            if res["gpu"] < 80:
+                                device = torch.device(f"cuda:{i}")
+                                device_code = i
+                                break
 
-            # Put the data into a shape PyTorch expects(Channel x Width x Height)
-            chunk_data_ = chunk_data[None, :, :, :]
+                # Put the data into a shape PyTorch expects(Channel x Width x Height)
+                chunk_data_ = chunk_data[None, :, :, :]
 
-            # load the model
-            model = torch.jit.load(model_path, map_location=device)
-            # convert chunck to torch Tensor
-            tensor = torch.tensor(chunk_data_).to(device)
-            h, w = tensor.shape[-2:]
-            # pads are described starting from the last dimension and moving forward.
-            tensor = F.pad(tensor, (0, chunk_size - w, 0, chunk_size - h))
-            # pass image through model
-            with torch.no_grad():
-                features = (
-                    model(tensor).cpu().numpy()
-                    if device == torch.device("cuda:0")
-                    else model(tensor).numpy()
-                )
+                # load the model
+                model = torch.jit.load(model_path, map_location=device)
+                # convert chunck to torch Tensor
+                tensor = torch.tensor(chunk_data_).to(device)
+                h, w = tensor.shape[-2:]
+                # pads are described starting from the last dimension and moving forward.
+                tensor = F.pad(tensor, (0, chunk_size - w, 0, chunk_size - h))
+                # pass image through model
+                with torch.no_grad():
+                    features = (
+                        model(tensor).cpu().numpy()
+                        if device == torch.device(f"cuda:{device_code}")
+                        else model(tensor).numpy()
+                    )
+                # get the batch
+                features = features[0, :, :, :]
+                return features
+            finally:
+                # Clean the GPU memory
+                del tensor  # Delete the tensor to free up memory
+                del model  # Optionally, delete the model if it's not needed anymore
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()  # Release unused memory
 
-            # get the batch
-            features = features[0, :, :, :]
-            return features
         else:
             return np.full((5, chunk_size, chunk_size), np.nan)
 

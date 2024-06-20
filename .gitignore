@@ -1,3 +1,5 @@
 *__pycache__**
 *.idea**
 *.vscode**
+rgb-4class-segformer-b5.pt
+tests/data/*
