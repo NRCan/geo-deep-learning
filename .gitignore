@@ -1,5 +1,5 @@
 *__pycache__**
 *.idea**
 *.vscode**
-rgb-4class-segformer-b5.pt
+/gpfs/fs5/nrcan/nrcan_geobase/work/dev/datacube/parallel/deep_learning/geo-deep-learning/rgb-4class-segformer-b5.pt
 tests/data/*
