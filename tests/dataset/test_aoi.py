@@ -9,6 +9,7 @@ import pytest
 from _pytest.fixtures import SubRequest
 import rasterio
 from rasterio import RasterioIOError
+from pyogrio.errors import DataSourceError
 from torchgeo.datasets.utils import extract_archive
 
 from dataset.aoi import AOI, aois_from_csv
@@ -126,7 +127,7 @@ class Test_AOI(object):
         data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         row = next(iter(data))
         row['gpkg'] = "missing_file.gpkg"
-        with pytest.raises(AttributeError):
+        with pytest.raises(DataSourceError):
             aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
 
     def test_no_label(self):
