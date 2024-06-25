@@ -9,7 +9,6 @@ import pandas as pd
 import rasterio
 from mlflow import log_metrics
 from shapely.geometry import Polygon
-from solaris import vector
 from tqdm import tqdm
 import geopandas as gpd
 
@@ -17,6 +16,7 @@ from dataset.aoi import aois_from_csv
 from utils.metrics import ComputePixelMetrics
 from utils.utils import get_key_def
 from utils.logger import get_logger
+from utils.geoutils import footprint_mask
 
 logging = get_logger(__name__)
 
@@ -146,7 +146,7 @@ def main(params):
         else:
             burn_val = None
             burn_field = aoi.attr_field_filter
-        label = vector.mask.footprint_mask(
+        label = footprint_mask(
             df=aoi.label_gdf_filtered,
             reference_im=aoi.raster,
             burn_field=burn_field,
