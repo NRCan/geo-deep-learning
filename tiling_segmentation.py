@@ -15,7 +15,6 @@ import numpy as np
 from omegaconf import DictConfig, open_dict
 import rasterio
 from shapely.geometry import box
-from solaris import vector
 from tqdm import tqdm
 from osgeo import gdal, ogr
 from torch.utils.data import DataLoader
@@ -26,7 +25,7 @@ from dataset.create_dataset import DRDataset, GDLVectorDataset
 from dataset.aoi import AOI
 from utils.aoiutils import aois_from_csv
 from utils.geoutils import check_gdf_load, check_rasterio_im_load, bounds_gdf, bounds_riodataset, mask_nodata, \
-    nodata_vec_mask
+    nodata_vec_mask, footprint_mask
 from utils.utils import get_key_def, get_git_hash
 from utils.verifications import validate_raster
 # Set the logging file
@@ -478,7 +477,7 @@ class Tiler(object):
             gt_patch_gdf['burn_val'] = gt_patch_gdf[aoi.attr_field_filter].map(cont_vals_dict)
             burn_field = 'burn_val'  # overwrite burn_field
         # burn to raster
-        vector.mask.footprint_mask(df=gt_patch_gdf, out_file=str(out_px_mask),
+        footprint_mask(df=gt_patch_gdf, out_file=str(out_px_mask),
                                    reference_im=str(img_patch),
                                    burn_field=burn_field,
                                    burn_value=burn_val)
