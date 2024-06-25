@@ -4,7 +4,7 @@ channels:
 dependencies:
   - python==3.11.5
   - pip
-  - geopandas>=0.10.2
+  - gdal
   - pystac>=0.3.0
   - pytest>=7.1
   - ruamel_yaml>=0.15
