@@ -2,6 +2,7 @@ import csv
 import logging
 import multiprocessing
 import shutil
+import numpy as np
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence, Union
@@ -70,6 +71,7 @@ def verify_per_aoi(
             # https://rasterio.readthedocs.io/en/latest/topics/plotting.html
             fig, (axrgb, axhist) = plt.subplots(1, 2, figsize=(14, 7))
             aoi.raster_np = aoi.raster.read() if aoi.raster_np is None else aoi.raster_np  # prevent read if in memory
+            aoi.raster_np = aoi.raster_np.astype(np.float32)
             show(aoi.raster_np, ax=axrgb, transform=aoi.raster.transform)
             show_hist(
                 aoi.raster_np, bins=50, lw=1.0, stacked=False, alpha=0.75,
