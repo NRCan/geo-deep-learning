@@ -124,9 +124,13 @@ def main(params:Union[DictConfig, Dict]):
     
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
+        
+        print(f"\n-------------------------\n")
+        print(f"\nRaster_Name: {aoi.raster_name}\n")
+        print(f"\nRaster_Name_Clahe: {aoi.raster_name_clahe}\n")
         for attr, value in aoi.__dict__.items():
             print(f'{attr}: {value}')
-        logging.info(f'\nReading image: {aoi.aoi_id}')
-        input_path = aoi.raster.name
-        geo_inference(input_path, patch_size=chunk_size)
+        # logging.info(f'\nReading image: {aoi.aoi_id}')
+        # input_path = aoi.raster.name
+        # geo_inference(input_path, patch_size=chunk_size)
         
