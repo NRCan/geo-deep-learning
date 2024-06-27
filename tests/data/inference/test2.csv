@@ -1,1 +1,1 @@
-/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/operationalization/data/BC18-013904302070_01_P001-GE01-${dataset.bands}.tif
+/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/operationalization/data/BC18-013904302070_01_P001-GE01_clahe25-${dataset.bands}.tif

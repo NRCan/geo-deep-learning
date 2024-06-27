@@ -12,7 +12,7 @@ from dataset.stacitem import SingleBandItemEO
 from utils.aoiutils import aois_from_csv
 from utils.logger import get_logger, set_tracker
 
-# from geo_inference.geo_inference import GeoInference
+from geo_inference.geo_inference import GeoInference
 from utils.utils import get_device_ids, set_device, fetch_param
 
 # Set the logging file
@@ -196,7 +196,7 @@ def main(params: Union[DictConfig, Dict]):
     # Create the inference object
     device_str = "gpu" if device.type == "cuda" else "cpu"
     gpu_index = device.index if device.type == "cuda" else 0
-    """ 
+
     geo_inference = GeoInference(
         model=str(global_params["model_path"]),
         work_dir=str(global_params["root_dir"]),
@@ -212,4 +212,20 @@ def main(params: Union[DictConfig, Dict]):
         logging.info(f"\nReading image: {aoi.aoi_id}")
         input_path = aoi.raster.name
         geo_inference(input_path, patch_size=chunk_size)
-    """
+
+
+if __name__ == "__main__":
+    geo_inference = GeoInference(
+        model=str(
+            "/gpfs/fs5/nrcan/nrcan_geobase/work/dev/datacube/parallel/deep_learning_model/4cls_RGB_5_1_2_3_scripted.pt"
+        ),
+        work_dir=str(
+            "/gpfs/fs5/nrcan/nrcan_geobase/work/dev/datacube/parallel/Change_detection_Results/"
+        ),
+        batch_size=512,
+        mask_to_vec=False,
+        device="gpu",
+        gpu_id=0,
+    )
+    input_path = "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/operationalization/data/BC18-013904302070_01_P001-GE01_red-green-blue_clahe25.tif"
+    geo_inference(input_path, patch_size=256)

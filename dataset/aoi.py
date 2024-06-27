@@ -13,7 +13,7 @@ import torch
 from torch.nn import functional as F
 from pathlib import Path
 import sys
-
+import dask
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
 from omegaconf import listconfig, ListConfig
@@ -228,8 +228,8 @@ class AOI(object):
             csv_raster_str=self.raster_raw_input,
             raster_bands_requested=self.raster_bands_request,
         )
-        print(f"Parsed Rasters are {raster_parsed}")
 
+        logging.info(f"\n\tSuccessfully parsed Rasters \n: {raster_parsed}\n")
         # If stac item input, keep Stac item object as attribute
         if is_stac_item(self.raster_raw_input):
             item = SingleBandItemEO(
@@ -267,7 +267,6 @@ class AOI(object):
                 for key in desired_bands
                 if key in self.raster_bands_request
             }
-            print(raster_parsed)
             # TODO: how to handle Nir?
 
         # Chack the size of tiff files
@@ -283,12 +282,10 @@ class AOI(object):
                 f"Extended check: {False}"
             )
         self.raster_parsed = raster_parsed
-
         if label:
             self.label = Path(label)
             self.label_gdf = check_gdf_load(label)
             self.label_invalid_features = validate_features_from_gpkg(label)
-
         rio_gdal_options = {
             "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
             "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
@@ -343,7 +340,6 @@ class AOI(object):
 
                     # validate each raster
                     validate_raster_dask(self.raster)
-
                     bands_count = range(1, src.count + 1)
                     # Just to make sure that if we have a subset of data, get the subset only
                     if self.raster_src_is_multiband and self.raster_bands_request:
@@ -380,7 +376,6 @@ class AOI(object):
                         np_sources.append(self.raster)
                         self.raster = src if self.raster_src_is_multiband else None
 
-        print("we are here3")
         # calculating raster stat for all bands :: Only for multi-bands, otherwise, we'll get error on not having the same bucket size for all bands
         if raster_stats and self.raster_src_is_multiband and not stat_calculated:
             self.raster_stats = self.calc_rasters_stats()
@@ -616,100 +611,33 @@ class AOI(object):
         with rasterio.open("/vsicurl/" + url) as src:
             return src.read(1, window=window)
 
-    def create_dask_array_2(self):
-        import stackstac
-        import pystac_client
-
-        YEAR = 2020
-        MONTH_RANGE = ["06-15", "10-30"]  # from June 1st to Sep 15th
-        GRANULE_ID = "18TYR"
-        MAX_CLOUD_COVER = 30
-
-        stac_api_url = "https://earth-search.aws.element84.com/v1/"
-
-        # date_range = [f"{YEAR}-{date}" for date in MONTH_RANGE]
-        catalog = pystac_client.Client.open(stac_api_url)
-        collections = [
-            "landsat-c2-l2"
-        ]  # Specify the collection name(s) you want to search
-
-        # Assuming you want to search for items within a specific date range
-        date_range = [f"{YEAR}-{date}" for date in MONTH_RANGE]
-        catalog = pystac_client.Client.open(stac_api_url)
-
-        search = catalog.search(
-            collections=collections,
-            query={"grid:code": {"eq": f"MGRS-{GRANULE_ID}"}},
-            max_items=20,
-        )
-
-        items = search.item_collection()
-        print("intems")
-        [item.id for item in items]
-        dask_array = stackstac.stack(
-            items,
-            assets=["green", "red", "blue"],
-            rescale=False,
-            chunksize=(
-                1,
-                1,
-                int(self.chunk_size / 2),
-                int(self.chunk_size / 2),
-            ),
-        )
-        x = dask_array[0, :, :, :].data
-
-        return da.clip((x - x.min()) / (x.max() - x.min()) * 255, 0, 255)
-
     @staticmethod
     def equalize_adapthist_enhancement(aoi_chunk: np.ndarray, clip_limit: float):
         """This function applies scikit image equalize_adapthist on each chunk of dask array
         each chunk is [band, height, width] --> So, the contrast enhancement is applied on each hand separately"""
-        if aoi_chunk.size > 0:
+        from kornia import image_to_tensor, tensor_to_image
+        from kornia.enhance import equalize_clahe
+
+        if aoi_chunk.size > 0 and aoi_chunk is not None:
             ready_np_array = aoi_chunk[0, :, :]
             ready_np_array = minmax_scale(
                 img=ready_np_array, scale_range=(0, 1), orig_range=(0, 255)
             )
-            ready_np_array = equalize_adapthist(
+            ready_np_array = image_to_tensor(ready_np_array)
+            """ ready_np_array = equalize_adapthist(
                 ready_np_array,
                 clip_limit=clip_limit,
+            )"""
+            clip_limit = 25
+            ready_np_array = equalize_clahe(
+                ready_np_array.float().unsqueeze(0), clip_limit=float(clip_limit)
             )
-            ready_np_array = (ready_np_array * 255).astype(np.int32)
+            ready_np_array = tensor_to_image(
+                (ready_np_array * 255).long(), keepdim=True
+            ).squeeze()
+            # ready_np_array = (ready_np_array * 255).astype(np.int32)
             return ready_np_array[None, :, :]
         return aoi_chunk  # If the chunk size is 0, return the original chunk
-
-    @staticmethod
-    def add_overlp_to_chunks(
-        aoi_chunk: np.ndarray,
-        chunk_size: int,
-    ):
-        """
-        This function is for adding overlaps (stride) to each block. The overlaps are added on the right hand side and bottom of each
-        (n*n) chunks.
-        This function will be called in dask's map_overlap and on a dask array.
-        Args:
-            aoi_chunk (np.ndarray): the np.array of each chunk --> this np.array is a chunk of the whole data.
-            chunk_size (int):  the actual chunk size that we want.
-            The coming  aoi_chunk do have an overlap with their neighbours so their size is not (n*n). We get the chunk_size to trim them.
-        Returns:
-            aoi_chunk (np.ndarray): the trimmed np.array of each chunk.
-        """
-
-        if aoi_chunk.size > 0:
-            if aoi_chunk.shape[1] == chunk_size and aoi_chunk.shape[2] == chunk_size:
-                return aoi_chunk
-            elif aoi_chunk.shape[1] <= chunk_size and aoi_chunk.shape[2] > chunk_size:
-                return aoi_chunk[:, :, int(chunk_size / 2) :]
-            elif aoi_chunk.shape[1] > chunk_size and aoi_chunk.shape[2] <= chunk_size:
-                return aoi_chunk[:, int(chunk_size / 2) :, :]
-            elif aoi_chunk.shape[1] > chunk_size and aoi_chunk.shape[2] > chunk_size:
-                return aoi_chunk[
-                    :,
-                    int(chunk_size / 2) :,
-                    int(chunk_size / 2) :,
-                ]
-            else:  # which is on the edges and duplicated --> doesn't matter what we return as it gets null at the end of the day
-                return aoi_chunk
 
     @staticmethod
     def sum_overlapped_chunks(
@@ -719,29 +647,23 @@ class AOI(object):
     ):
         num_chunks = block_info[0]["num-chunks"]
         chunk_location = block_info[0]["chunk-location"]
-        step = chunk_size >> 1
-        window = w.hann(M=chunk_size, sym=False)
-        window = window[:, np.newaxis] * window[np.newaxis, :]  # Convert to a 2D array
+        full_array = np.empty((1, 1))
 
         if aoi_chunk.size > 0 and aoi_chunk is not None:
-            if chunk_location[1] == 0 and chunk_location[2] == 0:
+            if (chunk_location[1] == 0 or chunk_location[1] == num_chunks[1] - 1) and (
+                chunk_location[2] == 0 or chunk_location[2] == num_chunks[2] - 1
+            ):
+                """ All 4 corners"""
                 full_array = aoi_chunk[
                     :,
                     : int(chunk_size / 2),
                     : int(chunk_size / 2),
                 ]
-                if full_array.shape[0] == 1:
-                    full_array = expit(full_array)
-                    full_array = (
-                        np.where(full_array > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    full_array = np.argmax(full_array, axis=0).astype(np.uint8)
-                return full_array[None, :, :]
-            elif (chunk_location[1] == 0) and (
-                chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1
-            ):
-                aoi_chunk_up = (
+            elif (
+                chunk_location[1] == 0 or chunk_location[1] == num_chunks[1] - 1
+            ) and (chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1):
+                """ Top and bottom edges but not corners"""
+                full_array = (
                     aoi_chunk[
                         :,
                         : int(chunk_size / 2),
@@ -750,719 +672,79 @@ class AOI(object):
                     + aoi_chunk[
                         :,
                         : int(chunk_size / 2),
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
+                        : int(chunk_size / 2),
                     ]
                 )
-                window_u = np.vstack(
-                    [np.tile(window[step : step + 1, :], (step, 1)), window[step:, :]]
+            elif (
+                chunk_location[2] == 0 or chunk_location[2] == num_chunks[2] - 1
+            ) and (chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1):
+                """ Left and right edges but not corners"""
+                full_array = (
+                    aoi_chunk[
+                        :,
+                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
+                        : int(chunk_size / 2),
+                    ]
+                    + aoi_chunk[
+                        :,
+                        : int(chunk_size / 2),
+                        : int(chunk_size / 2),
+                    ]
                 )
-                if chunk_location[2] == 1:
-                    window_l = np.hstack(
-                        [
-                            np.tile(window[:, step : step + 1], (1, step)),
-                            window[:, step:],
-                        ]
-                    )
-                    window_ul = np.block(
-                        [
-                            [np.ones((step, step)), window_u[:step, step:]],
-                            [window_l[step:, :step], window_l[step:, step:]],
-                        ]
-                    )
-                    windows_up = (
-                        window_ul[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                        + window_u[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                elif chunk_location[2] == num_chunks[2] - 2:
-                    window_r = np.hstack(
-                        [
-                            window[:, :step],
-                            np.tile(window[:, step : step + 1], (1, step)),
-                        ]
-                    )
-                    window_ur = np.block(
-                        [
-                            [window_u[:step, :step], np.ones((step, step))],
-                            [window_r[step:, :step], window_r[step:, step:]],
-                        ]
-                    )
-                    windows_up = (
-                        window_u[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                        + window_ur[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                elif chunk_location[2] > 1 and chunk_location[2] < num_chunks[2] - 2:
-                    windows_up = (
-                        window_u[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                        + window_u[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                """ 
-                if not np.all(windows_up == 0):
-                    aoi_chunk_up /= windows_up
-                """
-                if aoi_chunk_up.shape[0] == 1:
-                    aoi_chunk_up = expit(aoi_chunk_up)
-                    aoi_chunk_up = (
-                        np.where(aoi_chunk_up > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_up = np.argmax(aoi_chunk_up, axis=0).astype(np.uint8)
-                return aoi_chunk_up[None, :, :]
-            elif chunk_location[1] == 0 and chunk_location[2] == num_chunks[2] - 1:
-                aoi_chunk_up = aoi_chunk[
-                    :,
-                    : int(chunk_size / 2),
-                    int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                ]
-                if aoi_chunk_up.shape[0] == 1:
-                    aoi_chunk_up = expit(aoi_chunk_up)
-                    aoi_chunk_up = (
-                        np.where(aoi_chunk_up > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_up = np.argmax(aoi_chunk_up, axis=0).astype(np.uint8)
-                return aoi_chunk_up[None, :, :]
-            elif (chunk_location[2] == 0) and (chunk_location[1] == num_chunks[1] - 1):
-                aoi_chunk_up = aoi_chunk[
-                    :,
-                    int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    : int(chunk_size / 2),
-                ]
-                if aoi_chunk_up.shape[0] == 1:
-                    aoi_chunk_up = expit(aoi_chunk_up)
-                    aoi_chunk_up = (
-                        np.where(aoi_chunk_up > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_up = np.argmax(aoi_chunk_up, axis=0).astype(np.uint8)
-                return aoi_chunk_up[None, :, :]
-            elif chunk_location[2] == 0 and (
+            elif (chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1) and (
                 chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
             ):
-                aoi_chunk_up = (
+                """ Middle chunks """
+                full_array = (
                     aoi_chunk[
+                        :,
+                        : int(chunk_size / 2),
+                        : int(chunk_size / 2),
+                    ]
+                    + aoi_chunk[
+                        :,
+                        : int(chunk_size / 2),
+                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
+                    ]
+                    + aoi_chunk[
                         :,
                         int(chunk_size / 2) : int(chunk_size / 2) * 2,
                         : int(chunk_size / 2),
                     ]
                     + aoi_chunk[
                         :,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                        : int(chunk_size / 2),
-                    ]
-                )
-                window_l = np.hstack(
-                    [np.tile(window[:, step : step + 1], (1, step)), window[:, step:]]
-                )
-                if chunk_location[1] == num_chunks[1] - 2:
-                    window_b = np.vstack(
-                        [
-                            window[:step, :],
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                        ]
-                    )
-                    window_bl = np.block(
-                        [
-                            [window_l[:step, :step], window_l[:step, step:]],
-                            [np.ones((step, step)), window_b[step:, step:]],
-                        ]
-                    )
-                    windows_up = (
-                        window_bl[
-                            : int(chunk_size / 2),
-                            : int(chunk_size / 2),
-                        ]
-                        + window_l[
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                            : int(chunk_size / 2),
-                        ]
-                    )
-                elif chunk_location[1] > 1 and chunk_location[1] < num_chunks[1] - 2:
-                    windows_up = (
-                        window_l[
-                            : int(chunk_size / 2),
-                            : int(chunk_size / 2),
-                        ]
-                        + window_l[
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                            : int(chunk_size / 2),
-                        ]
-                    )
-                elif chunk_location[1] == 1:
-                    window_u = np.vstack(
-                        [
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                            window[step:, :],
-                        ]
-                    )
-                    window_ul = np.block(
-                        [
-                            [np.ones((step, step)), window_u[:step, step:]],
-                            [window_l[step:, :step], window_l[step:, step:]],
-                        ]
-                    )
-                    windows_up = (
-                        window_l[
-                            : int(chunk_size / 2),
-                            : int(chunk_size / 2),
-                        ]
-                        + window_ul[
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                            : int(chunk_size / 2),
-                        ]
-                    )
-                """ 
-                if not np.all(windows_up == 0):
-                    aoi_chunk_up /= windows_up
-                """
-                if aoi_chunk_up.shape[0] == 1:
-                    aoi_chunk_up = expit(aoi_chunk_up)
-                    aoi_chunk_up = (
-                        np.where(aoi_chunk_up > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_up = np.argmax(aoi_chunk_up, axis=0).astype(np.uint8)
-                return aoi_chunk_up[None, :, :]
-            elif (chunk_location[2] == num_chunks[2] - 1) and (
-                chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
-            ):
-                aoi_chunk_up = (
-                    aoi_chunk[
-                        :,
                         int(chunk_size / 2) : int(chunk_size / 2) * 2,
                         int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                )
-                window_r = np.hstack(
-                    [window[:, :step], np.tile(window[:, step : step + 1], (1, step))]
-                )
-                if chunk_location[1] > 1 and chunk_location[1] < num_chunks[1] - 2:
-                    windows_up = (
-                        window_r[
-                            : int(chunk_size / 2),
-                            : int(chunk_size / 2),
-                        ]
-                        + window_r[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                    )
-                elif chunk_location[1] == 1:
-                    window_u = np.vstack(
-                        [
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                            window[step:, :],
-                        ]
-                    )
-                    window_ur = np.block(
-                        [
-                            [window_u[:step, :step], np.ones((step, step))],
-                            [window_r[step:, :step], window_r[step:, step:]],
-                        ]
-                    )
-                    windows_up = (
-                        window_ur[
-                            : int(chunk_size / 2),
-                            : int(chunk_size / 2),
-                        ]
-                        + window_r[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                    )
-                elif chunk_location[1] == num_chunks[1] - 2:
-                    window_b = np.vstack(
-                        [
-                            window[:step, :],
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                        ]
-                    )
-                    window_br = np.block(
-                        [
-                            [window_r[:step, :step], window_r[:step, step:]],
-                            [window_b[step:, :step], np.ones((step, step))],
-                        ]
-                    )
-                    windows_up = (
-                        window_r[
-                            : int(chunk_size / 2),
-                            : int(chunk_size / 2),
-                        ]
-                        + window_br[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                    )
-                """ 
-                if not np.all(windows_up == 0):
-                    aoi_chunk_up /= windows_up
-                """
-                if aoi_chunk_up.shape[0] == 1:
-                    aoi_chunk_up = expit(aoi_chunk_up)
-                    aoi_chunk_up = (
-                        np.where(aoi_chunk_up > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_up = np.argmax(aoi_chunk_up, axis=0).astype(np.uint8)
-                return aoi_chunk_up[None, :, :]
-            elif (chunk_location[2] == num_chunks[2] - 1) and (
-                chunk_location[1] == num_chunks[1] - 1
-            ):
-                aoi_chunk_top = aoi_chunk[
-                    :,
-                    int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                ]
-                if aoi_chunk_top.shape[0] == 1:
-                    aoi_chunk_top = expit(aoi_chunk_top)
-                    aoi_chunk_top = (
-                        np.where(aoi_chunk_top > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_top = np.argmax(aoi_chunk_top, axis=0).astype(np.uint8)
-                return aoi_chunk_top[None, :, :]
-            elif (chunk_location[2] == 1) and (
-                chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
-            ):
-                aoi_chunk_up = (
-                    aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                    ]
-                )
-                window_l = np.hstack(
-                    [
-                        np.tile(window[:, step : step + 1], (1, step)),
-                        window[:, step:],
-                    ]
-                )
-                if chunk_location[1] == num_chunks[1] - 2:
-                    window_b = np.vstack(
-                        [
-                            window[:step, :],
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                        ]
-                    )
-                    window_bl = np.block(
-                        [
-                            [window_l[:step, :step], window_l[:step, step:]],
-                            [np.ones((step, step)), window_b[step:, step:]],
-                        ]
-                    )
-                    windows_up = (
-                        window_bl[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                        + window_l[int(chunk_size / 2) :, int(chunk_size / 2) :]
-                        + window[
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                            : int(chunk_size / 2),
-                        ]
-                        + window_b[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                elif chunk_location[1] > 1 and chunk_location[1] < num_chunks[1] - 2:
-                    windows_up = (
-                        window_l[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                        + window_l[int(chunk_size / 2) :, int(chunk_size / 2) :]
-                        + window[
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                            : int(chunk_size / 2),
-                        ]
-                        + window[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                elif chunk_location[1] == 1:
-                    window_u = np.vstack(
-                        [
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                            window[step:, :],
-                        ]
-                    )
-                    window_ul = np.block(
-                        [
-                            [np.ones((step, step)), window_u[:step, step:]],
-                            [window_l[step:, :step], window_l[step:, step:]],
-                        ]
-                    )
-                    windows_up = (
-                        window_l[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) :,
-                        ]
-                        + window_ul[int(chunk_size / 2) :, int(chunk_size / 2) :]
-                        + window_u[int(chunk_size / 2) :, : int(chunk_size / 2)]
-                        + window[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                """ 
-                if not np.all(windows_up == 0):
-                    aoi_chunk_up /= windows_up
-                """
-                if aoi_chunk_up.shape[0] == 1:
-                    aoi_chunk_up = expit(aoi_chunk_up)
-                    aoi_chunk_up = (
-                        np.where(aoi_chunk_up > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_up = np.argmax(aoi_chunk_up, axis=0).astype(np.uint8)
-                return aoi_chunk_up[None, :, :]
-            elif (chunk_location[2] == 1) and (chunk_location[1] == num_chunks[1] - 1):
-                aoi_chunk_top = (
-                    aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                    ]
-                )
-                window_l = np.hstack(
-                    [np.tile(window[:, step : step + 1], (1, step)), window[:, step:]]
-                )
-                window_b = np.vstack(
-                    [window[:step, :], np.tile(window[step : step + 1, :], (step, 1))]
-                )
-                window_bl = np.block(
-                    [
-                        [window_l[:step, :step], window_l[:step, step:]],
-                        [np.ones((step, step)), window_b[step:, step:]],
-                    ]
-                )
-                windows_up = (
-                    window_bl[
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + window_b[
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        : int(chunk_size / 2),
-                    ]
-                )
-                """ 
-                if not np.all(windows_up == 0):
-                    aoi_chunk_up /= windows_up
-                """
-                if aoi_chunk_top.shape[0] == 1:
-                    aoi_chunk_top = expit(aoi_chunk_top)
-                    aoi_chunk_top = (
-                        np.where(aoi_chunk_top > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_top = np.argmax(aoi_chunk_top, axis=0).astype(np.uint8)
-                return aoi_chunk_top[None, :, :]
-            elif (chunk_location[2] > 1 and chunk_location[2] < num_chunks[2] - 2) and (
-                chunk_location[1] == num_chunks[1] - 1
-            ):
-                aoi_chunk_top = (
-                    aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
                     ]
                 )
 
-                window_b = np.vstack(
-                    [window[:step, :], np.tile(window[step : step + 1, :], (step, 1))]
-                )
-                windows_up = (
-                    window_b[
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + window_b[
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        : int(chunk_size / 2),
-                    ]
-                )
-                """ 
-                if not np.all(windows_up == 0):
-                    aoi_chunk_up /= windows_up
-                """
-                if aoi_chunk_top.shape[0] == 1:
-                    aoi_chunk_top = expit(aoi_chunk_top)
-                    aoi_chunk_top = (
-                        np.where(aoi_chunk_top > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_top = np.argmax(aoi_chunk_top, axis=0).astype(np.uint8)
-                return aoi_chunk_top[None, :, :]
-            elif (chunk_location[2] > 1 and chunk_location[2] < num_chunks[2] - 2) and (
-                chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
+            if full_array.shape != (
+                aoi_chunk.shape[0],
+                int(chunk_size / 2),
+                int(chunk_size / 2),
             ):
-                aoi_chunk_up = (
-                    aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                    ]
+                logging.error(
+                    f" In sum_overlapped_chunks the shape of full_array is not {(6, int(chunk_size / 2), int(chunk_size / 2))}"
+                    f" The size of it {full_array.shape}"
                 )
-                if chunk_location[1] == num_chunks[1] - 2:
-                    window_b = np.vstack(
-                        [
-                            window[:step, :],
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                        ]
-                    )
-                    windows_up = (
-                        window_b[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                        + window[int(chunk_size / 2) :, int(chunk_size / 2) :]
-                        + window[
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                            : int(chunk_size / 2),
-                        ]
-                        + window_b[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                elif chunk_location[1] > 1 and chunk_location[1] < num_chunks[1] - 2:
-                    windows_up = (
-                        window[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                        + window[int(chunk_size / 2) :, int(chunk_size / 2) :]
-                        + window[
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                            : int(chunk_size / 2),
-                        ]
-                        + window[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                elif chunk_location[1] == 1:
-                    window_u = np.vstack(
-                        [
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                            window[step:, :],
-                        ]
-                    )
-                    windows_up = (
-                        window[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) :,
-                        ]
-                        + window_u[int(chunk_size / 2) :, int(chunk_size / 2) :]
-                        + window_u[int(chunk_size / 2) :, : int(chunk_size / 2)]
-                        + window[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                """ 
-                if not np.all(windows_up == 0):
-                    aoi_chunk_up /= windows_up
-                """
-                if aoi_chunk_up.shape[0] == 1:
-                    aoi_chunk_up = expit(aoi_chunk_up)
-                    aoi_chunk_up = (
-                        np.where(aoi_chunk_up > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_up = np.argmax(aoi_chunk_up, axis=0).astype(np.uint8)
-                return aoi_chunk_up[None, :, :]
-            elif (chunk_location[2] == num_chunks[2] - 2) and (
-                chunk_location[1] == num_chunks[1] - 1
-            ):
-                aoi_chunk_top = (
-                    aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                    ]
-                )
-                window_r = np.hstack(
-                    [window[:, :step], np.tile(window[:, step : step + 1], (1, step))]
-                )
-                window_b = np.vstack(
-                    [window[:step, :], np.tile(window[step : step + 1, :], (step, 1))]
-                )
-                window_br = np.block(
-                    [
-                        [window_r[:step, :step], window_r[:step, step:]],
-                        [window_b[step:, :step], np.ones((step, step))],
-                    ]
-                )
-                windows_up = (
-                    window_b[
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + window_br[
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        : int(chunk_size / 2),
-                    ]
-                )
-                """ 
-                if not np.all(windows_up == 0):
-                    aoi_chunk_up /= windows_up
-                """
-                if aoi_chunk_top.shape[0] == 1:
-                    aoi_chunk_top = expit(aoi_chunk_top)
-                    aoi_chunk_top = (
-                        np.where(aoi_chunk_top > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_top = np.argmax(aoi_chunk_top, axis=0).astype(np.uint8)
-                return aoi_chunk_top[None, :, :]
-            elif (chunk_location[2] == num_chunks[2] - 2) and (
-                chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
-            ):
-                aoi_chunk_up = (
-                    aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                        int(chunk_size / 2) * 2 : int(chunk_size / 2) * 3,
-                    ]
-                )
-                window_r = np.hstack(
-                    [window[:, :step], np.tile(window[:, step : step + 1], (1, step))]
-                )
-                if chunk_location[1] == num_chunks[1] - 2:
-                    window_b = np.vstack(
-                        [
-                            window[:step, :],
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                        ]
-                    )
-                    window_br = np.block(
-                        [
-                            [window_r[:step, :step], window_r[:step, step:]],
-                            [window_b[step:, :step], np.ones((step, step))],
-                        ]
-                    )
-                    windows_up = (
-                        window_b[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                        + window[int(chunk_size / 2) :, int(chunk_size / 2) :]
-                        + window_r[
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                            : int(chunk_size / 2),
-                        ]
-                        + window_br[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                elif chunk_location[1] > 1 and chunk_location[1] < num_chunks[1] - 2:
-                    windows_up = (
-                        window_r[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        ]
-                        + window_r[int(chunk_size / 2) :, int(chunk_size / 2) :]
-                        + window[
-                            int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                            : int(chunk_size / 2),
-                        ]
-                        + window[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                elif chunk_location[1] == 1:
-                    window_u = np.vstack(
-                        [
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                            window[step:, :],
-                        ]
-                    )
-                    window_ur = np.block(
-                        [
-                            [window_u[:step, :step], np.ones((step, step))],
-                            [window_r[step:, :step], window_r[step:, step:]],
-                        ]
-                    )
-                    windows_up = (
-                        window[
-                            : int(chunk_size / 2),
-                            int(chunk_size / 2) :,
-                        ]
-                        + window_u[int(chunk_size / 2) :, int(chunk_size / 2) :]
-                        + window_ur[int(chunk_size / 2) :, : int(chunk_size / 2)]
-                        + window_r[: int(chunk_size / 2), : int(chunk_size / 2)]
-                    )
-                """ 
-                if not np.all(windows_up == 0):
-                    aoi_chunk_up /= windows_up
-                """
-                if aoi_chunk_up.shape[0] == 1:
-                    aoi_chunk_up = expit(aoi_chunk_up)
-                    aoi_chunk_up = (
-                        np.where(aoi_chunk_up > 0.5, 1, 0).squeeze(0).astype(np.uint8)
-                    )
-                else:
-                    aoi_chunk_up = np.argmax(aoi_chunk_up, axis=0).astype(np.uint8)
-                return aoi_chunk_up[None, :, :]
             else:
-                return np.full(
-                    (1, int(chunk_size / 2) * 2, int(chunk_size / 2)), np.nan
-                )
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    final_result = np.divide(
+                        full_array[:-1, :, :],
+                        full_array[-1, :, :][np.newaxis, :, :],
+                        out=np.zeros_like(full_array[:-1, :, :], dtype=float),
+                        where=full_array[-1, :, :] != 0,
+                    )
+                    if final_result.shape[0] == 1:
+                        final_result = expit(final_result)
+                        final_result = (
+                            np.where(final_result > 0.5, 1, 0)
+                            .squeeze(0)
+                            .astype(np.uint8)
+                        )
+                    else:
+                        final_result = np.argmax(final_result, axis=0).astype(np.uint8)
+                    return final_result
 
     def is_low_contrast(self, fraction_threshold=0.3):
         """This function checks if a raster is low contrast
@@ -1569,122 +851,6 @@ class AOI(object):
             raise e
 
     @staticmethod
-    def apply_window_on_chunks(
-        prediction_chunk: np.ndarray,
-        chunk_size: int,
-        block_info=None,
-    ):
-        """does generate_corner_windows and applies it to the model input"""
-
-        if prediction_chunk.size > 0:
-            step = chunk_size >> 1
-
-            window = w.hann(M=chunk_size, sym=False)
-            window = (
-                window[:, np.newaxis] * window[np.newaxis, :]
-            )  # Convert to a 2D array
-
-            # getting info about "where" the chunk is located in the whole dask array
-            num_chunks = block_info[0]["num-chunks"]
-            chunk_location = block_info[0]["chunk-location"]
-
-            # now we apply different windows based on where the chunk is located
-            # always the order is [band, Y, X]
-            if chunk_location[2] == num_chunks[2] - 2 and chunk_location[1] == 0:
-                window_u = np.vstack(
-                    [np.tile(window[step : step + 1, :], (step, 1)), window[step:, :]]
-                )
-                window_r = np.hstack(
-                    [window[:, :step], np.tile(window[:, step : step + 1], (1, step))]
-                )
-                window_ur = np.block(
-                    [
-                        [window_u[:step, :step], np.ones((step, step))],
-                        [window_r[step:, :step], window_r[step:, step:]],
-                    ]
-                )
-                return prediction_chunk * window_ur
-            elif chunk_location[2] == num_chunks[2] - 2 and (
-                chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 2
-            ):
-                window_r = np.hstack(
-                    [window[:, :step], np.tile(window[:, step : step + 1], (1, step))]
-                )
-                return prediction_chunk * window_r
-            elif (
-                chunk_location[2] == num_chunks[2] - 2
-                and chunk_location[1] == num_chunks[1] - 2
-            ):
-                window_r = np.hstack(
-                    [window[:, :step], np.tile(window[:, step : step + 1], (1, step))]
-                )
-                window_b = np.vstack(
-                    [window[:step, :], np.tile(window[step : step + 1, :], (step, 1))]
-                )
-                window_br = np.block(
-                    [
-                        [window_r[:step, :step], window_r[:step, step:]],
-                        [window_b[step:, :step], np.ones((step, step))],
-                    ]
-                )
-                return prediction_chunk * window_br
-            elif chunk_location[1] == 0 and chunk_location[2] == 0:
-                window_u = np.vstack(
-                    [np.tile(window[step : step + 1, :], (step, 1)), window[step:, :]]
-                )
-                window_l = np.hstack(
-                    [np.tile(window[:, step : step + 1], (1, step)), window[:, step:]]
-                )
-                window_ul = np.block(
-                    [
-                        [np.ones((step, step)), window_u[:step, step:]],
-                        [window_l[step:, :step], window_l[step:, step:]],
-                    ]
-                )
-                return prediction_chunk * window_ul
-            elif chunk_location[2] == 0 and (
-                chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 2
-            ):
-                window_l = np.hstack(
-                    [np.tile(window[:, step : step + 1], (1, step)), window[:, step:]]
-                )
-                return prediction_chunk * window_l
-            elif chunk_location[2] == 0 and chunk_location[1] == num_chunks[1] - 2:
-                window_l = np.hstack(
-                    [np.tile(window[:, step : step + 1], (1, step)), window[:, step:]]
-                )
-                window_b = np.vstack(
-                    [window[:step, :], np.tile(window[step : step + 1, :], (step, 1))]
-                )
-                window_bl = np.block(
-                    [
-                        [window_l[:step, :step], window_l[:step, step:]],
-                        [np.ones((step, step)), window_b[step:, step:]],
-                    ]
-                )
-                return prediction_chunk * window_bl
-            elif (chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 2) and (
-                chunk_location[1] == 0
-            ):
-                window_u = np.vstack(
-                    [np.tile(window[step : step + 1, :], (step, 1)), window[step:, :]]
-                )
-                return prediction_chunk * window_u
-            elif (chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 2) and (
-                chunk_location[1] == num_chunks[1] - 2
-            ):
-                window_b = np.vstack(
-                    [window[:step, :], np.tile(window[step : step + 1, :], (step, 1))]
-                )
-                return prediction_chunk * window_b
-            elif (chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 2) and (
-                chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 2
-            ):
-                return prediction_chunk * window
-            else:
-                return prediction_chunk  # which are np.nan np.arrays
-
-    @staticmethod
     def runModel(
         chunk_data: np.ndarray,
         chunk_size: int,
@@ -1694,13 +860,17 @@ class AOI(object):
         num_chunks = block_info[0]["num-chunks"]
         chunk_location = block_info[0]["chunk-location"]
 
-        if chunk_data.size > 0 and (
-            chunk_location[2] != num_chunks[2] - 1
-            and chunk_location[1] != num_chunks[1] - 1
-        ):
+        if chunk_data.size > 0 and chunk_data is not None:
             try:
-                device = torch.device("cpu")
-                device_code = 0
+                # Defining the base window for window creation later
+                step = chunk_size >> 1
+                window = w.hann(M=chunk_size, sym=False)
+                window = window[:, np.newaxis] * window[np.newaxis, :]
+                final_window = np.empty((1, 1))
+
+                # device = torch.device("cpu")
+                device_id = None
+                num_devices = 0
                 if torch.cuda.is_available():
                     num_devices = torch.cuda.device_count()
                     for i in range(num_devices):
@@ -1713,47 +883,563 @@ class AOI(object):
                         used_ram = mem["used"] / (1024**2)
                         max_ram = mem["total"] / (1024**2)
                         used_ram_percentage = (used_ram / max_ram) * 100
-                        if used_ram_percentage < 80:
-                            if res["gpu"] < 80:
-                                device = torch.device(f"cuda:{i}")
-                                device_code = i
-                                break
+                        if used_ram_percentage < 70 and res["gpu"] < 70:
+                            device_id = i
+                            break
+                device = (
+                    torch.device(f"cuda:{device_id}")
+                    if device_id is not None
+                    else torch.device("cpu")
+                )
+                device = torch.device("cuda:0")
+                """ 
+                if (
+                    chunk_location[2] > int(num_chunks[2] / num_devices)
+                    and chunk_location[2] <= int(num_chunks[2] / num_devices) * 2
+                ):
+                    device = torch.device("cuda:1")
+                elif chunk_location[2] > int(num_chunks[2] / num_devices) * 2:
+                    device = torch.device("cuda:2")
+                """
+                model = torch.jit.load(model_path, map_location=device).to(
+                    device
+                )  # load the model
+                tensor = torch.as_tensor(chunk_data[np.newaxis, ...]).to(
+                    model.device
+                )  # convert chunck to torch Tensor
+                prediction_output = np.empty(
+                    shape=(5, chunk_data.shape[1], chunk_data.shape[2])
+                )  # Create the output but empty
 
-                # Put the data into a shape PyTorch expects(Channel x Width x Height)
-                chunk_data_ = chunk_data[None, :, :, :]
-
-                # load the model
-                model = torch.jit.load(model_path, map_location=device)
-                # convert chunck to torch Tensor
-                tensor = torch.tensor(chunk_data_).to(device)
-                h, w = tensor.shape[-2:]
-                # pads are described starting from the last dimension and moving forward.
-                tensor = F.pad(tensor, (0, chunk_size - w, 0, chunk_size - h))
-                # pass image through model
                 with torch.no_grad():
-                    features = (
-                        model(tensor).cpu().numpy()
-                        if device == torch.device(f"cuda:{device_code}")
-                        else model(tensor).numpy()
+                    prediction_output = model(tensor).cpu().numpy()[0]  # run the model
+                del tensor
+                del model  # Delete the model if it's not needed anymore
+
+                # Getting a (chunk_size, chunk_size) chunk with its window
+                if chunk_location[2] == num_chunks[2] - 1 and chunk_location[1] == 0:
+                    """ If chunk is top right corner"""
+                    prediction_output = prediction_output[
+                        :,
+                        :chunk_size,
+                        :chunk_size,
+                    ]
+                    """ Top right corner window"""
+                    window_u = np.vstack(
+                        [
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                            window[step:, :],
+                        ]
                     )
-                # get the batch
-                features = features[0, :, :, :]
-                return features
+                    window_r = np.hstack(
+                        [
+                            window[:, :step],
+                            np.tile(window[:, step : step + 1], (1, step)),
+                        ]
+                    )
+                    final_window = np.block(
+                        [
+                            [window_u[:step, :step], np.ones((step, step))],
+                            [window_r[step:, :step], window_r[step:, step:]],
+                        ]
+                    )
+                elif chunk_location[2] == num_chunks[2] - 1 and (
+                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
+                ):
+                    """ If chunk is on the right egde but not corners"""
+                    prediction_output = prediction_output[
+                        :,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                        :chunk_size,
+                    ]
+                    """ left egde window """
+                    final_window = np.hstack(
+                        [
+                            window[:, :step],
+                            np.tile(window[:, step : step + 1], (1, step)),
+                        ]
+                    )
+                elif chunk_location[2] == num_chunks[2] - 1 and (
+                    chunk_location[1] == num_chunks[1] - 1
+                ):
+                    """ If chunk is in the bottom right corner"""
+                    prediction_output = prediction_output[
+                        :,
+                        :chunk_size,
+                        :chunk_size,
+                    ]
+                    """ bottom right window """
+                    window_r = np.hstack(
+                        [
+                            window[:, :step],
+                            np.tile(window[:, step : step + 1], (1, step)),
+                        ]
+                    )
+                    window_b = np.vstack(
+                        [
+                            window[:step, :],
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                        ]
+                    )
+                    final_window = np.block(
+                        [
+                            [window_r[:step, :step], window_r[:step, step:]],
+                            [window_b[step:, :step], np.ones((step, step))],
+                        ]
+                    )
+                elif chunk_location[1] == num_chunks[1] - 1 and (
+                    chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1
+                ):
+                    """ If chunk is on the bottom egde but not corners"""
+                    prediction_output = prediction_output[
+                        :,
+                        :chunk_size,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                    ]
+                    """ bottom egde window"""
+                    final_window = np.vstack(
+                        [
+                            window[:step, :],
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                        ]
+                    )
+                elif chunk_location[1] == num_chunks[1] - 1 and chunk_location[2] == 0:
+                    """ If chunk is on the bottom left corner"""
+                    prediction_output = prediction_output[
+                        :,
+                        :chunk_size,
+                        :chunk_size,
+                    ]
+                    """ bottom left window"""
+                    window_l = np.hstack(
+                        [
+                            np.tile(window[:, step : step + 1], (1, step)),
+                            window[:, step:],
+                        ]
+                    )
+                    window_b = np.vstack(
+                        [
+                            window[:step, :],
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                        ]
+                    )
+                    final_window = np.block(
+                        [
+                            [window_l[:step, :step], window_l[:step, step:]],
+                            [np.ones((step, step)), window_b[step:, step:]],
+                        ]
+                    )
+                elif chunk_location[1] == 0 and chunk_location[2] == 0:
+                    """ If chunk is on the top left corner"""
+                    prediction_output = prediction_output[:, :chunk_size, :chunk_size]
+                    """ Top left window"""
+                    window_u = np.vstack(
+                        [
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                            window[step:, :],
+                        ]
+                    )
+                    window_l = np.hstack(
+                        [
+                            np.tile(window[:, step : step + 1], (1, step)),
+                            window[:, step:],
+                        ]
+                    )
+                    final_window = np.block(
+                        [
+                            [np.ones((step, step)), window_u[:step, step:]],
+                            [window_l[step:, :step], window_l[step:, step:]],
+                        ]
+                    )
+                elif chunk_location[2] == 0 and (
+                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1]
+                ):
+                    """ If chunk is on the left edge but not corners"""
+                    prediction_output = prediction_output[
+                        :,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                        :chunk_size,
+                    ]
+                    """ top edge window"""
+                    final_window = np.hstack(
+                        [
+                            np.tile(window[:, step : step + 1], (1, step)),
+                            window[:, step:],
+                        ]
+                    )
+                elif (
+                    chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1
+                ) and (chunk_location[1] == 0):
+                    """ If chunk is on the top edge but not corners"""
+                    prediction_output = prediction_output[
+                        :,
+                        :chunk_size,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                    ]
+                    """ top edge window"""
+                    final_window = np.vstack(
+                        [
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                            window[step:, :],
+                        ]
+                    )
+                elif (
+                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
+                ) and (chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1):
+                    """ if the chunk is in the middle"""
+                    prediction_output = prediction_output[
+                        :,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                    ]
+                    final_window = window
+
+                """ 
+                slices = dask.array.core.slices_from_chunks(
+                    dask.array.empty(chunk_data_.shape).chunks
+                )  #Create slices for iterating over and running the model
+                prediction_output = np.empty(
+                    shape=(5, chunk_data_.shape[1], chunk_data_.shape[2])
+                )  #Create the prediction_outputput but empty
+                for slice_ in slices:
+                    tensor = torch.as_tensor(chunk_data_[slice_][np.newaxis, ...]).to(
+                        device
+                    )
+                    with torch.no_grad():
+                        prediction_output[:, slice_[1], slice_[2]] = model(tensor).cpu().numpy()[0]
+                    del tensor  # Delete the tensor to free up memory
+                """
+
+                if prediction_output.shape[1:] != final_window.shape:
+                    logging.error(
+                        f" In runModel the shape of window and the array do not match"
+                        f" The shape of window is {final_window.shape}"
+                        f" The shape of array is {prediction_output.shape[1:]}"
+                    )
+                if prediction_output.shape[1:] != (chunk_size, chunk_size):
+                    logging.error(
+                        f" In runModel the shape of the array is not the expected shape"
+                        f" The shape of array is {prediction_output.shape[1:]}"
+                    )
+                else:
+                    return np.concatenate(
+                        (
+                            prediction_output * final_window,
+                            final_window[np.newaxis, :, :],
+                        ),
+                        axis=0,
+                    )
+            except Exception as e:
+                logging.error(f"Error occured in IrunModel: {e}")
             finally:
-                # Clean the GPU memory
-                del tensor  # Delete the tensor to free up memory
-                del model  # Optionally, delete the model if it's not needed anymore
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()  # Release unused memory
 
-        else:
-            return np.full((5, chunk_size, chunk_size), np.nan)
+    @staticmethod
+    def runModel_partial_neighbor(
+        chunk_data: np.ndarray,
+        chunk_size: int,
+        model_path: str,
+        block_info=None,
+    ):
+        num_chunks = block_info[0]["num-chunks"]
+        chunk_location = block_info[0]["chunk-location"]
+        if chunk_data.size > 0 and chunk_data is not None:
+            try:
+                # Defining the base window for window creation later
+                step = chunk_size >> 1
+                window = w.hann(M=chunk_size, sym=False)
+                window = window[:, np.newaxis] * window[np.newaxis, :]
+                final_window = np.empty((1, 1))
+                chunk_data_ = chunk_data
+
+                # Getting a (chunk_size, chunk_size) chunk with its window
+                if chunk_location[2] == num_chunks[2] - 1 and chunk_location[1] == 0:
+                    """ If chunk is top right corner"""
+                    chunk_data_ = chunk_data_[
+                        :,
+                        :chunk_size,
+                        :chunk_size,
+                    ]
+                    """ Top right corner window"""
+                    window_u = np.vstack(
+                        [
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                            window[step:, :],
+                        ]
+                    )
+                    window_r = np.hstack(
+                        [
+                            window[:, :step],
+                            np.tile(window[:, step : step + 1], (1, step)),
+                        ]
+                    )
+                    final_window = np.block(
+                        [
+                            [window_u[:step, :step], np.ones((step, step))],
+                            [window_r[step:, :step], window_r[step:, step:]],
+                        ]
+                    )
+                elif chunk_location[2] == num_chunks[2] - 1 and (
+                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
+                ):
+                    """ If chunk is on the right egde but not corners"""
+                    chunk_data_ = chunk_data[
+                        :,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                        :chunk_size,
+                    ]
+                    """ left egde window """
+                    final_window = np.hstack(
+                        [
+                            window[:, :step],
+                            np.tile(window[:, step : step + 1], (1, step)),
+                        ]
+                    )
+                elif chunk_location[2] == num_chunks[2] - 1 and (
+                    chunk_location[1] == num_chunks[1] - 1
+                ):
+                    """ If chunk is in the bottom right corner"""
+                    chunk_data_ = chunk_data_[
+                        :,
+                        :chunk_size,
+                        :chunk_size,
+                    ]
+                    """ bottom right window """
+                    window_r = np.hstack(
+                        [
+                            window[:, :step],
+                            np.tile(window[:, step : step + 1], (1, step)),
+                        ]
+                    )
+                    window_b = np.vstack(
+                        [
+                            window[:step, :],
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                        ]
+                    )
+                    final_window = np.block(
+                        [
+                            [window_r[:step, :step], window_r[:step, step:]],
+                            [window_b[step:, :step], np.ones((step, step))],
+                        ]
+                    )
+                elif chunk_location[1] == num_chunks[1] - 1 and (
+                    chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1
+                ):
+                    """ If chunk is on the bottom egde but not corners"""
+                    chunk_data_ = chunk_data_[
+                        :,
+                        :chunk_size,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                    ]
+                    """ bottom egde window"""
+                    final_window = np.vstack(
+                        [
+                            window[:step, :],
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                        ]
+                    )
+                elif chunk_location[1] == num_chunks[1] - 1 and chunk_location[2] == 0:
+                    """ If chunk is on the bottom left corner"""
+                    chunk_data_ = chunk_data_[
+                        :,
+                        :chunk_size,
+                        :chunk_size,
+                    ]
+                    """ bottom left window"""
+                    window_l = np.hstack(
+                        [
+                            np.tile(window[:, step : step + 1], (1, step)),
+                            window[:, step:],
+                        ]
+                    )
+                    window_b = np.vstack(
+                        [
+                            window[:step, :],
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                        ]
+                    )
+                    final_window = np.block(
+                        [
+                            [window_l[:step, :step], window_l[:step, step:]],
+                            [np.ones((step, step)), window_b[step:, step:]],
+                        ]
+                    )
+                elif chunk_location[1] == 0 and chunk_location[2] == 0:
+                    """ If chunk is on the top left corner"""
+                    chunk_data_ = chunk_data[:, :chunk_size, :chunk_size]
+                    """ Top left window"""
+                    window_u = np.vstack(
+                        [
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                            window[step:, :],
+                        ]
+                    )
+                    window_l = np.hstack(
+                        [
+                            np.tile(window[:, step : step + 1], (1, step)),
+                            window[:, step:],
+                        ]
+                    )
+                    final_window = np.block(
+                        [
+                            [np.ones((step, step)), window_u[:step, step:]],
+                            [window_l[step:, :step], window_l[step:, step:]],
+                        ]
+                    )
+                elif chunk_location[2] == 0 and (
+                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1]
+                ):
+                    """ If chunk is on the left edge but not corners"""
+                    chunk_data_ = chunk_data[
+                        :,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                        :chunk_size,
+                    ]
+                    """ top edge window"""
+                    final_window = np.hstack(
+                        [
+                            np.tile(window[:, step : step + 1], (1, step)),
+                            window[:, step:],
+                        ]
+                    )
+                elif (
+                    chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1
+                ) and (chunk_location[1] == 0):
+                    """ If chunk is on the top edge but not corners"""
+                    chunk_data_ = chunk_data[
+                        :,
+                        :chunk_size,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                    ]
+                    """ top edge window"""
+                    final_window = np.vstack(
+                        [
+                            np.tile(window[step : step + 1, :], (step, 1)),
+                            window[step:, :],
+                        ]
+                    )
+                elif (
+                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
+                ) and (chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1):
+                    """ if the chunk is in the middle"""
+                    chunk_data_ = chunk_data[
+                        :,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
+                    ]
+                    final_window = window
+
+                device = torch.device("cpu")
+                device_id = None
+                if torch.cuda.is_available():
+                    num_devices = torch.cuda.device_count()
+                    for i in range(num_devices):
+                        res = {"gpu": torch.cuda.utilization(i)}
+                        torch_cuda_mem = torch.cuda.mem_get_info(i)
+                        mem = {
+                            "used": torch_cuda_mem[-1] - torch_cuda_mem[0],
+                            "total": torch_cuda_mem[-1],
+                        }
+                        used_ram = mem["used"] / (1024**2)
+                        max_ram = mem["total"] / (1024**2)
+                        used_ram_percentage = (used_ram / max_ram) * 100
+                        if used_ram_percentage < 70 and res["gpu"] < 70:
+                            device_id = i
+                            break
+
+                """ 
+                device = (
+                    torch.device(f"cuda:{device_id}")
+                    if device_id is not None
+                    else torch.device("cpu")
+                )
+                """
+                device = torch.device("cuda:0")
+                """
+                if (
+                    chunk_location[2] > int(num_chunks[2] / num_devices)
+                    and chunk_location[2] <= int(num_chunks[2] / num_devices) * 2
+                ):
+                    device = torch.device("cuda:1")
+                elif chunk_location[2] > int(num_chunks[2] / num_devices) * 2:
+                    device = torch.device("cuda:2")
+                """
+                model = torch.jit.load(model_path, map_location=device).to(
+                    device
+                )  # load the model
+                # convert chunck to torch Tensor
+                tensor = torch.as_tensor(chunk_data_[np.newaxis, ...]).to(model.device)
+
+                out = np.empty(
+                    shape=(5, chunk_data_.shape[1], chunk_data_.shape[2])
+                )  # Create the output but empty
+                # run the model
+                with torch.no_grad():
+                    out = model(tensor).cpu().numpy()[0]
+                """ 
+                slices = dask.array.core.slices_from_chunks(
+                    dask.array.empty(chunk_data_.shape).chunks
+                )  #Create slices for iterating over and running the model
+                out = np.empty(
+                    shape=(5, chunk_data_.shape[1], chunk_data_.shape[2])
+                )  #Create the output but empty
+                for slice_ in slices:
+                    tensor = torch.as_tensor(chunk_data_[slice_][np.newaxis, ...]).to(
+                        device
+                    )
+                    with torch.no_grad():
+                        out[:, slice_[1], slice_[2]] = model(tensor).cpu().numpy()[0]
+                    del tensor  # Delete the tensor to free up memory
+                """
+                del tensor
+                del model  # Delete the model if it's not needed anymore
+                if out.shape[1:] != final_window.shape:
+                    logging.error(
+                        f" In runModel the shape of window and the array do not match"
+                        f" The shape of window is {final_window.shape}"
+                        f" The shape of array is {out.shape[1:]}"
+                    )
+                if out.shape[1:] != (chunk_size, chunk_size):
+                    logging.error(
+                        f" In runModel the shape of the array is not the expected shape"
+                        f" The shape of array is {out.shape[1:]}"
+                    )
+                else:
+                    return np.concatenate(
+                        (out * final_window, final_window[np.newaxis, :, :]), axis=0
+                    )
+                """
+                # convert chunck to torch Tensor
+                tensor = torch.tensor(chunk_data[None, :, :, :]).to(device)
+                # run the model
+                with torch.no_grad():
+                    model_tensor = model(tensor).argmax(dim=1).to(torch.uint8)
+                return model_tensor.cpu().numpy()[0]
+
+                
+                if model_tensor.shape[1] == 1:
+                    features = expit(model_tensor).cpu().numpy()[0]
+                    return (
+                        np.where(features > 0.5, 1, 0)
+                        .squeeze(0)
+                        .astype(np.uint8)
+                    )
+                else:
+                    features = model_tensor.to(torch.uint8)
+                    return features.cpu().numpy()[0]
+                    """
+            except Exception as e:
+                logging.error(f"Error occured in IrunModel: {e}")
+            finally:
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()  # Release unused memory
 
     def write_inference_to_tif(
         self,
         mask_image: np.ndarray,
     ):
-        mask_image = mask_image[0, :, :]
         mask_image = mask_image[
             np.newaxis, : mask_image.shape[0], : mask_image.shape[1]
         ]
@@ -1773,16 +1459,6 @@ class AOI(object):
             **self.raster_meta,
         ) as dest:
             dest.write(mask_image)
-
-    @cuda.jit
-    def multiplication_on_gpu(layer, window):
-        row, col = cuda.grid(2)
-        # Get the number of channels
-        channels = layer.shape[0]
-
-        if row < layer.shape[1] and col < layer.shape[2]:
-            for channel in range(channels):
-                layer[channel, row, col] *= window[row, col]
 
 
 def aois_from_csv(
