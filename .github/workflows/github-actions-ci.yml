@@ -3,16 +3,21 @@ on: [push, pull_request]
 jobs:
   run-tests:
     runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash -el {0}
     steps:
-      - name: clone repo
+      - name: checkout repository
         uses: actions/checkout@v4.1.2
       
-      - name: Install dependencies
-        run: |
-          conda env create -f environment.yml
-          echo "/opt/conda/envs/geo_deep_env/bin" >> $GITHUB_PATH
+      - name: create environment
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          mamba-version: "*"
+          activate-environment: geo_deep_env
+          environment-file: environment.yml
       
-      - name: Test with pytest
+      - name: Show conda environment
         run: |
-          conda activate geo_deep_env
-          pytest tests/
+          conda info
+          conda list
