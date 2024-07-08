@@ -10,8 +10,10 @@ from fiona._err import CPLE_OpenFailedError
 from fiona.errors import DriverError
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pystac
 import rasterio
+from affine import Affine
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
 from rasterio import MemoryFile, DatasetReader
@@ -20,8 +22,9 @@ from rasterio.shutil import copy as riocopy
 import xml.etree.ElementTree as ET
 from osgeo import gdal, gdalconst, ogr, osr
 
-from shapely.geometry import box, Polygon
-
+from shapely.geometry import box, Polygon, Point
+from shapely.geometry.base import BaseGeometry
+from shapely.wkt import loads
 logger = logging.getLogger(__name__)
 
 
@@ -177,6 +180,20 @@ def check_rasterio_im_load(im):
     else:
         raise ValueError("{} is not an accepted image format for rasterio.".format(im))
 
+def check_df_load(df):
+    """Check if `df` is already loaded in, if not, load from file.
+    Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L39-L49
+    """
+    if isinstance(df, str):
+        if df.lower().endswith("json"):
+            return check_gdf_load(df)
+        else:
+            return pd.read_csv(df)
+    elif isinstance(df, pd.DataFrame):
+        return df
+    else:
+        raise ValueError(f"{df} is not an accepted DataFrame format.")
+
 
 def check_gdf_load(gdf):
     """
@@ -207,6 +224,35 @@ def check_gdf_load(gdf):
     else:
         raise ValueError(f"{gdf} is not an accepted GeoDataFrame format.")
 
+def check_do_transform(df, reference_im, affine_obj):
+    """Check whether or not a transformation should be performed.
+    Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/vector/mask.py#L831-L842
+    """
+    try:
+        crs = getattr(df, "crs")
+    except AttributeError:
+        return False  # if it doesn't have a CRS attribute
+
+    if not crs:
+        return False  # return False for do_transform if crs is falsey
+    elif crs and (reference_im is not None or affine_obj is not None):
+        # if the input has a CRS and another obj was provided for xforming
+        return True
+
+def check_geom(geom):
+    """Check if a geometry is loaded in.
+
+    Returns the geometry if it's a shapely geometry object. If it's a wkt
+    string or a list of coordinates, convert to a shapely geometry.
+    
+    Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L74-L85
+    """
+    if isinstance(geom, BaseGeometry):
+        return geom
+    elif isinstance(geom, str):  # assume it's a wkt
+        return loads(geom)
+    elif isinstance(geom, list) and len(geom) == 2:  # coordinates
+        return Point(geom)
 
 def check_crs(input_crs, return_rasterio=False):
     """Convert CRS to the ``pyproj.CRS`` object passed by ``solaris``."""
@@ -399,6 +445,117 @@ def nodata_vec_mask(raster: rasterio.DatasetReader, nodata_val: int = None) -> o
 
     return vec_ds
 
+
+def footprint_mask(
+    df,
+    out_file=None,
+    reference_im=None,
+    geom_col="geometry",
+    do_transform=None,
+    affine_obj=None,
+    shape=(900, 900),
+    out_type="int",
+    burn_value=255,
+    burn_field=None,
+):
+    """Convert a dataframe of geometries to a pixel mask.
+
+    Arguments
+    ---------
+    df : :class:`pandas.DataFrame` or :class:`geopandas.GeoDataFrame`
+        A :class:`pandas.DataFrame` or :class:`geopandas.GeoDataFrame` instance
+        with a column containing geometries (identified by `geom_col`). If the
+        geometries in `df` are not in pixel coordinates, then `affine` or
+        `reference_im` must be passed to provide the transformation to convert.
+    out_file : str, optional
+        Path to an image file to save the output to. Must be compatible with
+        :class:`rasterio.DatasetReader`. If provided, a `reference_im` must be
+        provided (for metadata purposes).
+    reference_im : :class:`rasterio.DatasetReader` or `str`, optional
+        An image to extract necessary coordinate information from: the
+        affine transformation matrix, the image extent, etc. If provided,
+        `affine_obj` and `shape` are ignored.
+    geom_col : str, optional
+        The column containing geometries in `df`. Defaults to ``"geometry"``.
+    do_transform : bool, optional
+        Should the values in `df` be transformed from geospatial coordinates
+        to pixel coordinates? Defaults to ``None``, in which case the function
+        attempts to infer whether or not a transformation is required based on
+        the presence or absence of a CRS in `df`. If ``True``, either
+        `reference_im` or `affine_obj` must be provided as a source for the
+        the required affine transformation matrix.
+    affine_obj : `list` or :class:`affine.Affine`, optional
+        Affine transformation to use to convert from geo coordinates to pixel
+        space. Only provide this argument if `df` is a
+        :class:`geopandas.GeoDataFrame` with coordinates in a georeferenced
+        coordinate space. Ignored if `reference_im` is provided.
+    shape : tuple, optional
+        An ``(x_size, y_size)`` tuple defining the pixel extent of the output
+        mask. Ignored if `reference_im` is provided.
+    out_type : 'float' or 'int'
+    burn_value : `int` or `float`, optional
+        The value to use for labeling objects in the mask. Defaults to 255 (the
+        max value for ``uint8`` arrays). The mask array will be set to the same
+        dtype as `burn_value`. Ignored if `burn_field` is provided.
+    burn_field : str, optional
+        Name of a column in `df` that provides values for `burn_value` for each
+        independent object. If provided, `burn_value` is ignored.
+
+    Returns
+    -------
+    mask : :class:`numpy.array`
+        A pixel mask with 0s for non-object pixels and `burn_value` at object
+        pixels. `mask` dtype will coincide with `burn_value`.
+    
+    Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/vector/mask.py#L135-L236
+    """
+    # start with required checks and pre-population of values
+    if out_file and not reference_im:
+        raise ValueError("If saving output to file, `reference_im` must be provided.")
+    df = check_df_load(df)
+
+    if len(df) == 0 and not out_file:
+        return np.zeros(shape=shape, dtype="uint8")
+
+    if do_transform is None:
+        # determine whether or not transform should be done
+        do_transform = check_do_transform(df, reference_im, affine_obj)
+
+    df[geom_col] = df[geom_col].apply(check_geom)  # load in geoms if wkt
+    if not do_transform:
+        affine_obj = Affine(1, 0, 0, 0, 1, 0)  # identity transform
+
+    if reference_im:
+        reference_im = check_rasterio_im_load(reference_im)
+        shape = reference_im.shape
+        if do_transform:
+            affine_obj = reference_im.transform
+
+    # extract geometries and pair them with burn values
+    if burn_field:
+        if out_type == "int":
+            feature_list = list(zip(df[geom_col], df[burn_field].astype("uint8")))
+        else:
+            feature_list = list(zip(df[geom_col], df[burn_field].astype("float32")))
+    else:
+        feature_list = list(zip(df[geom_col], [burn_value] * len(df)))
+
+    if len(df) > 0:
+        output_arr = rasterio.features.rasterize(
+            shapes=feature_list, out_shape=shape, transform=affine_obj
+        )
+    else:
+        output_arr = np.zeros(shape=shape, dtype="uint8")
+    if out_file:
+        meta = reference_im.meta.copy()
+        meta.update(count=1)
+        if out_type == "int":
+            meta.update(dtype="uint8")
+            meta.update(nodata=0)
+        with rasterio.open(out_file, "w", **meta) as dst:
+            dst.write(output_arr, indexes=1)
+
+    return output_arr
 
 if __name__ == "__main__":
     pass
