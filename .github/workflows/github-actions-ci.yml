@@ -1,4 +1,4 @@
-name: GitHub Actions Unit Tests
+name: tests
 on: [push, pull_request]
 jobs:
   run-tests:
@@ -17,7 +17,6 @@ jobs:
           activate-environment: geo_deep_env
           environment-file: environment.yml
       
-      - name: Show conda environment
+      - name: test with pytest
         run: |
-          conda info
-          conda list
+          pytest tests/
