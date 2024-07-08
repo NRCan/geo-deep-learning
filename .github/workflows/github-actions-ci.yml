@@ -1,60 +1,18 @@
 name: GitHub Actions Unit Tests
 on: [push, pull_request]
 jobs:
-  clean-and-deploy-env:
-    runs-on: ubuntu-latest
-    env:
-      LD_LIBRARY_PATH: "/opt/conda/lib"
+  run-tests:
+    runs-on: ubuntu-22.04
     steps:
-      - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
-        with:
-          # this might remove tools that are actually needed,
-          # if set to "true" but frees about 6 GB
-          tool-cache: false
-
-          # all of these default to true, but feel free to set to
-          # "false" if necessary for your workflow
-          android: true
-          dotnet: false
-          haskell: false
-          large-packages: false
-          docker-images: false
-          swap-storage: false
-
-      - name: Update the environment
-        run: |
-          sudo apt-get update \
-          && sudo apt-get install -y --no-install-recommends git wget unzip bzip2 build-essential
-
-      - name: Install Mamba
-        run: |
-          sudo wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh -O /tmp/mamba.sh && \
-          /bin/bash /tmp/mamba.sh -b -p /opt/conda && \
-          sudo rm -rf /tmp/* && \
-          sudo apt-get clean && \
-          sudo rm -rf /var/lib/apt/lists/*
-
-      - name: Set system variables
-        run: |
-          echo '/opt/conda' >> $GITHUB_PATH
-
-      - name: Check if Custom Paths are Added
-        run: |
-          echo "$PATH"
-          echo "$LD_LIBRARY_PATH"
-
-      - name: Install pyenv
-        run: |
-          pip install pipenv
-          pip install pytest
-      - uses: actions/checkout@v2
-
+      - name: clone repo
+        uses: actions/checkout@v4.1.2
+      
       - name: Install dependencies
         run: |
-          /opt/conda/bin/mamba env create -f environment.yml
-          echo '/opt/conda/envs/geo_deep_env/bin' >> $GITHUB_PATH
-
+          conda env create -f environment.yml
+          echo "/opt/conda/envs/geo_deep_env/bin" >> $GITHUB_PATH
+      
       - name: Test with pytest
         run: |
-          pipenv run pytest tests/
+          source activate geo_deep_env
+          pytest tests/
