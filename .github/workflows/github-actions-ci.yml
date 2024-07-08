@@ -14,5 +14,5 @@ jobs:
       
       - name: Test with pytest
         run: |
-          source activate geo_deep_env
+          conda activate geo_deep_env
           pytest tests/
