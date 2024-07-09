@@ -12,7 +12,7 @@ from matplotlib import pyplot as plt, gridspec, colors
 from matplotlib.colors import ListedColormap
 import csv
 
-from utils.utils import unnormalize, minmax_scale
+from utils.utils import unscale, unnormalize, minmax_scale
 from utils.geoutils import create_new_raster_from_base
 
 import matplotlib
@@ -155,8 +155,7 @@ def vis(vis_params: Dict,
     # Unnormalize and unscale the input image:
     if vis_params['mean'] and vis_params['std']:
         image = unnormalize(input_img=image, mean=vis_params['mean'], std=vis_params['std'])
-    scale = (0, 1) if scale is None else scale
-    image = minmax_scale(img=image, scale_range=(0, 255), orig_range=(scale[0], scale[1])) if scale else image
+    image = unscale(img=image, float_range=(scale[0], scale[1]), orig_range=(0, 255)) if scale else image
 
     # Create a PIL object for the input image:
     if 1 <= image.shape[2] <= 2:
