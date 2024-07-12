@@ -440,23 +440,35 @@ class AOI(object):
                            "median": mean_median, "std": mean_std, "low_contrast": self.high_or_low_contrast},
             "histogram": {"buckets": mean_hist}}
         return stats
-    
-    def is_low_contrast(self, fraction_threshold=0.3):
+        
+    def is_low_contrast(self, fraction_threshold=0.3, tile_size=256):
         """This function checks if a raster is low contrast 
         https://scikit-image.org/docs/stable/api/skimage.exposure.html#skimage.exposure.is_low_contrast
         Args:
             fraction_threshold (float, optional): low contrast fraction threshold. Defaults to 0.3.
+            tile_size (int, optional): Size of the tile to process at a time. Defaults to 256.
         Returns:
             bool: False for high contrast image | True for low contrast image 
         """
         if self.raster_np is None:
-                self.raster_np = self.raster.read()
-        data_type = self.raster_np.dtype
-        grayscale = np.mean(self.raster_np, axis=0)
-        grayscale = np.round(grayscale).astype(data_type)
-        high_or_low_contrast = exposure.is_low_contrast(grayscale, fraction_threshold=fraction_threshold)
-        return high_or_low_contrast
-        
+            self.raster_np = self.raster.read()
+
+            data_type = self.raster_np.dtype
+            height, width = self.raster_np.shape[1:]
+            
+            # Initialize an array to store the processed grayscale values
+            grayscale = np.zeros((height, width), dtype=data_type)
+            
+            # Process the raster in tiles
+            for i in range(0, height, tile_size):
+                for j in range(0, width, tile_size):
+                    tile = self.raster_np[:, i:i+tile_size, j:j+tile_size]
+                    tile_grayscale = np.mean(tile, axis=0)
+                    grayscale[i:i+tile_size, j:j+tile_size] = np.round(tile_grayscale).astype(data_type)
+
+            high_or_low_contrast = exposure.is_low_contrast(grayscale, fraction_threshold=fraction_threshold)
+            return high_or_low_contrast
+            
     def equalize_hist_raster(self, clip_limit: int = 0, per_band: bool = True, overwrite: bool = False):
         """
         Applies clahe equalization on the input raster, then saved a copy of result to disk.
