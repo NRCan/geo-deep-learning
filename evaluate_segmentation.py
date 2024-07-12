@@ -124,8 +124,6 @@ def main(params):
     gpkg_name_ = []
 
     for aoi in tqdm(list_aois, desc='Evaluating from input list', position=0, leave=True):
-        print(f"\nEvaluating AOI: {aoi.aoi_id}")
-        print(f"working_folder: {working_folder}")
         output_path = working_folder / f"{aoi.aoi_id}_mask.tif" if not inference_image else inference_image
         if not output_path.is_file():
             raise FileNotFoundError(f"Couldn't locate inference to evaluate metrics with. Make inference has been run "
