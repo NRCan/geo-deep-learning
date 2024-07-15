@@ -527,6 +527,7 @@ def train(cfg: DictConfig) -> None:
     class_keys = len(get_key_def('classes_dict', cfg['dataset']).keys())
     num_classes = class_keys if class_keys == 1 else class_keys + 1  # +1 for background(multiclass mode)
     modalities = get_key_def('bands', cfg['dataset'], default=("red", "blue", "green"), expected_type=Sequence)
+    modalities_str = [str(band) for band in modalities]
     num_bands = len(modalities)
     batch_size = get_key_def('batch_size', cfg['training'], expected_type=int)
     eval_batch_size = get_key_def('eval_batch_size', cfg['training'], expected_type=int, default=batch_size)
@@ -543,6 +544,7 @@ def train(cfg: DictConfig) -> None:
 
     # MODEL PARAMETERS
     checkpoint_stack = [""]
+    best_checkpoint_filename = None
     class_weights = get_key_def('class_weights', cfg['dataset'], default=None)
     if cfg.loss.is_binary and not num_classes == 1:
         raise ValueError(f"Parameter mismatch: a binary loss was chosen for a {num_classes}-class task")
@@ -762,11 +764,11 @@ def train(cfg: DictConfig) -> None:
             if filename.is_file():
                 filename.unlink()
             val_loss_string = f'{val_loss:.2f}'.replace('.', '-')
-            modalities_str = [str(band) for band in modalities]
             checkpoint_tag = f'{experiment_name}_{num_classes}_{"_".join(modalities_str)}_{val_loss_string}.pth.tar'
             filename = output_path.joinpath(checkpoint_tag)
             checkpoint_stack.append(checkpoint_tag)
             best_loss = val_loss
+            best_checkpoint_filename = checkpoint_tag
             # More info:
             # https://pytorch.org/tutorials/beginner/saving_loading_models.html#saving-torch-nn-dataparallel-models
             state_dict = model.module.state_dict() if num_devices > 1 else model.state_dict()
@@ -797,16 +799,23 @@ def train(cfg: DictConfig) -> None:
     
     # Script model
     if scriptmodel:
+        logging.info(f'\nScripting model...')
         model_to_script = ScriptModel(model,
                                       device=device,
+                                      num_classes=num_classes,
                                       input_shape=(1, num_bands, patches_size, patches_size),
                                       mean=mean,
                                       std=std,
-                                      min=scale[0],
-                                      max=scale[1])
+                                      scaled_min=scale[0],
+                                      scaled_max=scale[1])
         
         scripted_model = torch.jit.script(model_to_script)
-        scripted_model.save(output_path.joinpath('scripted_model.pt'))
+        if best_checkpoint_filename is not None:
+            scripted_model_filename = best_checkpoint_filename.replace('.pth.tar', '_scripted.pt')
+            scripted_model.save(output_path.joinpath(scripted_model_filename))
+        else:
+            scripted_model_filename = f'{experiment_name}_{num_classes}_{"_".join(modalities_str)}_scripted.pt'
+            scripted_model.save(output_path.joinpath(scripted_model_filename))
 
     # load checkpoint model and evaluate it on test dataset.
     if int(cfg['general']['max_epochs']) > 0:   # if num_epochs is set to 0, model is loaded to evaluate on test set

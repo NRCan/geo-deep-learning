@@ -13,7 +13,7 @@ training:
   max_used_perc:
   state_dict_path:
   state_dict_strict_load: True
-  script_model: False
+  script_model: True
   compute_sampler_weights: False
 
 #  precision: 16

@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
-from matplotlib import pyplot as plt, gridspec, cm, colors
+from matplotlib import pyplot as plt, gridspec, colors
 from matplotlib.colors import ListedColormap
 import csv
 
@@ -243,7 +243,7 @@ def heatmaps_to_dict(output: np.ndarray,
                 logging.info(f'List of unique values in heatmap: {np.unique(np.uint8(perclass_output * 255))}\n')
             perclass_output_pil = Image.fromarray(np.uint8(perclass_output*255))
         else:
-            perclass_output_pil = Image.fromarray(np.uint8(cm.get_cmap('inferno')(perclass_output) * 255))
+            perclass_output_pil = Image.fromarray(np.uint8(plt.get_cmap('inferno')(perclass_output) * 255))
         heatmaps_dict[i] = {'class_name': classes[i], 'heatmap_PIL': perclass_output_pil}
 
     return heatmaps_dict
@@ -283,6 +283,6 @@ def colormap_reader(n_classes: int,
         cmap = colors.ListedColormap(html_colors)
     else:
         classes_list = list(range(0, n_classes))  # TODO: since list of classes are only useful for naming each heatmap, this list could be inside the heatmaps_dict, e.g. {1: {heatmap: perclass_output_PIL, class_name: 'roads'}, ...}
-        cmap = cm.get_cmap(default_colormap)
+        cmap = plt.get_cmap(default_colormap)
 
     return classes_list, cmap

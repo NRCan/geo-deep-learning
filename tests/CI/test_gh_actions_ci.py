@@ -25,6 +25,7 @@ class Test_GH_Actions(object):
                                   overrides=[f"mode={mode}",
                                              f"dataset=test_ci_segmentation_{dataset_type}",
                                              f"inference=default_{dataset_type}",
+                                             f"training.num_gpus=0",
                                              f"loss={dataset_type}/lovasz",
                                              "hydra.job.num=0"],
                                   return_hydra_config=True)

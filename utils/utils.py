@@ -11,7 +11,7 @@ from typing import Sequence, List, Dict, Union, Optional
 
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
-from pytorch_lightning.utilities import rank_zero_only
+from pytorch_lightning.utilities.rank_zero import rank_zero_only
 import rich.syntax
 import rich.tree
 from omegaconf import DictConfig, OmegaConf, ListConfig
@@ -57,7 +57,7 @@ def get_device_ids(
     :return: (list) Unused GPU devices.
     """
     lst_free_devices = {}
-    if not number_requested:
+    if not number_requested or number_requested == 0:
         logging.warning(f"No GPUs requested. This process will run on CPU")
         return lst_free_devices
     if not torch.cuda.is_available():

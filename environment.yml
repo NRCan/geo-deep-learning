@@ -1,26 +1,16 @@
 name: geo_deep_env
 channels:
-  - pytorch
   - conda-forge
 dependencies:
-  - coverage>=6.3.1
-  - docker-py>=4.4.4
-  - geopandas>=0.10.2
-  - hydra-core>=1.2.0
+  - python==3.11.5
   - pip
-  - pynvml>=11.0
+  - gdal
   - pystac>=0.3.0
   - pytest>=7.1
-  - python>=3.10
-  - pytorch==1.12
-  - mkl<=2024.0
-  - rich>=11.1
   - ruamel_yaml>=0.15
   - scikit-image>=0.18
-  - torchgeo>=0.3
-  - torchvision>=0.12
   - pip:
+    - geo-inference>=2.0.7
     - hydra-colorlog>=1.1.0
     - hydra-optuna-sweeper>=1.1.0
-    - ttach>=0.0.3
     - mlflow>=1.2 # causes env solving to hang if not with pip
