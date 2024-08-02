@@ -22,4 +22,4 @@ inference:
   max_used_ram: ${training.max_used_ram}  # If RAM usage of detected GPU exceeds this percentage, it will be ignored
 
   # Post-processing
-  ras2vec: False  # if True, a polygonized version of the inference (.gpkg) will be created with rasterio tools
+  mask_to_vector: False  # if True, a polygonized version of the inference (.gpkg) will be created with rasterio tools

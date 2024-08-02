@@ -8,11 +8,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image
-from matplotlib import pyplot as plt, gridspec, cm, colors
+from matplotlib import pyplot as plt, gridspec, colors
 from matplotlib.colors import ListedColormap
 import csv
 
-from utils.utils import unnormalize, minmax_scale
+from utils.utils import unscale, unnormalize, minmax_scale
 from utils.geoutils import create_new_raster_from_base
 
 import matplotlib
@@ -155,8 +155,7 @@ def vis(vis_params: Dict,
     # Unnormalize and unscale the input image:
     if vis_params['mean'] and vis_params['std']:
         image = unnormalize(input_img=image, mean=vis_params['mean'], std=vis_params['std'])
-    scale = (0, 1) if scale is None else scale
-    image = minmax_scale(img=image, scale_range=(0, 255), orig_range=(scale[0], scale[1])) if scale else image
+    image = unscale(img=image, float_range=(scale[0], scale[1]), orig_range=(0, 255)) if scale else image
 
     # Create a PIL object for the input image:
     if 1 <= image.shape[2] <= 2:
@@ -244,7 +243,7 @@ def heatmaps_to_dict(output: np.ndarray,
                 logging.info(f'List of unique values in heatmap: {np.unique(np.uint8(perclass_output * 255))}\n')
             perclass_output_pil = Image.fromarray(np.uint8(perclass_output*255))
         else:
-            perclass_output_pil = Image.fromarray(np.uint8(cm.get_cmap('inferno')(perclass_output) * 255))
+            perclass_output_pil = Image.fromarray(np.uint8(plt.get_cmap('inferno')(perclass_output) * 255))
         heatmaps_dict[i] = {'class_name': classes[i], 'heatmap_PIL': perclass_output_pil}
 
     return heatmaps_dict
@@ -284,6 +283,6 @@ def colormap_reader(n_classes: int,
         cmap = colors.ListedColormap(html_colors)
     else:
         classes_list = list(range(0, n_classes))  # TODO: since list of classes are only useful for naming each heatmap, this list could be inside the heatmaps_dict, e.g. {1: {heatmap: perclass_output_PIL, class_name: 'roads'}, ...}
-        cmap = cm.get_cmap(default_colormap)
+        cmap = plt.get_cmap(default_colormap)
 
     return classes_list, cmap

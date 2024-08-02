@@ -73,8 +73,11 @@ class TestGDLVectorDataset:
     def test_init(self):
         # Test initialization with valid data
         vec_ds = NamedTemporaryFile(suffix=".gpkg").name
-        ds = ogr.GetDriverByName('GPKG').CreateDataSource(vec_ds)
-        layer = ds.CreateLayer("test", geom_type=ogr.wkbPolygon)
+        driver = ogr.GetDriverByName('GPKG')
+        ds = driver.CreateDataSource(vec_ds)
+        srs = ogr.osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        layer = ds.CreateLayer("test", geom_type=ogr.wkbPolygon, srs=srs)
         ds = None
 
         gdl_vec_ds = GDLVectorDataset(vec_ds=vec_ds)
@@ -107,8 +110,11 @@ class TestGDLVectorDataset:
     def test_clip_nodata(self):
         # Create a vector dataset:
         vec_ds_name = NamedTemporaryFile(suffix=".gpkg").name
-        ds = ogr.GetDriverByName('GPKG').CreateDataSource(vec_ds_name)
-        layer = ds.CreateLayer("test", geom_type=ogr.wkbPolygon)
+        driver = ogr.GetDriverByName('GPKG')
+        ds = driver.CreateDataSource(vec_ds_name)
+        srs = ogr.osr.SpatialReference()
+        srs.ImportFromEPSG(4326)
+        layer = ds.CreateLayer("test", geom_type=ogr.wkbPolygon, srs=srs)
         feature = ogr.Feature(layer.GetLayerDefn())
         feature.SetGeometry(ogr.CreateGeometryFromWkt('POLYGON ((0 0, 1 0, 1 1, 0 1, 0 0))'))
         layer.CreateFeature(feature)
