@@ -110,8 +110,6 @@ class AOI(object):
             expects float between 0 and 1. See:
             https://scikit-image.org/docs/stable/api/skimage.exposure.html#skimage.exposure.equalize_adapthist
             https://kornia.readthedocs.io/en/latest/enhance.html#kornia.enhance.equalize_clahe
-        @parem chunk_size: int,optional
-            The chunk size for chunking the dask array
         """
         self.raster_np = None
         self.raster_name = Path(raster)  # default name, may be overwritten later
@@ -872,71 +870,3 @@ def aois_from_csv(
                     f"Index: {i}"
                 )
     return aois
-
-
-def get_tiff_paths_from_csv(
-    csv_path: Union[str, Path],
-):
-    """
-    Creates list of AOI dict by parsing a csv file referencing input data
-    @param csv_path:
-        path to csv file containing list of input data. See README for details on expected structure of csv.
-    Returns: A list of tiff path
-    """
-    aois_dictionary = []
-    data_list = read_csv(csv_path)
-    logging.info(
-        f"\n\tSuccessfully read csv file: {Path(csv_path).name}\n"
-        f"\tNumber of rows: {len(data_list)}\n"
-        f"\tCopying first row:\n{data_list[0]}\n"
-    )
-    with tqdm(
-        enumerate(data_list), desc="Creating A list of tiff paths", total=len(data_list)
-    ) as _tqdm:
-        for i, aoi_dict in _tqdm:
-            _tqdm.set_postfix_str(f"Image: {Path(aoi_dict['tif']).stem}")
-            try:
-                aois_dictionary.append(aoi_dict)
-            except FileNotFoundError as e:
-                logging.error(
-                    f"{e}" f"Failed to get the path of :\n{aoi_dict}\n" f"Index: {i}"
-                )
-    return aois_dictionary
-
-
-def single_aoi(
-    aoi_dict: dict,
-    bands_requested: List = [],
-    attr_field_filter: str = None,
-    attr_values_filter: str = None,
-    data_dir: str = "data",
-    for_multiprocessing=False,
-    raster_stats=False,
-    equalize_clahe_clip_limit: int = 0,
-    chunk_size: int = 512,
-):
-    """
-    Creates a single AOI from the provided tiff path of the csv file referencing input data
-    @param tiff_path:
-        path to tiff file containing data.
-    Returns: a single AOU object
-    """
-    try:
-        new_aoi = AOI.from_dict(
-            aoi_dict=aoi_dict,
-            bands_requested=bands_requested,
-            attr_field_filter=attr_field_filter,
-            attr_values_filter=attr_values_filter,
-            root_dir=data_dir,
-            for_multiprocessing=for_multiprocessing,
-            equalize_clahe_clip_limit=equalize_clahe_clip_limit,
-            raster_stats=raster_stats,
-            chunk_size=chunk_size,
-        )
-        logging.debug(new_aoi)
-    except FileNotFoundError as e:
-        logging.error(
-            f"{e}\nGround truth file may not exist or is empty.\n"
-            f"Failed to create AOI:\n{aoi_dict}\n"
-        )
-    return new_aoi

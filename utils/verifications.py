@@ -112,42 +112,6 @@ def assert_crs_match(
         return False, raster_crs, gt_crs
 
 
-def assert_crs_match_dask(
-    raster_mata: dict,
-    label: Union[str, Path, gpd.GeoDataFrame],
-):
-    """
-    Assert Coordinate reference system between raster and gpkg match.
-    :param raster: (str or Path) path to raster file
-    :param label: (str or Path) path to gpkg file
-    """
-    raster_crs = raster_mata["crs"]
-    gt = check_gdf_load(label)
-    gt_crs = gt.crs
-
-    epsg_gt = check_crs(gt_crs.to_epsg())
-    try:
-        if raster_crs.is_epsg_code:
-            epsg_raster = check_crs(raster_crs.to_epsg())
-        else:
-            logging.warning(f"Cannot parse epsg code from raster's crs '{raster.name}'")
-            return False, raster_crs, gt_crs
-
-        if epsg_raster != epsg_gt:
-            logging.error(
-                f"CRS mismatch: \n"
-                f'TIF file "{raster}" has {epsg_raster} CRS; \n'
-                f'GPKG file "{label}" has {epsg_gt} CRS.'
-            )
-            return False, raster_crs, gt_crs
-        else:
-            return True, raster_crs, gt_crs
-    except AttributeError as e:
-        logging.critical(f"Problem reading crs from image or label.")
-        logging.critical(e)
-        return False, raster_crs, gt_crs
-
-
 def validate_features_from_gpkg(label: Union[str, Path, gpd.GeoDataFrame]):
     """
     Validate features in gpkg file

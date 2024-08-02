@@ -28,10 +28,13 @@ from osgeo import gdal, gdalconst, ogr, osr
 from shapely.geometry import box, Polygon, Point
 from shapely.geometry.base import BaseGeometry
 from shapely.wkt import loads
+
 logger = logging.getLogger(__name__)
 
 
-def create_new_raster_from_base(input_raster, output_raster, write_array, dtype = np.uint8, **kwargs):
+def create_new_raster_from_base(
+    input_raster, output_raster, write_array, dtype=np.uint8, **kwargs
+):
     """Function to use info from input raster to create new one.
     Args:
         input_raster: input raster path and name
@@ -49,40 +52,49 @@ def create_new_raster_from_base(input_raster, output_raster, write_array, dtype 
         write_array = write_array[np.newaxis, :, :]
     elif len(write_array.shape) == 3:  # 3D array
         if write_array.shape[0] > 100:
-            logging.warning(f"\nGot {write_array.shape[0]} bands. "
-                            f"\nMake sure array follows rasterio's channels first convention")
+            logging.warning(
+                f"\nGot {write_array.shape[0]} bands. "
+                f"\nMake sure array follows rasterio's channels first convention"
+            )
             write_array = reshape_as_raster(write_array)
         count = write_array.shape[0]
     else:
-        raise ValueError(f'Array with {len(write_array.shape)} dimensions cannot be written by rasterio.')
+        raise ValueError(
+            f"Array with {len(write_array.shape)} dimensions cannot be written by rasterio."
+        )
 
     if write_array.shape[-2:] != (src.height, src.width):
-        raise ValueError(f"Output array's width and height should be identical to dimensions of input reference raster"
-                         f"\nInput reference raster shape (h x w): ({src.height}, {src.width})"
-                         f"\nOutput array shape (h x w): {write_array.shape[1:]}")
+        raise ValueError(
+            f"Output array's width and height should be identical to dimensions of input reference raster"
+            f"\nInput reference raster shape (h x w): ({src.height}, {src.width})"
+            f"\nOutput array shape (h x w): {write_array.shape[1:]}"
+        )
     # Cannot write to 'VRT' driver
-    driver = 'GTiff' if src.driver == 'VRT' else src.driver
+    driver = "GTiff" if src.driver == "VRT" else src.driver
 
-    with rasterio.open(output_raster, 'w',
-                       driver=driver,
-                       width=src.width,
-                       height=src.height,
-                       count=count,
-                       crs=src.crs,
-                       dtype=dtype,
-                       transform=src.transform,
-                       tiled=True,
-                       blockxsize=256,
-                       blockysize=256,
-                       BIGTIFF='YES',
-                       compress='lzw') as dst:
+    with rasterio.open(
+        output_raster,
+        "w",
+        driver=driver,
+        width=src.width,
+        height=src.height,
+        count=count,
+        crs=src.crs,
+        dtype=dtype,
+        transform=src.transform,
+        tiled=True,
+        blockxsize=256,
+        blockysize=256,
+        BIGTIFF="YES",
+        compress="lzw",
+    ) as dst:
         dst.write(write_array)
         # add tag to transmit more information
-        if 'checkpoint_path' in kwargs.keys():
+        if "checkpoint_path" in kwargs.keys():
             # add the path to the model checkpoint
             dst.update_tags(
-                checkpoint=kwargs['checkpoint_path'],
-                classes_dict=kwargs['classes_dict'],
+                checkpoint=kwargs["checkpoint_path"],
+                classes_dict=kwargs["classes_dict"],
             )
 
 
@@ -138,7 +150,7 @@ def stack_singlebands_vrt(srcs: List, band: int = 1):
     for vrt_band in vrt_bands:
         vrt_dataset.append(vrt_band)
 
-    return ET.tostring(vrt_dataset).decode('UTF-8')
+    return ET.tostring(vrt_dataset).decode("UTF-8")
 
 
 def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
@@ -170,12 +182,12 @@ def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
             for band in vrt_dataset_dict.values():
                 vrt_dataset.remove(band)
 
-        for dest_band_idx, src_band_idx in enumerate(band_request, start=1):
-            vrt_band = vrt_dataset_dict[src_band_idx]
-            vrt_band.set('band', str(dest_band_idx))
-            vrt_dataset.append(vrt_band)
+            for dest_band_idx, src_band_idx in enumerate(band_request, start=1):
+                vrt_band = vrt_dataset_dict[src_band_idx]
+                vrt_band.set("band", str(dest_band_idx))
+                vrt_dataset.append(vrt_band)
 
-    return ET.tostring(vrt_dataset).decode('UTF-8')
+    return ET.tostring(vrt_dataset).decode("UTF-8")
 
 
 def check_rasterio_im_load(im):
@@ -196,6 +208,7 @@ def check_rasterio_im_load(im):
         return im
     else:
         raise ValueError("{} is not an accepted image format for rasterio.".format(im))
+
 
 def check_df_load(df):
     """Check if `df` is already loaded in, if not, load from file.
@@ -241,6 +254,7 @@ def check_gdf_load(gdf):
     else:
         raise ValueError(f"{gdf} is not an accepted GeoDataFrame format.")
 
+
 def check_do_transform(df, reference_im, affine_obj):
     """Check whether or not a transformation should be performed.
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/vector/mask.py#L831-L842
@@ -256,12 +270,13 @@ def check_do_transform(df, reference_im, affine_obj):
         # if the input has a CRS and another obj was provided for xforming
         return True
 
+
 def check_geom(geom):
     """Check if a geometry is loaded in.
 
     Returns the geometry if it's a shapely geometry object. If it's a wkt
     string or a list of coordinates, convert to a shapely geometry.
-    
+
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/utils/core.py#L74-L85
     """
     if isinstance(geom, BaseGeometry):
@@ -270,6 +285,7 @@ def check_geom(geom):
         return loads(geom)
     elif isinstance(geom, list) and len(geom) == 2:  # coordinates
         return Point(geom)
+
 
 def check_crs(input_crs, return_rasterio=False):
     """Convert CRS to the ``pyproj.CRS`` object passed by ``solaris``."""
@@ -319,18 +335,22 @@ def multi2poly(returned_vector_pred, layer_name=None):
                                For example, if using during post-processing, the layer
                                name could represent the class name if class are stored
                                in separate layers. Default None.
-                    
+
     Return:
         none
     """
-    try: # Try to convert multipolygon to polygon
+    try:  # Try to convert multipolygon to polygon
         df = gpd.read_file(returned_vector_pred, layer=layer_name)
-        if 'MultiPolygon' in df['geometry'].geom_type.values:
+        if "MultiPolygon" in df["geometry"].geom_type.values:
             logging.info("\nConverting multiPolygon to Polygon...")
             gdf_exploded = df.explode(index_parts=True, ignore_index=True)
-            gdf_exploded.to_file(returned_vector_pred, layer=layer_name) # overwrite the layer readed
+            gdf_exploded.to_file(
+                returned_vector_pred, layer=layer_name
+            )  # overwrite the layer readed
     except Exception as e:
-        logging.error(f"\nSomething went wrong during the conversion of Polygon. \nError {type(e)}: {e}")
+        logging.error(
+            f"\nSomething went wrong during the conversion of Polygon. \nError {type(e)}: {e}"
+        )
 
 
 def fetch_tag_raster(raster_path, tag_wanted):
@@ -347,16 +367,16 @@ def fetch_tag_raster(raster_path, tag_wanted):
         tags = tiff_src.tags()
     # check if the tiff have the wanted tag save in
     if tag_wanted in tags.keys():
-        if 'dict' in tag_wanted:
+        if "dict" in tag_wanted:
             return ast.literal_eval(tags[tag_wanted])
-        else: 
+        else:
             return tags[tag_wanted]
     else:
         logging.error(
             f"\nThe tag {tag_wanted} was not found in the {tags.keys()},"
             f" try again with one inside that list."
         )
-        raise ValueError('Tag not found.')
+        raise ValueError("Tag not found.")
 
 
 def gdf_mean_vertices_nb(gdf: gpd.GeoDataFrame):
@@ -370,19 +390,26 @@ def gdf_mean_vertices_nb(gdf: gpd.GeoDataFrame):
     vertices_per_polygon = []
     for geom in gdf.geometry:
         if geom is None:
-            logging.warning(f"GeoDataFrame contains a \"None\" geometry")
+            logging.warning(f'GeoDataFrame contains a "None" geometry')
         elif geom.geom_type == "MultiPolygon":
             for polygon in geom.geoms:
                 vertices_per_polygon.append(len(polygon.exterior.coords))
         elif geom.geom_type == "Polygon":
             vertices_per_polygon.append(len(geom.exterior.coords))
         else:
-            logging.warning(f"Only supports MultiPolygon or Polygon. \nGot {geom.geom_type}")
+            logging.warning(
+                f"Only supports MultiPolygon or Polygon. \nGot {geom.geom_type}"
+            )
     mean_ext_vert_nb = np.mean(vertices_per_polygon)
     return mean_ext_vert_nb
 
 
-def mask_nodata(img_patch: Union[str, Path], gt_patch: Union[str, Path], nodata_val: int, mask_val: int = 255) -> None:
+def mask_nodata(
+    img_patch: Union[str, Path],
+    gt_patch: Union[str, Path],
+    nodata_val: int,
+    mask_val: int = 255,
+) -> None:
     """
     Masks label raster file with "ignore_index" value where pixels are "nodata" in the corresponding raster image.
     Args:
@@ -411,7 +438,9 @@ def mask_nodata(img_patch: Union[str, Path], gt_patch: Union[str, Path], nodata_
     image_ds = None
 
 
-def nodata_vec_mask(raster: rasterio.DatasetReader, nodata_val: int = None) -> ogr.DataSource | None:
+def nodata_vec_mask(
+    raster: rasterio.DatasetReader, nodata_val: int = None
+) -> ogr.DataSource | None:
     """
     Fetches nodata mask from the raster image.
     Args:
@@ -435,11 +464,16 @@ def nodata_vec_mask(raster: rasterio.DatasetReader, nodata_val: int = None) -> o
     image_arr = raster.read()
     nodata_mask = image_arr != nodata_val
     nodata_mask_flat = np.sum(nodata_mask, axis=0) != 0
-    nodata_mask_flat = nodata_mask_flat.astype('uint8')
+    nodata_mask_flat = nodata_mask_flat.astype("uint8")
 
     raster_drv = gdal.GetDriverByName("MEM")
-    dst = raster_drv.Create("/vsimem/raster", int(nodata_mask_flat.shape[1]),
-                            int(nodata_mask_flat.shape[0]), 1, gdal.GDT_Byte)
+    dst = raster_drv.Create(
+        "/vsimem/raster",
+        int(nodata_mask_flat.shape[1]),
+        int(nodata_mask_flat.shape[0]),
+        1,
+        gdal.GDT_Byte,
+    )
 
     gdal_src_gt = [crs_gt[2], crs_gt[0], crs_gt[1], crs_gt[5], crs_gt[3], crs_gt[4]]
     dst.SetGeoTransform(gdal_src_gt)
@@ -450,12 +484,12 @@ def nodata_vec_mask(raster: rasterio.DatasetReader, nodata_val: int = None) -> o
 
     # Create vector datasource in memory:
     drv = ogr.GetDriverByName("MEMORY")
-    vec_ds = drv.CreateDataSource('memdata')
+    vec_ds = drv.CreateDataSource("memdata")
 
     # Initialize projection:
     spatial_ref = osr.SpatialReference()
     spatial_ref.ImportFromWkt(crs_wkt)
-    layer = vec_ds.CreateLayer('0', spatial_ref, geom_type=ogr.wkbPolygon)
+    layer = vec_ds.CreateLayer("0", spatial_ref, geom_type=ogr.wkbPolygon)
 
     # Vectorize the raster nodata mask:
     gdal.Polygonize(src_band, src_band, layer, -1, [], callback=None)
@@ -523,7 +557,7 @@ def footprint_mask(
     mask : :class:`numpy.array`
         A pixel mask with 0s for non-object pixels and `burn_value` at object
         pixels. `mask` dtype will coincide with `burn_value`.
-    
+
     Copied from: https://github.com/CosmiQ/solaris/blob/main/solaris/vector/mask.py#L135-L236
     """
     # start with required checks and pre-population of values
