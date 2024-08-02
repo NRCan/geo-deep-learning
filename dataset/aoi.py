@@ -1,5 +1,6 @@
 import functools
 import json
+
 from typing import Union, Sequence, Tuple, List, Dict
 import geopandas as gpd
 import numpy as np
@@ -7,40 +8,43 @@ import pyproj
 import pystac
 import rasterio
 import dask.array as da
-from skimage.exposure import equalize_adapthist
-from scipy.special import expit
 import torch
-from torch.nn import functional as F
 from pathlib import Path
 import sys
-import dask
+import requests
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
 from omegaconf import listconfig, ListConfig
 from tqdm import tqdm
-from rasterio.windows import from_bounds
-from numba import cuda
-import scipy.signal.windows as w
+from kornia import image_to_tensor, tensor_to_image
+from rasterio.plot import reshape_as_image, reshape_as_raster
+from dask_image.imread import imread as dask_imread  # type: ignore
+from kornia.enhance import equalize_clahe
+
 
 if str(Path(__file__).parents[1]) not in sys.path:
     sys.path.insert(0, str(Path(__file__).parents[1]))
-
-from dataset.stacitem import SingleBandItemEO
 from utils.geoutils import (
+    stack_singlebands_vrt,
     is_stac_item,
+    create_new_raster_from_base,
+    subset_multiband_vrt,
+    check_rasterio_im_load,
     check_gdf_load,
     bounds_gdf,
     bounds_riodataset,
     overlap_poly1_rto_poly2,
     gdf_mean_vertices_nb,
+    imread,
 )
+from dataset.stacitem import SingleBandItemEO
 from utils.logger import get_logger
-from utils.utils import read_csv, minmax_scale, download_url_wcheck
+from utils.utils import read_csv, minmax_scale
 from utils.verifications import (
     assert_crs_match,
     validate_raster,
-    validate_raster_dask,
     validate_features_from_gpkg,
+    validate_num_bands,
 )
 
 logging = get_logger(__name__)  # import logging
@@ -65,10 +69,9 @@ class AOI(object):
         attr_values_filter: Sequence = None,
         root_dir: str = "data",
         for_multiprocessing: bool = False,
+        write_dest_raster: bool = False,
         raster_stats: bool = False,
-        equalize_clahe_clip_limit: float = 0,
-        chunk_size: int = 1024,
-        rio: str = None,
+        equalize_clahe_clip_limit: int = 0,
     ):
         """
         @param raster: pathlib.Path or str
@@ -97,6 +100,8 @@ class AOI(object):
         @param for_multiprocessing: bool, optional
             If True, no rasterio.DatasetReader will be generated in __init__. User will have to call open raster later.
             See: https://github.com/rasterio/rasterio/issues/1731
+        @param write_dest_raster: bool, optional
+            If True, a multi-band raster side by side with single-bands rasters as provided in input csv. For debugging purposes.
         @param raster_stats:
             if True, radiometric stats will be read from Stac Item if available or calculated
         @param equalize_clahe_clip_limit: int, optional
@@ -105,10 +110,8 @@ class AOI(object):
             expects float between 0 and 1. See:
             https://scikit-image.org/docs/stable/api/skimage.exposure.html#skimage.exposure.equalize_adapthist
             https://kornia.readthedocs.io/en/latest/enhance.html#kornia.enhance.equalize_clahe
-        @parem chunk_size: int,optional
-            The chunk size for chunking the dask array
         """
-
+        self.raster_np = None
         self.raster_name = Path(raster)  # default name, may be overwritten later
         self.label = None
         self.label_gdf = None
@@ -119,9 +122,9 @@ class AOI(object):
         self.crs_match = None
 
         """ ---------------------------Input Validation-------------------------------"""
-        if not isinstance(raster, str):
+        if not isinstance(raster, (str, Path)):
             raise TypeError(
-                f"Raster path should be a string.\nGot {raster} of type {type(raster)}"
+                f"Raster path should be a string or a Path object.\nGot {raster} of type {type(raster)}"
             )
         self.raster_raw_input = raster
 
@@ -134,17 +137,11 @@ class AOI(object):
             )
         self.raster_bands_request = raster_bands_request
 
-        if not isinstance(equalize_clahe_clip_limit, float):
+        if not isinstance(equalize_clahe_clip_limit, int):
             raise ValueError(
-                f"Enhance clip limit should be a float. See documentation.\n"
+                f"Enhance clip limit should be an integer. See documentation.\n"
                 f"Got {type(equalize_clahe_clip_limit)}."
             )
-        if equalize_clahe_clip_limit > 1 or equalize_clahe_clip_limit < 0:
-            raise ValueError(
-                f"Enhance clip limit be a float between 0 and 1, inclusive.\n"
-                f"Got {type(equalize_clahe_clip_limit)}."
-            )
-
         self.enhance_clip_limit = equalize_clahe_clip_limit
 
         if split and not isinstance(split, str):
@@ -154,6 +151,7 @@ class AOI(object):
             raise ValueError(
                 f"\nWith ground truth, split should be 'trn', 'tst' or 'inference'. \nGot {split}"
             )
+
         # force inference split if no label provided
         elif not label and (split != "inference" or not split):
             logging.warning(
@@ -171,6 +169,7 @@ class AOI(object):
             aoi_id = self.raster_name.stem  # Defaults to name of image without suffix
         self.aoi_id = aoi_id
 
+        # Check collection string
         if collection and not isinstance(collection, str):
             raise TypeError(
                 f"Collection name should be a string. Got {collection} of type {type(collection)}"
@@ -207,16 +206,11 @@ class AOI(object):
                 f"Got {attr_values_filter} of type {type(attr_values_filter)}"
             )
         self.attr_values_filter = attr_values_filter
-        if not isinstance(chunk_size, int):
-            raise ValueError(
-                f"\n chunk_size should be an interger \n Got {chunk_size}."
-            )
-        self.chunk_size = chunk_size
+
         if not isinstance(for_multiprocessing, bool):
             raise ValueError(
                 f'\n"for_multiprocessing" should be a boolean.\nGot {for_multiprocessing}.'
             )
-
         self.for_multiprocessing = for_multiprocessing
         self.root_dir = Path(root_dir)
 
@@ -224,190 +218,171 @@ class AOI(object):
 
         """ -------------------------Processing---------------------------------"""
         # it constructs a list of URLs or file paths for raster bands: This function now returns a dict of {band:url}
-        raster_parsed = self.parse_input_raster(
+        self.raster_parsed = self.parse_input_raster(
             csv_raster_str=self.raster_raw_input,
             raster_bands_requested=self.raster_bands_request,
         )
-
-        logging.info(f"\n\tSuccessfully parsed Rasters \n: {raster_parsed}\n")
-        # If stac item input, keep Stac item object as attribute
-        if is_stac_item(self.raster_raw_input):
-            item = SingleBandItemEO(
-                item=pystac.Item.from_file(self.raster_raw_input),
-                bands_requested=self.raster_bands_request,
-            )
-            self.stack_item = pystac.Item.from_file(self.raster_raw_input)
-            self.raster_stac_item = item
-            self.raster_stats = self.read_stack_stat() if raster_stats else {}
-        else:
-            self.raster_stac_item = None
-            self.raster_stats = {}
-        # update the raster_src_is_multiband property
-        self.raster_src_is_multiband = False
-        if len(raster_parsed) == 1:
-            raster_count = rasterio.open(next(iter(raster_parsed.values()))).count
-            if raster_count > 1:
-                self.raster_src_is_multiband = True
-        else:
-            if len(raster_parsed) == 3:
-                desired_bands = (
-                    ["R", "G", "B"]
-                    if not self.raster_stac_item
-                    else ["red", "green", "blue"]
-                )
-            elif len(raster_parsed) == 4:
-                desired_bands = (
-                    ["N", "R", "G", "B"]
-                    if not self.raster_stac_item
-                    else ["nir", "red", "green", "blue"]
-                )
-            # Create a new dictionary with the desired key order
-            raster_parsed = {
-                key: raster_parsed[key]
-                for key in desired_bands
-                if key in self.raster_bands_request
-            }
-            # TODO: how to handle Nir?
+        logging.info(f"Successfully parsed Rasters: \n {self.raster_parsed}\n")
 
         # Chack the size of tiff files
-        for single_raster in raster_parsed.values():
+        for single_raster in self.raster_parsed.values():
             size = (
                 Path(single_raster).stat().st_size
                 if not is_url(single_raster)
-                else None
+                else self.get_tiff_size(single_raster)
             )
             logging.debug(
                 f"Raster to validate: {raster}\n"
                 f"Size: {size}\n"
                 f"Extended check: {False}"
             )
-        self.raster_parsed = raster_parsed
+
+        # If stac item input, keep Stac item object as attribute
+        if is_stac_item(self.raster_raw_input):
+            item = SingleBandItemEO(
+                item=pystac.Item.from_file(self.raster_raw_input),
+                bands_requested=self.raster_bands_request,
+            )
+            self.raster_stac_item = item
+            self.raster_stats = self.read_stack_stat() if raster_stats else {}
+        else:
+            self.raster_stac_item = None
+            self.raster_stats = {}
+
+        # update the raster_src_is_multiband property
+        self.raster_src_is_multiband = self.raster_needs_vrt = False
+        if len(self.raster_parsed) == 1:
+            raster_count = rasterio.open(next(iter(self.raster_parsed.values()))).count
+            if raster_count > 1:
+                self.raster_src_is_multiband = True
+                self.aoi_dask_array = dask_imread(list(self.raster_parsed.values())[0])
+                self.aoi_dask_array = da.transpose(
+                    da.squeeze(self.aoi_dask_array), (2, 0, 1)
+                )
+                if self.raster_bands_request != list(range(1, raster_count + 1)):
+                    self.aoi_dask_array = self.aoi_dask_array[
+                        [idx - 1 for idx in raster_bands_request], :, :
+                    ]
+                    self.raster_needs_vrt = True
+                else:
+                    self.raster_bands_request = None
+        else:  # If parsed result has more than a single file, then we're dealing with single-band files
+            self.raster_needs_vrt = True
+            self.aoi_dask_array = [
+                imread(url) for band, url in self.raster_parsed.items()
+            ]
+            self.aoi_dask_array = da.stack(self.aoi_dask_array, axis=0)
+            self.aoi_dask_array = da.squeeze(
+                da.transpose(
+                    self.aoi_dask_array,
+                    (
+                        1,
+                        0,
+                        2,
+                        3,
+                    ),
+                )
+            )
+
+        self.raster_name = self.name_raster(
+            input_path=self.raster_raw_input,
+            bands_list=self.raster_bands_request,
+            root_dir=self.root_dir,
+        )
+
+        # output processing-ready destination raster if needed
+        self.raster_dest, self.raster_is_vrt = self.raster_src_to_dest()
+        self.raster = check_rasterio_im_load(self.raster_dest)
+        validate_raster(self.raster)
+        self.raster_meta = self.raster.meta
+        self.raster_bounds = bounds_riodataset(self.raster)
+
+        self.high_or_low_contrast = self.is_low_contrast()
+        if self.enhance_clip_limit > 0 and self.high_or_low_contrast:
+            self.aoi_dask_array = self.aoi_dask_array.rechunk(
+                (
+                    1,
+                    int(self.aoi_dask_array.shape[1] / 4),
+                    int(self.aoi_dask_array.shape[2] / 4),
+                )
+            )
+            self.aoi_dask_array = da.map_overlap(
+                self.equalize_adapthist_enhancement,
+                self.aoi_dask_array,
+                per_band=True,
+                depth={
+                    1: int(self.aoi_dask_array.shape[1] / 20),
+                    2: int(self.aoi_dask_array.shape[2] / 20),
+                },
+                trim=True,
+                boundary="none",
+                dtype=self.aoi_dask_array.dtype,
+            )
+            self.raster_np = self.aoi_dask_array.compute(n_workers=16)
+            self.raster_name = (
+                self.raster_name.parent
+                / f"{self.raster_name.stem}_clahe{self.enhance_clip_limit}.tif"
+            )
+            self.raster_name = to_absolute_path(str(self.raster_name))
+        else:
+            self.raster_np = self.raster_read()
+
+        if write_dest_raster and self.raster_is_vrt:
+            create_new_raster_from_base(
+                input_raster=self.raster,
+                output_raster=self.raster_name,
+                write_array=self.raster_np,
+            )
+            logging.info(f"Wrote destination raster to : {self.raster_name}")
+            self.raster_dest = self.raster_name
+            self.raster = check_rasterio_im_load(self.raster_dest)
+            self.raster_is_vrt = False
+        if (
+            raster_num_bands_expected and not self.raster_is_vrt
+        ):  # VRT necessarily contains expected number of bands
+            validate_num_bands(
+                raster_path=self.raster, num_bands=raster_num_bands_expected
+            )
+
+        # Check label data
         if label:
             self.label = Path(label)
             self.label_gdf = check_gdf_load(label)
             self.label_invalid_features = validate_features_from_gpkg(label)
-        rio_gdal_options = {
-            "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
-            "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
-        }
-        stat_calculated = False if len(self.raster_stats) == 0 else True
-        if raster_stats and not stat_calculated:
-            self.raster_stats = {name: {} for name in self.raster_bands_request}
 
-        np_sources = []
-        with rasterio.Env(**rio_gdal_options):
-            for tiff_band, raster in self.raster_parsed.items():
-                with rasterio.open(raster, "r") as src:
-                    # Getting the bbox window
-                    self.raster = src
-                    self.raster_meta = self.raster.meta
-                    if rio is not None:
-                        bbox = tuple(map(float, rio.split(", ")))
-                        self.roi_window = from_bounds(
-                            left=bbox[0],
-                            bottom=bbox[1],
-                            right=bbox[2],
-                            top=bbox[3],
-                            transform=src.transform,
-                        )
-                    # Label check
-                    self.raster_bounds = bounds_riodataset(src)
-                    if label:
-                        self.label_bounds = bounds_gdf(self.label_gdf)
-                        if not self.raster_bounds.intersects(self.label_bounds):
-                            logging.error(
-                                f"Features in label file {label} do not intersect with bounds of raster file "
-                                f"{self.raster.name}"
-                            )
-                        self.overlap_label_rto_raster = overlap_poly1_rto_poly2(
-                            self.label_bounds, self.raster_bounds
-                        )
-                        self.overlap_raster_rto_label = overlap_poly1_rto_poly2(
-                            self.raster_bounds, self.label_bounds
-                        )
-
-                        # TODO: unit test for failed CRS match
-                        try:
-                            # TODO: check if this creates overhead. Skip if report exists?
-                            self.crs_match, self.epsg_raster, self.epsg_label = (
-                                assert_crs_match(self.raster, self.label_gdf)
-                            )
-                        except pyproj.exceptions.CRSError as e:
-                            logging.warning(
-                                f"\nError while checking CRS match between raster and label."
-                                f"\n{e}"
-                            )
-
-                    # validate each raster
-                    validate_raster_dask(self.raster)
-                    bands_count = range(1, src.count + 1)
-                    # Just to make sure that if we have a subset of data, get the subset only
-                    if self.raster_src_is_multiband and self.raster_bands_request:
-                        bands_count = self.raster_bands_request
-                    # prepping the dict for stat, if it is a multi-band and stat is not calculated before (not stack)
-                    if (
-                        self.raster_src_is_multiband
-                        and raster_stats
-                        and not stat_calculated
-                    ):
-                        self.raster_stats = {
-                            f"band_{index}": {} for index in bands_count
-                        }
-
-                    # Iterating over bands
-                    for band in bands_count:
-                        self.raster = (
-                            self.raster.read(band)
-                            if not rio
-                            else self.raster.read(indexes=band, window=self.roi_window)
-                        )
-                        if self.raster.dtype == np.uint16:
-                            self.raster = self.raster.astype(np.int32)
-                        elif self.raster.dtype == np.uint32:
-                            self.raster = self.raster.astype(np.int64)
-                        # calculating raster stat for each band
-                        if raster_stats and not stat_calculated:
-                            self.raster_stats = self.calc_raster_stats(
-                                "band_" + str(band)
-                                if self.raster_src_is_multiband
-                                else tiff_band
-                            )
-                        self.high_or_low_contrast = self.is_low_contrast()
-                        np_sources.append(self.raster)
-                        self.raster = src if self.raster_src_is_multiband else None
-
-        # calculating raster stat for all bands :: Only for multi-bands, otherwise, we'll get error on not having the same bucket size for all bands
-        if raster_stats and self.raster_src_is_multiband and not stat_calculated:
-            self.raster_stats = self.calc_rasters_stats()
-        """ Create a all_bands array to store all RGB bands; This property will be deleted as soon as we create a dask array in out dask cluster; 
-            so it doesn't occupy memory ultimately """
-        self.all_bands_array = np.array(np_sources)
-        self.num_bands = self.all_bands_array.shape[0]
-
-        if raster_num_bands_expected:
-            if not len(np_sources) == raster_num_bands_expected:
-                logging.critical(
-                    f"The number of bands expected doesn't match number of bands in input image.\n"
-                    f"Expected: {raster_num_bands_expected} bands\n"
-                    f"Got: {len(bands_count)} bands\n"
-                    f"Raster path: {raster.name}"
+            self.label_bounds = bounds_gdf(self.label_gdf)
+            if not self.raster_bounds.intersects(self.label_bounds):
+                logging.error(
+                    f"Features in label file {label} do not intersect with bounds of raster file "
+                    f"{self.raster.name}"
                 )
-                raise ValueError()
-
-        if label:
-            self.label_gdf_filtered = self.filter_gdf_by_attribute(
-                self.label_gdf.copy(deep=True),
-                self.attr_field_filter,
-                self.attr_values_filter,
+            self.overlap_label_rto_raster = overlap_poly1_rto_poly2(
+                self.label_bounds, self.raster_bounds
             )
-            if len(self.label_gdf_filtered) == 0:
-                logging.warning(
-                    f'\nNo features found for ground truth "{self.label}",'
-                    f'\nfiltered by attribute field "{self.attr_field_filter}"'
-                    f'\nwith values "{self.attr_values_filter}"'
+            self.overlap_raster_rto_label = overlap_poly1_rto_poly2(
+                self.raster_bounds, self.label_bounds
+            )
+            # TODO: unit test for failed CRS match
+            try:
+                # TODO: check if this creates overhead. Skip if report exists?
+                self.crs_match, self.epsg_raster, self.epsg_label = assert_crs_match(
+                    self.raster, self.label_gdf
                 )
-        else:
-            self.label_gdf_filtered = None
+            except pyproj.exceptions.CRSError as e:
+                logging.warning(
+                    f"\nError while checking CRS match between raster and label."
+                    f"\n{e}"
+                )
+        self.raster_stats = (
+            self.calc_raster_stats()
+            if raster_stats and self.raster_stats == {}
+            else None
+        )
+        self.raster_stats = self.calc_rasters_stats() if raster_stats else None
+
+        if self.for_multiprocessing:
+            self.close_raster()
+            self.raster = None
 
         logging.debug(self)
 
@@ -421,8 +396,8 @@ class AOI(object):
         root_dir: str = "data",
         raster_stats=False,
         for_multiprocessing: bool = False,
+        write_dest_raster: bool = False,
         equalize_clahe_clip_limit: int = 0,
-        chunk_size: int = 512,
     ):
         """Instanciates an AOI object from an input-data dictionary as expected by geo-deep-learning"""
         if not isinstance(aoi_dict, dict):
@@ -448,10 +423,11 @@ class AOI(object):
             attr_field_filter=attr_field_filter,
             attr_values_filter=attr_values_filter,
             aoi_id=aoi_dict["aoi_id"],
+            root_dir=root_dir,
             for_multiprocessing=for_multiprocessing,
             raster_stats=raster_stats,
             equalize_clahe_clip_limit=equalize_clahe_clip_limit,
-            chunk_size=chunk_size,
+            write_dest_raster=write_dest_raster,
         )
         return new_aoi
 
@@ -509,9 +485,120 @@ class AOI(object):
             )
         return out_dict
 
+    def raster_read(self):
+        self.raster_np = (
+            self.raster.read() if self.raster_np is None else self.raster_np
+        )
+        return self.raster_np
+
+    def close_raster(self) -> None:
+        if self.raster_closed is False:
+            self.raster.close()
+            self.raster_closed = True
+
+    def get_tiff_size(self, url):
+        """This funcstion is for getting the size of tiffs that have been provided by urls"""
+        tiff_info = requests.head(url)
+        if tiff_info.status_code == 200:
+            tiff_length = tiff_info.headers.get("Content-Length")
+            return int(tiff_length) if tiff_length else None
+        else:
+            raise Exception(
+                f"Failed to retrieve headers, status code: {tiff_info.status_code}"
+            )
+
+    @staticmethod
+    def name_raster(
+        input_path: Union[str, Path],
+        bands_list: Sequence = None,
+        root_dir: Union[str, Path] = "data",
+    ):
+        """
+        Assigns a name to the AOI's raster considering different input types.
+        Used for logging and as output name for .tif built from a VRT
+        (see self.write_multiband_from_singleband_rasters_as_vrt())
+        @param root_dir: Root directory where derived raster would be written.
+        @param input_path: path to input raster file as accepted by GDL (see dataset/README.md)
+        @param bands_list: list of requested bands from input raster
+        """
+        if not bands_list:  # multiband, no band selection or ordering
+            return Path(input_path)
+        raster_name_parent = Path(root_dir)
+
+        bands_list_str = [str(band) for band in bands_list]
+        if len(bands_list_str) <= 4:
+            bands_suffix = f"{'-'.join(bands_list_str)}"
+        else:  # e.g. hyperspectral imagery
+            bands_suffix = f"{len(bands_list)}bands"
+
+        if (
+            "${dataset.bands}" in input_path
+        ):  # singleband with ${dataset.bands} pattern (implies band selection)
+            raster_name = (
+                raster_name_parent
+                / f"{Path(input_path).stem.replace('${dataset.bands}', bands_suffix)}.tif"
+            )
+        elif (
+            len(bands_list_str) > 0
+        ):  # singleband from stac item or multiband with band selection
+            raster_name = (
+                raster_name_parent / f"{Path(input_path).stem}_{bands_suffix}.tif"
+            )
+        else:
+            raise ValueError(
+                "Invalid input raster. See README for valid input raster formats"
+            )
+        return raster_name
+
+    def raster_src_to_dest(self):
+        """
+        Outputs a processing-ready raster after merge from singleband source rasters or after reordering or selecting
+        subset of bands from a source multiband raster.
+        """
+
+        self.raster_is_vrt = False
+        if self.raster_needs_vrt:
+            if self.raster_src_is_multiband:
+                if not all(
+                    [isinstance(band, int) for band in self.raster_bands_request]
+                ):
+                    raise ValueError(
+                        f"Use only a list of integers to select bands from a multiband raster.\n"
+                        f"Got {self.raster_bands_request}"
+                    )
+                # TODO: open the raw raster only once when initialize the AOI. Otherwise, we open it all the time here,
+                #       thus, slowing down the tiling process:
+                if (
+                    len(self.raster_bands_request)
+                    > rasterio.open(self.raster_raw_input).count
+                ):
+                    raise ValueError(
+                        f"Trying to subset more bands than actual number in source raster.\n"
+                        f"Requested: {self.raster_bands_request}\n"
+                        f"Available: {rasterio.open(self.raster_raw_input).count}"
+                    )
+                self.raster_dest = subset_multiband_vrt(
+                    list(self.raster_parsed.values())[0],
+                    band_request=self.raster_bands_request,
+                )
+            else:
+                self.raster_dest = stack_singlebands_vrt(
+                    list(self.raster_parsed.values())
+                )
+            self.raster_is_vrt = True
+        elif self.raster_bands_request:
+            raise ValueError(
+                "Cannot select or reorder with requested bands. Make sure your source raster(s) are "
+                "in expected formats. See README."
+            )
+        else:  # source raster can be used as is
+            self.raster_dest = self.raster_parsed[0]
+
+        return self.raster_dest, self.raster_is_vrt
+
     def read_stack_stat(self):
         """For stac items formatted as expected, reads mean and std of raster imagery, per band.
-        See stac item example: tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json"""
+        See stac item example: https://datacube-stage.services.geo.ca/api/collections/worldview-4-ortho-pansharp/items/Sherbrooke2018-013827026010_01_P001-WV04"""
 
         if self.raster_bands_request:
             stats = {name: {} for name in self.raster_bands_request}
@@ -519,23 +606,14 @@ class AOI(object):
             stats = {f"band_{index}": {} for index in range(self.raster.count)}
         try:
             stats_asset = self.raster_stac_item.item.assets["STATS"]
-            # download can be changed to streaming using request
             if is_url(stats_asset.href):
-                """
                 response = requests.get(stats_asset.href)
                 response.raise_for_status()  # Ensure we raise an error for bad responses
                 stac_stats = response.json()  # Directly parse the JSON response
-                """
-                download_url_wcheck(
-                    stats_asset.href,
-                    root=str(self.root_dir),
-                    filename=Path(stats_asset.href).name,
-                )
-                stats_href = self.root_dir / Path(stats_asset.href).name
             else:
                 stats_href = to_absolute_path(stats_asset.href)
-            with open(stats_href, "r") as ifile:
-                stac_stats = json.loads(ifile.read())
+                with open(stats_href, "r") as ifile:
+                    stac_stats = json.loads(ifile.read())
             stac_stats = {
                 bandwise_stats["asset"]: bandwise_stats for bandwise_stats in stac_stats
             }
@@ -547,7 +625,6 @@ class AOI(object):
 
     def calc_raster_stats(self, band):
         """If source imagery is not a stac item or stac item lacks stats assets, stats are calculed on the fly"""
-
         stats = self.raster_stats
         stats[band] = {"statistics": {}, "histogram": {}}
         stats[band]["statistics"]["minimum"] = self.raster.min()
@@ -595,156 +672,46 @@ class AOI(object):
         }
         return stats
 
-    def create_dask_array(self):
-        aoi_dask_array = da.from_array(
-            self.all_bands_array,
-            chunks=(
-                1,
-                int(self.chunk_size / 2),
-                int(self.chunk_size / 2),
-            ),
-        )
-        del self.all_bands_array
-        return aoi_dask_array
-
-    def read_raster_chunk(url, window):
-        with rasterio.open("/vsicurl/" + url) as src:
-            return src.read(1, window=window)
-
-    @staticmethod
-    def equalize_adapthist_enhancement(aoi_chunk: np.ndarray, clip_limit: float):
-        """This function applies scikit image equalize_adapthist on each chunk of dask array
-        each chunk is [band, height, width] --> So, the contrast enhancement is applied on each hand separately"""
-        from kornia import image_to_tensor, tensor_to_image
-        from kornia.enhance import equalize_clahe
-
-        if aoi_chunk.size > 0 and aoi_chunk is not None:
-            ready_np_array = aoi_chunk[0, :, :]
-            ready_np_array = minmax_scale(
-                img=ready_np_array, scale_range=(0, 1), orig_range=(0, 255)
-            )
-            ready_np_array = image_to_tensor(ready_np_array)
-            """ ready_np_array = equalize_adapthist(
-                ready_np_array,
-                clip_limit=clip_limit,
-            )"""
-            clip_limit = 25
-            ready_np_array = equalize_clahe(
-                ready_np_array.float().unsqueeze(0), clip_limit=float(clip_limit)
-            )
-            ready_np_array = tensor_to_image(
-                (ready_np_array * 255).long(), keepdim=True
-            ).squeeze()
-            # ready_np_array = (ready_np_array * 255).astype(np.int32)
-            return ready_np_array[None, :, :]
-        return aoi_chunk  # If the chunk size is 0, return the original chunk
-
-    @staticmethod
-    def sum_overlapped_chunks(
+    def equalize_adapthist_enhancement(
+        self,
         aoi_chunk: np.ndarray,
-        chunk_size: int,
-        block_info=None,
+        per_band: bool = True,
     ):
-        num_chunks = block_info[0]["num-chunks"]
-        chunk_location = block_info[0]["chunk-location"]
-        full_array = np.empty((1, 1))
+        """This function applies equalize_adapthist on each chunk of dask array
+        each chunk is [band, height, width] --> So, the contrast enhancement is applied on each hand separately"""
 
         if aoi_chunk.size > 0 and aoi_chunk is not None:
-            if (chunk_location[1] == 0 or chunk_location[1] == num_chunks[1] - 1) and (
-                chunk_location[2] == 0 or chunk_location[2] == num_chunks[2] - 1
-            ):
-                """ All 4 corners"""
-                full_array = aoi_chunk[
-                    :,
-                    : int(chunk_size / 2),
-                    : int(chunk_size / 2),
-                ]
-            elif (
-                chunk_location[1] == 0 or chunk_location[1] == num_chunks[1] - 1
-            ) and (chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1):
-                """ Top and bottom edges but not corners"""
-                full_array = (
-                    aoi_chunk[
-                        :,
-                        : int(chunk_size / 2),
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        : int(chunk_size / 2),
-                        : int(chunk_size / 2),
-                    ]
+            if per_band:
+                ready_np_array = image_to_tensor(reshape_as_image(aoi_chunk))
+                ready_np_array = minmax_scale(
+                    img=ready_np_array, scale_range=(0, 1), orig_range=(0, 255)
                 )
-            elif (
-                chunk_location[2] == 0 or chunk_location[2] == num_chunks[2] - 1
-            ) and (chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1):
-                """ Left and right edges but not corners"""
-                full_array = (
-                    aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        : int(chunk_size / 2),
-                    ]
-                    + aoi_chunk[
-                        :,
-                        : int(chunk_size / 2),
-                        : int(chunk_size / 2),
-                    ]
+                ready_np_array = equalize_clahe(
+                    ready_np_array.float().unsqueeze(0),
+                    clip_limit=float(self.enhance_clip_limit),
+                    grid_size=(3, 3),
                 )
-            elif (chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1) and (
-                chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
-            ):
-                """ Middle chunks """
-                full_array = (
-                    aoi_chunk[
-                        :,
-                        : int(chunk_size / 2),
-                        : int(chunk_size / 2),
-                    ]
-                    + aoi_chunk[
-                        :,
-                        : int(chunk_size / 2),
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        : int(chunk_size / 2),
-                    ]
-                    + aoi_chunk[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                        int(chunk_size / 2) : int(chunk_size / 2) * 2,
-                    ]
-                )
-
-            if full_array.shape != (
-                aoi_chunk.shape[0],
-                int(chunk_size / 2),
-                int(chunk_size / 2),
-            ):
-                logging.error(
-                    f" In sum_overlapped_chunks the shape of full_array is not {(6, int(chunk_size / 2), int(chunk_size / 2))}"
-                    f" The size of it {full_array.shape}"
-                )
+                ready_np_array = tensor_to_image(
+                    (ready_np_array * 255).long(), keepdim=True
+                ).squeeze()
+                torch.cuda.empty_cache()
+                return ready_np_array[np.newaxis, ...].astype(np.int8)
             else:
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    final_result = np.divide(
-                        full_array[:-1, :, :],
-                        full_array[-1, :, :][np.newaxis, :, :],
-                        out=np.zeros_like(full_array[:-1, :, :], dtype=float),
-                        where=full_array[-1, :, :] != 0,
-                    )
-                    if final_result.shape[0] == 1:
-                        final_result = expit(final_result)
-                        final_result = (
-                            np.where(final_result > 0.5, 1, 0)
-                            .squeeze(0)
-                            .astype(np.uint8)
-                        )
-                    else:
-                        final_result = np.argmax(final_result, axis=0).astype(np.uint8)
-                    return final_result
+                ready_np_array = image_to_tensor(reshape_as_image(aoi_chunk))
+                ready_np_array = minmax_scale(
+                    img=ready_np_array, scale_range=(0, 1), orig_range=(0, 255)
+                )
+                ready_np_array = equalize_clahe(
+                    ready_np_array.float().unsqueeze(0),
+                    clip_limit=float(self.enhance_clip_limit),
+                    grid_size=(3, 3),
+                )
+                ready_np_array = tensor_to_image((ready_np_array * 255).long())
+                ready_np_array = reshape_as_raster(ready_np_array)
+                torch.cuda.empty_cache()
+                return ready_np_array
+        else:
+            return aoi_chunk
 
     def is_low_contrast(self, fraction_threshold=0.3):
         """This function checks if a raster is low contrast
@@ -754,14 +721,16 @@ class AOI(object):
         Returns:
             bool: False for high contrast image | True for low contrast image
         """
-        data_type = self.raster.dtype
-        grayscale = np.mean(self.raster, axis=0)
-        grayscale = np.round(grayscale).astype(data_type)
         from skimage import exposure
 
+        self.raster_np = self.aoi_dask_array.compute()
+        data_type = self.aoi_dask_array.dtype
+        grayscale = np.mean(self.raster_np, axis=0)
+        grayscale = np.round(grayscale).astype(data_type)
         high_or_low_contrast = exposure.is_low_contrast(
             grayscale, fraction_threshold=fraction_threshold
         )
+        self.raster_np = None
         return high_or_low_contrast
 
     @staticmethod
@@ -850,616 +819,6 @@ class AOI(object):
             )
             raise e
 
-    @staticmethod
-    def runModel(
-        chunk_data: np.ndarray,
-        chunk_size: int,
-        model_path: str,
-        block_info=None,
-    ):
-        num_chunks = block_info[0]["num-chunks"]
-        chunk_location = block_info[0]["chunk-location"]
-
-        if chunk_data.size > 0 and chunk_data is not None:
-            try:
-                # Defining the base window for window creation later
-                step = chunk_size >> 1
-                window = w.hann(M=chunk_size, sym=False)
-                window = window[:, np.newaxis] * window[np.newaxis, :]
-                final_window = np.empty((1, 1))
-
-                # device = torch.device("cpu")
-                device_id = None
-                num_devices = 0
-                if torch.cuda.is_available():
-                    num_devices = torch.cuda.device_count()
-                    for i in range(num_devices):
-                        res = {"gpu": torch.cuda.utilization(i)}
-                        torch_cuda_mem = torch.cuda.mem_get_info(i)
-                        mem = {
-                            "used": torch_cuda_mem[-1] - torch_cuda_mem[0],
-                            "total": torch_cuda_mem[-1],
-                        }
-                        used_ram = mem["used"] / (1024**2)
-                        max_ram = mem["total"] / (1024**2)
-                        used_ram_percentage = (used_ram / max_ram) * 100
-                        if used_ram_percentage < 70 and res["gpu"] < 70:
-                            device_id = i
-                            break
-                device = (
-                    torch.device(f"cuda:{device_id}")
-                    if device_id is not None
-                    else torch.device("cpu")
-                )
-                device = torch.device("cuda:0")
-                """ 
-                if (
-                    chunk_location[2] > int(num_chunks[2] / num_devices)
-                    and chunk_location[2] <= int(num_chunks[2] / num_devices) * 2
-                ):
-                    device = torch.device("cuda:1")
-                elif chunk_location[2] > int(num_chunks[2] / num_devices) * 2:
-                    device = torch.device("cuda:2")
-                """
-                model = torch.jit.load(model_path, map_location=device).to(
-                    device
-                )  # load the model
-                tensor = torch.as_tensor(chunk_data[np.newaxis, ...]).to(
-                    model.device
-                )  # convert chunck to torch Tensor
-                prediction_output = np.empty(
-                    shape=(5, chunk_data.shape[1], chunk_data.shape[2])
-                )  # Create the output but empty
-
-                with torch.no_grad():
-                    prediction_output = model(tensor).cpu().numpy()[0]  # run the model
-                del tensor
-                del model  # Delete the model if it's not needed anymore
-
-                # Getting a (chunk_size, chunk_size) chunk with its window
-                if chunk_location[2] == num_chunks[2] - 1 and chunk_location[1] == 0:
-                    """ If chunk is top right corner"""
-                    prediction_output = prediction_output[
-                        :,
-                        :chunk_size,
-                        :chunk_size,
-                    ]
-                    """ Top right corner window"""
-                    window_u = np.vstack(
-                        [
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                            window[step:, :],
-                        ]
-                    )
-                    window_r = np.hstack(
-                        [
-                            window[:, :step],
-                            np.tile(window[:, step : step + 1], (1, step)),
-                        ]
-                    )
-                    final_window = np.block(
-                        [
-                            [window_u[:step, :step], np.ones((step, step))],
-                            [window_r[step:, :step], window_r[step:, step:]],
-                        ]
-                    )
-                elif chunk_location[2] == num_chunks[2] - 1 and (
-                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
-                ):
-                    """ If chunk is on the right egde but not corners"""
-                    prediction_output = prediction_output[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                        :chunk_size,
-                    ]
-                    """ left egde window """
-                    final_window = np.hstack(
-                        [
-                            window[:, :step],
-                            np.tile(window[:, step : step + 1], (1, step)),
-                        ]
-                    )
-                elif chunk_location[2] == num_chunks[2] - 1 and (
-                    chunk_location[1] == num_chunks[1] - 1
-                ):
-                    """ If chunk is in the bottom right corner"""
-                    prediction_output = prediction_output[
-                        :,
-                        :chunk_size,
-                        :chunk_size,
-                    ]
-                    """ bottom right window """
-                    window_r = np.hstack(
-                        [
-                            window[:, :step],
-                            np.tile(window[:, step : step + 1], (1, step)),
-                        ]
-                    )
-                    window_b = np.vstack(
-                        [
-                            window[:step, :],
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                        ]
-                    )
-                    final_window = np.block(
-                        [
-                            [window_r[:step, :step], window_r[:step, step:]],
-                            [window_b[step:, :step], np.ones((step, step))],
-                        ]
-                    )
-                elif chunk_location[1] == num_chunks[1] - 1 and (
-                    chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1
-                ):
-                    """ If chunk is on the bottom egde but not corners"""
-                    prediction_output = prediction_output[
-                        :,
-                        :chunk_size,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                    ]
-                    """ bottom egde window"""
-                    final_window = np.vstack(
-                        [
-                            window[:step, :],
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                        ]
-                    )
-                elif chunk_location[1] == num_chunks[1] - 1 and chunk_location[2] == 0:
-                    """ If chunk is on the bottom left corner"""
-                    prediction_output = prediction_output[
-                        :,
-                        :chunk_size,
-                        :chunk_size,
-                    ]
-                    """ bottom left window"""
-                    window_l = np.hstack(
-                        [
-                            np.tile(window[:, step : step + 1], (1, step)),
-                            window[:, step:],
-                        ]
-                    )
-                    window_b = np.vstack(
-                        [
-                            window[:step, :],
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                        ]
-                    )
-                    final_window = np.block(
-                        [
-                            [window_l[:step, :step], window_l[:step, step:]],
-                            [np.ones((step, step)), window_b[step:, step:]],
-                        ]
-                    )
-                elif chunk_location[1] == 0 and chunk_location[2] == 0:
-                    """ If chunk is on the top left corner"""
-                    prediction_output = prediction_output[:, :chunk_size, :chunk_size]
-                    """ Top left window"""
-                    window_u = np.vstack(
-                        [
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                            window[step:, :],
-                        ]
-                    )
-                    window_l = np.hstack(
-                        [
-                            np.tile(window[:, step : step + 1], (1, step)),
-                            window[:, step:],
-                        ]
-                    )
-                    final_window = np.block(
-                        [
-                            [np.ones((step, step)), window_u[:step, step:]],
-                            [window_l[step:, :step], window_l[step:, step:]],
-                        ]
-                    )
-                elif chunk_location[2] == 0 and (
-                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1]
-                ):
-                    """ If chunk is on the left edge but not corners"""
-                    prediction_output = prediction_output[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                        :chunk_size,
-                    ]
-                    """ top edge window"""
-                    final_window = np.hstack(
-                        [
-                            np.tile(window[:, step : step + 1], (1, step)),
-                            window[:, step:],
-                        ]
-                    )
-                elif (
-                    chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1
-                ) and (chunk_location[1] == 0):
-                    """ If chunk is on the top edge but not corners"""
-                    prediction_output = prediction_output[
-                        :,
-                        :chunk_size,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                    ]
-                    """ top edge window"""
-                    final_window = np.vstack(
-                        [
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                            window[step:, :],
-                        ]
-                    )
-                elif (
-                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
-                ) and (chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1):
-                    """ if the chunk is in the middle"""
-                    prediction_output = prediction_output[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                    ]
-                    final_window = window
-
-                """ 
-                slices = dask.array.core.slices_from_chunks(
-                    dask.array.empty(chunk_data_.shape).chunks
-                )  #Create slices for iterating over and running the model
-                prediction_output = np.empty(
-                    shape=(5, chunk_data_.shape[1], chunk_data_.shape[2])
-                )  #Create the prediction_outputput but empty
-                for slice_ in slices:
-                    tensor = torch.as_tensor(chunk_data_[slice_][np.newaxis, ...]).to(
-                        device
-                    )
-                    with torch.no_grad():
-                        prediction_output[:, slice_[1], slice_[2]] = model(tensor).cpu().numpy()[0]
-                    del tensor  # Delete the tensor to free up memory
-                """
-
-                if prediction_output.shape[1:] != final_window.shape:
-                    logging.error(
-                        f" In runModel the shape of window and the array do not match"
-                        f" The shape of window is {final_window.shape}"
-                        f" The shape of array is {prediction_output.shape[1:]}"
-                    )
-                if prediction_output.shape[1:] != (chunk_size, chunk_size):
-                    logging.error(
-                        f" In runModel the shape of the array is not the expected shape"
-                        f" The shape of array is {prediction_output.shape[1:]}"
-                    )
-                else:
-                    return np.concatenate(
-                        (
-                            prediction_output * final_window,
-                            final_window[np.newaxis, :, :],
-                        ),
-                        axis=0,
-                    )
-            except Exception as e:
-                logging.error(f"Error occured in IrunModel: {e}")
-            finally:
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()  # Release unused memory
-
-    @staticmethod
-    def runModel_partial_neighbor(
-        chunk_data: np.ndarray,
-        chunk_size: int,
-        model_path: str,
-        block_info=None,
-    ):
-        num_chunks = block_info[0]["num-chunks"]
-        chunk_location = block_info[0]["chunk-location"]
-        if chunk_data.size > 0 and chunk_data is not None:
-            try:
-                # Defining the base window for window creation later
-                step = chunk_size >> 1
-                window = w.hann(M=chunk_size, sym=False)
-                window = window[:, np.newaxis] * window[np.newaxis, :]
-                final_window = np.empty((1, 1))
-                chunk_data_ = chunk_data
-
-                # Getting a (chunk_size, chunk_size) chunk with its window
-                if chunk_location[2] == num_chunks[2] - 1 and chunk_location[1] == 0:
-                    """ If chunk is top right corner"""
-                    chunk_data_ = chunk_data_[
-                        :,
-                        :chunk_size,
-                        :chunk_size,
-                    ]
-                    """ Top right corner window"""
-                    window_u = np.vstack(
-                        [
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                            window[step:, :],
-                        ]
-                    )
-                    window_r = np.hstack(
-                        [
-                            window[:, :step],
-                            np.tile(window[:, step : step + 1], (1, step)),
-                        ]
-                    )
-                    final_window = np.block(
-                        [
-                            [window_u[:step, :step], np.ones((step, step))],
-                            [window_r[step:, :step], window_r[step:, step:]],
-                        ]
-                    )
-                elif chunk_location[2] == num_chunks[2] - 1 and (
-                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
-                ):
-                    """ If chunk is on the right egde but not corners"""
-                    chunk_data_ = chunk_data[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                        :chunk_size,
-                    ]
-                    """ left egde window """
-                    final_window = np.hstack(
-                        [
-                            window[:, :step],
-                            np.tile(window[:, step : step + 1], (1, step)),
-                        ]
-                    )
-                elif chunk_location[2] == num_chunks[2] - 1 and (
-                    chunk_location[1] == num_chunks[1] - 1
-                ):
-                    """ If chunk is in the bottom right corner"""
-                    chunk_data_ = chunk_data_[
-                        :,
-                        :chunk_size,
-                        :chunk_size,
-                    ]
-                    """ bottom right window """
-                    window_r = np.hstack(
-                        [
-                            window[:, :step],
-                            np.tile(window[:, step : step + 1], (1, step)),
-                        ]
-                    )
-                    window_b = np.vstack(
-                        [
-                            window[:step, :],
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                        ]
-                    )
-                    final_window = np.block(
-                        [
-                            [window_r[:step, :step], window_r[:step, step:]],
-                            [window_b[step:, :step], np.ones((step, step))],
-                        ]
-                    )
-                elif chunk_location[1] == num_chunks[1] - 1 and (
-                    chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1
-                ):
-                    """ If chunk is on the bottom egde but not corners"""
-                    chunk_data_ = chunk_data_[
-                        :,
-                        :chunk_size,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                    ]
-                    """ bottom egde window"""
-                    final_window = np.vstack(
-                        [
-                            window[:step, :],
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                        ]
-                    )
-                elif chunk_location[1] == num_chunks[1] - 1 and chunk_location[2] == 0:
-                    """ If chunk is on the bottom left corner"""
-                    chunk_data_ = chunk_data_[
-                        :,
-                        :chunk_size,
-                        :chunk_size,
-                    ]
-                    """ bottom left window"""
-                    window_l = np.hstack(
-                        [
-                            np.tile(window[:, step : step + 1], (1, step)),
-                            window[:, step:],
-                        ]
-                    )
-                    window_b = np.vstack(
-                        [
-                            window[:step, :],
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                        ]
-                    )
-                    final_window = np.block(
-                        [
-                            [window_l[:step, :step], window_l[:step, step:]],
-                            [np.ones((step, step)), window_b[step:, step:]],
-                        ]
-                    )
-                elif chunk_location[1] == 0 and chunk_location[2] == 0:
-                    """ If chunk is on the top left corner"""
-                    chunk_data_ = chunk_data[:, :chunk_size, :chunk_size]
-                    """ Top left window"""
-                    window_u = np.vstack(
-                        [
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                            window[step:, :],
-                        ]
-                    )
-                    window_l = np.hstack(
-                        [
-                            np.tile(window[:, step : step + 1], (1, step)),
-                            window[:, step:],
-                        ]
-                    )
-                    final_window = np.block(
-                        [
-                            [np.ones((step, step)), window_u[:step, step:]],
-                            [window_l[step:, :step], window_l[step:, step:]],
-                        ]
-                    )
-                elif chunk_location[2] == 0 and (
-                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1]
-                ):
-                    """ If chunk is on the left edge but not corners"""
-                    chunk_data_ = chunk_data[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                        :chunk_size,
-                    ]
-                    """ top edge window"""
-                    final_window = np.hstack(
-                        [
-                            np.tile(window[:, step : step + 1], (1, step)),
-                            window[:, step:],
-                        ]
-                    )
-                elif (
-                    chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1
-                ) and (chunk_location[1] == 0):
-                    """ If chunk is on the top edge but not corners"""
-                    chunk_data_ = chunk_data[
-                        :,
-                        :chunk_size,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                    ]
-                    """ top edge window"""
-                    final_window = np.vstack(
-                        [
-                            np.tile(window[step : step + 1, :], (step, 1)),
-                            window[step:, :],
-                        ]
-                    )
-                elif (
-                    chunk_location[1] > 0 and chunk_location[1] < num_chunks[1] - 1
-                ) and (chunk_location[2] > 0 and chunk_location[2] < num_chunks[2] - 1):
-                    """ if the chunk is in the middle"""
-                    chunk_data_ = chunk_data[
-                        :,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                        int(chunk_size / 2) : int(chunk_size / 2) + chunk_size,
-                    ]
-                    final_window = window
-
-                device = torch.device("cpu")
-                device_id = None
-                if torch.cuda.is_available():
-                    num_devices = torch.cuda.device_count()
-                    for i in range(num_devices):
-                        res = {"gpu": torch.cuda.utilization(i)}
-                        torch_cuda_mem = torch.cuda.mem_get_info(i)
-                        mem = {
-                            "used": torch_cuda_mem[-1] - torch_cuda_mem[0],
-                            "total": torch_cuda_mem[-1],
-                        }
-                        used_ram = mem["used"] / (1024**2)
-                        max_ram = mem["total"] / (1024**2)
-                        used_ram_percentage = (used_ram / max_ram) * 100
-                        if used_ram_percentage < 70 and res["gpu"] < 70:
-                            device_id = i
-                            break
-
-                """ 
-                device = (
-                    torch.device(f"cuda:{device_id}")
-                    if device_id is not None
-                    else torch.device("cpu")
-                )
-                """
-                device = torch.device("cuda:0")
-                """
-                if (
-                    chunk_location[2] > int(num_chunks[2] / num_devices)
-                    and chunk_location[2] <= int(num_chunks[2] / num_devices) * 2
-                ):
-                    device = torch.device("cuda:1")
-                elif chunk_location[2] > int(num_chunks[2] / num_devices) * 2:
-                    device = torch.device("cuda:2")
-                """
-                model = torch.jit.load(model_path, map_location=device).to(
-                    device
-                )  # load the model
-                # convert chunck to torch Tensor
-                tensor = torch.as_tensor(chunk_data_[np.newaxis, ...]).to(model.device)
-
-                out = np.empty(
-                    shape=(5, chunk_data_.shape[1], chunk_data_.shape[2])
-                )  # Create the output but empty
-                # run the model
-                with torch.no_grad():
-                    out = model(tensor).cpu().numpy()[0]
-                """ 
-                slices = dask.array.core.slices_from_chunks(
-                    dask.array.empty(chunk_data_.shape).chunks
-                )  #Create slices for iterating over and running the model
-                out = np.empty(
-                    shape=(5, chunk_data_.shape[1], chunk_data_.shape[2])
-                )  #Create the output but empty
-                for slice_ in slices:
-                    tensor = torch.as_tensor(chunk_data_[slice_][np.newaxis, ...]).to(
-                        device
-                    )
-                    with torch.no_grad():
-                        out[:, slice_[1], slice_[2]] = model(tensor).cpu().numpy()[0]
-                    del tensor  # Delete the tensor to free up memory
-                """
-                del tensor
-                del model  # Delete the model if it's not needed anymore
-                if out.shape[1:] != final_window.shape:
-                    logging.error(
-                        f" In runModel the shape of window and the array do not match"
-                        f" The shape of window is {final_window.shape}"
-                        f" The shape of array is {out.shape[1:]}"
-                    )
-                if out.shape[1:] != (chunk_size, chunk_size):
-                    logging.error(
-                        f" In runModel the shape of the array is not the expected shape"
-                        f" The shape of array is {out.shape[1:]}"
-                    )
-                else:
-                    return np.concatenate(
-                        (out * final_window, final_window[np.newaxis, :, :]), axis=0
-                    )
-                """
-                # convert chunck to torch Tensor
-                tensor = torch.tensor(chunk_data[None, :, :, :]).to(device)
-                # run the model
-                with torch.no_grad():
-                    model_tensor = model(tensor).argmax(dim=1).to(torch.uint8)
-                return model_tensor.cpu().numpy()[0]
-
-                
-                if model_tensor.shape[1] == 1:
-                    features = expit(model_tensor).cpu().numpy()[0]
-                    return (
-                        np.where(features > 0.5, 1, 0)
-                        .squeeze(0)
-                        .astype(np.uint8)
-                    )
-                else:
-                    features = model_tensor.to(torch.uint8)
-                    return features.cpu().numpy()[0]
-                    """
-            except Exception as e:
-                logging.error(f"Error occured in IrunModel: {e}")
-            finally:
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()  # Release unused memory
-
-    def write_inference_to_tif(
-        self,
-        mask_image: np.ndarray,
-    ):
-        mask_image = mask_image[
-            np.newaxis, : mask_image.shape[0], : mask_image.shape[1]
-        ]
-        self.raster_meta.update(
-            {
-                "driver": "GTiff",
-                "height": mask_image.shape[1],
-                "width": mask_image.shape[2],
-                "count": mask_image.shape[0],
-                "dtype": "uint8",
-                "compress": "lzw",
-            }
-        )
-        with rasterio.open(
-            "/space/partner/nrcan/geobase/work/dev/datacube/parallel/Change_detection_Results/geo_deep_learning.tif",
-            "w+",
-            **self.raster_meta,
-        ) as dest:
-            dest.write(mask_image)
-
 
 def aois_from_csv(
     csv_path: Union[str, Path],
@@ -1470,7 +829,6 @@ def aois_from_csv(
     for_multiprocessing=False,
     raster_stats=False,
     equalize_clahe_clip_limit: int = 0,
-    chunk_size: int = 512,
 ):
     """
     Creates list of AOIs by parsing a csv file referencing input data
@@ -1501,7 +859,6 @@ def aois_from_csv(
                     for_multiprocessing=for_multiprocessing,
                     equalize_clahe_clip_limit=equalize_clahe_clip_limit,
                     raster_stats=raster_stats,
-                    chunk_size=chunk_size,
                 )
                 logging.debug(new_aoi)
                 aois.append(new_aoi)
@@ -1512,71 +869,3 @@ def aois_from_csv(
                     f"Index: {i}"
                 )
     return aois
-
-
-def get_tiff_paths_from_csv(
-    csv_path: Union[str, Path],
-):
-    """
-    Creates list of AOI dict by parsing a csv file referencing input data
-    @param csv_path:
-        path to csv file containing list of input data. See README for details on expected structure of csv.
-    Returns: A list of tiff path
-    """
-    aois_dictionary = []
-    data_list = read_csv(csv_path)
-    logging.info(
-        f"\n\tSuccessfully read csv file: {Path(csv_path).name}\n"
-        f"\tNumber of rows: {len(data_list)}\n"
-        f"\tCopying first row:\n{data_list[0]}\n"
-    )
-    with tqdm(
-        enumerate(data_list), desc="Creating A list of tiff paths", total=len(data_list)
-    ) as _tqdm:
-        for i, aoi_dict in _tqdm:
-            _tqdm.set_postfix_str(f"Image: {Path(aoi_dict['tif']).stem}")
-            try:
-                aois_dictionary.append(aoi_dict)
-            except FileNotFoundError as e:
-                logging.error(
-                    f"{e}" f"Failed to get the path of :\n{aoi_dict}\n" f"Index: {i}"
-                )
-    return aois_dictionary
-
-
-def single_aoi(
-    aoi_dict: dict,
-    bands_requested: List = [],
-    attr_field_filter: str = None,
-    attr_values_filter: str = None,
-    data_dir: str = "data",
-    for_multiprocessing=False,
-    raster_stats=False,
-    equalize_clahe_clip_limit: int = 0,
-    chunk_size: int = 512,
-):
-    """
-    Creates a single AOI from the provided tiff path of the csv file referencing input data
-    @param tiff_path:
-        path to tiff file containing data.
-    Returns: a single AOU object
-    """
-    try:
-        new_aoi = AOI.from_dict(
-            aoi_dict=aoi_dict,
-            bands_requested=bands_requested,
-            attr_field_filter=attr_field_filter,
-            attr_values_filter=attr_values_filter,
-            root_dir=data_dir,
-            for_multiprocessing=for_multiprocessing,
-            equalize_clahe_clip_limit=equalize_clahe_clip_limit,
-            raster_stats=raster_stats,
-            chunk_size=chunk_size,
-        )
-        logging.debug(new_aoi)
-    except FileNotFoundError as e:
-        logging.error(
-            f"{e}\nGround truth file may not exist or is empty.\n"
-            f"Failed to create AOI:\n{aoi_dict}\n"
-        )
-    return new_aoi
