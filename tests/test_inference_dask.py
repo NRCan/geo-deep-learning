@@ -17,7 +17,7 @@ from utils.aoiutils import aois_from_csv
 
 logging = get_logger(__name__)  # import logging
 
-
+# git push origin HEAD:develop
 def inference_with_dask():
     # GET LIST OF INPUT IMAGES FOR INFERENCE
     list_aois = aois_from_csv(
