@@ -1,4 +1,3 @@
-
 import functools
 import json
 
@@ -19,7 +18,7 @@ from omegaconf import listconfig, ListConfig
 from tqdm import tqdm
 from kornia import image_to_tensor, tensor_to_image
 from rasterio.plot import reshape_as_image, reshape_as_raster
-from dask_image.imread import imread as dask_imread  # type: ignore
+from dask_image.imread import imread as dask_imread
 from kornia.enhance import equalize_clahe
 
 
