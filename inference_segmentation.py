@@ -61,9 +61,13 @@ def main(params:Union[DictConfig, Dict]):
     # Set the device
     num_devices = get_key_def('gpu', params['inference'], default=0, expected_type=(int, bool))
     if num_devices > 1:
-        logging.warning(f"Inference is not yet implemented for multi-gpu use. Will request only 1 GPU.")
+        logging.warning(
+            f"Inference is not yet implemented for multi-gpu use. Will request only 1 GPU."
+        )
         num_devices = 1
-    max_used_ram = get_key_def('max_used_ram', params['inference'], default=25, expected_type=int)
+    max_used_ram = get_key_def(
+        "max_used_ram", params["inference"], default=25, expected_type=int
+    )
     if not (0 <= max_used_ram <= 100):
         raise ValueError(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}.')
     max_used_perc = get_key_def('max_used_perc', params['inference'], default=25, expected_type=int)
@@ -89,13 +93,19 @@ def main(params:Union[DictConfig, Dict]):
                                   validate_path_exists=True)
     
     if raw_data_csv and input_stac_item:
-        raise ValueError(f"Input imagery should be either a csv of stac item. Got inputs from both \"raw_data_csv\" "
-                         f"and \"input stac item\"")
+        raise ValueError(
+            f'Input imagery should be either a csv of stac item. Got inputs from both "raw_data_csv" '
+            f'and "input stac item"'
+        )
     if input_stac_item:
         raw_data_csv = stac_input_to_temp_csv(input_stac_item)
         if not all([SingleBandItemEO.is_valid_cname(band) for band in bands_requested]):
-            logging.warning(f"Requested bands are not valid stac item common names. Got: {bands_requested}")
-            bands_requested = [SingleBandItemEO.band_to_cname(band) for band in bands_requested]
+            logging.warning(
+                f"Requested bands are not valid stac item common names. Got: {bands_requested}"
+            )
+            bands_requested = [
+                SingleBandItemEO.band_to_cname(band) for band in bands_requested
+            ]
             logging.warning(f"Will request: {bands_requested}")
             
     # LOGGING PARAMETERS
