@@ -20,13 +20,13 @@ def aois_from_csv(
 ) -> list:
     """
     Creates list of AOIs by parsing a csv file referencing input data.
-
+    
     .. note::
-        See AOI docstring for information on other parameters and
+        See AOI docstring for information on other parameters and 
         see the dataset docs for details on expected structure of csv.
 
     Args:
-        csv_path (Union[str, Path]): path to csv file containing list of input data.
+        csv_path (Union[str, Path]): path to csv file containing list of input data. 
         bands_requested (List, optional): _description_. Defaults to [].
         attr_field_filter (str, optional): _description_. Defaults to None.
         attr_values_filter (str, optional): _description_. Defaults to None.
@@ -37,17 +37,13 @@ def aois_from_csv(
 
     Returns:
         list: list of AOIs objects.
-    """
+    """    
     aois = []
     data_list = read_csv(csv_path)
-    logging.info(
-        f"\n\tSuccessfully read csv file: {Path(csv_path).name}\n"
-        f"\tNumber of rows: {len(data_list)}\n"
-        f"\tCopying first row:\n{data_list[0]}\n"
-    )
-    with tqdm(
-        enumerate(data_list), desc="Creating AOI's", total=len(data_list)
-    ) as _tqdm:
+    logging.info(f'\n\tSuccessfully read csv file: {Path(csv_path).name}\n'
+                 f'\tNumber of rows: {len(data_list)}\n'
+                 f'\tCopying first row:\n{data_list[0]}\n')
+    with tqdm(enumerate(data_list), desc="Creating AOI's", total=len(data_list)) as _tqdm:
         for i, aoi_dict in _tqdm:
             _tqdm.set_postfix_str(f"Image: {Path(aoi_dict['tif']).stem}")
             try:
@@ -64,34 +60,32 @@ def aois_from_csv(
                 logging.debug(new_aoi)
                 aois.append(new_aoi)
             except FileNotFoundError as e:
-                logging.error(
-                    f"{e}\nGround truth file may not exist or is empty.\n"
-                    f"Failed to create AOI:\n{aoi_dict}\n"
-                    f"Index: {i}"
-                )
+                logging.error(f"{e}\nGround truth file may not exist or is empty.\n"
+                              f"Failed to create AOI:\n{aoi_dict}\n"
+                              f"Index: {i}")
     return aois
 
 
 def aois_from_csv_change_detection(
-    csv_path: Union[str, Path],
-    bands_requested: List = [],
-    attr_field_filter: str = None,
-    attr_values_filter: str = None,
-    download_data: bool = False,
-    data_dir: str = "data",
-    for_multiprocessing=False,
-    write_dest_raster=False,
-    equalize_clahe_clip_limit: int = 0,
+        csv_path: Union[str, Path],
+        bands_requested: List = [],
+        attr_field_filter: str = None,
+        attr_values_filter: str = None,
+        download_data: bool = False,
+        data_dir: str = "data",
+        for_multiprocessing = False,
+        write_dest_raster = False,
+        equalize_clahe_clip_limit: int = 0,
 ) -> dict:
     """
     Creates list of AOIs by parsing a csv file referencing input data.
-
+    
     .. note::
-        See AOI docstring for information on other parameters and
+        See AOI docstring for information on other parameters and 
         see the dataset docs for details on expected structure of csv.
 
     Args:
-        csv_path (Union[str, Path]): path to csv file containing list of input data.
+        csv_path (Union[str, Path]): path to csv file containing list of input data. 
         bands_requested (List, optional): _description_. Defaults to [].
         attr_field_filter (str, optional): _description_. Defaults to None.
         attr_values_filter (str, optional): _description_. Defaults to None.
@@ -103,7 +97,7 @@ def aois_from_csv_change_detection(
 
     Returns:
         dict: dictionary of list of AOIs objects.
-    """
+    """    
     aois = {}
     data_dict = read_csv_change_detection(csv_path)
     logging.info(

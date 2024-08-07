@@ -10,8 +10,8 @@ import GPUtil
 import tracemalloc
 import psutil
 
-if str(Path(__file__).parents[0]) not in sys.path:
-    sys.path.insert(0, str(Path(__file__).parents[0]))
+if str(Path(__file__).parents[1]) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).parents[1]))
 from utils.logger import get_logger
 from utils.aoiutils import aois_from_csv
 

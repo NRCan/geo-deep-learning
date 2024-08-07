@@ -13,7 +13,6 @@ from utils.aoiutils import aois_from_csv
 from utils.logger import get_logger, set_tracker
 from geo_inference.geo_inference import GeoInference
 from utils.utils import get_device_ids, get_key_def, set_device
-from utils.utils import get_device_ids, get_key_def, set_device
 
 # Set the logging file
 logging = get_logger(__name__)
@@ -25,10 +24,7 @@ def stac_input_to_temp_csv(input_stac_item: Union[str, Path]) -> Path:
         csv.writer(fh).writerow([str(input_stac_item), None, "inference", Path(input_stac_item).stem])
     return Path(stac_temp_csv)
 
-
-def calc_inference_chunk_size(
-    gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200, default: int = 512
-) -> int:
+def calc_inference_chunk_size(gpu_devices_dict: dict, max_pix_per_mb_gpu: int = 200, default: int = 512) -> int:
     """
     Calculate maximum chunk_size that could fit on GPU during inference based on thumb rule with hardcoded
     "pixels per MB of GPU RAM" as threshold. Threshold based on inference with a large model (Deeplabv3_resnet101)
@@ -39,9 +35,7 @@ def calc_inference_chunk_size(
     if not gpu_devices_dict:
         return default
     # get max ram for smallest gpu
-    smallest_gpu_ram = min(
-        gpu_info["max_ram"] for _, gpu_info in gpu_devices_dict.items()
-    )
+    smallest_gpu_ram = min(gpu_info['max_ram'] for _, gpu_info in gpu_devices_dict.items())
     # rule of thumb to determine max chunk size based on approximate max pixels a gpu can handle during inference
     max_chunk_size = sqrt(max_pix_per_mb_gpu * smallest_gpu_ram)
     max_chunk_size_rd = int(max_chunk_size - (max_chunk_size % 256))  # round to the closest multiple of 256
@@ -63,13 +57,9 @@ def main(params:Union[DictConfig, Dict]):
     # Set the device
     num_devices = get_key_def('gpu', params['inference'], default=0, expected_type=(int, bool))
     if num_devices > 1:
-        logging.warning(
-            "Inference is not yet implemented for multi-gpu use. Will request only 1 GPU."
-        )
+        logging.warning(f"Inference is not yet implemented for multi-gpu use. Will request only 1 GPU.")
         num_devices = 1
-    max_used_ram = get_key_def(
-        "max_used_ram", params["inference"], default=25, expected_type=int
-    )
+    max_used_ram = get_key_def('max_used_ram', params['inference'], default=25, expected_type=int)
     if not (0 <= max_used_ram <= 100):
         raise ValueError(f'\nMax used ram parameter should be a percentage. Got {max_used_ram}.')
     max_used_perc = get_key_def('max_used_perc', params['inference'], default=25, expected_type=int)
@@ -95,23 +85,13 @@ def main(params:Union[DictConfig, Dict]):
                                   validate_path_exists=True)
     
     if raw_data_csv and input_stac_item:
-        raise ValueError(
-            'Input imagery should be either a csv or a stac item. Got inputs from both "raw_data_csv" '
-            'and "input stac item".'
-        )
-
-    if global_params["input_stac_item"]:
-        raw_data_csv = stac_input_to_temp_csv(global_params["input_stac_item"])
-        if not all(
-            [SingleBandItemEO.is_valid_cname(band) for band in global_params["bands"]]
-        ):
-            logging.warning(
-                f"Requested bands are not valid stac item common names. Got: {global_params['bands']}"
-            )
-            # returns red, blue, green
-            bands = [
-                SingleBandItemEO.band_to_cname(band) for band in global_params["bands"]
-            ]
+        raise ValueError(f"Input imagery should be either a csv of stac item. Got inputs from both \"raw_data_csv\" "
+                         f"and \"input stac item\"")
+    if input_stac_item:
+        raw_data_csv = stac_input_to_temp_csv(input_stac_item)
+        if not all([SingleBandItemEO.is_valid_cname(band) for band in bands_requested]):
+            logging.warning(f"Requested bands are not valid stac item common names. Got: {bands_requested}")
+            bands_requested = [SingleBandItemEO.band_to_cname(band) for band in bands_requested]
             logging.warning(f"Will request: {bands_requested}")
             
     # LOGGING PARAMETERS
@@ -121,24 +101,13 @@ def main(params:Union[DictConfig, Dict]):
     set_tracker(mode='inference', type='mlflow', task='segmentation', experiment_name=exper_name, run_name=run_name,
                 tracker_uri=tracker_uri, params=params, keys2log=['general', 'dataset', 'model', 'inference'])
     
-    set_tracker(
-        mode="inference",
-        type="mlflow",
-        task="segmentation",
-        experiment_name=exper_name,
-        run_name=run_name,
-        tracker_uri=tracker_uri,
-        params=params,
-        keys2log=["general", "dataset", "model", "inference"],
-    )
-
     # GET LIST OF INPUT IMAGES FOR INFERENCE
     list_aois = aois_from_csv(
         csv_path=raw_data_csv,
-        bands_requested=bands,
-        download_data=global_params["download_data"],
-        data_dir=global_params["raw_data_dir"],
-        equalize_clahe_clip_limit=global_params["clahe_clip_limit"],
+        bands_requested=bands_requested,
+        download_data=download_data,
+        data_dir=data_dir,
+        equalize_clahe_clip_limit=clahe_clip_limit,
     )
     
     # Create the inference object

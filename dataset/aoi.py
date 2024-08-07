@@ -237,7 +237,6 @@ class AOI(object):
                 f"Extended check: {False}"
             )
 
-        logging.info(f"\n\tSuccessfully parsed Rasters \n: {raster_parsed}\n")
         # If stac item input, keep Stac item object as attribute
         if is_stac_item(self.raster_raw_input):
             item = SingleBandItemEO(
