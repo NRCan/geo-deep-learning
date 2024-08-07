@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Union, Tuple
+from typing import Union
 
 import geopandas as gpd
 import numpy as np
@@ -24,7 +24,6 @@ def validate_raster(raster: rasterio.DatasetReader, extended: bool = False) -> N
     """
     if not raster:
         raise FileNotFoundError(f"No raster provided. Got: {raster}")
-
     try:
         if raster.meta["dtype"] not in [
             "uint8",
@@ -35,18 +34,12 @@ def validate_raster(raster: rasterio.DatasetReader, extended: bool = False) -> N
                 f"Datatype {raster.meta['dtype']} for {raster} may cause problems."
             )
         if extended:
-            logging.debug(
-                f"Will perform extended check.\nWill read first band: {raster}"
-            )
-            window = Window(
-                raster.width - 200, raster.height - 200, raster.width, raster.height
-            )
+            logging.debug(f'Will perform extended check.\nWill read first band: {raster}')
+            window = Window(raster.width-200, raster.height-200, raster.width, raster.height)
             raster_np = raster.read(1, window=window)
             logging.debug(raster_np.shape)
             if not np.any(raster_np):
-                logging.critical(
-                    f"Raster data filled with zero values.\nRaster path: {raster}"
-                )
+                logging.critical(f"Raster data filled with zero values.\nRaster path: {raster}")
     except FileNotFoundError as e:
         logging.critical(f"Could not locate raster file.\nRaster path: {raster}\n{e}")
         raise e
@@ -63,21 +56,18 @@ def validate_num_bands(raster_path: Union[str, Path], num_bands: int) -> None:
     @return: if expected and actual number of bands match, returns True, else False (with logging.critical)
     """
     raster = check_rasterio_im_load(raster_path)
-    input_band_count = raster.meta["count"]
+    input_band_count = raster.meta['count']
     if not input_band_count == num_bands:
-        logging.critical(
-            f"The number of bands expected doesn't match number of bands in input image.\n"
-            f"Expected: {num_bands} bands\n"
-            f"Got: {input_band_count} bands\n"
-            f"Raster path: {raster.name}"
-        )
+        logging.critical(f"The number of bands expected doesn't match number of bands in input image.\n"
+                         f"Expected: {num_bands} bands\n"
+                         f"Got: {input_band_count} bands\n"
+                         f"Raster path: {raster.name}")
         raise ValueError()
 
 
 def assert_crs_match(
-    raster: Union[str, Path, rasterio.DatasetReader],
-    label: Union[str, Path, gpd.GeoDataFrame],
-):
+        raster: Union[str, Path, rasterio.DatasetReader],
+        label: Union[str, Path, gpd.GeoDataFrame]):
     """
     Assert Coordinate reference system between raster and gpkg match.
     :param raster: (str or Path) path to raster file
@@ -97,16 +87,14 @@ def assert_crs_match(
             return False, raster_crs, gt_crs
 
         if epsg_raster != epsg_gt:
-            logging.error(
-                f"CRS mismatch: \n"
-                f'TIF file "{raster}" has {epsg_raster} CRS; \n'
-                f'GPKG file "{label}" has {epsg_gt} CRS.'
-            )
+            logging.error(f"CRS mismatch: \n"
+                          f"TIF file \"{raster}\" has {epsg_raster} CRS; \n"
+                          f"GPKG file \"{label}\" has {epsg_gt} CRS.")
             return False, raster_crs, gt_crs
         else:
             return True, raster_crs, gt_crs
     except AttributeError as e:
-        logging.critical(f"Problem reading crs from image or label.")
+        logging.critical(f'Problem reading crs from image or label.')
         logging.critical(e)
         return False, raster_crs, gt_crs
 
