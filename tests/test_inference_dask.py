@@ -21,9 +21,9 @@ logging = get_logger(__name__)  # import logging
 def inference_with_dask():
     # GET LIST OF INPUT IMAGES FOR INFERENCE
     list_aois = aois_from_csv(
-        csv_path="/gpfs/fs5/nrcan/nrcan_geobase/work/dev/datacube/parallel/deep_learning_repo/geo-deep-learning/tests/data/inference/test.csv",
+        csv_path=".../deep_learning_repo/geo-deep-learning/tests/data/inference/test.csv",
         bands_requested=["red", "green", "blue"],
-        data_dir="/gpfs/fs5/nrcan/nrcan_geobase/work/dev/datacube/parallel/geo_inference_big_enhancement/",
+        data_dir=".../parallel/geo_inference_big_enhancement/",
         write_dest_raster=True,
         equalize_clahe_clip_limit=25,
     )
