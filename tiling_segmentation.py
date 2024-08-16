@@ -7,6 +7,7 @@ import shutil
 from numbers import Number
 from typing import Union, Sequence, List
 from concurrent.futures import ThreadPoolExecutor
+import random
 
 import geopandas as gpd
 import matplotlib.pyplot
@@ -494,6 +495,7 @@ class Tiler(object):
             aoi: AOI,
             img_patch: Union[str, Path],
             gt_patch: Union[str, Path],
+            split: str,
             continuous_vals: bool = True,
             save_preview_labels: bool = True,
     ):
@@ -517,11 +519,10 @@ class Tiler(object):
             aoi.raster = rasterio.open(aoi.raster_dest)
         nodata = aoi.raster.nodata
 
-        random_val = np.random.randint(1, 101)
         if not {'trn', 'val'}.issubset(set(self.datasets)):
             raise ValueError(f"Tiler should contain a 'trn' and 'val' dataset. Got {self.datasets}")
         # for trn patches, sort between trn and val based on random number
-        dataset = 'val' if aoi.split == 'trn' and random_val <= self.val_percent else aoi.split
+        dataset = split if aoi.split == 'trn' else aoi.split
         if dataset == 'val':  # val dataset
             img_patch = move_patch_trn_to_val(patch=img_patch, src_split=aoi.split, dest_split='val')
             gt_patch = move_patch_trn_to_val(patch=gt_patch, src_split=aoi.split, dest_split='val')
@@ -553,8 +554,10 @@ class Tiler(object):
                     nodata_val=int(nodata),
                     mask_val=255
                 )
+            line_img_path = Path(*Path(img_patch).absolute().parts[-4:])
+            line_out_gt_burned_path = Path(*Path(out_gt_burned_path).absolute().parts[-4:])
 
-            dataset_line = f'{Path(img_patch).absolute()};{Path(out_gt_burned_path).absolute()};{round(annot_perc)}\n'
+            dataset_line = f'{line_img_path};{line_out_gt_burned_path};{round(annot_perc)}\n'
             return dataset, dataset_line
         else:
             return dataset, None
@@ -590,6 +593,17 @@ def move_patch_trn_to_val(patch: str, src_split: str = "trn", dest_split: str = 
 def map_wrapper(x):
     """For multi-threading"""
     return x[0](*(x[1:]))
+
+
+def get_train_val_indices(list_length: int, val_percent: int) -> dict[int, str]:
+    val_part = int(list_length * val_percent / 100)
+    all_indices = list(range(list_length))
+    val_indices = set(random.sample(all_indices, val_part))
+    trn_indices = set(all_indices) - val_indices
+    val_indices = {i: 'val' for i in val_indices}
+    trn_indices = {i: 'trn' for i in trn_indices}
+    indices = val_indices | trn_indices
+    return indices
 
 
 def main(cfg: DictConfig) -> None:
@@ -778,9 +792,15 @@ def main(cfg: DictConfig) -> None:
                     logging.error(f'\nInvalid ground truth patch: {img_patch}. '
                                   f'\n{e}')
 
-        for img_patch, gt_patch in tqdm(
+        # Define trn - val parts:
+        indices = get_train_val_indices(
+            list_length=len(aoi.patches_pairs_list),
+            val_percent=val_percent
+        )
+
+        for i, (img_patch, gt_patch) in enumerate(tqdm(
                 aoi.patches_pairs_list, position=1,
-                desc=f'Filter {len(aoi.patches_pairs_list)} patches and burn ground truth'):
+                desc=f'Filter {len(aoi.patches_pairs_list)} patches and burn ground truth')):
             datasets_total[aoi.split] += 1
             # If for inference, write only image patch since there's no ground truth
             if tiler.for_inference:
@@ -789,11 +809,13 @@ def main(cfg: DictConfig) -> None:
             # if for train, validation or test dataset, then filter, burn and provided complete line to write to file
             else:
                 if parallel:
-                    input_args.append([tiler.filter_and_burn_dataset, aoi, img_patch, gt_patch])
+                    split = indices[i]
+                    input_args.append([tiler.filter_and_burn_dataset, aoi, img_patch, gt_patch, split])
                 else:
                     line_tuple = tiler.filter_and_burn_dataset(aoi,
                                                                img_patch=img_patch,
                                                                gt_patch=gt_patch,
+                                                               split=indices[i],
                                                                continuous_vals=continuous_vals,
                                                                save_preview_labels=save_prev_labels)
                     dataset_lines.append(line_tuple)
