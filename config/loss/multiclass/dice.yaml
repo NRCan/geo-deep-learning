@@ -1,6 +1,0 @@
-# @package _global_
-loss:
-    _target_: segmentation_models_pytorch.losses.DiceLoss
-    mode: multiclass
-    ignore_index: ${dataset.ignore_index}
-    is_binary: False

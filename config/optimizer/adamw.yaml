@@ -1,5 +1,0 @@
-# @package _global_
-optimizer:
-  _target_: torch.optim.AdamW
-  lr: ${training.lr}
-  weight_decay: 4e-5
