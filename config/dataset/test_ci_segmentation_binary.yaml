@@ -4,7 +4,7 @@ dataset:
   name:
   raw_data_csv: ${general.raw_data_csv}
   raw_data_dir: ${general.raw_data_dir}
-  download_data: False
+  raster_stats: True
 
   # imagery
   bands: [1,2,3]

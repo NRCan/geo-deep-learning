@@ -4,6 +4,11 @@ from hydra import initialize, compose
 from hydra.core.hydra_config import HydraConfig
 from torchgeo.datasets.utils import extract_archive
 
+import sys
+import pathlib
+if str(pathlib.Path(__file__).parents[2]) not in sys.path:
+    sys.path.insert(0, str(pathlib.Path(__file__).parents[2]))
+
 from GDL import run_gdl
 
 

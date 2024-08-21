@@ -3,10 +3,8 @@ import logging
 from distutils.version import LooseVersion
 from pathlib import Path
 from typing import List, Union, Sequence
-import pims
 
 import ast
-import dask.array as da
 import pyproj
 from fiona._err import CPLE_OpenFailedError
 from fiona.errors import DriverError
@@ -21,7 +19,6 @@ from pandas.io.common import is_url
 from rasterio import MemoryFile, DatasetReader
 from rasterio.plot import reshape_as_raster
 from rasterio.shutil import copy as riocopy
-from dask_image.imread import _map_read_frame  # type: ignore
 import xml.etree.ElementTree as ET
 from osgeo import gdal, gdalconst, ogr, osr
 
@@ -85,6 +82,23 @@ def create_new_raster_from_base(input_raster, output_raster, write_array, dtype 
                 classes_dict=kwargs['classes_dict'],
             )
 
+
+def xarray_profile_attrs(input_raster, dtype = np.uint8, **kwargs):
+    src = check_rasterio_im_load(input_raster)
+    # Cannot write to 'VRT' driver
+    driver = 'GTiff' if src.driver == 'VRT' else src.driver
+    profile_kwargs = {
+        'crs': src.crs.to_string(),  
+        'transform': src.transform,  
+        'count': src.count,  
+        'width': src.width, 
+        'height': src.height,  
+        'driver': driver, 
+        'dtype': dtype, 
+        'BIGTIFF': 'YES',  
+        'compress': 'lzw'  
+    }
+    return profile_kwargs
 
 def get_key_recursive(key, config):
     """Returns a value recursively given a dictionary key that may contain multiple subkeys."""
@@ -572,22 +586,6 @@ def footprint_mask(
 
     return output_arr
 
-
-def imread(fname, nframes=1, *, arraytype="numpy"):
-    sfname = str(fname)
-    with pims.open(sfname) as imgs:
-        shape = (1,) + imgs.frame_shape
-        dtype = np.dtype(imgs.pixel_type)
-    ar = da.from_array([sfname] * shape[0], chunks=(nframes,))
-    a = ar.map_blocks(
-        _map_read_frame,
-        chunks=da.core.normalize_chunks((nframes,) + shape[1:], shape),
-        multiple_files=False,
-        new_axis=list(range(1, len(shape))),
-        arrayfunc=np.asanyarray,
-        meta=np.asanyarray([]).astype(dtype),  # meta overwrites `dtype` argument
-    )
-    return a
 
 
 if __name__ == "__main__":

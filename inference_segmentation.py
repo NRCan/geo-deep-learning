@@ -76,8 +76,8 @@ def main(params:Union[DictConfig, Dict]):
     
     # Dataset params
     bands_requested = get_key_def('bands', params['dataset'], default=[1, 2, 3], expected_type=Sequence)
-    download_data = get_key_def('download_data', params['inference'], default=False, expected_type=bool)
     data_dir = get_key_def('raw_data_dir', params['dataset'], default="data", to_path=True, validate_path_exists=True)
+    write_dest_raster = get_key_def('write_dest_raster', params['dataset'], default=True)
     clahe_clip_limit = get_key_def('clahe_clip_limit', params['tiling'], expected_type=Number, default=0)
     raw_data_csv = get_key_def('raw_data_csv', params['inference'], expected_type=str, to_path=True,
                                validate_path_exists=True)
@@ -105,8 +105,8 @@ def main(params:Union[DictConfig, Dict]):
     list_aois = aois_from_csv(
         csv_path=raw_data_csv,
         bands_requested=bands_requested,
-        download_data=download_data,
         data_dir=data_dir,
+        write_dest_raster =write_dest_raster,
         equalize_clahe_clip_limit=clahe_clip_limit,
     )
     
@@ -126,5 +126,5 @@ def main(params:Union[DictConfig, Dict]):
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
         logging.info(f'\nReading image: {aoi.aoi_id}')
         raster = aoi.raster
-        geo_inference(raster, tiff_name=aoi.aoi_id, patch_size=chunk_size)
+        geo_inference(raster, tiff_name=aoi.raster_name, patch_size=chunk_size)
         

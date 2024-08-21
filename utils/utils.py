@@ -8,7 +8,6 @@ from functools import reduce
 from pathlib import Path
 from time import sleep
 from typing import Sequence, List, Dict, Union, Optional
-
 from hydra.utils import to_absolute_path
 from pandas.io.common import is_url
 from pytorch_lightning.utilities.rank_zero import rank_zero_only
@@ -744,5 +743,12 @@ def download_url_wcheck(
 
 
 def map_wrapper(x):
-    """For multi-threading"""
-    return x[0](*(x[1:]))
+    """For multi-threading with error handling"""
+    try:
+        func = x[0]
+        args = x[1:]
+        if not callable(func):
+            raise TypeError(f"Expected a callable, got {type(func)}")
+        return func(*args)
+    except Exception as e:
+        return f"Error: {str(e)}"

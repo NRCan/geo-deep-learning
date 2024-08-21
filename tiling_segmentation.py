@@ -397,7 +397,6 @@ class Tiler(object):
             with ThreadPoolExecutor(32) as exe:
                 _ = [exe.submit(self._save_tile, *args) for args in raster_tile_data]
 
-        aoi.close_raster()  # for multiprocessing
         aoi.raster = None
 
         return aoi, sorted(raster_tile_paths), sorted(vector_tile_paths)
@@ -696,7 +695,6 @@ def main(cfg: DictConfig) -> None:
         bands_requested=bands_requested,
         attr_field_filter=attr_field,
         attr_values_filter=attr_vals,
-        download_data=download_data,
         data_dir=data_dir,
         for_multiprocessing=parallel,
         write_dest_raster=write_dest_raster,

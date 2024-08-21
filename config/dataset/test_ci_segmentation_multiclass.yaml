@@ -8,7 +8,7 @@ dataset:
 
   # imagery
   bands: [1,2,3]
-
+  raster_stats: True
   # ground truth
   attribute_field: properties/Quatreclasses
   attribute_values: [1,2,3,4]

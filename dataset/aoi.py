@@ -1,33 +1,50 @@
-import functools
+import gc
+import os
+import sys
 import json
-
-from typing import Union, Sequence, Tuple, List, Dict
-import geopandas as gpd
-import numpy as np
+import dask
+import torch
 import pyproj
 import pystac
-import rasterio
-import dask.array as da
-import torch
-from pathlib import Path
-import sys
+import logging
 import requests
-from hydra.utils import to_absolute_path
-from pandas.io.common import is_url
-from omegaconf import listconfig, ListConfig
+import rasterio
+import functools
+import threading
+import numpy as np
+import xarray as xr
+import pandas as pd
 from tqdm import tqdm
-from kornia import image_to_tensor, tensor_to_image
-from rasterio.plot import reshape_as_image, reshape_as_raster
-from dask_image.imread import imread as dask_imread
+import dask.array as da
+import geopandas as gpd
+from pathlib import Path
+from skimage import exposure
+from pandas.io.common import is_url
+from hydra.utils import to_absolute_path
 from kornia.enhance import equalize_clahe
-
+from multiprocessing.pool import ThreadPool
+from omegaconf import listconfig, ListConfig
+from kornia import image_to_tensor, tensor_to_image
+from typing import Union, Sequence, Tuple, List, Dict
+from dask.diagnostics import ResourceProfiler, ProgressBar
+from rasterio.plot import reshape_as_image, reshape_as_raster
 
 if str(Path(__file__).parents[1]) not in sys.path:
     sys.path.insert(0, str(Path(__file__).parents[1]))
+
+
+from utils.logger import get_logger
+from dataset.stacitem import SingleBandItemEO
+from utils.utils import read_csv, minmax_scale, download_url_wcheck
+from utils.verifications import (
+    assert_crs_match,
+    validate_raster,
+    validate_features_from_gpkg,
+    validate_num_bands,
+)
 from utils.geoutils import (
     stack_singlebands_vrt,
     is_stac_item,
-    create_new_raster_from_base,
     subset_multiband_vrt,
     check_rasterio_im_load,
     check_gdf_load,
@@ -35,27 +52,17 @@ from utils.geoutils import (
     bounds_riodataset,
     overlap_poly1_rto_poly2,
     gdf_mean_vertices_nb,
-    imread,
-)
-from dataset.stacitem import SingleBandItemEO
-from utils.logger import get_logger
-from utils.utils import read_csv, minmax_scale
-from utils.verifications import (
-    assert_crs_match,
-    validate_raster,
-    validate_features_from_gpkg,
-    validate_num_bands,
+    xarray_profile_attrs,
 )
 
-logging = get_logger(__name__)  # import logging
-
+logging = get_logger(__name__)
 
 class AOI(object):
     """
     Object containing all data information about a single area of interest
     based on https://github.com/stac-extensions/ml-aoi
+    Note: it only saves to tiff file 
     """
-
     def __init__(
         self,
         raster: Union[Path, str],
@@ -70,6 +77,7 @@ class AOI(object):
         root_dir: str = "data",
         for_multiprocessing: bool = False,
         write_dest_raster: bool = False,
+        write_dest_zarr: bool = False,
         raster_stats: bool = False,
         equalize_clahe_clip_limit: int = 0,
     ):
@@ -101,7 +109,9 @@ class AOI(object):
             If True, no rasterio.DatasetReader will be generated in __init__. User will have to call open raster later.
             See: https://github.com/rasterio/rasterio/issues/1731
         @param write_dest_raster: bool, optional
-            If True, a multi-band raster side by side with single-bands rasters as provided in input csv. For debugging purposes.
+            If True, a multi-band raster side by side with single-bands rasters as provided in input csv.
+        @param write_dest_zarr: bool, optional
+            If True, a zarr file along json metadata will be saved.    
         @param raster_stats:
             if True, radiometric stats will be read from Stac Item if available or calculated
         @param equalize_clahe_clip_limit: int, optional
@@ -151,12 +161,10 @@ class AOI(object):
             raise ValueError(
                 f"\nWith ground truth, split should be 'trn', 'tst' or 'inference'. \nGot {split}"
             )
-
         # force inference split if no label provided
         elif not label and (split != "inference" or not split):
             logging.warning(
                 f"\nNo ground truth provided. Dataset split will be set to 'inference'"
-                f"\nOriginal split: {split}"
             )
             split = "inference"
         self.split = split
@@ -165,9 +173,6 @@ class AOI(object):
             raise TypeError(
                 f"AOI name should be a string. Got {aoi_id} of type {type(aoi_id)}"
             )
-        elif not aoi_id:
-            aoi_id = self.raster_name.stem  # Defaults to name of image without suffix
-        self.aoi_id = aoi_id
 
         # Check collection string
         if collection and not isinstance(collection, str):
@@ -175,23 +180,6 @@ class AOI(object):
                 f"Collection name should be a string. Got {collection} of type {type(collection)}"
             )
         self.aoi_id = aoi_id
-
-        # If ground truth is provided, check attribute field
-        if label and attr_field_filter:
-            if not isinstance(attr_field_filter, str):
-                raise TypeError(
-                    f"Attribute field name should be a string.\n"
-                    f"Got {attr_field_filter} of type {type(attr_field_filter)}"
-                )
-            elif attr_field_filter not in self.label_gdf.columns:
-                # fiona and geopandas don't expect attribute name exactly the same way: "properties/class" vs "class"
-                attr_field_filter = attr_field_filter.split("/")[-1]
-                if attr_field_filter not in self.label_gdf.columns:
-                    raise ValueError(
-                        f'\nAttribute field "{attr_field_filter}" not found in label attributes:\n'
-                        f"{self.label_gdf.columns}"
-                    )
-        self.attr_field_filter = attr_field_filter
 
         # If ground truth is provided, check attribute values to filter from
         if isinstance(attr_values_filter, int):
@@ -206,13 +194,24 @@ class AOI(object):
                 f"Got {attr_values_filter} of type {type(attr_values_filter)}"
             )
         self.attr_values_filter = attr_values_filter
-
+        self.write_dest_zarr = write_dest_zarr
+        
         if not isinstance(for_multiprocessing, bool):
             raise ValueError(
                 f'\n"for_multiprocessing" should be a boolean.\nGot {for_multiprocessing}.'
             )
         self.for_multiprocessing = for_multiprocessing
         self.root_dir = Path(root_dir)
+        
+        rio_gdal_options = {
+            "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+            "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
+        }
+        if self.for_multiprocessing:
+            dask.config.set(scheduler='threads', num_workers=8)
+            dask.config.set(pool=ThreadPool(8))
+        else:
+            dask.config.set(scheduler='threads')
 
         """ -------------------------------------------------------------------"""
 
@@ -236,7 +235,7 @@ class AOI(object):
                 f"Size: {size}\n"
                 f"Extended check: {False}"
             )
-
+        
         # If stac item input, keep Stac item object as attribute
         if is_stac_item(self.raster_raw_input):
             item = SingleBandItemEO(
@@ -244,108 +243,83 @@ class AOI(object):
                 bands_requested=self.raster_bands_request,
             )
             self.raster_stac_item = item
-            self.raster_stats = self.read_stack_stat() if raster_stats else {}
+            self.raster_stats = self.read_stack_stat() if raster_stats else {} 
         else:
             self.raster_stac_item = None
             self.raster_stats = {}
-
-        # update the raster_src_is_multiband property
+        
+        for band, url in self.raster_parsed.items():
+            if is_url(url):
+                self.url_was_provided = True
+                out_name = self.root_dir / Path(url).name
+                download_url_wcheck(url, root=str(out_name.parent), filename=out_name.name)
+                self.raster_parsed[band] = str(out_name)
+            else:
+                break
+        
+        # check if the image needs contrast enhancement
+        decimated_image=[]
+        with rasterio.Env(**rio_gdal_options):
+            for band in self.raster_parsed.values():
+                with rasterio.open(band, 'r') as src:
+                    overview_factors = src.overviews(1)
+                    second_highest_factor = 1
+                    if len(overview_factors) > 2: 
+                        second_highest_factor = overview_factors[-2]
+                    decimated_image.append(src.read(1, out_shape=(1, int(src.height / second_highest_factor), int(src.width / second_highest_factor))))
+        self.high_or_low_contrast = exposure.is_low_contrast(np.mean(np.asarray(decimated_image), axis=0).astype(np.uint8), 0.3)
+        del decimated_image
+        
         self.raster_src_is_multiband = self.raster_needs_vrt = False
+        self.raster = rasterio.open(next(iter(self.raster_parsed.values())))
+        print(self.raster)
+        self.raster_stats = (
+            self.calc_raster_stats()
+            if raster_stats
+            else None
+        )
+
         if len(self.raster_parsed) == 1:
-            raster_count = rasterio.open(next(iter(self.raster_parsed.values()))).count
-            if raster_count > 1:
-                self.raster_src_is_multiband = True
-                self.aoi_dask_array = dask_imread(list(self.raster_parsed.values())[0])
-                self.aoi_dask_array = da.transpose(
-                    da.squeeze(self.aoi_dask_array), (2, 0, 1)
-                )
-                if self.raster_bands_request != list(range(1, raster_count + 1)):
-                    self.aoi_dask_array = self.aoi_dask_array[
-                        [idx - 1 for idx in raster_bands_request], :, :
-                    ]
-                    self.raster_needs_vrt = True
-                else:
-                    self.raster_bands_request = None
+            import rioxarray
+            self.aoi_xr_array= rioxarray.open_rasterio(list(self.raster_parsed.values())[0], 
+                                                        chunks=(1, min(int(self.raster.height / 4), 15000), min(int(self.raster.width / 4), 15000)))
+            if len(self.raster_bands_request) != self.raster.count:
+                self.raster_needs_vrt = True
+                self.aoi_xr_array = self.aoi_xr_array[
+                    [idx - 1 for idx in self.raster_bands_request], :, :
+                ]
+            else:
+                self.raster_needs_vrt = False
+                self.raster_bands_request = None
         else:  # If parsed result has more than a single file, then we're dealing with single-band files
             self.raster_needs_vrt = True
-            self.aoi_dask_array = [
-                imread(url) for band, url in self.raster_parsed.items()
-            ]
-            self.aoi_dask_array = da.stack(self.aoi_dask_array, axis=0)
-            self.aoi_dask_array = da.squeeze(
-                da.transpose(
-                    self.aoi_dask_array,
-                    (
-                        1,
-                        0,
-                        2,
-                        3,
-                    ),
-                )
-            )
+            all_bands_requested = []
+            # the rioxarray should be imported any where we need it
+            with rasterio.Env(**rio_gdal_options):
+                import rioxarray
+                for band, url in self.raster_parsed.items():
+                    all_bands_requested.append(rioxarray.open_rasterio(url,
+                                                                       chunks=(1, min(int(self.raster.height / 4), 15000), min(int(self.raster.width / 4), 15000))))
+            self.aoi_xr_array = xr.concat(all_bands_requested, dim="band")
+        
 
         self.raster_name = self.name_raster(
             input_path=self.raster_raw_input,
             bands_list=self.raster_bands_request,
             root_dir=self.root_dir,
         )
-
-        # output processing-ready destination raster if needed
+        if aoi_id is None:
+            self.aoi_id = self.raster_name.stem 
+        
         self.raster_dest, self.raster_is_vrt = self.raster_src_to_dest()
         self.raster = check_rasterio_im_load(self.raster_dest)
         validate_raster(self.raster)
         self.raster_meta = self.raster.meta
         self.raster_bounds = bounds_riodataset(self.raster)
-
-        self.high_or_low_contrast = self.is_low_contrast()
-        if self.enhance_clip_limit > 0 and self.high_or_low_contrast:
-            self.aoi_dask_array = self.aoi_dask_array.rechunk(
-                (
-                    1,
-                    int(self.aoi_dask_array.shape[1] / 4),
-                    int(self.aoi_dask_array.shape[2] / 4),
-                )
-            )
-            self.aoi_dask_array = da.map_overlap(
-                self.equalize_adapthist_enhancement,
-                self.aoi_dask_array,
-                per_band=True,
-                depth={
-                    1: int(self.aoi_dask_array.shape[1] / 20),
-                    2: int(self.aoi_dask_array.shape[2] / 20),
-                },
-                trim=True,
-                boundary="none",
-                dtype=self.aoi_dask_array.dtype,
-            )
-            self.raster_np = self.aoi_dask_array.compute(n_workers=16)
-            self.raster_name = (
-                self.raster_name.parent
-                / f"{self.raster_name.stem}_clahe{self.enhance_clip_limit}.tif"
-            )
-            self.raster_name = to_absolute_path(str(self.raster_name))
-        else:
-            self.raster_np = self.raster_read()
-
-        if write_dest_raster and self.raster_is_vrt:
-            create_new_raster_from_base(
-                input_raster=self.raster,
-                output_raster=self.raster_name,
-                write_array=self.raster_np,
-            )
-            logging.info(f"Wrote destination raster to : {self.raster_name}")
-            self.raster_dest = self.raster_name
-            self.raster = check_rasterio_im_load(self.raster_dest)
-            self.raster_is_vrt = False
-        if (
-            raster_num_bands_expected and not self.raster_is_vrt
-        ):  # VRT necessarily contains expected number of bands
-            validate_num_bands(
-                raster_path=self.raster, num_bands=raster_num_bands_expected
-            )
-
+        
         # Check label data
         if label:
+            
             self.label = Path(label)
             self.label_gdf = check_gdf_load(label)
             self.label_invalid_features = validate_features_from_gpkg(label)
@@ -373,19 +347,101 @@ class AOI(object):
                     f"\nError while checking CRS match between raster and label."
                     f"\n{e}"
                 )
-        self.raster_stats = (
-            self.calc_raster_stats()
-            if raster_stats and self.raster_stats == {}
-            else None
-        )
-        self.raster_stats = self.calc_rasters_stats() if raster_stats else None
+        # If ground truth is provided, check attribute field
+        if label and attr_field_filter:
+            if not isinstance(attr_field_filter, str):
+                raise TypeError(f'Attribute field name should be a string.\n'
+                                f'Got {attr_field_filter} of type {type(attr_field_filter)}')
+            elif attr_field_filter not in self.label_gdf.columns:
+                # fiona and geopandas don't expect attribute name exactly the same way: "properties/class" vs "class"
+                attr_field_filter = attr_field_filter.split('/')[-1]
+                if attr_field_filter not in self.label_gdf.columns:
+                    raise ValueError(f"\nAttribute field \"{attr_field_filter}\" not found in label attributes:\n"
+                                     f"{self.label_gdf.columns}")
+        self.attr_field_filter = attr_field_filter
 
-        if self.for_multiprocessing:
-            self.close_raster()
-            self.raster = None
+        if self.enhance_clip_limit > 0 and self.high_or_low_contrast:   
+            self.aoi_xr_array_dims = self.aoi_xr_array.dims
+            self.aoi_xr_array= da.map_overlap(
+                self.equalize_adapthist_enhancement,
+                self.aoi_xr_array.data,
+                per_band=True,
+                depth={
+                    1: min(int(self.aoi_xr_array.shape[1] / 20), 4000),
+                    2: min(int(self.aoi_xr_array.shape[2] / 20), 4000),
+                },
+                trim=True,
+                boundary="none",
+                dtype=self.aoi_xr_array.dtype,
+            )
+            if not write_dest_zarr and write_dest_raster:
+                self.aoi_xr_array = xr.DataArray(self.aoi_xr_array, dims=self.aoi_xr_array_dims, attrs=xarray_profile_attrs(input_raster=self.raster))
+                self.aoi_xr_array.name ="Enhanced"
+                self.raster_name = (
+                    self.raster_name.parent
+                    / f"{self.raster_name.stem}_clahe{self.enhance_clip_limit}.tif"
+                )
+                self.aoi_id = self.raster_name.stem
+            elif write_dest_zarr and not write_dest_raster:
+                self.raster_name = (
+                    self.raster_name.parent
+                    / f"{self.raster_name.stem}_clahe{self.enhance_clip_limit}.zarr"
+                )
+                self.aoi_id = self.raster_name.stem
+        if write_dest_zarr and not write_dest_raster:
+            self.raster_json = (
+                self.raster_name.parent /
+                f"{self.raster_name.stem}.json"
+            )
+        
+        
+        with ProgressBar() as pbar:
+            pbar.register()
+            gc.collect()
+            if write_dest_raster and not self.write_dest_zarr:
+                import rioxarray
+                self.aoi_xr_array.rio.to_raster(
+                    to_absolute_path(str(self.raster_name)), tiled=True, lock=threading.Lock())
+                logging.info(f"Wrote destination Raster to : {self.raster_name}")
+                self.raster = check_rasterio_im_load(self.raster_name)
+                del self.aoi_xr_array
+            elif self.write_dest_zarr and not write_dest_raster:
+                self.aoi_xr_array.rechunk((self.raster.count, 512,512)).to_zarr(to_absolute_path(str(self.raster_name)), overwrite=True)
+                serializable_attrs = {key: self._serializable_json(value) for key, value in xarray_profile_attrs(input_raster=self.raster).items()}
+                with open(self.raster_json, 'w', encoding='utf-8') as json_file:
+                    json.dump(serializable_attrs, json_file, indent=4)
+                logging.info(f"Wrote destination Zarr to : {self.raster_name}")
+                logging.info(f"Wrote destination Metadata to : {self.raster_json}")
+                del self.aoi_xr_array, serializable_attrs
+        
+        if (
+            raster_num_bands_expected and not self.raster_is_vrt
+        ):  # VRT necessarily contains expected number of bands
+            validate_num_bands(
+                raster_path=self.raster, num_bands=raster_num_bands_expected
+            )
 
-        logging.debug(self)
-
+        if label:
+            self.label_gdf_filtered = self.filter_gdf_by_attribute(
+                self.label_gdf.copy(deep=True),
+                self.attr_field_filter,
+                self.attr_values_filter,
+            )
+            if len(self.label_gdf_filtered) == 0:
+                logging.warning(f"\nNo features found for ground truth \"{self.label}\","
+                                f"\nfiltered by attribute field \"{self.attr_field_filter}\""
+                                f"\nwith values \"{self.attr_values_filter}\"")
+        else:
+            self.label_gdf_filtered = None
+        
+        # removing all raw data that was downloaded
+        if self.raster_stac_item is not None:
+            for band, path in self.raster_parsed.items():
+                if os.path.isfile(to_absolute_path(path)):
+                    os.remove(to_absolute_path(path))
+        gc.collect()
+        logging.debug(self) 
+        
     @classmethod
     def from_dict(
         cls,
@@ -397,8 +453,10 @@ class AOI(object):
         raster_stats=False,
         for_multiprocessing: bool = False,
         write_dest_raster: bool = False,
+        write_dest_zarr: bool = False,
         equalize_clahe_clip_limit: int = 0,
     ):
+        
         """Instanciates an AOI object from an input-data dictionary as expected by geo-deep-learning"""
         if not isinstance(aoi_dict, dict):
             raise TypeError("Input data should be a dictionary.")
@@ -409,8 +467,7 @@ class AOI(object):
             )
         if aoi_dict["gpkg"] is None:
             logging.warning(
-                f"No ground truth data found for {aoi_dict['tif']}.\n"
-                f"Only imagery will be processed from now on"
+                f" Only imagery will be processed; No ground truth data found for {aoi_dict['tif']}.\n"
             )
         if "aoi_id" not in aoi_dict.keys() or not aoi_dict["aoi_id"]:
             aoi_dict["aoi_id"] = Path(aoi_dict["tif"]).stem
@@ -428,6 +485,7 @@ class AOI(object):
             raster_stats=raster_stats,
             equalize_clahe_clip_limit=equalize_clahe_clip_limit,
             write_dest_raster=write_dest_raster,
+            write_dest_zarr=write_dest_zarr,
         )
         return new_aoi
 
@@ -490,66 +548,7 @@ class AOI(object):
             self.raster.read() if self.raster_np is None else self.raster_np
         )
         return self.raster_np
-
-    def close_raster(self) -> None:
-        if self.raster_closed is False:
-            self.raster.close()
-            self.raster_closed = True
-
-    def get_tiff_size(self, url):
-        """This funcstion is for getting the size of tiffs that have been provided by urls"""
-        tiff_info = requests.head(url)
-        if tiff_info.status_code == 200:
-            tiff_length = tiff_info.headers.get("Content-Length")
-            return int(tiff_length) if tiff_length else None
-        else:
-            raise Exception(
-                f"Failed to retrieve headers, status code: {tiff_info.status_code}"
-            )
-
-    @staticmethod
-    def name_raster(
-        input_path: Union[str, Path],
-        bands_list: Sequence = None,
-        root_dir: Union[str, Path] = "data",
-    ):
-        """
-        Assigns a name to the AOI's raster considering different input types.
-        Used for logging and as output name for .tif built from a VRT
-        (see self.write_multiband_from_singleband_rasters_as_vrt())
-        @param root_dir: Root directory where derived raster would be written.
-        @param input_path: path to input raster file as accepted by GDL (see dataset/README.md)
-        @param bands_list: list of requested bands from input raster
-        """
-        if not bands_list:  # multiband, no band selection or ordering
-            return Path(input_path)
-        raster_name_parent = Path(root_dir)
-
-        bands_list_str = [str(band) for band in bands_list]
-        if len(bands_list_str) <= 4:
-            bands_suffix = f"{'-'.join(bands_list_str)}"
-        else:  # e.g. hyperspectral imagery
-            bands_suffix = f"{len(bands_list)}bands"
-
-        if (
-            "${dataset.bands}" in input_path
-        ):  # singleband with ${dataset.bands} pattern (implies band selection)
-            raster_name = (
-                raster_name_parent
-                / f"{Path(input_path).stem.replace('${dataset.bands}', bands_suffix)}.tif"
-            )
-        elif (
-            len(bands_list_str) > 0
-        ):  # singleband from stac item or multiband with band selection
-            raster_name = (
-                raster_name_parent / f"{Path(input_path).stem}_{bands_suffix}.tif"
-            )
-        else:
-            raise ValueError(
-                "Invalid input raster. See README for valid input raster formats"
-            )
-        return raster_name
-
+    
     def raster_src_to_dest(self):
         """
         Outputs a processing-ready raster after merge from singleband source rasters or after reordering or selecting
@@ -558,6 +557,7 @@ class AOI(object):
 
         self.raster_is_vrt = False
         if self.raster_needs_vrt:
+            self.raster_src_is_multiband = False
             if self.raster_src_is_multiband:
                 if not all(
                     [isinstance(band, int) for band in self.raster_bands_request]
@@ -592,9 +592,82 @@ class AOI(object):
                 "in expected formats. See README."
             )
         else:  # source raster can be used as is
-            self.raster_dest = self.raster_parsed[0]
+            self.raster_dest = str(list(self.raster_parsed.values())[0])
 
         return self.raster_dest, self.raster_is_vrt
+    
+    def _serializable_json(self, value):
+        """Convert non-serializable values to serializable ones."""
+        if isinstance(value, (str, int, float, list, dict)):
+            return value
+        if isinstance(value, dict):
+            return {k: self._serializable_json(v) for k, v in value.items()}
+        return str(value)  # Convert other non-serializable types to string
+    
+    def get_tiff_size(self, url):
+        """This funcstion is for getting the size of tiffs that have been provided by urls"""
+        tiff_info = requests.head(url)
+        if tiff_info.status_code == 200:
+            tiff_length = tiff_info.headers.get("Content-Length")
+            return int(tiff_length) if tiff_length else None
+        else:
+            raise Exception(
+                f"Failed to retrieve headers, status code: {tiff_info.status_code}"
+            )
+
+    def name_raster(
+        self,
+        input_path: Union[str, Path],
+        bands_list: Sequence = None,
+        root_dir: Union[str, Path] = "data",
+    ):
+        """
+        Assigns a name to the AOI's raster considering different input types.
+        Used for logging and as output name for .tif built from a VRT
+        (see self.write_multiband_from_singleband_rasters_as_vrt())
+        @param root_dir: Root directory where derived raster would be written.
+        @param input_path: path to input raster file as accepted by GDL (see dataset/README.md)
+        @param bands_list: list of requested bands from input raster
+        """
+        if not bands_list:  # multiband, no band selection or ordering
+            return Path(input_path)
+        raster_name_parent = Path(root_dir)
+
+        bands_list_str = [str(band) for band in bands_list]
+        if len(bands_list_str) <= 4:
+            bands_suffix = f"{'-'.join(bands_list_str)}"
+        else:  # e.g. hyperspectral imagery
+            bands_suffix = f"{len(bands_list)}bands"
+
+        if (
+            "${dataset.bands}" in input_path
+        ):  # singleband with ${dataset.bands} pattern (implies band selection)
+            if not self.write_dest_zarr:
+                raster_name = (
+                    raster_name_parent
+                    / f"{Path(input_path).stem.replace('${dataset.bands}', bands_suffix)}.tif"
+                )
+            else:
+                raster_name = (
+                    raster_name_parent
+                    / f"{Path(input_path).stem.replace('${dataset.bands}', bands_suffix)}.zarr"
+                )
+        elif (
+            len(bands_list_str) > 0
+        ):  # singleband from stac item or multiband with band selection
+            if not self.write_dest_zarr:
+                raster_name = (
+                    raster_name_parent / f"{Path(input_path).stem}_{bands_suffix}.tif"
+                )
+            else:
+                raster_name = (
+                    raster_name_parent / f"{Path(input_path).stem}_{bands_suffix}.zarr"
+                )
+        else:
+            raise ValueError(
+                "Invalid input raster. See README for valid input raster formats"
+            )
+        return raster_name
 
     def read_stack_stat(self):
         """For stac items formatted as expected, reads mean and std of raster imagery, per band.
@@ -623,60 +696,56 @@ class AOI(object):
         except (AttributeError, KeyError):
             return {}
 
-    def calc_raster_stats(self, band):
-        """If source imagery is not a stac item or stac item lacks stats assets, stats are calculed on the fly"""
-        stats = self.raster_stats
-        stats[band] = {"statistics": {}, "histogram": {}}
-        stats[band]["statistics"]["minimum"] = self.raster.min()
-        stats[band]["statistics"]["maximum"] = self.raster.max()
-        stats[band]["statistics"]["mean"] = self.raster.mean()
-        stats[band]["statistics"]["median"] = np.median(self.raster)
-        stats[band]["statistics"]["std"] = self.raster.std()
-        stats[band]["histogram"]["buckets"] = list(np.bincount(self.raster.flatten()))
-        return stats
-
-    def calc_rasters_stats(self):
-        """If source imagery is not a stac item or stac item lacks stats assets, stats are calculed on the fly"""
-        stats = self.raster_stats
-        mean_minimum = np.mean(
-            [band_stat["statistics"]["minimum"] for band_stat in stats.values()]
-        )
-        mean_maximum = np.mean(
-            [band_stat["statistics"]["maximum"] for band_stat in stats.values()]
-        )
-        mean_mean = np.mean(
-            [band_stat["statistics"]["mean"] for band_stat in stats.values()]
-        )
-        mean_median = np.mean(
-            [band_stat["statistics"]["median"] for band_stat in stats.values()]
-        )
-        mean_std = np.mean(
-            [band_stat["statistics"]["std"] for band_stat in stats.values()]
-        )
-        hists_np = [
-            np.asarray(band_stat["histogram"]["buckets"])
-            for band_stat in stats.values()
-        ]
+    def calc_raster_stats(self):
+        """ For stac items formatted as expected, reads mean and std of raster imagery, per band.
+        See stac item example: tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json
+        If source imagery is not a stac item or stac item lacks stats assets, stats are calculed on the fly"""
+        if self.raster_bands_request:
+            stats = {name: {} for name in self.raster_bands_request}
+        else:
+            stats = {f"band_{index}": {} for index in range(self.raster.count)}
+        try:
+            stats_asset = self.raster_stac_item.item.assets['STATS']
+            if is_url(stats_asset.href):
+                download_url_wcheck(stats_asset.href, root=str(self.root_dir), filename=Path(stats_asset.href).name)
+                stats_href = self.root_dir / Path(stats_asset.href).name
+            else:
+                stats_href = to_absolute_path(stats_asset.href)
+            with open(stats_href, 'r') as ifile:
+                stac_stats = json.loads(ifile.read())
+            stac_stats = {bandwise_stats['asset']: bandwise_stats for bandwise_stats in stac_stats}
+            for band in self.raster_stac_item.bands:
+                stats[band.common_name] = stac_stats[band.name]
+        except (AttributeError, KeyError):
+            self.raster_np = self.raster_read()
+            for index, band in enumerate(stats.keys()):
+                stats[band] = {"statistics": {}, "histogram": {}}
+                stats[band]["statistics"]["minimum"] = self.raster_np[index].min()
+                stats[band]["statistics"]["maximum"] = self.raster_np[index].max()
+                stats[band]["statistics"]["mean"] = self.raster_np[index].mean()
+                stats[band]["statistics"]["median"] = np.median(self.raster_np[index])
+                stats[band]["statistics"]["std"] = self.raster_np[index].std()
+                stats[band]["histogram"]["buckets"] = list(np.bincount(self.raster_np.flatten()))
+        mean_minimum = np.mean([band_stat["statistics"]["minimum"] for band_stat in stats.values()])
+        mean_maximum = np.mean([band_stat["statistics"]["maximum"] for band_stat in stats.values()])
+        mean_mean = np.mean([band_stat["statistics"]["mean"] for band_stat in stats.values()])
+        mean_median = np.mean([band_stat["statistics"]["median"] for band_stat in stats.values()])
+        mean_std = np.mean([band_stat["statistics"]["std"] for band_stat in stats.values()])
+        hists_np = [np.asarray(band_stat["histogram"]["buckets"]) for band_stat in stats.values()]
         mean_hist_np = np.sum(hists_np, axis=0) / len(hists_np)
         mean_hist = list(mean_hist_np.astype(int))
         stats["all"] = {
-            "statistics": {
-                "minimum": mean_minimum,
-                "maximum": mean_maximum,
-                "mean": mean_mean,
-                "median": mean_median,
-                "std": mean_std,
-                "low_contrast": self.high_or_low_contrast,
-            },
-            "histogram": {"buckets": mean_hist},
-        }
+            "statistics": {"minimum": mean_minimum, "maximum": mean_maximum, "mean": mean_mean,
+                           "median": mean_median, "std": mean_std, "low_contrast": self.high_or_low_contrast},
+            "histogram": {"buckets": mean_hist}}
         return stats
-
+    
     def equalize_adapthist_enhancement(
         self,
         aoi_chunk: np.ndarray,
         per_band: bool = True,
     ):
+        
         """This function applies equalize_adapthist on each chunk of dask array
         each chunk is [band, height, width] --> So, the contrast enhancement is applied on each hand separately"""
 
@@ -695,7 +764,7 @@ class AOI(object):
                     (ready_np_array * 255).long(), keepdim=True
                 ).squeeze()
                 torch.cuda.empty_cache()
-                return ready_np_array[np.newaxis, ...].astype(np.int8)
+                return ready_np_array[np.newaxis, ...].astype(np.uint8)
             else:
                 ready_np_array = image_to_tensor(reshape_as_image(aoi_chunk))
                 ready_np_array = minmax_scale(
@@ -712,26 +781,6 @@ class AOI(object):
                 return ready_np_array
         else:
             return aoi_chunk
-
-    def is_low_contrast(self, fraction_threshold=0.3):
-        """This function checks if a raster is low contrast
-        https://scikit-image.org/docs/stable/api/skimage.exposure.html#skimage.exposure.is_low_contrast
-        Args:
-            fraction_threshold (float, optional): low contrast fraction threshold. Defaults to 0.3.
-        Returns:
-            bool: False for high contrast image | True for low contrast image
-        """
-        from skimage import exposure
-
-        self.raster_np = self.aoi_dask_array.compute()
-        data_type = self.aoi_dask_array.dtype
-        grayscale = np.mean(self.raster_np, axis=0)
-        grayscale = np.round(grayscale).astype(data_type)
-        high_or_low_contrast = exposure.is_low_contrast(
-            grayscale, fraction_threshold=fraction_threshold
-        )
-        self.raster_np = None
-        return high_or_low_contrast
 
     @staticmethod
     def parse_input_raster(
@@ -772,8 +821,9 @@ class AOI(object):
             return raster
         else:
             try:
-                validate_raster(csv_raster_str)
-                return {"all_counts": csv_raster_str}
+                validate_raster(rasterio.open(csv_raster_str))
+                raster["all_bands"] = csv_raster_str
+                return raster
             except (FileNotFoundError, rasterio.RasterioIOError, TypeError) as e:
                 logging.critical(f"Couldn't parse input raster. Got {csv_raster_str}")
                 raise e

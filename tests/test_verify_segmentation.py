@@ -2,6 +2,11 @@ from hydra import initialize, compose
 from hydra.core.hydra_config import HydraConfig
 from torchgeo.datasets.utils import extract_archive
 
+import sys
+import pathlib
+if str(pathlib.Path(__file__).parents[1]) not in sys.path:
+    sys.path.insert(0, str(pathlib.Path(__file__).parents[1]))
+
 from GDL import run_gdl
 from dataset.aoi import AOI
 from utils.utils import read_csv
@@ -13,7 +18,7 @@ class TestVerify(object):
         """Test stats outputs from an AOI"""
         extract_archive(src="tests/data/new_brunswick_aerial.zip")
         data = read_csv("tests/tiling/tiling_segmentation_multiclass_ci.csv")
-        aoi = AOI(raster=data[0]['tif'], label=data[0]['gpkg'], split=data[0]['split'])
+        aoi = AOI(raster=data[0]['tif'], label=data[0]['gpkg'], split=data[0]['split'], raster_stats = True)
         aoi_dict, error = verify_per_aoi(
             aoi=aoi,
             output_raster_plots=True,
