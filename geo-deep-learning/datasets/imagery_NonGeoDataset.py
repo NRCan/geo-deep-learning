@@ -25,93 +25,90 @@ from torch import Tensor
 from torchgeo.datasets import NonGeoDataset
 
 
-class BlueSkyNonGeo(NonGeoDataset, abc.ABC):
+class BlueSkyNonGeo(NonGeoDataset):
+    """ 
+    This dataset class is intended to handle data for semantic segmentation of geospatial imagery (Binary | Multiclass).
+    It loads geospatial image and label patches from csv files.
+    
+    Dataset format:
+    
+    * images are composed of arbitrary number of bands
+    * labels are single band images with pixel values representing classes
+    * images and labels are stored in trn, val, and tst folders
+    * csv files contain the path part starting to the image and label pairs e.g. 'trn/image/0.tif;trn/label/0_lbl.tif'
+    * csv files may contain additional columns for other metadata e.g. 'trn/image/0.tif;trn/label/0_lbl.tif;aoi_id'
+    * csv files are named after the data split e.g. 'trn.csv', 'val.csv', 'tst.csv'
+    
+    root_directory
+    ├───trn
+    │   ├───image
+    │   │       0.tif
+    │   ├───label
+    │           0_lbl.tif
+    ├───val
+    │   ├───image
+    │   │       0.tif
+    │   ├───label
+    │           0_lbl.tif
+    ├───tst
+    │   ├───image
+    │   │       0.tif
+    │   ├───label
+    │           0_lbl.tif
+    ├───trn.csv
+    ├───val.csv
+    ├───tst.csv
+    
+    Args:
+        NonGeoDataset (_type_): _description_
+
+    Raises:
+        FileNotFoundError: _description_
+        FileNotFoundError: _description_
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
     """
-    The bluesky datasets are a set of datasets that contain mostly 4-class labels
-    (forest, waterbody, road, building) mapped over high-resolution satellite imagery
-    obtained from a variety of sensors such as Worldview-2, Worldview-3, Worldview-4,
-    GeoEye, Quickbird and aerial imagery.
-    """
-
-    @property
-    @abc.abstractmethod
-    def dataset_id(self) -> str:
-        """Dataset ID."""
-
-    @property
-    @abc.abstractmethod
-    def imagery(self) -> Dict[str, str]:
-        """Mapping of image identifier and filename."""
-
-    def __init__(
-        self,
-        root: str,
-        image: str,
-        collections: List[str] = [],
-        transforms: Optional[Callable[[Dict[str, Any]], Dict[str, Any]]] = None,
-        download: bool = False,
-        checksum: bool = False,
-        splits=["trn"]
-    ) -> None:
-        """Initialize a new CCMEO Dataset instance.
+    
+    def __init__(self, 
+                 csv_root_folder: str,
+                 patches_root_folder: str,
+                 split: str = "trn",
+                 ):
+        """_summary_
 
         Args:
-            root: root directory where dataset can be found
-            image: image selection
-            collections: collection selection
-            transforms: a function/transform that takes input sample and its target as
-                entry and returns a transformed version.
-            download: if True, download dataset and store it in the root directory.
-            checksum: if True, check the MD5 of the downloaded files (may be slow)
-
-        Raises:
-            RuntimeError: if ``download=False`` but dataset is missing
+            csv_root_folder (str): The root folder where the csv files are stored
+            patches_root_folder (str): The root folder where the image and label patches are stored
+            splits (List[str], optional): The data split. Defaults to ["trn", "val", "tst"].
         """
-        self.root = Path(root)
-        self.image = image  # For testing
-        self.splits = splits
-
-        self.files = self._load_files(root)
-
-    def _load_files(self, root: str) -> List[Dict[str, Path]]:
-        """Return the paths of the files in the dataset.
-
-        Args:
-            root: root dir of dataset
+        self.csv_root_folder = csv_root_folder
+        self.patches_root_folder = patches_root_folder
+        self.split = split
+        self.files = self._load_files()
+    
+    def _load_files(self):
+        """Load image and label paths from csv files.
 
         Returns:
-            list of dicts containing paths for each pair of image and label
+            List[Dict[str, str]]: list of dictionaries containing image and label paths 
         """
-        # TODO: glob or list?
-        files = []
-        # for collection in self.collections:
-        for split in self.splits:
-            rows = pandas.read_csv(split, sep=';', header=None)
-            for row in rows.values:
-                imgpath, lbl_path = row[:2]
-                imgpath, lbl_path = self.root / imgpath, self.root / lbl_path
-                if not imgpath.is_file():
-                    raise FileNotFoundError(imgpath)
-                if not lbl_path.is_file():
-                    raise FileNotFoundError(lbl_path)
-                files.append({"image_path": imgpath, "label_path": lbl_path})
-                
+        csv_path = os.path.join(self.csv_root_folder, f"{self.split}.csv")
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"CSV file {csv_path} not found.")
+        df = pandas.read_csv(csv_path, header=None, sep=";")
+        if len(df.columns) == 1:
+            raise ValueError("CSV file must contain at least two columns: image_path;label_path")
+        
+        files = [
+            {"image": os.path.join(self.patches_root_folder, img),
+             "label": os.path.join(self.patches_root_folder, lbl)} 
+            for img, lbl in df[[0, 1]].itertuples(index=False)
+            ]
+        
         return files
-
-    def _load_image(self, path: Union[str, Path]) -> Tuple[Tensor, Affine, CRS]:
-        """Load a single image.
-
-        Args:
-            path: path to the image
-
-        Returns:
-            the image
-        """
-        with rio.open(path) as img:
-            array = img.read().astype(np.int32)
-            tensor: Tensor = torch.from_numpy(array)  # type: ignore[attr-defined]
-            return tensor, img.transform, img.crs
-
+         
     def __len__(self) -> int:
         """Return the number of samples in the dataset.
 
@@ -119,32 +116,18 @@ class BlueSkyNonGeo(NonGeoDataset, abc.ABC):
             length of the dataset
         """
         return len(self.files)
-
-    def __getitem__(self, index: int) -> Dict[str, Tensor]:
-        """Return an index within the dataset.
+    
+    def _load_image(self, index: int):
+        """ Load image
 
         Args:
-            index: index to return
+            index (int): index of the image to load
 
         Returns:
-            data and label at that index
+            torch.Tensor: image tensor
         """
-        files = self.files[index]
-        img, tfm, raster_crs = self._load_image(files["image_path"])
-        # h, w = img.shape[1:]
-        mask, *_ = self._load_image(files["label_path"])
-        mask[mask == 255] = 0  # TODO: make ignore_index work
-        mask = mask.squeeze()
-
-        if not img.shape[-2:] == mask.shape[-2:]:
-            raise ValueError(f"Mismatch between image chip shape ({img.shape}) and mask chip shape ({mask.shape})")
-        sample = {"image": img,
-                  "mask": mask,
-                  "image_path": str(files["image_path"]),
-                  "label_path": str(files["label_path"]),
-                  "aoi_id": files["image_path"].parent.parent.stem}
-
-        if self.transforms is not None:
-            sample = self.transforms(sample)
-
-        return sample
+        with rio.open(self.files[index]["image"]) as image:
+            image_array = image.read().astype(np.int32)
+            image_tensor = torch.from_numpy(image_array).float()
+        return image_tensor
+    
