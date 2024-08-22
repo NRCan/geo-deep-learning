@@ -541,32 +541,6 @@ class Test_AOI(object):
             "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03-RGB.tif",
         ]
 
-
-    def test_is_low_contrast(self):
-        """Test raster contrast (high | low)"""
-        
-    def test_is_low_contrast(self):
-        """Test raster contrast (high | low)"""
-        extract_archive(src="tests/data/spacenet.zip")
-        data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
-        row = data[0]
-        aoi = AOI(
-            raster=row["tif"],
-            label=None,
-            split=row["split"],
-            raster_bands_request=[1, 2, 3],
-            equalize_clahe_clip_limit =125,
-            write_dest_raster=True,
-        )
-        for input, expected in zip(inputs, expected_list):
-            actual = aoi.name_raster(
-                root_dir="tests/data/spacenet/",
-                input_path=input[0],
-                bands_list=input[1],
-            )
-            assert Path(expected) == actual
-
-
     def test_equalize_hist_raster(self):
         """Test equalize input raster with CLAHE transform"""
         extract_archive(src="tests/data/spacenet.zip")

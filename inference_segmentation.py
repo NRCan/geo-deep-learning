@@ -125,6 +125,6 @@ def main(params:Union[DictConfig, Dict]):
     # LOOP THROUGH LIST OF INPUT IMAGES
     for aoi in tqdm(list_aois, desc='Inferring from images', position=0, leave=True):
         logging.info(f'\nReading image: {aoi.aoi_id}')
-        raster = aoi.raster
-        geo_inference(raster, tiff_name=aoi.raster_name, patch_size=chunk_size)
+        geo_inference(tiff_image=str(aoi.raster_name), patch_size=chunk_size)
+        
         

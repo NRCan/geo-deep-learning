@@ -394,7 +394,6 @@ class AOI(object):
                 f"{self.raster_name.stem}.json"
             )
         
-        
         with ProgressBar() as pbar:
             pbar.register()
             gc.collect()

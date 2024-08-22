@@ -23,8 +23,8 @@ def inference_with_dask():
         csv_path="/gpfs/fs5/nrcan/nrcan_geobase/work/dev/datacube/parallel/deep_learning_repo/geo-deep-learning/tests/inference/inference_segmentation_binary.csv",
         bands_requested=['red', 'green','blue'],
         data_dir="/gpfs/fs5/nrcan/nrcan_geobase/work/dev/datacube/parallel/dask_geo_deep_learning/dask_geo_inference/performance_track/",
-        write_dest_raster=False,
-        write_dest_zarr = True,
+        write_dest_raster=True,
+        write_dest_zarr = False,
         equalize_clahe_clip_limit=25,
     )
 
