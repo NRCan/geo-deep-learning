@@ -4,7 +4,7 @@ import pandas
 import numpy as np
 import rasterio as rio
 
-from typing import Dict, List
+from typing import Dict, List, Callable, Optional
 from torch import Tensor
 from torchgeo.datasets import NonGeoDataset
 
@@ -48,6 +48,7 @@ class BlueSkyNonGeo(NonGeoDataset):
                  csv_root_folder: str,
                  patches_root_folder: str,
                  split: str = "trn",
+                 transforms: Optional[Callable[[Dict[str, Tensor]], Dict[str, Tensor]]] = None,
                  ):
         """Initialize the dataset.
 
@@ -59,6 +60,7 @@ class BlueSkyNonGeo(NonGeoDataset):
         self.csv_root_folder = csv_root_folder
         self.patches_root_folder = patches_root_folder
         self.split = split
+        self.transforms = transforms
         self.files = self._load_files()
     
     def _load_files(self) -> List[Dict[str, str]]:
@@ -131,6 +133,9 @@ class BlueSkyNonGeo(NonGeoDataset):
         image = self._load_image(index)
         label = self._load_label(index)
         sample = {"image": image, "label": label}
+        
+        if self.transforms is not None:
+            sample = self.transforms(sample)
         return sample
 
 if __name__ == "__main__":
