@@ -2,4 +2,4 @@
 
 from .imagery_NonGeoDataset import BlueSkyNonGeo
 
-__all__ = ["BlueSkyNonGeo"]
+__all__ = ("BlueSkyNonGeo")
