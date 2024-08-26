@@ -1,5 +1,6 @@
 import pytorch_lightning as pl
 from models.segformer import SegFormer
+from ..tools.losses.segmentation_losses import *
 
 class SegmentationSegformer(pl.LightningModule):
     def __init__(self, 
@@ -9,7 +10,7 @@ class SegmentationSegformer(pl.LightningModule):
                  loss: str = 'cross_entropy'):
         super().__init__()
         self.save_hyperparameters()
-        self.model = SegFormer(encoder, in_channels)
+        self.model = SegFormer(encoder, in_channels, num_classes)
 
     def forward(self, x):
         return self.model(x)
