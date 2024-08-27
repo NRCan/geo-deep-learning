@@ -20,25 +20,6 @@ Here are the loss functions available:
 
 7. `MCCLoss`: This is a Matthews Correlation Coefficient loss function. It can only be used in binary mode and does not take a "mode" argument.
 
-
-
-
-
-## Variable Names
-
-When implementing these loss functions in the `segmentation_segformer` script, you can use the following variable names:
-
-- `cross_entropy_loss`: Variable to store the cross-entropy loss value.
-- `dice_loss`: Variable to store the dice loss value.
-- `focal_loss`: Variable to store the focal loss value.
-- `lovasz_softmax_loss`: Variable to store the Lovász-Softmax loss value.
-
-Make sure to initialize these variables appropriately and update them during the training process.
-
-For more detailed information on each loss function and their implementation, please refer to the corresponding sections in this document.
-
-
-
 ## Usage in segmentation_segformer.py
 
 To use these loss functions in the `segmentation_segformer.py` script, you can import them as follows:
