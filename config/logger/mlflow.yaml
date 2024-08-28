@@ -1,0 +1,6 @@
+# MLflow logger configuration
+mlflow:
+  _target_: lightning.pytorch.loggers.mlflow.MLFlowLogger
+  tracking_uri: ${paths.log_dir}/mlflow/mlruns
+  experiment_name: "gdl_experiment"
+  run_name: "gdl_run"
