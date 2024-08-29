@@ -1,3 +1,5 @@
 *__pycache__**
 *.idea**
 *.vscode**
+./test_inference_dask.py
+./data/*

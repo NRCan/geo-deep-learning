@@ -57,7 +57,7 @@ def verify_per_aoi(
 
         if output_raster_stats:
             logging.info(f"\nGetting raster stats for {aoi.aoi_id}...")
-            aoi_stats = aoi.calc_raster_stats()  # creates self.raster_np
+            aoi_stats = aoi.raster_stats  # creates self.raster_np
             aoi_stats_report = {}
             for cname, stats in aoi_stats.items():
                 aoi_stats_report.update(
@@ -100,7 +100,6 @@ def main(cfg: DictConfig) -> None:
     bands_requested = get_key_def('bands', cfg['dataset'], default=[], expected_type=Sequence)
     csv_file = get_key_def('raw_data_csv', cfg['dataset'], to_path=True, validate_path_exists=True)
     data_dir = get_key_def('raw_data_dir', cfg['dataset'], default="data", to_path=True, validate_path_exists=True)
-    download_data = get_key_def('download_data', cfg['dataset'], default=False, expected_type=bool)
 
     dontcare = cfg.dataset.ignore_index if cfg.dataset.ignore_index is not None else -1
     if dontcare == 0:
@@ -108,7 +107,7 @@ def main(cfg: DictConfig) -> None:
     attribute_field = get_key_def('attribute_field', cfg['dataset'], None) #, expected_type=str)
     # Assert that all items in attribute_values are integers (ex.: single-class samples from multi-class label)
     attr_vals = get_key_def('attribute_values', cfg['dataset'], None, expected_type=(Sequence, int))
-
+    raster_stats = get_key_def('raster_stats', cfg['dataset'], default=False, expected_type=bool)
     output_report_dir = get_key_def('output_report_dir', cfg['verify'], to_path=True, validate_path_exists=True)
     output_raster_stats = get_key_def('output_raster_stats', cfg['verify'], default=False, expected_type=bool)
     output_raster_plots = get_key_def('output_raster_plots', cfg['verify'], default=False, expected_type=bool)
@@ -126,8 +125,8 @@ def main(cfg: DictConfig) -> None:
         bands_requested=bands_requested,
         attr_field_filter=attribute_field,
         attr_values_filter=attr_vals,
-        download_data=download_data,
         data_dir=data_dir,
+        raster_stats= raster_stats,
         for_multiprocessing=parallel,
         write_dest_raster=write_dest_raster,
     )

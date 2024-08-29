@@ -83,6 +83,27 @@ def create_new_raster_from_base(input_raster, output_raster, write_array, dtype 
             )
 
 
+def xarray_profile_attrs(input_raster, dtype = np.uint8, **kwargs):
+    src = check_rasterio_im_load(input_raster)
+    # Cannot write to 'VRT' driver
+    driver = 'GTiff' if src.driver == 'VRT' else src.driver
+    profile_kwargs = {
+        'crs': src.crs.to_string(),  
+        'transform': src.transform,  
+        'count': src.count,  
+        'width': src.width, 
+        'height': src.height,  
+        'driver': driver, 
+        'dtype': dtype, 
+        'BIGTIFF': 'YES',  
+        'compress': 'lzw'  
+    }
+    if 'checkpoint_path' in kwargs.keys():
+        # add the path to the model checkpoint
+        profile_kwargs['checkpoint']=kwargs['checkpoint_path']
+        profile_kwargs['classes_dict']=kwargs['classes_dict']
+    return profile_kwargs
+
 def get_key_recursive(key, config):
     """Returns a value recursively given a dictionary key that may contain multiple subkeys."""
     if not isinstance(key, list):
@@ -147,21 +168,28 @@ def subset_multiband_vrt(src: Union[str, Path], band_request: Sequence = []):
     @return:
         RasterDataset object containing VRT
     """
+    rio_gdal_options = {
+        "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+        "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
+    }
     if not isinstance(src, (str, Path)) and not Path(src).is_file():
-        raise ValueError(f"Invalid source multiband raster.\n"
-                         f"Got {src}")
-    with rasterio.open(src) as ras, MemoryFile() as mem:
-        riocopy(ras, mem.name, driver='VRT')
-        vrt_xml = mem.read().decode('utf-8')
-        vrt_dataset = ET.fromstring(vrt_xml)
-        vrt_dataset_dict = {int(band.get('band')): band for band in vrt_dataset.iter("VRTRasterBand")}
-        for band in vrt_dataset_dict.values():
-            vrt_dataset.remove(band)
+        raise ValueError(f"Invalid source multiband raster.\n" f"Got {src}")
+    with rasterio.Env(**rio_gdal_options):
+        with rasterio.open(src) as ras, MemoryFile() as mem:
+            riocopy(ras, mem.name, driver="VRT")
+            vrt_xml = mem.read().decode("utf-8")
+            vrt_dataset = ET.fromstring(vrt_xml)
+            vrt_dataset_dict = {
+                int(band.get("band")): band
+                for band in vrt_dataset.iter("VRTRasterBand")
+            }
+            for band in vrt_dataset_dict.values():
+                vrt_dataset.remove(band)
 
-        for dest_band_idx, src_band_idx in enumerate(band_request, start=1):
-            vrt_band = vrt_dataset_dict[src_band_idx]
-            vrt_band.set('band', str(dest_band_idx))
-            vrt_dataset.append(vrt_band)
+            for dest_band_idx, src_band_idx in enumerate(band_request, start=1):
+                vrt_band = vrt_dataset_dict[src_band_idx]
+                vrt_band.set("band", str(dest_band_idx))
+                vrt_dataset.append(vrt_band)
 
     return ET.tostring(vrt_dataset).decode('UTF-8')
 
@@ -174,7 +202,12 @@ def check_rasterio_im_load(im):
     if isinstance(im, (str, Path)):
         if not is_url(im) and 'VRTDataset' not in str(im):
             im = to_absolute_path(str(im))
-        return rasterio.open(im)
+        rio_gdal_options = {
+            "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+            "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif",
+        }
+        with rasterio.Env(**rio_gdal_options):
+            return rasterio.open(im)
     elif isinstance(im, rasterio.DatasetReader):
         return im
     else:
@@ -556,6 +589,8 @@ def footprint_mask(
             dst.write(output_arr, indexes=1)
 
     return output_arr
+
+
 
 if __name__ == "__main__":
     pass

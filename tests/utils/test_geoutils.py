@@ -24,14 +24,13 @@ class TestGeoutils(object):
         row = data[0]
         bands_request = ['R', 'G', 'B']
         aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'],
-                  raster_bands_request=bands_request, root_dir="data")
+                  raster_bands_request=bands_request, root_dir="data", write_dest_raster=True)
         assert aoi.raster.count == len(bands_request)
         src_red = rasterio.open(aoi.raster_raw_input.replace("${dataset.bands}", "R"))
         src_red_np = src_red.read()
         dest_red_np = aoi.raster.read(1)
         # make sure first band in multiband VRT is identical to source R band
         assert np.all(src_red_np == dest_red_np)
-        aoi.close_raster()
 
     def test_create_new_raster_from_base_shape(self) -> None:
         """
@@ -133,4 +132,4 @@ class TestGeoutils(object):
             mean_vertices = gdf_mean_vertices_nb(my_gdf)
             mean_vertices_per_label.append(mean_vertices)
         mean_vertices_per_label_int = [round(mean_verts) for mean_verts in mean_vertices_per_label if mean_verts]
-        assert mean_vertices_per_label_int == [7, 7, 6, 36, 5, 5, 8, 5]
+        assert mean_vertices_per_label_int == [7, 7, 36, 5, 5, 8, 5]

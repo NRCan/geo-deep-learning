@@ -15,7 +15,7 @@ from utils.utils import is_url
 logger = logging.getLogger(__name__)
 
 
-def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: bool = False) -> None:
+def validate_raster(raster: rasterio.DatasetReader, extended: bool = False) -> None:
     """
     Checks if raster is valid, i.e. not corrupted (based on metadata, or actual byte info if under size threshold)
     @param raster: Path to raster to be validated
@@ -25,18 +25,14 @@ def validate_raster(raster: Union[str, Path, rasterio.DatasetReader], extended: 
     if not raster:
         raise FileNotFoundError(f"No raster provided. Got: {raster}")
     try:
-        raster = check_rasterio_im_load(raster)
-    except (TypeError, ValueError) as e:
-        logging.critical(f"Invalid raster.\nRaster path: {raster}\n{e}")
-        raise e
-    try:
-        size = Path(raster.name).stat().st_size if not is_url(raster.name) else None
-        logging.debug(f'Raster to validate: {raster}\n'
-                      f'Size: {size}\n'
-                      f'Extended check: {extended}')
-        if not raster.meta['dtype'] in ['uint8', 'uint16']:  # will trigger exception if invalid raster
-            logging.warning(f"Only uint8 and uint16 are supported in current version.\n"
-                            f"Datatype {raster.meta['dtype']} for {raster} may cause problems.")
+        if raster.meta["dtype"] not in [
+            "uint8",
+            "uint16",
+        ]:  # will trigger exception if invalid raster
+            logging.warning(
+                f"Only uint8 and uint16 are supported in current version.\n"
+                f"Datatype {raster.meta['dtype']} for {raster} may cause problems."
+            )
         if extended:
             logging.debug(f'Will perform extended check.\nWill read first band: {raster}')
             window = Window(raster.width-200, raster.height-200, raster.width, raster.height)

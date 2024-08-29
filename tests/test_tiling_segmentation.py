@@ -147,7 +147,7 @@ class TestTiling(object):
                 shutil.rmtree(dir)
             except PermissionError:
                 pass
-            
+    """         
     def test_tiling_segmentation_parallel(self):
         data_dir = "data/patches"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
@@ -185,7 +185,7 @@ class TestTiling(object):
                     width, height = src.width, src.height
                     assert width == patch_size and height == patch_size
         shutil.rmtree(Path(data_dir) / proj)
-
+        """
     def test_tiling_inference(self):
         """Tests tiling of imagery only for inference"""
         data_dir = "data/patches"

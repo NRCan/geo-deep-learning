@@ -1,4 +1,4 @@
-name: geo_deep_env
+name: geo_ml_env
 channels:
   - conda-forge
 dependencies:
@@ -9,8 +9,14 @@ dependencies:
   - pytest>=7.1
   - ruamel_yaml>=0.15
   - scikit-image>=0.18
+  - dask-image>=2024.5.3
+  - dask>= 2024.6.2
+  - pims>=0.7
+  - requests>=2.32.3
   - pip:
     - geo-inference>=2.0.7
     - hydra-colorlog>=1.1.0
     - hydra-optuna-sweeper>=1.1.0
+    - ttach>=0.0.3
     - mlflow>=1.2 # causes env solving to hang if not with pip
+    - numpy>=1.26.4 # numpy>2.0.0 may cause numpy errors
