@@ -98,6 +98,10 @@ def xarray_profile_attrs(input_raster, dtype = np.uint8, **kwargs):
         'BIGTIFF': 'YES',  
         'compress': 'lzw'  
     }
+    if 'checkpoint_path' in kwargs.keys():
+        # add the path to the model checkpoint
+        profile_kwargs['checkpoint']=kwargs['checkpoint_path']
+        profile_kwargs['classes_dict']=kwargs['classes_dict']
     return profile_kwargs
 
 def get_key_recursive(key, config):
