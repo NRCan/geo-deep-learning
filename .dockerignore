@@ -1,0 +1,8 @@
+tests
+.github
+.git
+.pytest_cache
+.vscode
+__pycache__
+*.md
+docs/*
