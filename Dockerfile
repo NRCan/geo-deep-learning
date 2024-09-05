@@ -8,10 +8,11 @@ ARG USERID=1000
 # ARG GIT_TAG=geo-inference
 ENV PATH=$CONDA_DIR/bin:$PATH
 # RNCAN certificate; uncomment (with right .cer name) if you are building behind a FW
-COPY NRCan-RootCA.cer /usr/local/share/ca-certificates/cert.crt
-RUN chmod 644 /usr/local/share/ca-certificates/cert.crt \
-    && update-ca-certificates \
-    && apt-get update \
+# COPY NRCan-RootCA.cer /usr/local/share/ca-certificates/cert.crt
+# RUN chmod 644 /usr/local/share/ca-certificates/cert.crt \
+#     && update-ca-certificates
+
+RUN apt-get update \
     && apt-get install -y --no-install-recommends git wget unzip bzip2 build-essential sudo \
     && wget https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh -O /tmp/mamba.sh \
     && /bin/bash /tmp/mamba.sh -b -p $CONDA_DIR \
