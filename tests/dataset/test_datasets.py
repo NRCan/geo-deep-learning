@@ -54,7 +54,7 @@ class TestDRDataset:
                             "tests/data/massachusetts_buildings_kaggle/23429155_15_uint8_clipped.tif"]
                     )
     def raster_dataset(self, request: SubRequest) -> DatasetReader:
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        extract_archive(from_path="tests/data/massachusetts_buildings_kaggle.zip")
         image = request.param
         dr_ds = rasterio.open(image)
         return dr_ds
@@ -95,7 +95,7 @@ class TestGDLVectorDataset:
                             "tests/data/massachusetts_buildings_kaggle/23429155_15.gpkg"]
                     )
     def vector_dataset(self, request: SubRequest) -> GDLVectorDataset:
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        extract_archive(from_path="tests/data/massachusetts_buildings_kaggle.zip")
         fp = request.param
         vec_ds = GDLVectorDataset(fp)
         return vec_ds
@@ -158,7 +158,7 @@ class TestIntersectionCustomDatasets:
                                )
                     )
     def dataset(self, request: SubRequest) -> List:
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        extract_archive(from_path="tests/data/massachusetts_buildings_kaggle.zip")
         image = request.param[0]
         dr_ds = rasterio.open(image)
         raster_ds = DRDataset(dr_ds)

@@ -17,7 +17,7 @@ from utils.geoutils import mask_nodata, nodata_vec_mask
 
 class TestTiler(object):
     def test_tiling_per_aoi(self):
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        extract_archive(from_path="tests/data/massachusetts_buildings_kaggle.zip")
         img = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
         gt = "tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg"
         my_aoi = AOI(raster=img, raster_bands_request=[1, 2, 3], label=gt, split='trn')
@@ -40,7 +40,7 @@ class TestTiler(object):
 
     def test_passes_min_annot(self):
         """Tests annotated percent calculation"""
-        extract_archive(src="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
         img = "tests/data/spacenet/SN7_global_monthly_2020_01_mosaic_L15-0331E-1257N_1327_3160_13_uint8_clipped.tif"
         gt = "tests/data/spacenet/SN7_global_monthly_2020_01_mosaic_L15-0331E-1257N_1327_3160_13_uint8_clipped.gpkg"
         my_aoi = AOI(raster=img, raster_bands_request=[1, 2, 3], label=gt, split='trn')
@@ -62,7 +62,7 @@ class TestTiler(object):
 
     def test_burn_gt_patch(self):
         """Tests burning a label while using the filter for attribute field and values"""
-        extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        extract_archive(from_path="tests/data/new_brunswick_aerial.zip")
         img = "tests/data/new_brunswick_aerial/23322E759967N_clipped_1m_1of2.tif"
         gt = "tests/data/new_brunswick_aerial/BakerLake_2017_clipped.gpkg"
         my_aoi = AOI(
@@ -178,7 +178,7 @@ class TestTiler(object):
 
     def test__define_output_name(self):
         """ Test _define_output_name method of the Tiler class """
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        extract_archive(from_path="tests/data/massachusetts_buildings_kaggle.zip")
         img = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
         gt = "tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg"
         my_aoi = AOI(raster=img, raster_bands_request=[1, 2, 3], label=gt, split='trn')
@@ -199,7 +199,7 @@ class TestTiler(object):
         """ Test _save_vec_mem_tile method of the Tiler class """
         """ Test _define_output_name method of the Tiler class """
         try:
-            extract_archive(src="tests/data/massachusetts_buildings_kaggle_patch.zip")
+            extract_archive(from_path="tests/data/massachusetts_buildings_kaggle_patch.zip")
         except FileNotFoundError:
             pass
         gt = "tests/data/massachusetts_buildings_kaggle_patch/massachusetts_buildings_kaggle_patch.gpkg"
@@ -261,7 +261,7 @@ class TestTiler(object):
 
     def test_tiling_per_aoi_append_mode(self):
         """Tests tiling's append mode"""
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        extract_archive(from_path="tests/data/massachusetts_buildings_kaggle.zip")
         img = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
         gt = "tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg"
         my_aoi = AOI(raster=img, raster_bands_request=[1, 2, 3], label=gt, split='trn')

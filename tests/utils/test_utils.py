@@ -21,14 +21,14 @@ from utils.verifications import validate_raster
 
 class TestUtils(unittest.TestCase):
     def test_wrong_seperation(self) -> None:
-        extract_archive(src="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
         with pytest.raises(TypeError):
             data = read_csv("tests/tiling/point_virgule.csv")
         ##for row in data:
         ##aoi = AOI(raster=row['tif'], label=row['gpkg'], split=row['split'])
 
     def test_with_header_in_csv(self) -> None:
-        extract_archive(src="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
         with pytest.raises(ValueError):
             data = read_csv("tests/tiling/header.csv")
         ##for row in data:

@@ -12,9 +12,9 @@ class Test_GH_Actions(object):
     def test_ci(self) -> None:
         data_dir = "data"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
-        extract_archive(src="tests/data/spacenet.zip")
-        extract_archive(src="tests/data/new_brunswick_aerial.zip")
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/new_brunswick_aerial.zip")
+        extract_archive(from_path="tests/data/massachusetts_buildings_kaggle.zip")
 
         with initialize(config_path="../../config", job_name="test_ci"):
             cfg = compose(config_name="gdl_config_template")

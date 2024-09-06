@@ -19,7 +19,7 @@ from utils.utils import read_csv
 class TestGeoutils(object):
     def test_multiband_vrt_from_single_band(self) -> None:
         """Tests the 'stack_singlebands_vrt' utility"""
-        extract_archive(src="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
         data = read_csv("tests/tiling/tiling_segmentation_binary-singleband_ci.csv")
         row = data[0]
         bands_request = ['R', 'G', 'B']
@@ -38,7 +38,7 @@ class TestGeoutils(object):
         Tests error in 'create_new_raster_from_base' geo-utility if output array dimensions is not consistant with input
         raster
         """
-        extract_archive(src="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
         data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         ref_raster = Path(data[0]['tif'])
         out_raster = ref_raster.parent / f"{ref_raster.stem}_copy.tif"
@@ -54,7 +54,7 @@ class TestGeoutils(object):
 
     def test_create_new_raster_from_base_bands(self, bands_request) -> None:
         """Tests the 'create_new_raster_from_base' geo-utility for different output bands number"""
-        extract_archive(src="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
         data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         ref_raster = Path(data[0]['tif'])
         out_raster = ref_raster.parent / f"{ref_raster.stem}_copy.tif"
@@ -64,7 +64,7 @@ class TestGeoutils(object):
 
     def test_create_new_raster_from_base_2d_out_array(self) -> None:
         """Tests the 'create_new_raster_from_base' geo-utility for a 2D output array"""
-        extract_archive(src="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
         data = read_csv("tests/tiling/tiling_segmentation_binary-multiband_ci.csv")
         ref_raster = Path(data[0]['tif'])
         out_raster = ref_raster.parent / f"{ref_raster.stem}_copy.tif"
@@ -90,8 +90,8 @@ class TestGeoutils(object):
 
     def test_empty_geopackage_overlap(self):
         """ Tests calculation of overlap of raster relative to an empty geopackage """
-        extract_archive(src="tests/data/buil_AB11-WV02-20100926-1.zip")
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        extract_archive(from_path="tests/data/buil_AB11-WV02-20100926-1.zip")
+        extract_archive(from_path="tests/data/massachusetts_buildings_kaggle.zip")
         raster_file = "tests/data/massachusetts_buildings_kaggle/22978945_15_uint8_clipped.tif"
         raster = rasterio.open(raster_file)
         label_gdf = gpd.read_file('tests/data/buil_AB11-WV02-20100926-1.gpkg')
