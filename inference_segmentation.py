@@ -121,6 +121,7 @@ def main(params:Union[DictConfig, Dict]):
                             "classes_dict": classes_dict}
             with rasterio.open(mask_path, 'r+') as raster:
                 raster.update_tags(**meta_data_dict)
-        output_path = get_key_def('output_path', params['inference'], expected_type=str, to_path=True)
+        output_path = get_key_def('output_path', params['inference'], expected_type=str, to_path=True, 
+                                  default=str(working_folder / f"{aoi.aoi_id}_raw.tif"))
         os.rename(mask_path, output_path)
         logging.info(f"finished inferring image: {aoi.aoi_id} ")

@@ -27,6 +27,7 @@ class Test_GH_Actions(object):
                                              f"inference=default_{dataset_type}",
                                              f"training.num_gpus=0",
                                              f"loss={dataset_type}/lovasz",
+                                             "inference.output_path=./tst.tif",
                                              "hydra.job.num=0"],
                                   return_hydra_config=True)
                     hconf = HydraConfig()
