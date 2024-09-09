@@ -8,6 +8,7 @@ from omegaconf import DictConfig
 from typing import Dict, Sequence, Union
 from dataset.stacitem import SingleBandItemEO
 import rasterio
+from shutil import move
 
 
 from utils.aoiutils import aois_from_csv
@@ -122,6 +123,6 @@ def main(params:Union[DictConfig, Dict]):
             with rasterio.open(mask_path, 'r+') as raster:
                 raster.update_tags(**meta_data_dict)
         output_path = get_key_def('output_path', params['inference'], expected_type=str, to_path=True, 
-                                  default=str(working_folder / f"{aoi.aoi_id}_raw.tif"))
-        os.rename(mask_path, output_path)
+                                  default=mask_path)
+        move(mask_path, output_path)
         logging.info(f"finished inferring image: {aoi.aoi_id} ")
