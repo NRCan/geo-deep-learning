@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.2.2-cudnn8-runtime-ubuntu20.04
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 ARG CONDA_PYTHON_VERSION=3
 ARG CONDA_DIR=/opt/conda
@@ -7,8 +7,8 @@ ARG USERID=1000
 ARG GIT_TAG=develop
 ENV PATH=$CONDA_DIR/bin:$PATH
 # RNCAN certificate; uncomment (with right .cer name) if you are building behind a FW
-#COPY NRCan-RootCA.cer /usr/local/share/ca-certificates/cert.crt
-#RUN chmod 644 /usr/local/share/ca-certificates/cert.crt && update-ca-certificates
+# COPY NRCan-RootCA.cer /usr/local/share/ca-certificates/cert.crt
+# RUN chmod 644 /usr/local/share/ca-certificates/cert.crt && update-ca-certificates
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git wget unzip bzip2 build-essential sudo \
