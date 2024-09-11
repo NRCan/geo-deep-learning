@@ -104,7 +104,7 @@ class BlueSkyNonGeo(NonGeoDataset):
         with rio.open(self.files[index]["image"]) as image:
             image_array = image.read().astype(np.int32)
             image_tensor = torch.from_numpy(image_array).float()
-            # print(f"{__name__}: Image Tensor shape: {image_tensor.shape}")
+            
         return image_tensor
     
     def _load_label(self, index: int) -> Tensor:
@@ -119,7 +119,7 @@ class BlueSkyNonGeo(NonGeoDataset):
         with rio.open(self.files[index]["label"]) as label:
             label_array = label.read().astype(np.int32)
             label_tensor = torch.from_numpy(label_array).float()
-            # print(f"{__name__}: Label Tensor shape: {label_tensor.shape}")
+
         return label_tensor
     
     def __getitem__(self, index: int) -> Dict[str, Tensor]:
@@ -134,15 +134,9 @@ class BlueSkyNonGeo(NonGeoDataset):
         image = self._load_image(index)
         label = self._load_label(index)
         sample = {"image": image, "label": label}
-        # print(f"{__name__}: Sample Image shape: {image.shape}, Sample Label shape: {label.shape}")
         
         if self.transforms is not None:
-            
-            # print(f"{__name__}: Transforming sample... with {self.transforms}")
             sample = self.transforms(sample)
-            image = sample["image"]
-            label = sample["label"]
-        # print(f"{__name__}: T_Sample Image shape: {image.shape}, T_Sample Label shape: {label.shape}")
         return sample
 
 if __name__ == "__main__":
