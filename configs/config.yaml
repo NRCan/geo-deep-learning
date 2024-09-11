@@ -1,17 +1,10 @@
 # lightning.pytorch==2.3.2
 seed_everything: true
 
-# mlflow:
-#   class_path: 
-#   init_args:
-#     tracking_uri: ${paths.log_dir}/mlflow/mlruns
-#     experiment_name: "gdl_experiment"
-#     run_name: "gdl_run"
-
-# paths:
-#   log_dir: logs
-
 trainer:
+  accelerator: "gpu"
+  devices: -1
+  strategy: "ddp"
   logger:
     class_path: lightning.pytorch.loggers.mlflow.MLFlowLogger
     init_args:
@@ -50,7 +43,7 @@ lr_scheduler:
 data:
   class_path: datamodules.imagery_NonGeoDataModule.BlueSkyNonGeoDataModule
   init_args:
-    batch_size: 8
+    batch_size: 16
     num_workers: 8
     data_type_max: 255
     patch_size:
