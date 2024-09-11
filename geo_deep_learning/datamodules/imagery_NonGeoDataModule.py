@@ -45,11 +45,9 @@ class BlueSkyNonGeoDataModule(LightningDataModule):
                                                       )
     
     def preprocess(self, sample: Dict[str, Any]) -> Dict[str, Any]:
-        # print(f'{__name__}: B_Preprocessed Image shape: {sample["image"].shape}')
         sample["image"] /= self.data_type_max
-        # print(f'{__name__}: 0_1_reprocessed Image shape: {sample["image"].shape}')
         sample["image"] = self.normalize(sample["image"])
-        # print(f'{__name__}: N_Preprocessed Image shape: {sample["image"].shape}')
+        
         return sample
 
     def prepare_data(self):
@@ -58,13 +56,12 @@ class BlueSkyNonGeoDataModule(LightningDataModule):
 
     def setup(self, stage=None):
         # build the dataset
-        train_transform = Compose([self.preprocess])
+        train_transform = Compose([self.transform, self.preprocess])
         test_transform = Compose([self.preprocess])
         
-        self.train_dataset = BlueSkyNonGeo(split="trn", transforms=None, **self.kwargs)
+        self.train_dataset = BlueSkyNonGeo(split="trn", transforms=train_transform, **self.kwargs)
         self.val_dataset = BlueSkyNonGeo(split="val", transforms=test_transform, **self.kwargs)
-        self.test_dataset = BlueSkyNonGeo(split="tst", transforms=None, **self.kwargs)
-        
+        self.test_dataset = BlueSkyNonGeo(split="tst", transforms=test_transform, **self.kwargs)
 
     def train_dataloader(self) -> DataLoader[Any]:
         
