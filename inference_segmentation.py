@@ -1,17 +1,16 @@
-import os
 import csv
+import rasterio
+
 from tqdm import tqdm
+from shutil import move
 from pathlib import Path
 from numbers import Number
 from tempfile import mkstemp
 from omegaconf import DictConfig
 from typing import Dict, Sequence, Union
-from dataset.stacitem import SingleBandItemEO
-import rasterio
-from shutil import move
-
 
 from utils.aoiutils import aois_from_csv
+from dataset.stacitem import SingleBandItemEO
 from utils.logger import get_logger, set_tracker
 from geo_inference.geo_inference import GeoInference
 from utils.utils import get_device_ids, get_key_def, set_device
