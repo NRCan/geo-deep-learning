@@ -13,8 +13,8 @@ class GeoDeepLearningCLI(LightningCLI):
         if self.trainer.is_global_zero:
             best_model_path = self.trainer.checkpoint_callback.best_model_path
             test_trainer = Trainer(devices=1, 
-                                accelerator="auto", 
-                                strategy="auto")
+                                   accelerator="auto", 
+                                   strategy="auto")
             best_model = self.model.__class__.load_from_checkpoint(best_model_path)
             test_trainer.test(model=best_model, dataloaders=self.datamodule.test_dataloader())
         self.trainer.strategy.barrier()
