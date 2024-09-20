@@ -11,9 +11,22 @@ trainer:
       save_dir: /home/valhassa/Projects/geo-deep-learning/logs
       experiment_name: "gdl_experiment"
       run_name: "gdl_run"
+  callbacks:
+    class_path: lightning.pytorch.callbacks.EarlyStopping
+    init_args:
+      monitor: "val_loss"
+      mode: "min"
+      patience: 1
+    class_path: lightning.pytorch.callbacks.ModelCheckpoint
+    init_args:
+      monitor: "val_loss"
+      mode: "min"
+      save_top_k: 1
+      filename: "model-{epoch:02d}-{val_loss:.2f}"
+
   max_epochs: 10
   min_epochs: 2
-ckpt_path: null
+
 
 model:
   class_path: tasks_with_models.segmentation_segformer.SegmentationSegformer
