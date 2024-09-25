@@ -1,11 +1,8 @@
 
-![Logo](./docs/img/logo.png)
+## **GDL Refactoring: What was that all about and next steps?**
 
-## **About**
+Since 2020:
 
-The **Geo-Deep-Learning** project stems from an initiative at NRCan's [CCMEO](https://www.nrcan.gc.ca/earth-sciences/geomatics/10776).  Its aim is to allow using Convolutional Neural Networks (CNN) with georeferenced datasets.
-
-In **Geo-Deep-Learning**, the learning process comprises two broad stages: tiling and training, followed by inference, which makes use of a trained model to make new predictions on unseen imagery. 
 
 ## **Requirement**
 This project comprises a set of commands to be run at a shell command prompt.  Examples used here are for a bash shell in an Ubuntu GNU/Linux environment.
