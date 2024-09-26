@@ -1,8 +1,0 @@
-# @package _global_
-model:
-  _target_: segmentation_models_pytorch.UnetPlusPlus
-  encoder_name: resnext50_32x4d
-  encoder_depth: 4
-  decoder_channels: [256, 128, 64, 32]
-  decoder_attention_type: scse
-  encoder_weights: imagenet
