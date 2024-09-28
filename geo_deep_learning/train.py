@@ -1,10 +1,15 @@
 import torch
+from lightning.pytorch import LightningModule
 from lightning.pytorch import Trainer
-from lightning.pytorch.cli import ArgsType, LightningCLI
+from lightning.pytorch.cli import ArgsType, LightningCLI, SaveConfigCallback
 from lightning.pytorch.loggers import MLFlowLogger
 from lightning.pytorch.loggers import Logger
 
-
+class LoggerSaveConfigCallback(SaveConfigCallback):
+    def save_config(self, trainer: Trainer, pl_module: LightningModule, stage: str) -> None:
+        if isinstance(trainer.logger, Logger):
+            config = self.parser.dump(self.config, skip_none=False)  # Required for proper reproducibility
+            trainer.logger.log_hyperparams(self.config)
 class GeoDeepLearningCLI(LightningCLI):
     def before_fit(self):
         self.datamodule.prepare_data()
@@ -16,7 +21,8 @@ class GeoDeepLearningCLI(LightningCLI):
             best_model_path = self.trainer.checkpoint_callback.best_model_path
             test_trainer = Trainer(devices=1, 
                                    accelerator="auto", 
-                                   strategy="auto")
+                                   strategy="auto",
+                                   logger=False)
             best_model = self.model.__class__.load_from_checkpoint(best_model_path)
             test_results = test_trainer.test(model=best_model, dataloaders=self.datamodule.test_dataloader())
             self.log_test_metrics(test_results)
