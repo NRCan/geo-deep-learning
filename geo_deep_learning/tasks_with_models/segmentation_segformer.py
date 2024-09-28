@@ -15,7 +15,7 @@ class SegmentationSegformer(LightningModule):
                  class_labels: List[str] = None,
                  **kwargs: Any):
         super().__init__()
-        self.save_hyperparameters(ignore=["loss"])
+        self.save_hyperparameters()
         self.model = SegFormer(encoder, in_channels, num_classes)
         self.loss = loss
         self.metric= MulticlassJaccardIndex(num_classes=num_classes, average=None, zero_division=np.nan)
@@ -60,7 +60,7 @@ class SegmentationSegformer(LightningModule):
         loss = self.loss(y_hat, y)
         y_hat = y_hat.argmax(dim=1)
         test_metrics = self.classwise_metric(y_hat, y)
-        test_metrics["test_loss"] = loss
+        test_metrics["loss"] = loss
         self.log_dict(test_metrics, 
                       prog_bar=True, logger=True, 
                       on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
