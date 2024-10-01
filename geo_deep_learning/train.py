@@ -1,20 +1,12 @@
-import torch
-from lightning.pytorch import LightningModule
+from tools.mlflow_logger import LoggerSaveConfigCallback
 from lightning.pytorch import Trainer
-from lightning.pytorch.cli import ArgsType, LightningCLI, SaveConfigCallback
-from lightning.pytorch.loggers import MLFlowLogger
+from lightning.pytorch.cli import ArgsType, LightningCLI
 from lightning.pytorch.loggers import Logger
-
-class LoggerSaveConfigCallback(SaveConfigCallback):
-    def save_config(self, trainer: Trainer, pl_module: LightningModule, stage: str) -> None:
-        if isinstance(trainer.logger, Logger):
-            config = self.parser.dump(self.config, skip_none=False)  # Required for proper reproducibility
-            trainer.logger.log_hyperparams(self.config)
 class GeoDeepLearningCLI(LightningCLI):
     def before_fit(self):
         self.datamodule.prepare_data()
         self.datamodule.setup("fit")
-        self.print_dataset_sizes()
+        self.log_dataset_sizes()
     
     def after_fit(self):
         if self.trainer.is_global_zero:
@@ -28,12 +20,21 @@ class GeoDeepLearningCLI(LightningCLI):
             self.log_test_metrics(test_results)
         self.trainer.strategy.barrier()
     
-    def print_dataset_sizes(self):
+    def log_dataset_sizes(self):
         if self.trainer.is_global_zero:
             train_size = len(self.datamodule.train_dataloader().dataset)
             val_size = len(self.datamodule.val_dataloader().dataset)
             test_size = len(self.datamodule.test_dataloader().dataset)
-
+            
+            
+            metrics = {
+                "num_training_samples": train_size,
+                "num_validation_samples": val_size,
+                "num_test_samples": test_size
+            }
+            
+            self.trainer.logger.log_metrics(metrics)
+            
             print(f"Number of training samples: {train_size}")
             print(f"Number of validation samples: {val_size}")
             print(f"Number of test samples: {test_size}")
@@ -57,8 +58,8 @@ class GeoDeepLearningCLI(LightningCLI):
 
 
 def main(args: ArgsType = None) -> None:
-    cli = GeoDeepLearningCLI(save_config_kwargs={"overwrite": True}, 
-                             args=args)
+    cli = GeoDeepLearningCLI(save_config_callback=LoggerSaveConfigCallback,
+                             save_config_kwargs={"overwrite": True},args=args)
     if cli.trainer.is_global_zero:
         print("Done!")
     
