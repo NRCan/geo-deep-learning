@@ -9,6 +9,7 @@ trainer:
     class_path: lightning.pytorch.loggers.mlflow.MLFlowLogger
     init_args:
       save_dir: /home/valhassa/Projects/geo-deep-learning/logs
+      log_model: "all"
       experiment_name: "gdl_experiment"
       run_name: "gdl_run"
   callbacks:

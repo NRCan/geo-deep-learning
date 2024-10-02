@@ -1,7 +1,7 @@
 from tools.mlflow_logger import LoggerSaveConfigCallback
 from lightning.pytorch import Trainer
 from lightning.pytorch.cli import ArgsType, LightningCLI
-from lightning.pytorch.loggers import Logger
+
 class GeoDeepLearningCLI(LightningCLI):
     def before_fit(self):
         self.datamodule.prepare_data()
@@ -17,7 +17,10 @@ class GeoDeepLearningCLI(LightningCLI):
                                    logger=False)
             best_model = self.model.__class__.load_from_checkpoint(best_model_path)
             test_results = test_trainer.test(model=best_model, dataloaders=self.datamodule.test_dataloader())
-            self.log_test_metrics(test_results)
+            for metric_name, metric_value in test_results[0].items():
+                self.trainer.logger.log_metrics({f"test_{metric_name}": metric_value})
+            self.trainer.logger.log_hyperparams({"best_model_path": best_model_path})
+            print("Test metrics logged successfully to all loggers.")
         self.trainer.strategy.barrier()
     
     def log_dataset_sizes(self):
@@ -39,22 +42,6 @@ class GeoDeepLearningCLI(LightningCLI):
             print(f"Number of validation samples: {val_size}")
             print(f"Number of test samples: {test_size}")
     
-    def log_test_metrics(self, test_results):
-        if not self.trainer.logger:
-            print("No logger found. Test metrics will not be logged.")
-            return
-        if isinstance(self.trainer.logger, Logger):
-            for metric_name, metric_value in test_results[0].items():
-                self.trainer.logger.log_metrics({f"test_{metric_name}": metric_value})
-            print("Test metrics logged successfully.")
-        elif isinstance(self.trainer.logger, list):
-            for logger in self.trainer.logger:
-                if isinstance(logger, Logger):
-                    for metric_name, metric_value in test_results[0].items():
-                        logger.log_metrics({f"test_{metric_name}": metric_value})
-            print("Test metrics logged successfully to all loggers.")
-        else:
-            print("Unsupported logger type. Test metrics will not be logged.")
 
 
 def main(args: ArgsType = None) -> None:
