@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from torch import Tensor
 from typing import Any, Callable, Dict, List
 from lightning.pytorch import LightningModule
@@ -44,13 +45,10 @@ class SegmentationSegformer(LightningModule):
         y_hat = self(x)
         loss = self.loss(y_hat, y)
         y_hat = y_hat.softmax(dim=1).argmax(dim=1)
-        mean_iou = self.metric(y_hat, y)
         self.log('val_loss', loss,
                     prog_bar=True, logger=True, 
                     on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
-        # self.log_dict(val_metrics, 
-        #               prog_bar=True, logger=True, 
-        #               on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=0)
+        return y_hat
     
     def test_step(self, batch, batch_idx):
         x = batch["image"]
@@ -58,10 +56,28 @@ class SegmentationSegformer(LightningModule):
         y = y.squeeze(1).long()
         y_hat = self(x)
         loss = self.loss(y_hat, y)
-        y_hat = y_hat.argmax(dim=1)
+        y_hat = y_hat.softmax(dim=1).argmax(dim=1)
         test_metrics = self.classwise_metric(y_hat, y)
         test_metrics["loss"] = loss
         self.log_dict(test_metrics, 
                       prog_bar=True, logger=True, 
                       on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
     
+    # def log_images(self, images, labels, predictions, stage):
+    #     fig, axes = plt.subplots(len(images), 3, figsize=(15, 5 * len(images)))
+    #     for i, (img, lbl, pred) in enumerate(zip(images, labels, predictions)):
+    #         if len(images) == 1:
+    #             ax_img, ax_lbl, ax_pred = axes
+    #         else:
+    #             ax_img, ax_lbl, ax_pred = axes[i]
+    #         ax_img.imshow(img.permute(1, 2, 0).cpu().numpy())
+    #         ax_img.set_title('Image')
+    #         ax_lbl.imshow(lbl.cpu().numpy())
+    #         ax_lbl.set_title('Label')
+    #         ax_pred.imshow(pred.cpu().numpy())
+    #         ax_pred.set_title('Prediction')
+    #         for ax in [ax_img, ax_lbl, ax_pred]:
+    #             ax.axis('off')
+    #     plt.tight_layout()
+    #     mlflow.log_figure(fig, f"{stage}_predictions.png")
+    #     plt.close(fig)
