@@ -65,6 +65,8 @@ def main(params:Union[DictConfig, Dict]):
     input_stac_item = get_key_def('input_stac_item', params['inference'], expected_type=str, to_path=True,
                                   validate_path_exists=True)
     vectorize = get_key_def('ras2vec', params['inference'], expected_type=bool, default=False)
+    transform_flip = get_key_def('flip', params['inference'], expected_type=bool, default=False)
+    transform_rotate = get_key_def('rotate', params['inference'], expected_type=bool, default=False)
     
     if raw_data_csv and input_stac_item:
         raise ValueError(f"Input imagery should be either a csv of stac item. Got inputs from both \"raw_data_csv\" "
@@ -106,6 +108,9 @@ def main(params:Union[DictConfig, Dict]):
                                  device=device_str,
                                  gpu_id=gpu_index,
                                  prediction_threshold=prediction_threshold,
+                                 transformer=True,
+                                 transformer_flip=transform_flip,
+                                 transformer_rotate=transform_rotate,
                                  )
     
     # LOOP THROUGH LIST OF INPUT IMAGES

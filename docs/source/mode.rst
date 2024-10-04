@@ -211,6 +211,11 @@ will be found in :ref:`configurationdefaultparam` under ``inference`` and this c
     enhancement is applied and equalized images save to disk.
 - ``heatmap_threshold`` (float)
     Prediction probability Threshold (fraction of 1) to use. Default is ``0.3``.
+- ``flip`` (bool)
+    If True, perform horizontal and vertical flips during inference.  
+- ``rotate`` (bool)
+    If True, perform 90 degree rotation at inference.
+
 - ``gpu`` (int)
     Number of gpus to use at inference. 
 - ``max_used_perc`` (int)

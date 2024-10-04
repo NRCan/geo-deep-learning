@@ -9,6 +9,8 @@ inference:
   workers: 0
   prep_data_only: False
   heatmap_threshold: 0.3
+  flip: False
+  rotate: True
 
   # GPU parameters
   gpu: ${training.num_gpus}
