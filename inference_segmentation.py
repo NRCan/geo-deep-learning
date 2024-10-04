@@ -108,7 +108,7 @@ def main(params:Union[DictConfig, Dict]):
                                  device=device_str,
                                  gpu_id=gpu_index,
                                  prediction_threshold=prediction_threshold,
-                                 transformer=True,
+                                 transformers=True,
                                  transformer_flip=transform_flip,
                                  transformer_rotate=transform_rotate,
                                  )
