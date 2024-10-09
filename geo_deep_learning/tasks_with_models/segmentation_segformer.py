@@ -62,22 +62,3 @@ class SegmentationSegformer(LightningModule):
         self.log_dict(test_metrics, 
                       prog_bar=True, logger=True, 
                       on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
-    
-    # def log_images(self, images, labels, predictions, stage):
-    #     fig, axes = plt.subplots(len(images), 3, figsize=(15, 5 * len(images)))
-    #     for i, (img, lbl, pred) in enumerate(zip(images, labels, predictions)):
-    #         if len(images) == 1:
-    #             ax_img, ax_lbl, ax_pred = axes
-    #         else:
-    #             ax_img, ax_lbl, ax_pred = axes[i]
-    #         ax_img.imshow(img.permute(1, 2, 0).cpu().numpy())
-    #         ax_img.set_title('Image')
-    #         ax_lbl.imshow(lbl.cpu().numpy())
-    #         ax_lbl.set_title('Label')
-    #         ax_pred.imshow(pred.cpu().numpy())
-    #         ax_pred.set_title('Prediction')
-    #         for ax in [ax_img, ax_lbl, ax_pred]:
-    #             ax.axis('off')
-    #     plt.tight_layout()
-    #     mlflow.log_figure(fig, f"{stage}_predictions.png")
-    #     plt.close(fig)
