@@ -1,11 +1,14 @@
 import numpy as np
+import torch
+from pathlib import Path
 import matplotlib.pyplot as plt
 from torch import Tensor
 from typing import Any, Callable, Dict, List
-from lightning.pytorch import LightningModule
+from lightning.pytorch import LightningModule, LightningDataModule
 from torchmetrics.classification import MulticlassJaccardIndex
 from torchmetrics.wrappers import ClasswiseWrapper
 from models.segformer import SegFormer
+from tools.script_model import script_model
 
 class SegmentationSegformer(LightningModule):
     def __init__(self, 
@@ -62,3 +65,33 @@ class SegmentationSegformer(LightningModule):
         self.log_dict(test_metrics, 
                       prog_bar=True, logger=True, 
                       on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
+    
+    def on_train_end(self):
+        if self.trainer.is_global_zero and self.trainer.checkpoint_callback is not None:
+            best_model_path = self.trainer.checkpoint_callback.best_model_path
+            if best_model_path:
+                print(f"Best model path: {best_model_path}")
+                best_model_dir = Path(best_model_path).parent
+                best_model_name = Path(best_model_path).stem
+                best_model_export_path = str(best_model_dir / f"{best_model_name}_scripted.pt")
+                self.export_model(best_model_export_path, self.trainer.datamodule)
+                
+    @classmethod
+    def load_from_checkpoint(cls, checkpoint_path, map_location=None, **kwargs):
+        checkpoint = torch.load(checkpoint_path, map_location=map_location)
+        model = cls(**checkpoint['hyper_parameters'])
+        model.load_state_dict(checkpoint['state_dict'])
+        return model
+    
+    def export_model(self, checkpoint_path: str, export_path: str, datamodule: LightningDataModule):
+        best_model = self.load_from_checkpoint(checkpoint_path)
+        best_model.eval()
+        
+        scrpted_model = script_model(best_model, datamodule)
+        dummy_input = torch.randn(1, self.hparams.in_channels, *datamodule.patch_size)        
+        traced_model = torch.jit.trace(scrpted_model, dummy_input)
+        torch.jit.save(traced_model, export_path)
+        print(f"Model exported to TorchScript {export_path}")
+        
+    
+    
