@@ -9,9 +9,10 @@ class ScriptModel(nn.Module):
     
     def forward(self, x):
         sample = {"image": x}
-        preprocessed = self.data_module.preprocess(sample)
+        preprocessed = self.data_module.model_script_preprocess(sample)
         return self.model(preprocessed["image"])
 
 def script_model(model, data_module):
+    print(f"data_module: {data_module}")
     return ScriptModel(model, data_module)
         
