@@ -1,8 +1,10 @@
+import torch
 from typing import Any, Dict, List, Tuple
 from kornia.augmentation import AugmentationSequential
 from torchvision.transforms import Compose
 from torch.utils.data import DataLoader
 from lightning.pytorch import LightningDataModule
+from tools.utils import normalization, standardization
 import kornia as K
 from datasets.imagery_NonGeoDataset import BlueSkyNonGeo
 
@@ -43,6 +45,14 @@ class BlueSkyNonGeoDataModule(LightningDataModule):
                                                        random_resized_crop_zoom_out,
                                                        random_apply=1), data_keys=None
                                                       )
+    def model_script_preprocess(self, sample: Dict[str, Any]) -> Dict[str, Any]:
+        device = sample["image"].device
+        mean_ = torch.tensor(self.mean, device=device).reshape(len(self.mean), 1)
+        std_ = torch.tensor(self.std, device=device).reshape(len(self.std), 1)
+        
+        sample["image"] = normalization(sample["image"], 0, self.data_type_max)
+        sample["image"] = standardization(sample["image"], mean_, std_)
+        return sample
     
     def preprocess(self, sample: Dict[str, Any]) -> Dict[str, Any]:
         sample["image"] /= self.data_type_max
