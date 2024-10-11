@@ -181,11 +181,9 @@ will be found in :ref:`configurationdefaultparam` under ``inference`` and this c
 .. literalinclude:: ../../../config/inference/default_binary.yaml
    :language: yaml
 
-- ``raw_data_csv`` (str)
-    Path to the images csv.
 - ``root_dir`` (str)
     Directory where outputs and downloads will be written by default,
-    if ``checkpoint_dir`` or ``output_path`` are omitted.
+    if ``output_path`` is omitted.
 - ``raw_data_csv`` (str)
     Points to a csv containing paths to imagery for inference. If a ground truth is present in 2nd column,
     it will be ignored.
@@ -193,28 +191,31 @@ will be found in :ref:`configurationdefaultparam` under ``inference`` and this c
     A path or url to :ref:`stac item <datasetstacitem>` directly. 
     See stac item example for `Spacenet test data <https://datacube-stage.services.geo.ca/api/collections/spacenet-samples/items/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03>`_, 
     also contained in `test data <https://github.com/NRCan/geo-deep-learning/tree/develop/tests/data/spacenet.zip>`_.
-- ``state_dict_path`` (str)
+- ``model_path`` (str)
     Path to checkpoint containing trained weights for a given neural network architecture.
 - ``output_path`` (str, optional)
     Complete path including parent directories and full name with extension where output inference should
     be saved. By default ``root_dir/{aoi.aoi_id}_pred.tif`` (see :ref:`AOI documentation <dataset>`), the 
     ``output_path`` parameter should only be used if a single inference is being performed. Otherwise, it 
     is recommended to set the root_dir and use the default output name.  
-- ``checkpoint_dir`` (str)
-    Directory in which to save the checkpoint file if url.
-- ``chunk_size`` (int)
-    Size of chunk (in pixels) to read use for inference iterations over input imagery. The input patch will
-    be square, therefore set at ``512`` it will generate 512 x 512 patches.
-- ``max_pix_per_mb_gpu`` (int)
-    If chunk_size is omitted, this defines a "*maximum number of pixels per MB of GPU Ram*" that should be 
-    considered. E.g. if GPU has 1000 Mb of Ram and this parameter is set to 10, chunk_size will be set to 
-    ``sqrt(1000 * 10) = 100``. By defaults it's set to 25. Since this feature is based on a rule-of-thumb 
-    and assumes some prior empirical testing. WIP. 
+- ``patch_size`` (int)
+    Size of patch (in pixels) to read use for inference iterations over input imagery. The input patch will
+    be square, therefore, if set at ``512`` it will generate 512 x 512 patches.
+- ``workers`` (int)
+    Number of workers used by the geo-inference library. Default is `0` = Number of cores available on the 
+    host, minus 1.
 - ``prep_data_only`` (bool)
     If True, the inference script will exit after preparation of input data.
     If checkpoint path is url, then the checkpoint will be download, if imagery points to urls, it will be 
     downloaded and if input model expects imagery with :ref:`histogram equalization <datatiling>`, this 
     enhancement is applied and equalized images save to disk.
+- ``heatmap_threshold`` (float)
+    Prediction probability Threshold (fraction of 1) to use. Default is ``0.3``.
+- ``flip`` (bool)
+    If True, perform horizontal and vertical flips during inference.  
+- ``rotate`` (bool)
+    If True, perform 90 degree rotation at inference.
+
 - ``gpu`` (int)
     Number of gpus to use at inference. 
 - ``max_used_perc`` (int)
@@ -224,7 +225,7 @@ will be found in :ref:`configurationdefaultparam` under ``inference`` and this c
 - ``max_used_ram`` (int)
     If RAM usage of detected GPU exceeds this percentage, it will be ignored.
 - ``ras2vec`` (bool)
-    If True, a polygonized version of the inference ``.gpkg`` will be created with rasterio tools.
+    If True, a polygonized version of the inference ``.geojson`` will be created with rasterio tools.
 
 .. note:: 
 

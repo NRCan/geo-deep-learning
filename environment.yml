@@ -1,16 +1,27 @@
-name: geo_deep_env
+name: geo_ml_env
 channels:
+  - pytorch
+  - nvidia
   - conda-forge
 dependencies:
-  - python==3.11.5
+  - coverage>=6.3.1
+  - geopandas>=0.14.4
+  - hydra-core>=1.2.0
   - pip
-  - gdal
-  - pystac>=0.3.0
+  - pynvml>=11.0
+  - pystac>=1.10.1
   - pytest>=7.1
+  - python>=3.11
+  - pytorch>=2.3
+  - pytorch-cuda>=12.1
+  - rich>=11.1
   - ruamel_yaml>=0.15
   - scikit-image>=0.18
+  - torchgeo>=0.5.2
+  - torchvision>=0.13
   - pip:
-    - geo-inference>=2.0.7
+    - git+https://github.com/NRCan/geo-inference.git
     - hydra-colorlog>=1.1.0
     - hydra-optuna-sweeper>=1.1.0
+    - ttach>=0.0.3
     - mlflow>=1.2 # causes env solving to hang if not with pip

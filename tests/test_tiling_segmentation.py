@@ -19,7 +19,7 @@ class TestTiling(object):
         data_dir = f"data/patches"
         proj = f"tiling_output_test"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        extract_archive(from_path="tests/data/massachusetts_buildings_kaggle.zip")
         cfg = {
             "general": {"project_name": proj},
             "debug": True,
@@ -49,7 +49,7 @@ class TestTiling(object):
 
     def test_min_annotated_percent_filter(self):
         """Tests the minimum annotated percent filter"""
-        extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        extract_archive(from_path="tests/data/new_brunswick_aerial.zip")
         data = read_csv("tests/tiling/tiling_segmentation_multiclass_ci.csv")
         iterator = iter(data)
         row = next(iterator)
@@ -60,8 +60,8 @@ class TestTiling(object):
         """Tests the trn/val sorting to ensure the result is close enough to requested val_percent"""
         data_dir = f"data/patches"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
-        extract_archive(src="tests/data/spacenet.zip")
-        extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/new_brunswick_aerial.zip")
         proj_prefix = "test_val_percent"
         datasets = {"binary-multiband", "multiclass"}
         results = []
@@ -106,8 +106,8 @@ class TestTiling(object):
         """Tests the minimum annotated percentage to assert ground truth patches with mostly background are rejected"""
         data_dir = f"data/patches"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
-        extract_archive(src="tests/data/spacenet.zip")
-        extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/new_brunswick_aerial.zip")
         proj_prefix = "test_annot_percent"
         datasets = {"binary-multiband", "multiclass"}
         results = []
@@ -151,7 +151,7 @@ class TestTiling(object):
     def test_tiling_segmentation_parallel(self):
         data_dir = "data/patches"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
-        extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        extract_archive(from_path="tests/data/new_brunswick_aerial.zip")
         proj = "test_parallel"
         cfg = {
             "general": {"project_name": proj},
@@ -190,7 +190,7 @@ class TestTiling(object):
         """Tests tiling of imagery only for inference"""
         data_dir = "data/patches"
         Path(data_dir).mkdir(exist_ok=True, parents=True)
-        extract_archive(src="tests/data/new_brunswick_aerial.zip")
+        extract_archive(from_path="tests/data/new_brunswick_aerial.zip")
         project_name = "test_inference"
         cfg = {
             "general": {"project_name": project_name},

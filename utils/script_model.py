@@ -32,8 +32,8 @@ class ScriptModel(torch.nn.Module):
         shape = input.shape
         B, C = shape[0], shape[1]
         input = (self.max_val - self.min_val) * (input - self.min) / (self.max -self.min) + self.min_val
-        input = (input.view(B, C, -1) - self.mean) / self.std
-        input = input.view(shape)
+        input = (input.reshape(B, C, -1) - self.mean) / self.std
+        input = input.reshape(shape)
         output = self.model_scripted(input.to(self.device))
         if self.from_logits:
             if self.num_classes == 1:

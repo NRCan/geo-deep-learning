@@ -9,7 +9,7 @@ from utils.utils import read_csv
 class Test_SingleBandItemEO(object):
     def test_stac_input_missing_band(self):
         """Tests error when requesting non-existing singleband input rasters from stac item"""
-        extract_archive(src="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
         data = read_csv("tests/tiling/tiling_segmentation_binary-stac_ci.csv")
         row = next(iter(data))
         with pytest.raises(ValueError):
@@ -18,8 +18,8 @@ class Test_SingleBandItemEO(object):
 
     def test_stac_input_empty_band_request(self):
         """Tests error when band selection is required (stac item) but missing"""
-        extract_archive(src="tests/data/spacenet.zip")
-        extract_archive(src="tests/data/massachusetts_buildings_kaggle.zip")
+        extract_archive(from_path="tests/data/spacenet.zip")
+        extract_archive(from_path="tests/data/massachusetts_buildings_kaggle.zip")
         stac_item_path = "tests/data/spacenet/SpaceNet_AOI_2_Las_Vegas-056155973080_01_P001-WV03.json"
         with pytest.raises(ValueError):
             item = SingleBandItemEO(item=pystac.Item.from_file(stac_item_path),
