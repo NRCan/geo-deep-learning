@@ -3,12 +3,14 @@ from pathlib import Path
 from typing import List
 
 import geopandas as gpd
+from geopandas.testing import assert_geodataframe_equal
+import fiona
 import numpy as np
 import pytest
 import rasterio
 from _pytest.fixtures import SubRequest
 from torchgeo.datasets.utils import extract_archive
-from shapely.geometry import MultiPolygon
+from shapely.geometry import mapping, MultiPolygon
 
 from dataset.aoi import AOI
 from utils.geoutils import create_new_raster_from_base, bounds_gdf, bounds_riodataset, overlap_poly1_rto_poly2, \
@@ -134,3 +136,44 @@ class TestGeoutils(object):
             mean_vertices_per_label.append(mean_vertices)
         mean_vertices_per_label_int = [round(mean_verts) for mean_verts in mean_vertices_per_label if mean_verts]
         assert mean_vertices_per_label_int == [7, 7, 6, 36, 5, 5, 8, 5]
+        
+    def test_check_gdf_load(self) -> None:    
+        """Test the gdf load function, with only one layer and multiple layers."""
+        gpkg_path = 'tests/data/massachusetts_buildings_kaggle/22978945_15.gpkg'
+        label_gdf = gpd.read_file(gpkg_path)
+        # TODO test the csv option
+        # check normal use, one layer gpkg
+        layer_name = fiona.listlayers(gpkg_path)
+        assert len(layer_name) == 1
+        load_from_gpkg_path = check_gdf_load(gpkg_path)
+        assert assert_geodataframe_equal(load_from_gpkg_path, label_gdf) == None
+        # check use of gpkg multi layer
+        multi_layer = 'tests/data/multi_layer.gpkg'
+        schema = {'geometry': 'Polygon', 'properties': {'id': 'int'}}
+        with fiona.open(multi_layer, 'w', driver='GPKG', schema=schema,
+                        crs=str(label_gdf.crs), layer='l1') as outlayer:
+            outlayer.write({
+                'geometry': mapping(label_gdf.geometry[0]),
+                'properties': {'id': 0},
+            })
+        with fiona.open(multi_layer, 'w', driver='GPKG', schema=schema,
+                        crs=str(label_gdf.crs), layer='l2') as outlayer:
+            outlayer.write({
+                'geometry': mapping(label_gdf.geometry[0]),
+                'properties': {'id': 1},
+            }) 
+        layer_name = fiona.listlayers(multi_layer)
+        assert len(layer_name) == 2
+        load_from_gpkg_path = check_gdf_load(multi_layer)
+        ml = {
+            'id': [0, 1], 
+            'geometry': [label_gdf.geometry[0], label_gdf.geometry[0]]
+        }
+        multi_layer_df = gpd.GeoDataFrame(ml, crs=str(label_gdf.crs))
+        assert assert_geodataframe_equal(load_from_gpkg_path, multi_layer_df) == None
+        os.remove(multi_layer)
+        # check if false gpkg given return empty gpd dataframe
+        empty_gdf = check_gdf_load('fake.gpkg')
+        assert empty_gdf.empty
+        # check if given a geodataframe, it will just return the same geodataframe.
+        assert assert_geodataframe_equal(check_gdf_load(label_gdf), label_gdf) == None
