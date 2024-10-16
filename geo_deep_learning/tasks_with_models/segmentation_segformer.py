@@ -20,7 +20,8 @@ class SegmentationSegformer(LightningModule):
                  **kwargs: Any):
         super().__init__()
         self.save_hyperparameters()
-        self.model = SegFormer(encoder, in_channels, num_classes)
+        self.num_classes = num_classes
+        self.model = SegFormer(encoder, in_channels, self.num_classes)
         self.loss = loss
         self.metric= MulticlassJaccardIndex(num_classes=num_classes, average=None, zero_division=np.nan)
         self.labels = [str(i) for i in range(num_classes)] if class_labels is None else class_labels
@@ -84,7 +85,7 @@ class SegmentationSegformer(LightningModule):
         best_model = self.__class__.load_from_checkpoint(checkpoint_path, map_location=map_location)
         best_model.eval()
         
-        scrpted_model = script_model(best_model.model, datamodule)
+        scrpted_model = script_model(best_model.model, datamodule, self.num_classes, from_logits=True)
         patch_size = datamodule.patch_size
         dummy_input = torch.rand(1, input_channels, *patch_size, device=torch.device(map_location))       
         traced_model = torch.jit.trace(scrpted_model, dummy_input)
