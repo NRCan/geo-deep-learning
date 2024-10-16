@@ -1,5 +1,5 @@
 import torch
-from typing import Any, Dict, List, Tuple
+from typing import Optional, Any, Dict, List, Tuple
 from kornia.augmentation import AugmentationSequential
 from torchvision.transforms import Compose
 from torch.utils.data import DataLoader
@@ -9,6 +9,7 @@ import kornia as K
 from datasets.imagery_NonGeoDataset import BlueSkyNonGeo
 
 class BlueSkyNonGeoDataModule(LightningDataModule):
+    
     def __init__(self, 
                  batch_size: int = 16,
                  num_workers: int = 8,
@@ -16,6 +17,7 @@ class BlueSkyNonGeoDataModule(LightningDataModule):
                  patch_size: Tuple[int, int] = (512, 512),
                  mean: List[float] = [0.0, 0.0, 0.0],
                  std: List[float] = [1.0, 1.0, 1.0],
+                 band_indices: Optional[List[int]] = None, 
                  **kwargs: Any):
         super().__init__()
         self.batch_size = batch_size
@@ -24,7 +26,12 @@ class BlueSkyNonGeoDataModule(LightningDataModule):
         self.data_type_max = data_type_max
         self.mean = mean
         self.std = std
+        self.band_indices = band_indices
         self.kwargs = kwargs
+        
+        if self.band_indices is not None:
+            self.mean = [self.mean[i] for i in self.band_indices]
+            self.std = [self.std[i] for i in self.band_indices]
         
         self.normalize = K.augmentation.Normalize(mean=self.mean, std=self.std, p=1, keepdim=True)
         random_resized_crop_zoom_in = K.augmentation.RandomResizedCrop(size=self.patch_size, scale=(1.0, 2.0), 
@@ -45,24 +52,16 @@ class BlueSkyNonGeoDataModule(LightningDataModule):
                                                        random_resized_crop_zoom_out,
                                                        random_apply=1), data_keys=None
                                                       )
-    def model_script_preprocess(self, sample: Dict[str, Any]) -> Dict[str, Any]:
-        device = sample["image"].device
-        mean_ = torch.tensor(self.mean, device=device).reshape(len(self.mean), 1)
-        std_ = torch.tensor(self.std, device=device).reshape(len(self.std), 1)
-        
-        sample["image"] = normalization(sample["image"], 0, self.data_type_max)
-        sample["image"] = standardization(sample["image"], mean_, std_)
-        return sample
+    def prepare_data(self):
+        # download, enhance, tile, etc...
+        pass
     
     def preprocess(self, sample: Dict[str, Any]) -> Dict[str, Any]:
+        sample["image"] = self._manage_bands(sample["image"])
         sample["image"] /= self.data_type_max
         sample["image"] = self.normalize(sample["image"])
         
         return sample
-
-    def prepare_data(self):
-        # download, enhance, tile, etc...
-        pass
 
     def setup(self, stage=None):
         # build the dataset
@@ -88,6 +87,44 @@ class BlueSkyNonGeoDataModule(LightningDataModule):
         return DataLoader(self.test_dataset, 
                           batch_size=self.batch_size,
                           num_workers=self.num_workers, shuffle=False)
+    
+    def _manage_bands(self, image: torch.Tensor) -> torch.Tensor:
+        """
+        Selects specific bands from the input image tensor based on predefined band indices.
+
+        Args:
+            image (torch.Tensor): Input tensor of shape [C, H, W], where C is the number of bands.
+
+        Returns:
+            torch.Tensor: Tensor containing only the selected bands.
+
+        Raises:
+            ValueError: If any band index in `self.band_indices` is out of range for the input image.
+        """
+        if self.band_indices is not None:
+            bands = image.size(0)
+            if max(self.band_indices) >= bands:
+                raise ValueError(f"Band index {max(self.band_indices)} is out of range for image with {bands} bands")
+            band_indices = torch.LongTensor(self.band_indices).to(image.device)
+            return torch.index_select(image, dim=0, index=band_indices)
+        return image
+    
+    def _model_script_preprocess(self, sample: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Preprocesses the input sample by normalizing and standardizing the image.
+        Args:
+            sample (Dict[str, Any]): A dictionary containing the input data. 
+                Expected to have a key "image" with a tensor value.
+        Returns:
+            Dict[str, Any]: The processed sample with the image normalized and standardized.
+        """
+        device = sample["image"].device
+        mean_ = torch.tensor(self.mean, device=device).reshape(len(self.mean), 1)
+        std_ = torch.tensor(self.std, device=device).reshape(len(self.std), 1)
+        
+        sample["image"] = normalization(sample["image"], 0, self.data_type_max)
+        sample["image"] = standardization(sample["image"], mean_, std_)
+        return sample
     
 
 if __name__ == "__main__":
