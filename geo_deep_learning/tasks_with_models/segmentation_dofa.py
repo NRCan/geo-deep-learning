@@ -33,26 +33,11 @@ class SegmentationDOFA(LightningModule):
         return self.model(image)
 
     def training_step(self, batch: Dict[str, Any], batch_idx: int):
-        if batch_idx == 0:  # Only check on first batch
-            def check_unused_parameters():
-                unused = []
-                for name, param in self.model.named_parameters():
-                    if param.grad is None and param.requires_grad:
-                        unused.append(name)
-                if unused:
-                    print("Unused parameters:", unused)
-                return len(unused)
         x = batch["image"]
         y = batch["label"]
         y = y.squeeze(1).long()
         y_hat = self(x)
         loss = self.loss(y_hat, y)
-        # Check gradients after backward pass
-        if batch_idx == 0:
-            loss.backward(retain_graph=True)
-            num_unused = check_unused_parameters()
-            print(f"Total unused parameters: {num_unused}")
-        
         y_hat = y_hat.argmax(dim=1)
         self.log('train_loss', loss, 
                  prog_bar=True, logger=True, 
