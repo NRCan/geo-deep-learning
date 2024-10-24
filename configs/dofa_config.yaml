@@ -75,3 +75,5 @@ data:
     - 1.0
     csv_root_folder: /export/sata01/wspace/test_dir/multi/all_rgb_data/patches/4cls_RGB
     patches_root_folder: /export/sata01/wspace/test_dir/multi/all_rgb_data/patches/4cls_RGB
+
+ckpt_path: null
