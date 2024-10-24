@@ -80,7 +80,7 @@ class SegmentationDOFA(LightningModule):
                 self.export_model(best_model_path, best_model_export_path, self.trainer.datamodule)
     
     def export_model(self, checkpoint_path: str, export_path: str, datamodule: LightningDataModule):
-        input_channels = self.hparams["init_args"]["in_channels"]
+        input_channels = self.hparams["in_channels"]
         map_location = "cuda"
         if self.device.type == "cpu":
             map_location = "cpu"
