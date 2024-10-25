@@ -35,23 +35,23 @@ class BlueSkyNonGeoDataModule(LightningDataModule):
         
         self.normalize = K.augmentation.Normalize(mean=self.mean, std=self.std, p=1, keepdim=True)
         random_resized_crop_zoom_in = K.augmentation.RandomResizedCrop(size=self.patch_size, scale=(1.0, 2.0), 
-                                                                       p=0.5, keepdim=True)
+                                                                       p=0.5, align_corners=False, keepdim=True)
         random_resized_crop_zoom_out = K.augmentation.RandomResizedCrop(size=self.patch_size, scale=(0.5, 1.0), 
-                                                                        p=0.5, keepdim=True)
+                                                                        p=0.5, align_corners=False, keepdim=True)
         
         
-        self.transform = AugmentationSequential(K.augmentation.container.ImageSequential
-                                                      (K.augmentation.RandomHorizontalFlip(p=0.5, 
-                                                                                           keepdim=True),
-                                                       K.augmentation.RandomVerticalFlip(p=0.5, 
-                                                                                         keepdim=True),
-                                                       K.augmentation.RandomAffine(degrees=[-45., 45.], 
-                                                                                   p=0.5, 
-                                                                                   keepdim=True),
-                                                       random_resized_crop_zoom_in,
-                                                       random_resized_crop_zoom_out,
-                                                       random_apply=1), data_keys=None
-                                                      )
+        self.transform = AugmentationSequential(K.augmentation.RandomHorizontalFlip(p=0.5,
+                                                                                    keepdim=True),
+                                                K.augmentation.RandomVerticalFlip(p=0.5,
+                                                                                  keepdim=True),
+                                                K.augmentation.RandomAffine(degrees=[-45., 45.], 
+                                                                            p=0.5,
+                                                                            align_corners=False,
+                                                                            keepdim=True),
+                                                random_resized_crop_zoom_in,
+                                                random_resized_crop_zoom_out,
+                                                data_keys=None
+                                                )
     def prepare_data(self):
         # download, enhance, tile, etc...
         pass
