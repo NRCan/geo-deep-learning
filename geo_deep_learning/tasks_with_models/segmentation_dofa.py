@@ -34,7 +34,7 @@ class SegmentationDOFA(LightningModule):
 
     def training_step(self, batch: Dict[str, Any], batch_idx: int):
         x = batch["image"]
-        y = batch["label"]
+        y = batch["mask"]
         y = y.squeeze(1).long()
         y_hat = self(x)
         loss = self.loss(y_hat, y)
@@ -46,7 +46,7 @@ class SegmentationDOFA(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x = batch["image"]
-        y = batch["label"]
+        y = batch["mask"]
         y = y.squeeze(1).long()
         y_hat = self(x)
         loss = self.loss(y_hat, y)
@@ -58,7 +58,7 @@ class SegmentationDOFA(LightningModule):
     
     def test_step(self, batch, batch_idx):
         x = batch["image"]
-        y = batch["label"]
+        y = batch["mask"]
         y = y.squeeze(1).long()
         y_hat = self(x)
         loss = self.loss(y_hat, y)
