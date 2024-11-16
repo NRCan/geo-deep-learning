@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from torch import Tensor
 from typing import Any, Callable, Dict, List
 from lightning.pytorch import LightningModule, LightningDataModule
-from torchmetrics.classification import MulticlassJaccardIndex
+from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
 from models.dofa.dofa_seg import DOFASeg
 from tools.utils import denormalization
@@ -37,13 +37,13 @@ class SegmentationDOFA(LightningModule):
         self.num_classes = num_classes
         self.model = DOFASeg(encoder, pretrained, image_size, self.num_classes)
         self.loss = loss
-        self.iou_metric = MulticlassJaccardIndex(num_classes=num_classes,
-                                                  average=None, 
-                                                  zero_division=np.nan
-                                                  )
+        self.iou_metric = MeanIoU(num_classes=num_classes,
+                                  per_class=True,
+                                  input_format="index",
+                                  include_background=True
+                                 )
         self.labels = [str(i) for i in range(num_classes)] if class_labels is None else class_labels
-        self.iou_classwise_metric = ClasswiseWrapper(self.iou_metric, 
-                                                      labels=self.labels)
+        self.iou_classwise_metric = ClasswiseWrapper(self.iou_metric, labels=self.labels)
         self._total_samples_visualized = 0
 
     def forward(self, image: Tensor) -> Tensor:
@@ -81,8 +81,8 @@ class SegmentationDOFA(LightningModule):
         y_hat = self(x)
         loss = self.loss(y_hat, y)
         y_hat = y_hat.softmax(dim=1).argmax(dim=1)
-        self.test_metrics = self.iou_classwise_metric(y_hat, y)
-        self.test_metrics["loss"] = loss
+        metrics = self.iou_classwise_metric(y_hat, y)
+        metrics["test_loss"] = loss
         
         if self._total_samples_visualized < self.max_samples:
             remaining_samples = self.max_samples - self._total_samples_visualized
@@ -104,9 +104,10 @@ class SegmentationDOFA(LightningModule):
                 self._total_samples_visualized += 1
                 if self._total_samples_visualized >= self.max_samples:
                     break
-    def on_test_epoch_end(self):
-        print(f"test_metrics: {self.test_metrics}")
-        self.log_dict(self.test_metrics, sync_dist=True)
+        
+        self.log_dict(metrics,
+                      prog_bar=True, logger=True, 
+                      on_step=True, on_epoch=True, sync_dist=True, rank_zero_only=True)
     
     def on_train_end(self):
         if self.trainer.is_global_zero and self.trainer.checkpoint_callback is not None:
