@@ -106,8 +106,8 @@ class SegmentationDOFA(LightningModule):
                     break
         
         self.log_dict(metrics,
-                      prog_bar=True, logger=True, 
-                      on_step=True, on_epoch=True, sync_dist=True, rank_zero_only=True)
+                      prog_bar=False, logger=True, 
+                      on_step=False, rank_zero_only=True)
     
     def on_train_end(self):
         if self.trainer.is_global_zero and self.trainer.checkpoint_callback is not None:
