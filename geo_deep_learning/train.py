@@ -33,12 +33,8 @@ class GeoDeepLearningCLI(LightningCLI):
                                    )
             
             best_model = self.model.__class__.load_from_checkpoint(best_model_path)
-            test_results = test_trainer.test(model=best_model, 
-                                             dataloaders=self.datamodule.test_dataloader())
-            test_metrics = {}
-            for metric_name, metric_value in test_results[0].items():
-                test_metrics[f"test_{metric_name}"] = metric_value
-                self.trainer.logger.log_metrics(test_metrics)
+            test_trainer.test(model=best_model, 
+                              dataloaders=self.datamodule.test_dataloader())
             self.trainer.logger.log_hyperparams({"best_model_path": best_model_path})
             print("Test metrics logged successfully to all loggers.")
         self.trainer.strategy.barrier()
