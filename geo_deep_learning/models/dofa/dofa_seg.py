@@ -12,7 +12,7 @@ import warnings
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
-from neckhead import MultiLevelNeck
+from .neckhead import MultiLevelNeck
 from pathlib import Path
 from timm.models.vision_transformer import Block
 from torch import Tensor
