@@ -77,7 +77,3 @@ class SegmentationCallback(ModelCheckpoint):
                                                         run_id=trainer.logger.run_id)
             except Exception as e:
                 print(f"Error in logging visualizations: {e}")
-            
-            finally:
-                self.current_batch = None
-                self.current_outputs = None
