@@ -39,6 +39,7 @@ class SegmentationCallback(ModelCheckpoint):
             self.current_outputs = outputs
     
     def _save_checkpoint(self, trainer, filepath):
+        print(f"Saving checkpoint at epoch {trainer.current_epoch} with val_loss: {self.best_model_score}")
         super()._save_checkpoint(trainer, filepath)
         if trainer.is_global_zero:
             self._log_visualizations(trainer, None)
