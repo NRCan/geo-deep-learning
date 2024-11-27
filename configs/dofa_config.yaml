@@ -4,6 +4,8 @@ trainer:
   accelerator: "gpu"
   devices: -1
   strategy: "ddp"
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 2
   logger:
     class_path: lightning.pytorch.loggers.mlflow.MLFlowLogger
     init_args:
@@ -30,7 +32,7 @@ trainer:
         mode: "min"
         save_top_k: 1
         filename: "model-{epoch:02d}-{val_loss:.2f}"
-  max_epochs: 150
+  max_epochs: 50
   min_epochs: 2
 
 model:
@@ -56,7 +58,7 @@ model:
 optimizer:
   class_path: Adam
   init_args:
-    lr: 0.001
+    lr: 2e-5
 
 lr_scheduler:
   class_path: ReduceLROnPlateau
@@ -64,7 +66,9 @@ lr_scheduler:
     monitor: "val_loss"
     mode: "min"
     factor: 0.1
-    patience: 20
+    patience: 10
+    cooldown: 2
+    min_lr: 2e-8
 
 data:
   class_path: datamodules.imagery_NonGeoDataModule.BlueSkyNonGeoDataModule
