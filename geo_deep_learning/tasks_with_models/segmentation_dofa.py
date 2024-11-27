@@ -1,9 +1,12 @@
+import warnings
+# Ignore warning about default grid_sample and affine_grid behavior triggered by kornia
+warnings.filterwarnings("ignore", message="Default grid_sample and affine_grid behavior has changed")
 import numpy as np
 import torch
 from pathlib import Path
 import matplotlib.pyplot as plt
 from torch import Tensor
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 from lightning.pytorch import LightningModule, LightningDataModule
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
@@ -26,6 +29,7 @@ class SegmentationDOFA(LightningModule):
                  loss: Callable,
                  class_labels: List[str] = None,
                  class_colors: List[str] = None,
+                 weights_from_checkpoint_path: Optional[str] = None,
                  **kwargs: Any):
         super().__init__()
         self.save_hyperparameters()
@@ -36,6 +40,10 @@ class SegmentationDOFA(LightningModule):
         self.data_type_max = data_type_max
         self.num_classes = num_classes
         self.model = DOFASeg(encoder, pretrained, image_size, self.num_classes)
+        if weights_from_checkpoint_path:
+            print(f"Loading weights from checkpoint: {weights_from_checkpoint_path}")
+            checkpoint = torch.load(weights_from_checkpoint_path)
+            self.load_state_dict(checkpoint['state_dict'])
         self.loss = loss
         self.iou_metric = MeanIoU(num_classes=num_classes,
                                   per_class=True,
@@ -68,6 +76,10 @@ class SegmentationDOFA(LightningModule):
         y_hat = self(x)
         loss = self.loss(y_hat, y)
         y_hat = y_hat.softmax(dim=1).argmax(dim=1)
+        
+        if batch_idx == 0: 
+            print(f"Epoch {self.current_epoch} - Validation Loss: {loss.item()}")
+        
         self.log('val_loss', loss,
                     prog_bar=True, logger=True, 
                     on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
