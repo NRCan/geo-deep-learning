@@ -1,0 +1,92 @@
+seed_everything: true
+
+trainer:
+  accelerator: "gpu"
+  devices: -1
+  strategy: "ddp"
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 2
+  logger:
+    class_path: lightning.pytorch.loggers.mlflow.MLFlowLogger
+    init_args:
+      save_dir: /home/valhassa/Projects/geo-deep-learning/logs
+      log_model: all
+      experiment_name: "gdl_experiment"
+      run_name: "gdl_run"
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: "val_loss"
+        mode: "min"
+        verbose: True
+        patience: 20
+    - class_path: tools.callbacks.segmentation_callback.SegmentationCallback
+      init_args:
+        max_samples: 3
+        mean: ${data.init_args.mean}
+        std: ${data.init_args.std}
+        data_type_max: ${data.init_args.data_type_max}
+        num_classes: ${model.init_args.num_classes}
+        class_colors: ${model.init_args.class_colors}
+        monitor: "val_loss"
+        mode: "min"
+        save_top_k: 1
+        filename: "model-{epoch:02d}-{val_loss:.2f}"
+  max_epochs: 150
+  min_epochs: 2
+
+model:
+  class_path: tasks_with_models.segmentation_segformer.SegmentationSegformer
+  init_args:
+    encoder: "mit_b0" # "mit_b0", "mit_b1", "mit_b2", "mit_b3", "mit_b4", "mit_b5"
+    in_channels: 3
+    weights: imagenet
+    max_samples: 6
+    num_classes: 5
+    mean: ${data.init_args.mean}
+    std: ${data.init_args.std}
+    data_type_max: ${data.init_args.data_type_max}
+    loss:
+      class_path: segmentation_models_pytorch.losses.DiceLoss
+      init_args:
+        mode: "multiclass"
+    class_labels: ["background", "fore", "hydro", "roads", "buildings"]
+    class_colors: ["#000000", "#008000", "#0000FF", "#FFFF00", "#FF0000"]
+    weights_from_checkpoint_path: null
+    
+optimizer:
+  class_path: Adam
+  init_args:
+    lr: 2e-5
+
+lr_scheduler:
+  class_path: ReduceLROnPlateau
+  init_args:
+    monitor: "val_loss"
+    mode: "min"
+    factor: 0.1
+    patience: 10
+    cooldown: 2
+    min_lr: 2e-8
+
+data:
+  class_path: datamodules.imagery_NonGeoDataModule.BlueSkyNonGeoDataModule
+  init_args:
+    batch_size: 4
+    num_workers: 8
+    data_type_max: 255
+    patch_size:
+    - 512
+    - 512
+    mean:
+    - 0.399
+    - 0.428
+    - 0.399
+    std:
+    - 0.167
+    - 0.180
+    - 0.158
+    csv_root_folder: /export/sata01/wspace/test_dir/multi/all_rgb_data/patches/4cls_RGB
+    patches_root_folder: /export/sata01/wspace/test_dir/multi/all_rgb_data/patches/4cls_RGB
+
+ckpt_path: null
