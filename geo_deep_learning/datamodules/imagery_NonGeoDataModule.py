@@ -39,14 +39,11 @@ class BlueSkyNonGeoDataModule(LightningDataModule):
         random_resized_crop_zoom_out = K.augmentation.RandomResizedCrop(size=self.patch_size, scale=(0.5, 1.0), 
                                                                         p=0.5, align_corners=False, keepdim=True)
         
-        
-        self.transform = AugmentationSequential(K.augmentation.RandomHorizontalFlip(p=0.5,
-                                                                                    keepdim=True),
-                                                K.augmentation.RandomVerticalFlip(p=0.5,
-                                                                                  keepdim=True),
-                                                K.augmentation.RandomAffine(degrees=[-45., 45.], 
-                                                                            p=0.5,
-                                                                            align_corners=False,
+        self.transform = AugmentationSequential(K.augmentation.RandomHorizontalFlip(p=0.5, keepdim=True),
+                                                K.augmentation.RandomVerticalFlip(p=0.5, keepdim=True),
+                                                K.augmentation.RandomRotation90(times=(1, 3), 
+                                                                            p=0.5, 
+                                                                            align_corners=True, 
                                                                             keepdim=True),
                                                 random_resized_crop_zoom_in,
                                                 random_resized_crop_zoom_out,
