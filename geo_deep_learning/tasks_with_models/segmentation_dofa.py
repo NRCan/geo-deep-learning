@@ -87,7 +87,6 @@ class SegmentationDOFA(LightningModule):
     
     def test_step(self, batch, batch_idx):
         x = batch["image"]
-        image_names = batch["image_name"]
         y = batch["mask"]
         y = y.squeeze(1).long()
         y_hat = self(x)
@@ -101,7 +100,7 @@ class SegmentationDOFA(LightningModule):
             num_samples = min(remaining_samples, len(x))
             for i in range(num_samples):
                 image = x[i]
-                image_name = image_names[i]
+                image_name = batch["image_name"][i]
                 image = denormalization(image, mean=self.mean, std=self.std, data_type_max=self.data_type_max)
                 fig = visualize_prediction(image,
                                             y[i],
