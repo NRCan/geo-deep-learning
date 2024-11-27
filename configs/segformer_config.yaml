@@ -20,7 +20,13 @@ trainer:
         mode: "min"
         verbose: True
         patience: 20
-    - class_path: tools.callbacks.segmentation_callback.SegmentationCallback
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: "val_loss"
+        mode: "min"
+        save_top_k: 1
+        filename: "model-{epoch:02d}-{val_loss:.3f}"
+    - class_path: tools.callbacks.segmentation_visualization.VisualizationCallback
       init_args:
         max_samples: 3
         mean: ${data.init_args.mean}
@@ -28,10 +34,6 @@ trainer:
         data_type_max: ${data.init_args.data_type_max}
         num_classes: ${model.init_args.num_classes}
         class_colors: ${model.init_args.class_colors}
-        monitor: "val_loss"
-        mode: "min"
-        save_top_k: 1
-        filename: "model-{epoch:02d}-{val_loss:.2f}"
   max_epochs: 150
   min_epochs: 2
 
