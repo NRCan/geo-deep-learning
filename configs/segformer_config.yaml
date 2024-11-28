@@ -57,7 +57,7 @@ model:
     weights_from_checkpoint_path: null
     
 optimizer:
-  class_path: Adam
+  class_path: AdamW
   init_args:
     lr: 2e-5
 
