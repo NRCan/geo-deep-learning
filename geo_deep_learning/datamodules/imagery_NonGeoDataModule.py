@@ -73,17 +73,29 @@ class BlueSkyNonGeoDataModule(LightningDataModule):
         
         return DataLoader(self.train_dataset, 
                           batch_size=self.batch_size, 
-                          num_workers=self.num_workers, shuffle=True)
+                          num_workers=self.num_workers,
+                          pin_memory=True,
+                          persistent_workers=True,
+                          prefetch_factor=2,
+                          shuffle=True)
        
     def val_dataloader(self):
         return DataLoader(self.val_dataset, 
                           batch_size=self.batch_size,
-                          num_workers=self.num_workers, shuffle=False)
+                          num_workers=self.num_workers,
+                          pin_memory=True,
+                          persistent_workers=True,
+                          prefetch_factor=2,
+                          shuffle=False)
 
     def test_dataloader(self):
         return DataLoader(self.test_dataset, 
                           batch_size=self.batch_size,
-                          num_workers=self.num_workers, shuffle=False)
+                          num_workers=self.num_workers,
+                          pin_memory=True,
+                          persistent_workers=True,
+                          prefetch_factor=2,
+                          shuffle=False)
     
     def _manage_bands(self, image: torch.Tensor) -> torch.Tensor:
         """
