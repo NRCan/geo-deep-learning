@@ -255,6 +255,7 @@ class Encoder(nn.Module):
                  encoder_name: str = 'dofa_base',
                  pretrained: bool = True,
                  img_size: tuple = (224, 224),
+                 wavelengths: list[float] = [0.665, 0.549, 0.481],
                  patch_size: int = 16,
                  embed_dim: int = 768,
                  num_heads: int = 12,
@@ -270,16 +271,6 @@ class Encoder(nn.Module):
                  norm_layer: type[nn.Module] = partial(nn.LayerNorm, eps=1e-6),
                  out_layers: int | list[int] = -1,
                  ):
-        
-        script_dir = Path(__file__).resolve().parent
-        config_path = script_dir / 'dofa.yaml'
-        with open(config_path, 'r') as f:
-            cfg = yaml.safe_load(f)
-        sensor_name = cfg["sensor"]
-        bands = cfg["bands"]
-        wavelengths = cfg["wavelengths"][sensor_name]
-        model_wavelengths = [wavelengths[band] for band in bands]
-        
         self.encoder_name = encoder_name
         self.pretrained = pretrained
         self.img_size = img_size
@@ -292,7 +283,7 @@ class Encoder(nn.Module):
         self.drop_rate = drop_rate
         self.drop_path_rate = drop_path_rate
         self.attn_drop_rate = attn_drop_rate
-        self.wavelengths = model_wavelengths
+        self.wavelengths = wavelengths
         self.pre_norm = pre_norm
         self.final_norm = final_norm
         self.out_layers = out_layers
@@ -518,6 +509,7 @@ class DOFASeg(nn.Module):
                  encoder: str,
                  pretrained: bool = True,
                  image_size: tuple = (224, 224),
+                 wavelengths: list[float] = [0.665, 0.549, 0.481],
                  num_classes: int = 1, 
                  *args: Any, **kwargs: Any):
         super().__init__()
@@ -525,14 +517,20 @@ class DOFASeg(nn.Module):
             kwargs |= {'patch_size': 16, 'embed_dim': 768, 
                        'depth': 12, 'num_heads': 12, 'out_layers': [2, 5, 8, 11]}
             self.encoder = Encoder(encoder_name=encoder, 
-                                   pretrained=pretrained, img_size=image_size, *args, **kwargs)
+                                   pretrained=pretrained, 
+                                   img_size=image_size, 
+                                   wavelengths=wavelengths, 
+                                   *args, **kwargs)
             self.in_channels = [768, 768, 768, 768]
             self.embedding_dim = 768
         elif encoder == 'dofa_large':
             kwargs |= {'patch_size': 16, 'embed_dim': 1024, 
                        'depth': 24, 'num_heads': 16, 'out_layers': [3, 7, 11, 23]}
             self.encoder = Encoder(encoder_name=encoder, 
-                                   pretrained=pretrained, img_size=image_size, *args, **kwargs)
+                                   pretrained=pretrained, 
+                                   img_size=image_size, 
+                                   wavelengths=wavelengths, 
+                                   *args, **kwargs)
             self.in_channels = [1024, 1024, 1024, 1024]
             self.embedding_dim = 1024
         else:
