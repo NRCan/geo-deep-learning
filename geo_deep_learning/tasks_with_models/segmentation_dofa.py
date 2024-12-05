@@ -78,9 +78,6 @@ class SegmentationDOFA(LightningModule):
         loss = self.loss(y_hat, y)
         y_hat = y_hat.softmax(dim=1).argmax(dim=1)
         
-        if batch_idx == 0: 
-            print(f"Epoch {self.current_epoch} - Validation Loss: {loss.item()}")
-        
         self.log('val_loss', loss,
                     prog_bar=True, logger=True, 
                     on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
