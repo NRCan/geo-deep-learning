@@ -20,6 +20,7 @@ class SegmentationDOFA(LightningModule):
                  encoder: str,
                  pretrained: bool,
                  image_size: tuple[int, int],
+                 wavelengths: List[float],
                  in_channels: int,
                  num_classes: int,
                  max_samples: int,
@@ -39,7 +40,7 @@ class SegmentationDOFA(LightningModule):
         self.std = std
         self.data_type_max = data_type_max
         self.num_classes = num_classes
-        self.model = DOFASeg(encoder, pretrained, image_size, self.num_classes)
+        self.model = DOFASeg(encoder, pretrained, image_size, wavelengths, self.num_classes)
         if weights_from_checkpoint_path:
             print(f"Loading weights from checkpoint: {weights_from_checkpoint_path}")
             checkpoint = torch.load(weights_from_checkpoint_path)
