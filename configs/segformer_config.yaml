@@ -17,7 +17,7 @@ trainer:
       init_args:
         monitor: "val_loss"
         mode: "min"
-        verbose: True
+        verbose: False
         patience: 20
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
       init_args:
