@@ -3,8 +3,15 @@ seed_everything: true
 trainer:
   accelerator: "gpu"
   devices: -1
-  strategy: "ddp"
+  strategy:
+    class_path: lightning.pytorch.strategies.DDPStrategy
+    init_args:
+      find_unused_parameters: false
+      gradient_as_bucket_view: true
+      static_graph: true
   gradient_clip_val: 1.0
+  precision: "16-mixed"
+  sync_batchnorm: true
   logger:
     class_path: lightning.pytorch.loggers.mlflow.MLFlowLogger
     init_args:
