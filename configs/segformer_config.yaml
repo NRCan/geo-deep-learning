@@ -5,7 +5,6 @@ trainer:
   devices: -1
   strategy: "ddp"
   gradient_clip_val: 1.0
-  accumulate_grad_batches: 2
   logger:
     class_path: lightning.pytorch.loggers.mlflow.MLFlowLogger
     init_args:
@@ -34,8 +33,7 @@ trainer:
         data_type_max: ${data.init_args.data_type_max}
         num_classes: ${model.init_args.num_classes}
         class_colors: ${model.init_args.class_colors}
-  max_epochs: 150
-  min_epochs: 2
+  max_epochs: 10
 
 model:
   class_path: tasks_with_models.segmentation_segformer.SegmentationSegformer
@@ -59,7 +57,7 @@ model:
 optimizer:
   class_path: AdamW
   init_args:
-    lr: 2e-5
+    lr: 6e-5
 
 lr_scheduler:
   class_path: ReduceLROnPlateau
@@ -68,8 +66,8 @@ lr_scheduler:
     mode: "min"
     factor: 0.1
     patience: 10
-    cooldown: 2
-    min_lr: 2e-8
+    cooldown: 1
+    min_lr: 6e-8
 
 data:
   class_path: datamodules.imagery_NonGeoDataModule.BlueSkyNonGeoDataModule
