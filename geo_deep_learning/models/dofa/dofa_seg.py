@@ -429,7 +429,7 @@ class Encoder(nn.Module):
         return outs
 
 def dofa_encoder_base(pretrained: bool = True, *args: Any, **kwargs: Any):
-    url: str = "https://huggingface.co/XShadow/DOFA/resolve/main/DOFA_ViT_base_e120.pth"
+    url: str = "https://huggingface.co/XShadow/DOFA/resolve/main/DOFA_ViT_base_e100.pth"
     model_dict = torch.hub.load_state_dict_from_url(url, progress=True, map_location='cpu')
     del model_dict["mask_token"]
     del model_dict["norm.weight"], model_dict["norm.bias"]
