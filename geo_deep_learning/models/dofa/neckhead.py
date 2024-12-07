@@ -35,6 +35,7 @@ def xavier_init(module, gain=1, bias=0, distribution='normal'):
     if hasattr(module, 'bias') and module.bias is not None:
         nn.init.constant_(module.bias, bias)
 
+
 class ConvModule(nn.Module):
     def __init__(self, 
                  in_channels,
@@ -78,7 +79,7 @@ class MultiLevelNeck(nn.Module):
 
     Args:
         in_channels (List[int]): Number of input channels per scale.
-        out_channels (int): Number of output channels (used at each scale).
+        out_channels (List[int]): Number of output channels (used at each scale).
         scales (List[float]): Scale factors for each input feature map.
             Default: [0.5, 1, 2, 4]
         norm_cfg (dict): Config dict for normalization layer. Default: None.
@@ -94,25 +95,26 @@ class MultiLevelNeck(nn.Module):
                  act_cfg=None):
         super().__init__()
         assert isinstance(in_channels, list)
+        assert isinstance(out_channels, list)
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.scales = scales
         self.num_outs = len(scales)
         self.lateral_convs = nn.ModuleList()
         self.convs = nn.ModuleList()
-        for in_channel in in_channels:
+        for in_channel, out_channel in zip(in_channels, out_channels):
             self.lateral_convs.append(
                 ConvModule(
                     in_channel,
-                    out_channels,
+                    out_channel,
                     kernel_size=1,
                     norm_cfg=norm_cfg,
                     act_cfg=act_cfg))
-        for _ in range(self.num_outs):
+        for out_channel in out_channels:
             self.convs.append(
                 ConvModule(
-                    out_channels,
-                    out_channels,
+                    out_channel,
+                    out_channel,
                     kernel_size=3,
                     padding=1,
                     stride=1,
