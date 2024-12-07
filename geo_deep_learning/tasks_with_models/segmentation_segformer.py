@@ -44,6 +44,7 @@ class SegmentationSegformer(LightningModule):
             checkpoint = torch.load(weights_from_checkpoint_path)
             self.load_state_dict(checkpoint['state_dict'])
         self.loss = loss
+        num_classes = num_classes + 1 if num_classes == 1 else num_classes
         self.iou_metric = MeanIoU(num_classes=num_classes,
                                   per_class=True,
                                   input_format="index",
@@ -59,34 +60,49 @@ class SegmentationSegformer(LightningModule):
     def training_step(self, batch: Dict[str, Any], batch_idx: int):
         x = batch["image"]
         y = batch["mask"]
+        batch_size = x.shape[0]
         y = y.squeeze(1).long()
         y_hat = self(x)
         loss = self.loss(y_hat, y)
-        y_hat = y_hat.argmax(dim=1)
+        
         self.log('train_loss', loss, 
+                 batch_size=batch_size,
                  prog_bar=True, logger=True, 
                  on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
+        
         return loss
-
+    
     def validation_step(self, batch, batch_idx):
         x = batch["image"]
         y = batch["mask"]
+        batch_size = x.shape[0]
         y = y.squeeze(1).long()
         y_hat = self(x)
         loss = self.loss(y_hat, y)
-        y_hat = y_hat.softmax(dim=1).argmax(dim=1)
         self.log('val_loss', loss,
-                    prog_bar=True, logger=True, 
-                    on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
+                 batch_size=batch_size,
+                 prog_bar=True, logger=True, 
+                 on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
+        if self.num_classes == 1:
+            y_hat = (y_hat.sigmoid().squeeze(1) > 0.5).long()
+        else:
+            y_hat = y_hat.softmax(dim=1).argmax(dim=1)
+            
         return y_hat
     
     def test_step(self, batch, batch_idx):
         x = batch["image"]
         y = batch["mask"]
+        batch_size = x.shape[0]
         y = y.squeeze(1).long()
         y_hat = self(x)
         loss = self.loss(y_hat, y)
-        y_hat = y_hat.softmax(dim=1).argmax(dim=1)
+        
+        if self.num_classes == 1:
+            y_hat = (y_hat.sigmoid().squeeze(1) > 0.5).long()
+        else:
+            y_hat = y_hat.softmax(dim=1).argmax(dim=1)
+    
         metrics = self.iou_classwise_metric(y_hat, y)
         metrics["test_loss"] = loss
         
@@ -112,6 +128,7 @@ class SegmentationSegformer(LightningModule):
                     break
         
         self.log_dict(metrics, 
+                      batch_size=batch_size,
                       prog_bar=False, logger=True, 
                       on_step=False, rank_zero_only=True)
     
