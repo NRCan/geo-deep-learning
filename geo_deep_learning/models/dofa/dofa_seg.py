@@ -535,12 +535,12 @@ class DOFASeg(nn.Module):
             self.embedding_dim = 1024
         else:
             raise ValueError(f"Unknown encoder: {encoder}")
-        
+        encoder_out_channels = [64, 128, 320, 512]
         self.neck = MultiLevelNeck(in_channels=self.in_channels,
-                                   out_channels=self.embedding_dim,
+                                   out_channels=encoder_out_channels,
                                    scales=[4, 2, 1, 0.5])
         
-        self.decoder = Decoder(in_channels=self.in_channels, 
+        self.decoder = Decoder(in_channels=encoder_out_channels, 
                                embedding_dim=self.embedding_dim, 
                                num_classes=num_classes)
     def forward(self, x):
