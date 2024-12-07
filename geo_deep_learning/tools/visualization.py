@@ -6,7 +6,7 @@ def visualize_prediction(image,
                          mask, 
                          prediction,
                          sample_name=None,
-                         num_classes=2,
+                         num_classes=1,
                          class_colors=None,
                          save_samples=False, 
                          save_path=None):
@@ -21,6 +21,7 @@ def visualize_prediction(image,
         class_colors (list, optional): List of colors for each class
         save_path (str, optional): Path to save the visualization
     """
+    num_classes = num_classes + 1 if num_classes == 1 else num_classes
     image = image.cpu().numpy()
     mask = mask.squeeze(0).long().cpu().numpy()
     prediction = prediction.cpu().numpy()
