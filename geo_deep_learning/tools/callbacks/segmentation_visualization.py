@@ -11,7 +11,7 @@ class VisualizationCallback(Callback):
         self.max_samples = max_samples
         self.mean = mean
         self.std = std
-        self.num_classes = num_classes
+        self.num_classes = num_classes + 1 if num_classes == 1 else num_classes
         self.data_type_max = data_type_max
         self.class_colors = class_colors
         self.current_batch = None
