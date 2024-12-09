@@ -58,6 +58,7 @@ model:
       class_path: segmentation_models_pytorch.losses.DiceLoss
       init_args:
         mode: "multiclass"
+    freeze_encoder: true
     class_labels: ["background", "fore", "hydro", "roads", "buildings"]
     class_colors: ["#000000", "#008000", "#0000FF", "#FFFF00", "#FF0000"]
     weights_from_checkpoint_path: null
