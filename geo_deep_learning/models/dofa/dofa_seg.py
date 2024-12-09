@@ -508,6 +508,7 @@ class DOFASeg(nn.Module):
     def __init__(self, 
                  encoder: str,
                  pretrained: bool = True,
+                 freeze_encoder: bool = False,
                  image_size: tuple = (224, 224),
                  wavelengths: list[float] = [0.665, 0.549, 0.481],
                  num_classes: int = 1, 
@@ -535,6 +536,11 @@ class DOFASeg(nn.Module):
             self.embedding_dim = 1024
         else:
             raise ValueError(f"Unknown encoder: {encoder}")
+        
+        if freeze_encoder:
+            self._freeze_encoder()
+            self.encoder.eval()
+        
         encoder_out_channels = [64, 128, 320, 512]
         self.neck = MultiLevelNeck(in_channels=self.in_channels,
                                    out_channels=encoder_out_channels,
@@ -543,13 +549,34 @@ class DOFASeg(nn.Module):
         self.decoder = Decoder(in_channels=encoder_out_channels, 
                                embedding_dim=self.embedding_dim, 
                                num_classes=num_classes)
+    def _freeze_encoder(self):
+        """Freeze the encoder parameters."""
+        for param in self.encoder.parameters():
+            param.requires_grad = False
+        
     def forward(self, x):
         image_size = x.shape[2:]
-        x = self.encoder(x)
-        x = self.neck(x)
-        x = self.decoder(x)
-        x = F.interpolate(input=x, size=image_size, scale_factor=None, mode='bilinear', align_corners=False)
+        encoder_features = self.encoder(x)
+        neck_features = self.neck(encoder_features)
+        decoder_features = self.decoder(neck_features)
+        x = F.interpolate(input=decoder_features, size=image_size, scale_factor=None, mode='bilinear', align_corners=False)
         return x
+    
+    def get_trainable_parameters(self):
+        """Helper method to verify which parameters are trainable."""
+        trainable_params = []
+        frozen_params = []
+        
+        for name, param in self.named_parameters():
+            if param.requires_grad:
+                trainable_params.append(name)
+            else:
+                frozen_params.append(name)
+                
+        return {
+            'trainable': trainable_params,
+            'frozen': frozen_params
+        }
         
 
 if __name__ == '__main__':
