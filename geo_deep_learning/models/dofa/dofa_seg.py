@@ -561,22 +561,6 @@ class DOFASeg(nn.Module):
         decoder_features = self.decoder(neck_features)
         x = F.interpolate(input=decoder_features, size=image_size, scale_factor=None, mode='bilinear', align_corners=False)
         return x
-    
-    def get_trainable_parameters(self):
-        """Helper method to verify which parameters are trainable."""
-        trainable_params = []
-        frozen_params = []
-        
-        for name, param in self.named_parameters():
-            if param.requires_grad:
-                trainable_params.append(name)
-            else:
-                frozen_params.append(name)
-                
-        return {
-            'trainable': trainable_params,
-            'frozen': frozen_params
-        }
         
 
 if __name__ == '__main__':
