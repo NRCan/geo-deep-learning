@@ -28,6 +28,7 @@ class SegmentationDOFA(LightningModule):
                  std: List[float],
                  data_type_max: float,
                  loss: Callable,
+                 freeze_encoder: bool = False,
                  class_labels: List[str] = None,
                  class_colors: List[str] = None,
                  weights_from_checkpoint_path: Optional[str] = None,
@@ -40,21 +41,9 @@ class SegmentationDOFA(LightningModule):
         self.std = std
         self.data_type_max = data_type_max
         self.num_classes = num_classes
-        self.model = DOFASeg(encoder, pretrained, freeze_encoder=False,  
+        self.model = DOFASeg(encoder, pretrained, freeze_encoder=freeze_encoder,  
                              image_size=image_size, wavelengths=wavelengths, 
                              num_classes=self.num_classes)
-        
-        # param_status = self.model.get_trainable_parameters()
-        # print(f"Trainable parameters: {param_status['trainable']}")
-        # print(f"Frozen parameters: {param_status['frozen']}")
-        
-        # Count trainable vs total parameters
-        # total_params = sum(p.numel() for p in self.model.parameters())
-        # trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-
-        # print(f"\nTotal parameters: {total_params:,}")
-        # print(f"Trainable parameters: {trainable_params:,}")
-        # print(f"Percentage trainable: {100 * trainable_params / total_params:.2f}%")
         
         if weights_from_checkpoint_path:
             print(f"Loading weights from checkpoint: {weights_from_checkpoint_path}")
