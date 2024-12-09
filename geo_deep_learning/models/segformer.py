@@ -71,11 +71,23 @@ class Decoder(nn.Module):
 
 
 class SegFormer(nn.Module):
-    def __init__(self, encoder, in_channels, weights, num_classes) -> None:
+    def __init__(self, 
+                 encoder: str = "mit_b0", 
+                 in_channels: int = 3, 
+                 weights: str = None, 
+                 freeze_encoder: bool = False, 
+                 num_classes: int = 1) -> None:
         super().__init__()
         self.encoder = smp.encoders.get_encoder(name=encoder, in_channels=in_channels, 
                                                 depth=5, weights=weights, drop_path_rate=0.1)
+        if freeze_encoder:
+            self._freeze_encoder()
+            self.encoder.eval()
         self.decoder = Decoder(encoder=encoder, num_classes=num_classes)
+    
+    def _freeze_encoder(self):
+        for param in self.encoder.parameters():
+            param.requires_grad = False
 
     def forward(self, img):
         # print(f"{__name__}: Input shape: {img.shape}")
