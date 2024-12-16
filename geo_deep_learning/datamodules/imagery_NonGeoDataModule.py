@@ -47,8 +47,8 @@ class BlueSkyNonGeoDataModule(LightningDataModule):
                                                                             keepdim=True),
                                                 random_resized_crop_zoom_in,
                                                 random_resized_crop_zoom_out,
-                                                data_keys=None
-                                                )
+                                                data_keys=None,
+                                                random_apply=1)
     def prepare_data(self):
         # download, enhance, tile, etc...
         pass
