@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 from lightning.pytorch import LightningModule, LightningDataModule
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
-from models.dofa.dofa_seg import DOFASeg
+from models.segmentation.dofa import DOFASegmentationModel
 from tools.utils import denormalization
 from tools.script_model import script_model
 from tools.visualization import visualize_prediction
@@ -28,7 +28,7 @@ class SegmentationDOFA(LightningModule):
                  std: List[float],
                  data_type_max: float,
                  loss: Callable,
-                 freeze_encoder: bool = False,
+                 freeze_layers: List[str] = None,
                  class_labels: List[str] = None,
                  class_colors: List[str] = None,
                  weights_from_checkpoint_path: Optional[str] = None,
@@ -41,7 +41,7 @@ class SegmentationDOFA(LightningModule):
         self.std = std
         self.data_type_max = data_type_max
         self.num_classes = num_classes
-        self.model = DOFASeg(encoder, pretrained, freeze_encoder=freeze_encoder,  
+        self.model = DOFASegmentationModel(encoder, pretrained, freeze_layers=freeze_layers,  
                              image_size=image_size, wavelengths=wavelengths, 
                              num_classes=self.num_classes)
         
@@ -68,8 +68,10 @@ class SegmentationDOFA(LightningModule):
         y = batch["mask"]
         batch_size = x.shape[0]
         y = y.squeeze(1).long()
-        y_hat = self(x)
-        loss = self.loss(y_hat, y)
+        outputs = self(x)
+        loss_main = self.loss(outputs['out'], y)
+        loss_aux = self.loss(outputs['aux'], y)
+        loss = loss_main + 0.4 * loss_aux
         
         self.log('train_loss', loss, 
                  batch_size=batch_size,
@@ -83,16 +85,18 @@ class SegmentationDOFA(LightningModule):
         y = batch["mask"]
         batch_size = x.shape[0]
         y = y.squeeze(1).long()
-        y_hat = self(x)
-        loss = self.loss(y_hat, y)
+        outputs = self(x)
+        loss_main = self.loss(outputs['out'], y)
+        loss_aux = self.loss(outputs['aux'], y)
+        loss = loss_main + 0.4 * loss_aux
         self.log('val_loss', 
                  loss, batch_size=batch_size,
                  prog_bar=True, logger=True, on_step=False, 
                  on_epoch=True, sync_dist=True, rank_zero_only=True)
         if self.num_classes == 1:
-            y_hat = (y_hat.sigmoid().squeeze(1) > 0.5).long()
+            y_hat = (outputs['out'].sigmoid().squeeze(1) > 0.5).long()
         else:
-            y_hat = y_hat.softmax(dim=1).argmax(dim=1)
+            y_hat = outputs['out'].softmax(dim=1).argmax(dim=1)
         
         return y_hat
     
@@ -101,12 +105,14 @@ class SegmentationDOFA(LightningModule):
         y = batch["mask"]
         batch_size = x.shape[0]
         y = y.squeeze(1).long()
-        y_hat = self(x)
-        loss = self.loss(y_hat, y)
+        outputs = self(x)
+        loss_main = self.loss(outputs['out'], y)
+        loss_aux = self.loss(outputs['aux'], y)
+        loss = loss_main + 0.4 * loss_aux
         if self.num_classes == 1:
-            y_hat = (y_hat.sigmoid().squeeze(1) > 0.5).long()
+            y_hat = (outputs['out'].sigmoid().squeeze(1) > 0.5).long()
         else:
-            y_hat = y_hat.softmax(dim=1).argmax(dim=1)
+            y_hat = outputs['out'].softmax(dim=1).argmax(dim=1)
         metrics = self.iou_classwise_metric(y_hat, y)
         metrics["test_loss"] = loss
         
