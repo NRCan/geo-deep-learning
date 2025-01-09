@@ -63,6 +63,7 @@ def main(args: ArgsType = None) -> None:
     cli = GeoDeepLearningCLI(save_config_callback=LoggerSaveConfigCallback,
                              save_config_kwargs={"overwrite": True},
                              parser_kwargs={"parser_mode": "omegaconf"},
+                             auto_configure_optimizers=False,
                              args=args)
     if cli.trainer.is_global_zero:
         print("Done!")
