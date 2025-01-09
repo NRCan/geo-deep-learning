@@ -53,30 +53,31 @@ model:
     mean: ${data.init_args.mean}
     std: ${data.init_args.std}
     data_type_max: ${data.init_args.data_type_max}
+    freeze_encoder: true
     loss:
       class_path: segmentation_models_pytorch.losses.DiceLoss
       init_args:
         mode: "multiclass"
-    freeze_encoder: true
+    optimizer:
+      class_path: torch.optim.Adam
+      init_args:
+        lr: 6e-5
+    scheduler:
+      class_path: torch.optim.lr_scheduler.ReduceLROnPlateau
+      init_args:
+        mode: "min"
+        factor: 0.1
+        patience: 10
+        cooldown: 1
+        min_lr: 6e-8
+    scheduler_config:
+      interval: "epoch"
+      frequency: 1
+      monitor: "val_loss"
     class_labels: ["background", "fore", "hydro", "roads", "buildings"]
     class_colors: ["#000000", "#008000", "#0000FF", "#FFFF00", "#FF0000"]
     weights_from_checkpoint_path: null
     
-optimizer:
-  class_path: AdamW
-  init_args:
-    lr: 6e-5
-
-lr_scheduler:
-  class_path: ReduceLROnPlateau
-  init_args:
-    monitor: "val_loss"
-    mode: "min"
-    factor: 0.1
-    patience: 10
-    cooldown: 1
-    min_lr: 6e-8
-
 data:
   class_path: datamodules.imagery_NonGeoDataModule.BlueSkyNonGeoDataModule
   init_args:
