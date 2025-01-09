@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from torch import Tensor
 from typing import Any, Callable, Dict, List, Optional
 from lightning.pytorch import LightningModule, LightningDataModule
+from lightning.pytorch.cli import OptimizerCallable, LRSchedulerCallable
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
 from models.segmentation.dofa import DOFASegmentationModel
@@ -28,6 +29,9 @@ class SegmentationDOFA(LightningModule):
                  std: List[float],
                  data_type_max: float,
                  loss: Callable,
+                 optimizer: OptimizerCallable = torch.optim.Adam,
+                 scheduler: LRSchedulerCallable = torch.optim.lr_scheduler.ConstantLR,
+                 scheduler_config: Optional[Dict[str, Any]] = {"interval": "epoch"},
                  freeze_layers: List[str] = None,
                  class_labels: List[str] = None,
                  class_colors: List[str] = None,
@@ -35,6 +39,9 @@ class SegmentationDOFA(LightningModule):
                  **kwargs: Any):
         super().__init__()
         self.save_hyperparameters()
+        self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.scheduler_config = scheduler_config
         self.class_colors = class_colors
         self.max_samples = max_samples
         self.mean = mean
@@ -59,7 +66,12 @@ class SegmentationDOFA(LightningModule):
         self.labels = [str(i) for i in range(num_classes)] if class_labels is None else class_labels
         self.iou_classwise_metric = ClasswiseWrapper(self.iou_metric, labels=self.labels)
         self._total_samples_visualized = 0
-
+    
+    def configure_optimizers(self):
+        optimizer = self.optimizer(self.parameters())
+        scheduler = self.scheduler(optimizer)
+        return [optimizer], [{'scheduler': scheduler, **self.scheduler_config}]
+    
     def forward(self, image: Tensor) -> Tensor:
         return self.model(image)
 
