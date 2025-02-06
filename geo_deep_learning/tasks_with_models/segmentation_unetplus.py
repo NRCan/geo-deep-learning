@@ -50,8 +50,7 @@ class SegmentationUnetPlus(LightningModule):
         if weights_from_checkpoint_path:
             print(f"Loading weights from checkpoint: {weights_from_checkpoint_path}")
             checkpoint = torch.load(weights_from_checkpoint_path)
-            self.load_state_dict(checkpoint['state_dict'])    
-            
+            self.load_state_dict(checkpoint['state_dict'])
         self.loss = loss
         num_classes = num_classes + 1 if num_classes == 1 else num_classes
         self.iou_metric = MeanIoU(num_classes=num_classes,
