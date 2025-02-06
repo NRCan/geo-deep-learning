@@ -31,8 +31,9 @@ class GeoDeepLearningCLI(LightningCLI):
                                    strategy="auto",
                                    logger=test_logger,
                                    )
-            
-            best_model = self.model.__class__.load_from_checkpoint(best_model_path)
+            best_model = self.model.__class__.load_from_checkpoint(best_model_path,
+                                                                   weights_from_checkpoint_path=None,
+                                                                   strict=True)
             test_trainer.test(model=best_model, 
                               dataloaders=self.datamodule.test_dataloader())
             self.trainer.logger.log_hyperparams({"best_model_path": best_model_path})
