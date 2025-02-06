@@ -1,0 +1,82 @@
+seed_everything: true
+
+trainer:
+  accelerator: "gpu"
+  devices: -1
+  strategy: ddp
+  precision: "16-mixed"
+  sync_batchnorm: true
+  logger:
+    class_path: lightning.pytorch.loggers.mlflow.MLFlowLogger
+    init_args:
+      save_dir: /home/valhassa/Projects/geo-deep-learning/logs
+      log_model: all
+      experiment_name: "gdl_experiment"
+      run_name: "unetplus_resnext101_32x8d_build_nrgb"
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: "val_loss"
+        mode: "min"
+        verbose: False
+        patience: 20
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: "val_loss"
+        mode: "min"
+        save_top_k: 1
+        filename: "model-{epoch:02d}-{val_loss:.3f}"
+    - class_path: tools.callbacks.segmentation_visualization.VisualizationCallback
+      init_args:
+        max_samples: 6
+        mean: ${data.init_args.mean}
+        std: ${data.init_args.std}
+        data_type_max: ${data.init_args.data_type_max}
+        num_classes: ${model.init_args.num_classes}
+        class_colors: ${model.init_args.class_colors}
+  max_epochs: 150
+
+model:
+  class_path: tasks_with_models.segmentation_unetplus.SegmentationUnetPlus
+  init_args:
+    encoder: "resnext101_32x8d" # "mit_b0", "mit_b1", "mit_b2", "mit_b3", "mit_b4", "mit_b5"
+    weights: imagenet
+    in_channels: 3
+    max_samples: 6
+    num_classes: 1
+    mean: ${data.init_args.mean}
+    std: ${data.init_args.std}
+    data_type_max: ${data.init_args.data_type_max}
+    loss:
+      class_path: segmentation_models_pytorch.losses.DiceLoss
+      init_args:
+        ignore_index: null
+        mode: "binary"
+    lr: 5e-2
+    weight_decay: 4e-5
+    class_labels: ["background", "buildings"]
+    class_colors: ["#000000", "#FF0000"]
+    weights_from_checkpoint_path: /export/sata01/wspace/test_dir/single/building/RGB_BUIL_armando_RT_20221201.pth.tar
+
+
+data:
+  class_path: datamodules.imagery_NonGeoDataModule.BlueSkyNonGeoDataModule
+  init_args:
+    batch_size: 4
+    num_workers: 8
+    data_type_max: 255
+    patch_size:
+    - 512
+    - 512
+    mean:
+    - 0.0
+    - 0.0
+    - 0.0
+    std:
+    - 1.0
+    - 1.0
+    - 1.0
+    csv_root_folder: /export/sata01/wspace/test_dir/single/building
+    patches_root_folder: /export/sata01/wspace/test_dir/single/building
+
+ckpt_path: null
