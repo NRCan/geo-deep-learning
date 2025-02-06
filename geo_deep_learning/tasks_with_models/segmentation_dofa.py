@@ -169,7 +169,9 @@ class SegmentationDOFA(LightningModule):
         map_location = "cuda"
         if self.device.type == "cpu":
             map_location = "cpu"
-        best_model = self.__class__.load_from_checkpoint(checkpoint_path, map_location=map_location)
+        best_model = self.__class__.load_from_checkpoint(checkpoint_path,
+                                                         weights_from_checkpoint_path=None,
+                                                         map_location=map_location)
         best_model.eval()
         
         scrpted_model = script_model(best_model.model, datamodule, self.num_classes, from_logits=True)
