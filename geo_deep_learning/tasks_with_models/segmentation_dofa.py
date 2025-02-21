@@ -13,7 +13,7 @@ from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
 from models.segmentation.dofa import DOFASegmentationModel
 from tools.utils import denormalization
-from tools.script_model import script_model
+from tools.script_model import SegmentationScriptModel
 from tools.visualization import visualize_prediction
 
 class SegmentationDOFA(LightningModule):
@@ -43,6 +43,7 @@ class SegmentationDOFA(LightningModule):
         self.scheduler = scheduler
         self.scheduler_config = scheduler_config
         self.class_colors = class_colors
+        self.input_channels = in_channels
         self.max_samples = max_samples
         self.mean = mean
         self.std = std
@@ -81,8 +82,8 @@ class SegmentationDOFA(LightningModule):
         batch_size = x.shape[0]
         y = y.squeeze(1).long()
         outputs = self(x)
-        loss_main = self.loss(outputs['out'], y)
-        loss_aux = self.loss(outputs['aux'], y)
+        loss_main = self.loss(outputs.out, y)
+        loss_aux = self.loss(outputs.aux, y)
         loss = loss_main + 0.4 * loss_aux
         
         self.log('train_loss', loss, 
@@ -98,17 +99,17 @@ class SegmentationDOFA(LightningModule):
         batch_size = x.shape[0]
         y = y.squeeze(1).long()
         outputs = self(x)
-        loss_main = self.loss(outputs['out'], y)
-        loss_aux = self.loss(outputs['aux'], y)
+        loss_main = self.loss(outputs.out, y)
+        loss_aux = self.loss(outputs.aux, y)
         loss = loss_main + 0.4 * loss_aux
         self.log('val_loss', 
                  loss, batch_size=batch_size,
                  prog_bar=True, logger=True, on_step=False, 
                  on_epoch=True, sync_dist=True, rank_zero_only=True)
         if self.num_classes == 1:
-            y_hat = (outputs['out'].sigmoid().squeeze(1) > 0.5).long()
+            y_hat = (outputs.out.sigmoid().squeeze(1) > 0.5).long()
         else:
-            y_hat = outputs['out'].softmax(dim=1).argmax(dim=1)
+            y_hat = outputs.out.softmax(dim=1).argmax(dim=1)
         
         return y_hat
     
@@ -118,13 +119,13 @@ class SegmentationDOFA(LightningModule):
         batch_size = x.shape[0]
         y = y.squeeze(1).long()
         outputs = self(x)
-        loss_main = self.loss(outputs['out'], y)
-        loss_aux = self.loss(outputs['aux'], y)
+        loss_main = self.loss(outputs.out, y)
+        loss_aux = self.loss(outputs.aux, y)
         loss = loss_main + 0.4 * loss_aux
         if self.num_classes == 1:
-            y_hat = (outputs['out'].sigmoid().squeeze(1) > 0.5).long()
+            y_hat = (outputs.out.sigmoid().squeeze(1) > 0.5).long()
         else:
-            y_hat = outputs['out'].softmax(dim=1).argmax(dim=1)
+            y_hat = outputs.out.softmax(dim=1).argmax(dim=1)
         metrics = self.iou_classwise_metric(y_hat, y)
         metrics["test_loss"] = loss
         
@@ -165,20 +166,21 @@ class SegmentationDOFA(LightningModule):
                 self.export_model(best_model_path, best_model_export_path, self.trainer.datamodule)
     
     def export_model(self, checkpoint_path: str, export_path: str, datamodule: LightningDataModule):
-        input_channels = self.hparams["in_channels"]
         map_location = "cuda"
         if self.device.type == "cpu":
             map_location = "cpu"
         best_model = self.__class__.load_from_checkpoint(checkpoint_path,
                                                          weights_from_checkpoint_path=None,
                                                          map_location=map_location)
-        best_model.eval()
-        
-        scrpted_model = script_model(best_model.model, datamodule, self.num_classes, from_logits=True)
-        patch_size = datamodule.patch_size
-        dummy_input = torch.rand(1, input_channels, *patch_size, device=torch.device(map_location))       
-        traced_model = torch.jit.trace(scrpted_model, dummy_input)
-        torch.jit.save(traced_model, export_path)
+        input_shape = (1, self.input_channels, *datamodule.patch_size)
+        device = torch.device(map_location)
+        script_model = SegmentationScriptModel(model=best_model.model,
+                                               device=device,
+                                               num_classes=self.num_classes,
+                                               input_shape=input_shape, mean=self.mean, std=self.std,
+                                               image_min=0, image_max=self.data_type_max, 
+                                               norm_min=0.0, norm_max=1.0,
+                                               from_logits=True)
+        scripted_model = torch.jit.script(script_model)
+        scripted_model.save(export_path)
         print(f"Model exported to TorchScript")
-    
-    
