@@ -45,6 +45,7 @@ def visualize_prediction(image,
         plt.imsave(save_path / f"{sample_name}_prediction.png", prediction, cmap=cmap, vmin=0, vmax=num_classes-1)
     
     # Create the visualization
+    plt.close('all')
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     # axes = axes.reshape(num_samples, 3) if num_samples > 1 else axes.reshape(1, 3)
     
@@ -75,5 +76,5 @@ def visualize_prediction(image,
     
     if save_path:
         plt.savefig(save_path)
-    
+    plt.close(fig)
     return fig
