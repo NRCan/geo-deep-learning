@@ -12,7 +12,7 @@ from lightning.pytorch.cli import OptimizerCallable, LRSchedulerCallable
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
 from models.segformer import SegFormer
-from tools.script_model import script_model
+from tools.script_model import ScriptModel
 from tools.utils import denormalization
 from tools.visualization import visualize_prediction
 
@@ -45,6 +45,7 @@ class SegmentationSegformer(LightningModule):
         self.std = std
         self.data_type_max = data_type_max
         self.class_colors = class_colors
+        self.input_channels = in_channels
         self.num_classes = num_classes
         self.model = SegFormer(encoder, in_channels, weights, freeze_encoder, self.num_classes)
         if weights_from_checkpoint_path:
@@ -156,20 +157,22 @@ class SegmentationSegformer(LightningModule):
                 self.export_model(best_model_path, best_model_export_path, self.trainer.datamodule)
     
     def export_model(self, checkpoint_path: str, export_path: str, datamodule: LightningDataModule):
-        input_channels = self.hparams["in_channels"]
         map_location = "cuda"
         if self.device.type == "cpu":
             map_location = "cpu"
         best_model = self.__class__.load_from_checkpoint(checkpoint_path,
                                                          weights_from_checkpoint_path=None,
                                                          map_location=map_location)
-        best_model.eval()
-        
-        scrpted_model = script_model(best_model.model, datamodule, self.num_classes, from_logits=True)
-        patch_size = datamodule.patch_size
-        dummy_input = torch.rand(1, input_channels, *patch_size, device=torch.device(map_location))       
-        traced_model = torch.jit.trace(scrpted_model, dummy_input)
-        torch.jit.save(traced_model, export_path)
+        input_shape = (1, self.input_channels, *datamodule.patch_size)
+        device = torch.device(map_location)
+        script_model = ScriptModel(model=best_model.model,
+                                   device=device,
+                                   num_classes=self.num_classes,
+                                   input_shape=input_shape, mean=self.mean, std=self.std,
+                                   image_min=0, image_max=self.data_type_max, norm_min=0.0, norm_max=1.0,
+                                   from_logits=True)
+        scripted_model = torch.jit.script(script_model)
+        scripted_model.save(export_path)
         print(f"Model exported to TorchScript")
         
     
