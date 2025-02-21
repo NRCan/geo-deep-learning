@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from models.encoders.dofa import DOFA
 from models.necks.multilevel_neck import MultiLevelNeck
 from models.decoders.upernet import UperNetDecoder
-from models.heads.segmentation_head import SegmentationHead
+from models.heads.segmentation_head import SegmentationHead, SegmentationOutput
 from models.heads.fcn_head import FCNHead
 from .base import BaseSegmentationModel
 from typing import Any
@@ -18,7 +18,7 @@ class DOFASegmentationModel(BaseSegmentationModel):
                  freeze_layers: list[str] = None,
                  num_classes: int = 1,
                  *args: Any, **kwargs: Any):
-        super().__init__(DOFA, MultiLevelNeck, UperNetDecoder, SegmentationHead)
+        super().__init__(DOFA, MultiLevelNeck, UperNetDecoder, SegmentationHead, SegmentationOutput)
         
         if encoder == "dofa_base":
             self.embed_dim = 768
@@ -56,12 +56,12 @@ class DOFASegmentationModel(BaseSegmentationModel):
                                 num_classes=num_classes)
         
         self.head = SegmentationHead(in_channels=256, num_classes=num_classes)
+        self.output_struct = SegmentationOutput
         
         if freeze_layers:
             self._freeze_layers(layers=freeze_layers)
     
     def forward(self, x):
-        outputs = {}
         image_size = x.shape[2:]
         x = self.encoder(x)
         feats = self.neck(x)
@@ -74,13 +74,11 @@ class DOFASegmentationModel(BaseSegmentationModel):
         aux_x = F.interpolate(input=aux_x, size=image_size, 
                               scale_factor=None, mode='bilinear', align_corners=False)
         
-        outputs['out'] = x
-        outputs['aux'] = aux_x
-        return outputs
+        return self.output_struct(out=x, aux=aux_x)
 
 if __name__ == "__main__":
     model = DOFASegmentationModel()
     x = torch.randn(5, 3, 512, 512)
     outputs = model(x)
-    print(f"outputs.shape: {outputs['out'].shape}")
-    print(f"aux_outputs.shape: {outputs['aux'].shape}")
+    print(f"outputs.shape: {outputs.out.shape}")
+    print(f"aux_outputs.shape: {outputs.aux.shape}")
