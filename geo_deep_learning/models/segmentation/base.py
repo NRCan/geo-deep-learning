@@ -1,7 +1,15 @@
 import torch.nn as nn
+from models.utils import patch_first_conv   
+
 
 class BaseSegmentationModel(nn.Module):
-    def __init__(self, encoder, neck, decoder, head, output_struct, auxilary_head=None):
+    def __init__(self, 
+                 encoder=None, 
+                 neck=None, 
+                 decoder=None, 
+                 head=None, 
+                 output_struct=None, 
+                 auxilary_head=None):
         super().__init__()
         self.encoder = encoder
         self.neck = neck
@@ -24,3 +32,32 @@ class BaseSegmentationModel(nn.Module):
         for name, param in self.named_parameters():
             if any(layer in name for layer in layers):
                 param.requires_grad = False
+
+class EncoderMixin:
+    # Taken from segmentation models pytorch
+    """Add encoder functionality such as:
+    - output channels specification of feature tensors (produced by encoder)
+    - patching first convolution for arbitrary input channels
+    """
+
+    _output_stride = 32
+
+    @property
+    def out_channels(self):
+        """Return channels dimensions for each tensor of forward output of encoder"""
+        return self._out_channels[: self._depth + 1]
+
+    @property
+    def output_stride(self):
+        return min(self._output_stride, 2**self._depth)
+
+    def set_in_channels(self, in_channels, pretrained=True):
+        """Change first convolution channels"""
+        if in_channels == 3:
+            return
+
+        self._in_channels = in_channels
+        if self._out_channels[0] == 3:
+            self._out_channels = tuple([in_channels] + list(self._out_channels)[1:])
+
+        patch_first_conv(model=self, new_in_channels=in_channels, pretrained=pretrained)
