@@ -53,7 +53,7 @@ model:
     mean: ${data.init_args.mean}
     std: ${data.init_args.std}
     data_type_max: ${data.init_args.data_type_max}
-    freeze_encoder: true
+    freeze_layers: null
     loss:
       class_path: segmentation_models_pytorch.losses.DiceLoss
       init_args:
