@@ -2,6 +2,7 @@ from tools.mlflow_logger import LoggerSaveConfigCallback
 from lightning.pytorch import Trainer
 from lightning.pytorch.loggers import MLFlowLogger
 from lightning.pytorch.cli import ArgsType, LightningCLI
+from tools.callbacks.overrideEpochStepsCallback import OverrideEpochStepCallback
 
 class TestMLFlowLogger(MLFlowLogger):
     def __init__(self, *args, **kwargs):
@@ -10,7 +11,11 @@ class TestMLFlowLogger(MLFlowLogger):
         # Override to prevent hyperparameter logging during test
         pass
 class GeoDeepLearningCLI(LightningCLI):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
     def before_fit(self):
+        self.trainer.add_callback(OverrideEpochStepCallback())
         self.datamodule.prepare_data()
         self.datamodule.setup("fit")
         self.log_dataset_sizes()
@@ -30,6 +35,7 @@ class GeoDeepLearningCLI(LightningCLI):
                                    accelerator="auto", 
                                    strategy="auto",
                                    logger=test_logger,
+                                   callbacks=[OverrideEpochStepCallback()]
                                    )
             best_model = self.model.__class__.load_from_checkpoint(best_model_path,
                                                                    weights_from_checkpoint_path=None,

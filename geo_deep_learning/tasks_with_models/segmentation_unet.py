@@ -5,7 +5,6 @@ import numpy as np
 import segmentation_models_pytorch as smp
 import torch
 from pathlib import Path
-import matplotlib.pyplot as plt
 from torch import Tensor
 from typing import Any, Callable, Dict, List, Optional
 from lightning.pytorch import LightningModule, LightningDataModule
@@ -16,8 +15,12 @@ from torchmetrics.wrappers import ClasswiseWrapper
 from tools.script_model import script_model
 from tools.utils import denormalization
 from tools.visualization import visualize_prediction
+from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
+from tqdm import tqdm
+from segmentation_models_pytorch.losses import SoftBCEWithLogitsLoss
 
-class SegmentationUnetPlus(LightningModule):
+
+class SegmentationUnet(LightningModule):
     def __init__(self, 
                  encoder: str,
                  in_channels: int,
@@ -29,9 +32,13 @@ class SegmentationUnetPlus(LightningModule):
                  loss: Callable,
                  lr: float,
                  weight_decay: float,
+                 class_weight: float = 1,
                  weights: str = None,
                  class_labels: List[str] = None,
                  class_colors: List[str] = None,
+                 optimizer: OptimizerCallable = torch.optim.Adam,
+                 scheduler: LRSchedulerCallable = torch.optim.lr_scheduler.ConstantLR,
+                 scheduler_config: Optional[Dict[str, Any]] = {"interval": "epoch"},
                  weights_from_checkpoint_path: Optional[str] = None,
                  **kwargs: Any):
         super().__init__()
@@ -45,13 +52,24 @@ class SegmentationUnetPlus(LightningModule):
         self.class_colors = class_colors
         self.num_classes = num_classes
         self.weights_from_checkpoint_path = weights_from_checkpoint_path
-        self.model = smp.UnetPlusPlus(encoder_name=encoder, 
-                                      in_channels=in_channels, encoder_weights=weights, classes=self.num_classes)
+        self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.scheduler_config = scheduler_config
+
+        self.model = smp.Unet(encoder_name=encoder, in_channels=in_channels, encoder_weights=weights, classes=self.num_classes)
+
         if weights_from_checkpoint_path:
             print(f"Loading weights from checkpoint: {weights_from_checkpoint_path}")
             checkpoint = torch.load(weights_from_checkpoint_path)
             self.load_state_dict(checkpoint['state_dict'])
-        self.loss = loss
+        
+        # background_weight = 0.67849742103417
+        # foreground_weight = 1.9005804596590905
+        # pos_weight = torch.tensor(foreground_weight / background_weight)
+
+        self.loss = SoftBCEWithLogitsLoss(pos_weight=torch.tensor(3.19287), ignore_index=255) #Tensor([class_weight])
+        torch.set_float32_matmul_precision('high')
+        #torch.serialization.add_safe_globals([type(self.loss)])
         num_classes = num_classes + 1 if num_classes == 1 else num_classes
         self.iou_metric = MeanIoU(num_classes=num_classes,
                                   per_class=True,
@@ -62,10 +80,15 @@ class SegmentationUnetPlus(LightningModule):
         self.iou_classwise_metric = ClasswiseWrapper(self.iou_metric, labels=self.labels)
         self._total_samples_visualized = 0
     
+    # def configure_optimizers(self):
+        #optimizer = AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+        #scheduler = OneCycleLR(optimizer, max_lr=1e-3, total_steps=self.trainer.estimated_stepping_batches)
+        #return [optimizer], [{'scheduler': scheduler, 'interval': 'step'}]
+            
     def configure_optimizers(self):
-        optimizer = AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        scheduler = OneCycleLR(optimizer, max_lr=1e-3, total_steps=self.trainer.estimated_stepping_batches)
-        return [optimizer], [{'scheduler': scheduler, 'interval': 'step'}]
+        optimizer = self.optimizer(self.parameters())
+        scheduler = self.scheduler(optimizer)
+        return [optimizer], [{'scheduler': scheduler, **self.scheduler_config}]
     
     def forward(self, image: Tensor) -> Tensor:
         return self.model(image)
@@ -74,11 +97,11 @@ class SegmentationUnetPlus(LightningModule):
         x = batch["image"]
         y = batch["mask"]
         batch_size = x.shape[0]
-        # y = y.squeeze(1).long()
+        #y = y.squeeze(1).long() 
         y_hat = self(x)
         loss = self.loss(y_hat, y)
         
-        self.log('train_loss', loss, 
+        self.log('trn_loss', loss, 
                  batch_size=batch_size,
                  prog_bar=True, logger=True, 
                  on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
@@ -90,16 +113,27 @@ class SegmentationUnetPlus(LightningModule):
         y = batch["mask"]
         batch_size = x.shape[0]
         y_hat = self(x)
+        #y = y.squeeze(1).long() 
         loss = self.loss(y_hat, y)
         self.log('val_loss', loss,
                  batch_size=batch_size,
                  prog_bar=True, logger=True, 
                  on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
+        
+        
         if self.num_classes == 1:
             y_hat = (y_hat.sigmoid().squeeze(1) > 0.5).long()
         else:
             y_hat = y_hat.softmax(dim=1).argmax(dim=1)
-            
+        y = y.squeeze(1).long() 
+        metrics = self.iou_classwise_metric(y_hat, y)
+        
+        metrics = {f"val_{k}": v for k, v in metrics.items()}
+
+        self.log_dict(metrics, 
+                      batch_size=batch_size,
+                      prog_bar=False, logger=True, 
+                      on_step=False, on_epoch=True, rank_zero_only=True, sync_dist=True)
         return y_hat
     
     def test_step(self, batch, batch_idx):
@@ -107,15 +141,15 @@ class SegmentationUnetPlus(LightningModule):
         y = batch["mask"]
         batch_size = x.shape[0]
         y_hat = self(x)
+        #y_hat = y_hat.squeeze(1).long()
         loss = self.loss(y_hat, y)
-        y = y.squeeze(1).long() 
         if self.num_classes == 1:
             y_hat = (y_hat.sigmoid().squeeze(1) > 0.5).long()
         else:
             y_hat = y_hat.softmax(dim=1).argmax(dim=1)
-    
+        y = y.squeeze(1).long() 
         metrics = self.iou_classwise_metric(y_hat, y)
-        metrics["test_loss"] = loss
+        metrics["tst_loss"] = loss
         
         if self._total_samples_visualized < self.max_samples:
             remaining_samples = self.max_samples - self._total_samples_visualized

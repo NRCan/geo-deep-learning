@@ -1,0 +1,112 @@
+seed_everything: true
+
+trainer:
+  accelerator: "gpu"
+  devices: -1
+  strategy: ddp
+  precision: "16-mixed"
+  sync_batchnorm: true
+  logger:
+    class_path: lightning.pytorch.loggers.mlflow.MLFlowLogger
+    init_args:
+      save_dir: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/mlruns
+      log_model: all
+      experiment_name: "light_softbce_5x"
+      run_name: "hrnet_ocr_sar_offline"
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: "val_loss"
+        mode: "min"
+        verbose: False
+        patience: 20
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: "val_loss"
+        mode: "min"
+        save_top_k: 1
+        filename: "model-{epoch:02d}-{val_loss:.3f}"
+    - class_path: tools.callbacks.segmentation_visualization.VisualizationCallback
+      init_args:
+        max_samples: 15
+        mean: ${data.init_args.mean}
+        std: ${data.init_args.std}
+        data_type_max: ${data.init_args.data_type_max}
+        num_classes: ${model.init_args.num_classes}
+        class_colors: ${model.init_args.class_colors}
+  max_epochs: 200
+
+model:
+  class_path: tasks_with_models.segmentation_hrnet_ocr.SegmentationHRnet
+  init_args:
+    in_channels: 5
+    max_samples: 15
+    num_classes: 2
+    mean: ${data.init_args.mean}
+    std: ${data.init_args.std}
+    data_type_max: ${data.init_args.data_type_max}
+    # loss:
+    #   class_path: segmentation_models_pytorch.losses.LovaszLoss
+    #   init_args:
+    #     ignore_index: 255
+    #     mode: "binary"
+    #     per_image: true
+    # loss:
+    #   class_path: segmentation_models_pytorch.losses.DiceLoss
+    #   init_args:
+    #     ignore_index: 255
+    #     mode: "binary"
+    loss:
+      class_path: segmentation_models_pytorch.losses.SoftBCEWithLogitsLoss
+      init_args:
+        ignore_index: 255
+        # weight: "${tensor: [10]}"
+    lr: 1e-6
+    class_weight: 2
+    optimizer:
+      class_path: torch.optim.Adam
+      init_args:
+        lr: 1e-6
+    scheduler:
+      class_path: torch.optim.lr_scheduler.ReduceLROnPlateau
+      init_args:
+        mode: "min"
+        factor: 0.5
+        patience: 10
+        cooldown: 1
+        min_lr: 1e-10
+    scheduler_config:
+      interval: "epoch"
+      frequency: 1
+      monitor: "val_loss"
+    weight_decay: 4e-5
+    class_labels: ["background", "water"]
+    class_colors: ["#000000", "#0000FF"]
+    weights_from_checkpoint_path: null
+
+data:
+  class_path: datamodules.SAR_FloodAsWaterDataModule.SarWaterNonGeoDataModule
+  init_args:
+    batch_size: 32
+    num_workers: 8
+    data_type_max: 255
+    noData: 255
+    patch_size:
+    - 512
+    - 512
+    mean:
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    std:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    csv_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/flood_as_water/patches/flood_as_water
+    patches_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/flood_as_water/patches/flood_as_water
+
+ckpt_path: null
