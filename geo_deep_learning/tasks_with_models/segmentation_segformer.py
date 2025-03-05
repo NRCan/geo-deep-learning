@@ -11,7 +11,7 @@ from lightning.pytorch import LightningModule, LightningDataModule
 from lightning.pytorch.cli import OptimizerCallable, LRSchedulerCallable
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
-from models.segformer import SegFormer
+from models.segmentation.segformer import SegFormerSegmentationModel
 from tools.script_model import ScriptModel
 from tools.utils import denormalization
 from tools.visualization import visualize_prediction
@@ -29,7 +29,7 @@ class SegmentationSegformer(LightningModule):
                  optimizer: OptimizerCallable = torch.optim.Adam,
                  scheduler: LRSchedulerCallable = torch.optim.lr_scheduler.ConstantLR,
                  scheduler_config: Optional[Dict[str, Any]] = {"interval": "epoch"},
-                 freeze_encoder: bool = False,
+                 freeze_layers: list[str] = None,
                  weights: str = None,
                  class_labels: List[str] = None,
                  class_colors: List[str] = None,
@@ -47,7 +47,7 @@ class SegmentationSegformer(LightningModule):
         self.class_colors = class_colors
         self.input_channels = in_channels
         self.num_classes = num_classes
-        self.model = SegFormer(encoder, in_channels, weights, freeze_encoder, self.num_classes)
+        self.model = SegFormerSegmentationModel(encoder, in_channels, weights, freeze_layers, self.num_classes)
         if weights_from_checkpoint_path:
             print(f"Loading weights from checkpoint: {weights_from_checkpoint_path}")
             checkpoint = torch.load(weights_from_checkpoint_path)
@@ -65,7 +65,12 @@ class SegmentationSegformer(LightningModule):
     
     def configure_optimizers(self):
         optimizer = self.optimizer(self.parameters())
-        scheduler = self.scheduler(optimizer)
+        if self.hparams['scheduler']['class_path'] == 'torch.optim.lr_scheduler.OneCycleLR':
+            stepping_batches = self.trainer.estimated_stepping_batches
+            scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=1e-3, total_steps=stepping_batches)
+        else:
+            scheduler = self.scheduler(optimizer)
+        
         return [optimizer], [{'scheduler': scheduler, **self.scheduler_config}]
     
     def forward(self, image: Tensor) -> Tensor:
@@ -118,6 +123,7 @@ class SegmentationSegformer(LightningModule):
             y_hat = y_hat.softmax(dim=1).argmax(dim=1)
     
         metrics = self.iou_classwise_metric(y_hat, y)
+        self.iou_classwise_metric.reset()
         metrics["test_loss"] = loss
         
         if self._total_samples_visualized < self.max_samples:
