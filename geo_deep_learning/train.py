@@ -7,6 +7,7 @@ from tools.callbacks.overrideEpochStepsCallback import OverrideEpochStepCallback
 class TestMLFlowLogger(MLFlowLogger):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
     def log_hyperparams(self, params):
         # Override to prevent hyperparameter logging during test
         pass
@@ -15,7 +16,6 @@ class GeoDeepLearningCLI(LightningCLI):
         super().__init__(*args, **kwargs)
 
     def before_fit(self):
-        self.trainer.add_callback(OverrideEpochStepCallback())
         self.datamodule.prepare_data()
         self.datamodule.setup("fit")
         self.log_dataset_sizes()
