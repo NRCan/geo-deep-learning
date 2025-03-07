@@ -2,7 +2,6 @@ from tools.mlflow_logger import LoggerSaveConfigCallback
 from lightning.pytorch import Trainer
 from lightning.pytorch.loggers import MLFlowLogger
 from lightning.pytorch.cli import ArgsType, LightningCLI
-from tools.callbacks.overrideEpochStepsCallback import OverrideEpochStepCallback
 
 class TestMLFlowLogger(MLFlowLogger):
     def __init__(self, *args, **kwargs):
@@ -35,7 +34,6 @@ class GeoDeepLearningCLI(LightningCLI):
                                    accelerator="auto", 
                                    strategy="auto",
                                    logger=test_logger,
-                                   callbacks=[OverrideEpochStepCallback()]
                                    )
             best_model = self.model.__class__.load_from_checkpoint(best_model_path,
                                                                    weights_from_checkpoint_path=None,
