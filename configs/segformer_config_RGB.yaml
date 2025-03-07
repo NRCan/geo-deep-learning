@@ -77,7 +77,7 @@ model:
     class_labels: ["background", "fore", "hydro", "roads", "buildings"]
     class_colors: ["#000000", "#008000", "#0000FF", "#FFFF00", "#FF0000"]
     weights_from_checkpoint_path: null
-    
+    load_parts: null
 data:
   class_path: datamodules.imagery_NonGeoDataModule.BlueSkyNonGeoDataModule
   init_args:
