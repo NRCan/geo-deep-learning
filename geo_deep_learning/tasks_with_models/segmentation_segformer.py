@@ -13,7 +13,7 @@ from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
 from models.segmentation.segformer import SegFormerSegmentationModel
 from tools.script_model import ScriptModel
-from tools.utils import denormalization
+from tools.utils import denormalization, load_weights_from_checkpoint
 from tools.visualization import visualize_prediction
 
 class SegmentationSegformer(LightningModule):
@@ -49,9 +49,12 @@ class SegmentationSegformer(LightningModule):
         self.num_classes = num_classes
         self.model = SegFormerSegmentationModel(encoder, in_channels, weights, freeze_layers, self.num_classes)
         if weights_from_checkpoint_path:
-            print(f"Loading weights from checkpoint: {weights_from_checkpoint_path}")
-            checkpoint = torch.load(weights_from_checkpoint_path)
-            self.load_state_dict(checkpoint['state_dict'])
+            map_location = self.device
+            load_parts = kwargs.get('load_parts', None)
+            load_weights_from_checkpoint(self, 
+                                         weights_from_checkpoint_path, 
+                                         load_parts=load_parts,
+                                         map_location=map_location,)
         self.loss = loss
         num_classes = num_classes + 1 if num_classes == 1 else num_classes
         self.iou_metric = MeanIoU(num_classes=num_classes,
