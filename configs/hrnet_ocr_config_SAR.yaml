@@ -11,8 +11,8 @@ trainer:
     init_args:
       save_dir: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/mlruns
       log_model: all
-      experiment_name: "light_softbce_5x_epochs"
-      run_name: "hrnet_ocr_sar_offline"
+      experiment_name: "lovasz"
+      run_name: "hrnet_ocr_rgb"
   callbacks:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
@@ -37,7 +37,6 @@ trainer:
     - class_path: tools.callbacks.overrideEpochStepsCallback.OverrideEpochStepCallback
       init_args:
         override: true
-
   max_epochs: 200
 
 model:
@@ -93,24 +92,24 @@ data:
   init_args:
     batch_size: 32
     num_workers: 8
-    data_type_max: 255
+    data_type_max: 1
     noData: 255
     patch_size:
     - 512
     - 512
     mean:
-    - 0.0
-    - 0.0
-    - 0.0
+    - 0.485
+    - 0.456
+    - 0.406
     - 0.0
     - 0.0
     std:
+    - 0.229
+    - 0.224
+    - 0.225
     - 1.0
     - 1.0
-    - 1.0
-    - 1.0
-    - 1.0
-    csv_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/flood_as_water/patches/flood_as_water
-    patches_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/flood_as_water/patches/flood_as_water
+    csv_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/Sentinel/patches/Sentinel
+    patches_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/Sentinel/patches/Sentinel
 
 ckpt_path: null

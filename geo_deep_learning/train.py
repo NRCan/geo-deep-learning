@@ -10,6 +10,7 @@ class TestMLFlowLogger(MLFlowLogger):
     def log_hyperparams(self, params):
         # Override to prevent hyperparameter logging during test
         pass
+
 class GeoDeepLearningCLI(LightningCLI):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -8,6 +8,8 @@ from torch.utils.data import DataLoader
 from lightning.pytorch import LightningDataModule
 from pathlib import Path
 import warnings
+
+from tqdm import tqdm
 warnings.filterwarnings("ignore", category=UserWarning, module="rasterio")
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -48,16 +50,16 @@ class SarWaterNonGeoDataModule(LightningDataModule):
         random_resized_crop_zoom_out = K.RandomResizedCrop(size=self.patch_size, scale=(0.5, 1.0), 
                                                                         p=0.5, align_corners=False, keepdim=True)
         
-        self.transform = K.AugmentationSequential(K.RandomHorizontalFlip(p=0.5, keepdim=True),
-                                                K.RandomVerticalFlip(p=0.5, keepdim=True),
-                                                K.RandomRotation90(times=(1, 3), 
-                                                                            p=0.5, 
-                                                                            align_corners=True, 
-                                                                            keepdim=True),
-                                                random_resized_crop_zoom_in,
-                                                random_resized_crop_zoom_out,
-                                                data_keys=None,
-                                                random_apply=1)
+        # self.transform = K.AugmentationSequential(K.RandomHorizontalFlip(p=0.5, keepdim=True),
+        #                                         K.RandomVerticalFlip(p=0.5, keepdim=True),
+        #                                         K.RandomRotation90(times=(1, 3), 
+        #                                                                     p=0.5, 
+        #                                                                     align_corners=True, 
+        #                                                                     keepdim=True),
+        #                                         random_resized_crop_zoom_in,
+        #                                         random_resized_crop_zoom_out,
+        #                                         data_keys=None,
+        #                                         random_apply=1)
     def prepare_data(self):
         # download, enhance, tile, etc...
         pass
@@ -66,7 +68,7 @@ class SarWaterNonGeoDataModule(LightningDataModule):
         sample["image"] = self._manage_bands(sample["image"])
         sample = self._convert_noData(sample)
         # sample["image"] /= self.data_type_max
-        # sample["image"] = self.normalize(sample["image"])
+        sample["image"] = self.normalize(sample["image"])
         
         return sample
 
@@ -80,11 +82,37 @@ class SarWaterNonGeoDataModule(LightningDataModule):
         self.val_dataset = SarWaterNonGeo(split="val", transforms=test_transform, **self.kwargs)
         self.test_dataset = SarWaterNonGeo(split="tst", transforms=test_transform, **self.kwargs)
 
-        # class_weights = self._compute_class_weights({0: 1027330207, 1: 366751585})
-        # background_weight = class_weights.get(0, 1.0)
-        # foreground_weight = class_weights.get(1, 1.0)
-        # print(f"background weight: {background_weight}")
-        # print(f"foreground weight: {foreground_weight}")
+        # print("Calculating mean and standard deviation for the dataset...")
+        # mean, std = self.calculate_dataset_mean_std(self.train_dataset)
+        # print(f"Mean: {mean}")
+        # print(f"Standard deviation: {std}")
+
+
+    def calculate_dataset_mean_std(self, dataset):
+        """
+        Calculate the mean and standard deviation for each band of the dataset
+        
+        Args:
+            dataset: The dataset for which to calculate the mean and standard deviation.
+            
+            Returns:
+            mean: List of mean values for each band
+            std: List of standard deviation values for each band
+            
+        """
+
+        mean = torch.zeros(len(dataset[0]["image"]))
+        std = torch.zeros(len(dataset[0]["image"]))
+
+        for sample in tqdm(dataset):
+            image = sample["image"]
+            mean += image.mean(dim=[1, 2])
+            std += image.std(dim=[1, 2])
+
+        mean /= len(dataset)
+        std /= len(dataset)
+
+        return mean, std
 
     def train_dataloader(self) -> DataLoader[Any]:
         
@@ -217,17 +245,17 @@ if __name__ == "__main__":
     config = {
         "batch_size": 16,
         "num_workers": 8,
-        "data_type_max": 255,
+        "data_type_max": 1,
         "noData": 255,
         "patch_size": [512, 512],
         "mean": [0.0, 0.0, 0.0, 0.0, 0.0],
         "std": [1.0, 1.0, 1.0, 1.0, 1.0],
-        "csv_root_folder": "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/flood_as_water/patches/flood_as_water",
-        "patches_root_folder": "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/flood_as_water/patches/flood_as_water"
+        "csv_root_folder": "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/Sentinel/patches/Sentinel",
+        "patches_root_folder": "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/Sentinel/patches/Sentinel"
     }
     dataset = SarWaterNonGeoDataModule(**config)
     dataset.setup()
-    tst = dataset.test_dataloader()
-    for batch in tst:
-        print(batch["image"])
-        break
+    # tst = dataset.test_dataloader()
+    # for batch in tst:
+    #     print(batch["image"])
+    #     break

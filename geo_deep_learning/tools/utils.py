@@ -26,6 +26,6 @@ def denormalization(image, mean, std, data_type_max):
         
         image = image * std + mean
     
-    image = (image * data_type_max).clamp(0, data_type_max).to(torch.uint8)
+    image = (image * data_type_max).clamp(0, data_type_max).to(torch.float32)
     
     return image

@@ -9,6 +9,12 @@ from torch import Tensor
 from torchgeo.datasets import NonGeoDataset
 
 
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+from tools.visualization import visualize_prediction
+
+
 class SarWaterNonGeo(NonGeoDataset):
     """ 
     This dataset class is intended to handle data for semantic segmentation of geospatial imagery (Binary | Multiclass).
@@ -149,9 +155,21 @@ class SarWaterNonGeo(NonGeoDataset):
         return sample
 
 if __name__ == "__main__":
-    csv_root_folder = "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/flood_as_water/patches/flood_as_water"
+    csv_root_folder = "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/Sentinel/patches/Sentinel"
     patches_root_folder = csv_root_folder
     dataset = SarWaterNonGeo(csv_root_folder, patches_root_folder, split="val")
     print(len(dataset))
-    print(dataset._load_image(0)[0].max())
-    print(dataset._load_mask(0)[0].max())
+
+    image, mask = dataset[1]["image"], dataset[1]["mask"]
+    image = image.squeeze(0)
+    mask = mask.squeeze(0)
+
+    visualize_prediction(
+        image=image,
+        mask=mask,
+        prediction=mask,
+        num_classes=2,
+        save_samples=False,
+        class_colors=["#000000", "#0000FF"],
+        save_path="/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/GDL/gdl_lightning/geo_deep_learning/datasets/samples"
+    )

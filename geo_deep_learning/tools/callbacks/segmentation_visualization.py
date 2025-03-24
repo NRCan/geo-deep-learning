@@ -25,17 +25,16 @@ class VisualizationCallback(Callback):
     def on_validation_batch_end(
         self, trainer, pl_module, outputs, batch, batch_idx
     ):
-        if trainer.is_global_zero:
+        if trainer.is_global_zero and batch_idx == 0:
             self.current_batch = batch
             self.current_outputs = outputs
 
     @rank_zero_only
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+    def on_train_epoch_start(self, trainer, pl_module):
         # Check if we saved a checkpoint this batch
         if hasattr(trainer, 'checkpoint_callback') and trainer.checkpoint_callback.best_model_score is not None:
             current_score = trainer.callback_metrics.get('val_loss')
-            if current_score == trainer.checkpoint_callback.best_model_score and trainer.current_epoch > (self.best_score_epoch + 5):
-                self.best_score_epoch = trainer.current_epoch
+            if current_score == trainer.checkpoint_callback.best_model_score:
                 self._log_visualizations(trainer)
 
     def _log_visualizations(self, trainer):
