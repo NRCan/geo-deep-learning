@@ -18,8 +18,9 @@ from tools.utils import denormalization
 from tools.visualization import visualize_prediction
 from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
 from tqdm import tqdm
-from segmentation_models_pytorch.losses import SoftBCEWithLogitsLoss
+from segmentation_models_pytorch.losses import SoftBCEWithLogitsLoss, JaccardLoss
 from lightning.pytorch.callbacks import ModelCheckpoint
+from models.r2unet import R2U_Net
 
 
 class SegmentationUnet(LightningModule):
@@ -33,7 +34,7 @@ class SegmentationUnet(LightningModule):
                  data_type_max: float,
                  lr: float,
                  weight_decay: float,
-                 class_weight: float = 1,
+                 alpha: float,
                  weights: str = None,
                  class_labels: List[str] = None,
                  class_colors: List[str] = None,
@@ -57,13 +58,17 @@ class SegmentationUnet(LightningModule):
         self.scheduler = scheduler
         self.scheduler_config = scheduler_config
 
-        self.model = smp.Unet(encoder_name=encoder, in_channels=in_channels, encoder_weights=weights, classes=self.num_classes)
+        # self.model = smp.Unet(encoder_name=encoder, in_channels=in_channels, encoder_weights=weights, classes=self.num_classes)
+        # self.model = smp.DeepLabV3Plus(encoder_name=encoder, in_channels=in_channels, encoder_weights=weights, classes=self.num_classes)
+        self.model = R2U_Net(img_ch=in_channels, output_ch=self.num_classes, t=2)
+
         if weights_from_checkpoint_path:
             checkpoint = torch.load(weights_from_checkpoint_path)
             del checkpoint['state_dict']['loss.pos_weight']
             self.load_state_dict(checkpoint['state_dict'])
         
-        self.loss = SoftBCEWithLogitsLoss(pos_weight=torch.tensor(5.949), ignore_index=255)
+        #self.loss = SoftBCEWithLogitsLoss(pos_weight=torch.tensor(11.67427122940431), ignore_index=255)
+        self.loss = self.combined_loss(alpha)
         torch.set_float32_matmul_precision('high')
         num_classes = num_classes + 1 if num_classes == 1 else num_classes
         self.iou_metric = MeanIoU(num_classes=num_classes,
@@ -71,6 +76,7 @@ class SegmentationUnet(LightningModule):
                                   input_format="index",
                                   include_background=True,
                                  )
+    
         self.precision_metric = AveragePrecision(ignore_index=255, num_classes=num_classes, task="multiclass", average="none")
         self.accuracy_metric = Accuracy(ignore_index=255, num_classes=num_classes, task="multiclass", average="none")
         self.recall_metric = Recall(ignore_index=255, num_classes=num_classes, task="multiclass", average="none")
@@ -87,7 +93,27 @@ class SegmentationUnet(LightningModule):
         self.jaccard_classwise_metric = ClasswiseWrapper(self.jaccard_metric, labels=self.labels)
         self._total_samples_visualized = 0
     
-            
+    def combined_loss(self, alpha: float = 0.5) -> Callable:
+        bce_loss = SoftBCEWithLogitsLoss(pos_weight=torch.tensor(11.67427122940431), ignore_index=255)
+        # Calculate the Jaccard loss
+        jaccard_loss = JaccardLoss(mode='multiclass', from_logits=True, classes=self.num_classes)
+
+        def loss_fn(y_pred, y_true):
+            # Calculate the BCE loss
+            bce = bce_loss(y_pred, y_true)
+            # Calculate the Jaccard loss
+            y_true_idx = y_true.argmax(dim=1)
+            jaccard = jaccard_loss(y_pred, y_true_idx.contiguous())
+
+            #print(f"BCE Loss: {bce.item()}, Jaccard Loss: {jaccard.item()}")
+            # Combine the two losses
+            combined_loss = alpha * bce + (1 - alpha) * jaccard
+            # combined_loss = 0.5 * bce + 0.5 * jaccard
+
+            return combined_loss
+
+        return loss_fn
+
     def configure_optimizers(self):
         optimizer = self.optimizer(self.parameters())
         # scheduler = self.scheduler(optimizer)

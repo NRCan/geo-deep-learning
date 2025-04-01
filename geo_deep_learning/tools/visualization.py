@@ -57,11 +57,6 @@ def visualize_prediction(image,
     ax_image.imshow(image)
     ax_image.set_title('Input Image')
     ax_image.axis('off')
-    ax_image.text(0.5,
-                -0.1, 
-                f"{sample_name}", 
-                transform=ax_image.transAxes,
-                ha='center', va='top', wrap=True)
     
     # Plot ground truth mask
     ax_mask.imshow(mask, cmap=cmap, vmin=0, vmax=num_classes-1)
@@ -72,10 +67,18 @@ def visualize_prediction(image,
     ax_output.imshow(prediction, cmap=cmap, vmin=0, vmax=num_classes-1)
     ax_output.set_title('Predicted Mask')
     ax_output.axis('off')
+
+    # Set figure title under the 3 subplots
+    fig.suptitle(sample_name, fontsize=12)
+    fig.subplots_adjust(top=0.85)
     
+
+    # Adjust layout
     plt.tight_layout()
+    plt.subplots_adjust(wspace=0.1)
     
     if save_path:
         plt.savefig(save_path)
+        plt.close(fig)
     
     return fig

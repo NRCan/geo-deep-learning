@@ -12,15 +12,15 @@ trainer:
     init_args:
       save_dir: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/mlruns
       log_model: all
-      experiment_name: "softbce"
-      run_name: "unet_${model.init_args.encoder}_sentinel"
+      experiment_name: "RCM_ARD"
+      run_name: "R2Unet_${model.init_args.encoder}_BCE_Jaccard_${model.init_args.alpha}"
   callbacks:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
         monitor: "val_loss"
         mode: "min"
         verbose: False
-        patience: 30
+        patience: 20
         check_on_train_epoch_end: True
         log_rank_zero_only: True
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
@@ -45,16 +45,16 @@ trainer:
 model:
   class_path: tasks_with_models.segmentation_unet.SegmentationUnet
   init_args:
-    encoder: "resnet101"
-    weights: imagenet
-    in_channels: 4 #5
+    encoder: "resnet50"
+    weights: null
+    in_channels: 5
     max_samples: 50
     num_classes: 2
+    alpha: 0.5
     mean: ${data.init_args.mean}
     std: ${data.init_args.std}
     data_type_max: ${data.init_args.data_type_max}
     lr: 1e-4
-    class_weight: 2
     optimizer:
       class_path: torch.optim.Adam
       init_args:
@@ -76,27 +76,27 @@ model:
 data:
   class_path: datamodules.SAR_FloodAsWaterDataModule.SarWaterNonGeoDataModule
   init_args:
-    batch_size: 32
+    batch_size: 8
     num_workers: 8
     data_type_max: 1
     noData: 255
-    band_indices: [0, 1, 2, 3]
+    band_indices: [0, 1, 2, 3, 4]
     patch_size:
     - 512
     - 512
     mean:
-    - 0.1521
-    - 0.1769
-    - 0.1325
-    - 0.2922
-    - 0.2101
+    - 0.4321
+    - 0.4111
+    - 0.2926
+    - 0.1717
+    - 0.2255
     std:
-    - 0.1240
-    - 0.1282
-    - 0.1077
-    - 0.2032
-    - 0.1175
-    csv_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/Sentinel/patches/Sentinel
-    patches_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/Sentinel/patches/Sentinel
+    - 0.2738
+    - 0.2527
+    - 0.1968
+    - 0.1339
+    - 0.1349
+    csv_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/RCM_ARD/patches/RCM_ARD
+    patches_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/RCM_ARD/patches/RCM_ARD
 
 ckpt_path: null

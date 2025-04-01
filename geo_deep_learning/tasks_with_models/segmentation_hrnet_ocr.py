@@ -21,7 +21,6 @@ from tqdm import tqdm
 from segmentation_models_pytorch.losses import SoftBCEWithLogitsLoss
 from models.hrnet.hrnet_ocr import HRNet
 
-
 class SegmentationHRnet(LightningModule):
     def __init__(self, 
                  in_channels: int,
@@ -42,7 +41,7 @@ class SegmentationHRnet(LightningModule):
                  weights_from_checkpoint_path: Optional[str] = None,
                  **kwargs: Any):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=['loss'])
         self.max_samples = max_samples
         self.mean = mean
         self.std = std
@@ -62,10 +61,9 @@ class SegmentationHRnet(LightningModule):
             print(f"Loading weights from checkpoint: {weights_from_checkpoint_path}")
             checkpoint = torch.load(weights_from_checkpoint_path)
             self.load_state_dict(checkpoint['state_dict'])
-
        
-        self.loss = SoftBCEWithLogitsLoss(pos_weight=torch.tensor(3.19287), ignore_index=255) #Tensor([class_weight])
-        #self.loss = loss
+        #self.loss = SoftBCEWithLogitsLoss(pos_weight=torch.tensor(6.23), ignore_index=255) #Tensor([class_weight])
+        self.loss = loss
         torch.set_float32_matmul_precision('high')
         num_classes = num_classes + 1 if num_classes == 1 else num_classes
         self.iou_metric = MeanIoU(num_classes=num_classes,
@@ -173,10 +171,6 @@ class SegmentationHRnet(LightningModule):
             y_hat_class = y_hat_prob.argmax(dim=1)
 
         loss = self.loss(y_hat, y_onehot)
-        self.log('val_loss', loss,
-                batch_size=batch_size,
-                prog_bar=True, logger=True, 
-                on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
 
         y = y.squeeze(1).long() 
         metrics = self.iou_classwise_metric(y_hat_class, y)

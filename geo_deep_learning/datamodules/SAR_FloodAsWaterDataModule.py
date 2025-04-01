@@ -82,6 +82,7 @@ class SarWaterNonGeoDataModule(LightningDataModule):
         self.val_dataset = SarWaterNonGeo(split="val", transforms=test_transform, **self.kwargs)
         self.test_dataset = SarWaterNonGeo(split="tst", transforms=test_transform, **self.kwargs)
 
+        # Uncomment to calculate mean and std for the dataset
         # print("Calculating mean and standard deviation for the dataset...")
         # mean, std = self.calculate_dataset_mean_std(self.train_dataset)
         # print(f"Mean: {mean}")
@@ -250,8 +251,8 @@ if __name__ == "__main__":
         "patch_size": [512, 512],
         "mean": [0.0, 0.0, 0.0, 0.0, 0.0],
         "std": [1.0, 1.0, 1.0, 1.0, 1.0],
-        "csv_root_folder": "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/Sentinel/patches/Sentinel",
-        "patches_root_folder": "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/Sentinel/patches/Sentinel"
+        "csv_root_folder": "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/RCM_ARD/patches/RCM_ARD",
+        "patches_root_folder": "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/RCM_ARD/patches/RCM_ARD"
     }
     dataset = SarWaterNonGeoDataModule(**config)
     dataset.setup()
