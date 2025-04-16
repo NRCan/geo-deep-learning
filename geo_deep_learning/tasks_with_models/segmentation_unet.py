@@ -8,7 +8,7 @@ from pathlib import Path
 from torch import Tensor
 from typing import Any, Callable, Dict, List, Optional
 from lightning.pytorch import LightningModule, LightningDataModule
-from torch.optim.lr_scheduler import OneCycleLR
+from torch.optim.lr_scheduler import OneCycleLR, CosineAnnealingWarmRestarts, LinearLR, SequentialLR
 from torch.optim import AdamW
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.classification import Accuracy, AveragePrecision, Recall, F1Score, JaccardIndex
@@ -21,7 +21,6 @@ from tqdm import tqdm
 from segmentation_models_pytorch.losses import SoftBCEWithLogitsLoss, JaccardLoss
 from lightning.pytorch.callbacks import ModelCheckpoint
 from models.r2unet import R2U_Net
-
 
 class SegmentationUnet(LightningModule):
     def __init__(self, 
@@ -60,7 +59,7 @@ class SegmentationUnet(LightningModule):
 
         # self.model = smp.Unet(encoder_name=encoder, in_channels=in_channels, encoder_weights=weights, classes=self.num_classes)
         # self.model = smp.DeepLabV3Plus(encoder_name=encoder, in_channels=in_channels, encoder_weights=weights, classes=self.num_classes)
-        self.model = R2U_Net(img_ch=in_channels, output_ch=self.num_classes, t=2)
+        self.model = R2U_Net(img_ch=in_channels, output_ch=self.num_classes, t=3)
 
         if weights_from_checkpoint_path:
             checkpoint = torch.load(weights_from_checkpoint_path)
@@ -94,7 +93,7 @@ class SegmentationUnet(LightningModule):
         self._total_samples_visualized = 0
     
     def combined_loss(self, alpha: float = 0.5) -> Callable:
-        bce_loss = SoftBCEWithLogitsLoss(pos_weight=torch.tensor(11.67427122940431), ignore_index=255)
+        bce_loss = SoftBCEWithLogitsLoss(pos_weight=torch.tensor(13.36781609195402), ignore_index=255)
         # Calculate the Jaccard loss
         jaccard_loss = JaccardLoss(mode='multiclass', from_logits=True, classes=self.num_classes)
 
@@ -108,7 +107,6 @@ class SegmentationUnet(LightningModule):
             #print(f"BCE Loss: {bce.item()}, Jaccard Loss: {jaccard.item()}")
             # Combine the two losses
             combined_loss = alpha * bce + (1 - alpha) * jaccard
-            # combined_loss = 0.5 * bce + 0.5 * jaccard
 
             return combined_loss
 
@@ -116,9 +114,32 @@ class SegmentationUnet(LightningModule):
 
     def configure_optimizers(self):
         optimizer = self.optimizer(self.parameters())
-        # scheduler = self.scheduler(optimizer)
+        scheduler = self.scheduler(optimizer)
+        # T_0 = int(self.trainer.estimated_stepping_batches / self.trainer.max_epochs * 10)
+
+        # warmup_steps = int(0.05 * T_0)
+
+        # warmup_scheduler = LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_steps)
+
         scheduler = OneCycleLR(optimizer, max_lr=1e-3, pct_start=0.3, total_steps=self.trainer.estimated_stepping_batches)
-        return [optimizer], [{'scheduler': scheduler, **self.scheduler_config}]
+        # cosine_scheduler = CosineAnnealingWarmRestarts(
+        #     optimizer,
+        #     T_0=T_0,
+        #     T_mult=2,
+        #     eta_min=1e-6
+        # )
+
+        # scheduler = SequentialLR(optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps])
+        
+        return [optimizer], [{
+            'scheduler': scheduler,
+            'interval': 'step',
+            'frequency': 1,
+            'reduce_on_plateau': False,
+            'monitor': 'val_loss'
+        }]
+        
+        # return [optimizer], [{'scheduler': scheduler, **self.scheduler_config}]
     
     def forward(self, image: Tensor) -> Tensor:
         return self.model(image)
@@ -138,6 +159,11 @@ class SegmentationUnet(LightningModule):
                  batch_size=batch_size,
                  prog_bar=True, logger=True, 
                  on_step=False, on_epoch=True, sync_dist=True, rank_zero_only=True)
+    
+        self.log("lr", self.optimizers().param_groups[0]["lr"],
+                 on_step=True, rank_zero_only=True,
+                 batch_size=batch_size, on_epoch=False,
+                 sync_dist=True)
         
         return loss
     

@@ -66,7 +66,7 @@ class SarWaterNonGeo(NonGeoDataset):
         self.csv_root_folder = csv_root_folder
         self.patches_root_folder = patches_root_folder
         if split == 'trn':
-            split = 'trn_5x'
+            split = 'trn_3x'
         self.split = split
         self.transforms = transforms
         self.files = self._load_files()
