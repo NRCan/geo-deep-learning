@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import segmentation_models_pytorch as smp
 
 
 class MLP(nn.Module):
@@ -16,9 +15,12 @@ class MLP(nn.Module):
         x = x.flatten(2).transpose(1, 2).contiguous()
         x = self.proj(x)
         return x
-
+    
 
 class Decoder(nn.Module):
+    """
+    Decoder for SegFormer
+    """
     def __init__(self, encoder="mit_b2",
                  in_channels=[64, 128, 320, 512],
                  feature_strides=[4, 8, 16, 32],
@@ -67,31 +69,4 @@ class Decoder(nn.Module):
         x = self.dropout(_c)
         x = self.linear_pred(x)
 
-        return x
-
-
-class SegFormer(nn.Module):
-    def __init__(self, 
-                 encoder: str = "mit_b0", 
-                 in_channels: int = 3, 
-                 weights: str = None, 
-                 freeze_encoder: bool = False, 
-                 num_classes: int = 1) -> None:
-        super().__init__()
-        self.encoder = smp.encoders.get_encoder(name=encoder, in_channels=in_channels, 
-                                                depth=5, weights=weights, drop_path_rate=0.1)
-        if freeze_encoder:
-            self._freeze_encoder()
-            self.encoder.eval()
-        self.decoder = Decoder(encoder=encoder, num_classes=num_classes)
-    
-    def _freeze_encoder(self):
-        for param in self.encoder.parameters():
-            param.requires_grad = False
-
-    def forward(self, img):
-        # print(f"{__name__}: Input shape: {img.shape}")
-        x = self.encoder(img)[2:]
-        x = self.decoder(x)
-        x = F.interpolate(input=x, size=img.shape[2:], scale_factor=None, mode='bilinear', align_corners=False)
         return x
