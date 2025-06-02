@@ -1,0 +1,118 @@
+seed_everything: true
+
+trainer:
+  accelerator: "gpu"
+  devices: -1
+  strategy: ddp
+  precision: "bf16-mixed"
+  gradient_clip_val: 1.0
+  sync_batchnorm: true
+  logger:
+    class_path: tools.loggers.overrideStepEpochsMlflowLogger.OverrideStepEpochsMlflowLogger
+    init_args:
+      save_dir: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/mlruns
+      log_model: all
+      experiment_name: "RCM_ARD"
+      run_name: "R2Unet_BCE_Jaccard_${model.init_args.alpha}_OneCycle_AdamW_noDem"
+  callbacks:
+    # - class_path: lightning.pytorch.callbacks.EarlyStopping
+    #   init_args:
+    #     monitor: "val_loss"
+    #     mode: "min"
+    #     verbose: False
+    #     patience: 40
+    #     check_on_train_epoch_end: False
+    #     log_rank_zero_only: True
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: "val_loss"
+        mode: "min"
+        save_top_k: 1
+        filename: "model-{epoch:02d}-{val_loss:.3f}"
+    - class_path: tools.callbacks.segmentation_visualization.VisualizationCallback
+      init_args:
+        max_samples: 15
+        mean: ${data.init_args.mean}
+        std: ${data.init_args.std}
+        data_type_max: ${data.init_args.data_type_max}
+        num_classes: ${model.init_args.num_classes}
+        class_colors: ${model.init_args.class_colors}
+    - class_path: tools.callbacks.overrideEpochStepsCallback.OverrideEpochStepCallback
+      init_args:
+        override: true
+  max_epochs: 200
+
+model:
+  class_path: tasks_with_models.segmentation_unet.SegmentationUnet
+  init_args:
+    encoder: "resnet50"
+    weights: null
+    in_channels: 4
+    max_samples: 50
+    num_classes: 2
+    alpha: 0.5
+    mean: ${data.init_args.mean}
+    std: ${data.init_args.std}
+    data_type_max: ${data.init_args.data_type_max}
+    lr: 1e-4
+    optimizer:
+      class_path: torch.optim.AdamW
+      init_args:
+        lr: 1e-4
+        weight_decay: 1e-5
+    # scheduler:
+    #   class_path: torch.optim.lr_scheduler.ReduceLROnPlateau
+    #   init_args:
+    #     mode: "min"
+    #     factor: 0.5
+    #     patience: 15
+    #     cooldown: 1
+    #     min_lr: 1e-6
+    scheduler_config:
+      interval: "epoch"
+      frequency: 1
+      monitor: "val_loss"
+    weight_decay: 1e-5
+    class_labels: ["background", "water"]
+    class_colors: ["#000000", "#0000FF"]
+    weights_from_checkpoint_path:
+data:
+  class_path: datamodules.SAR_FloodAsWaterDataModule.SarWaterNonGeoDataModule
+  init_args:
+    batch_size: 8
+    num_workers: 8
+    data_type_max: 1
+    noData: 255
+    band_indices: [0, 1, 2, 3]
+    patch_size:
+    - 512
+    - 512
+    # 5x
+    # mean:
+    # - 0.4321
+    # - 0.4111
+    # - 0.2926
+    # - 0.1717
+    # - 0.2255
+    # std:
+    # - 0.2738
+    # - 0.2527
+    # - 0.1968
+    # - 0.1339
+    # - 0.1349
+    mean:
+    - 0.4393
+    - 0.4176
+    - 0.2882
+    - 0.1717
+    # - 0.2298
+    std:
+    - 0.2719
+    - 0.2511
+    - 0.1931
+    - 0.1333
+    # - 0.1340
+    csv_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/RCM_ARD/patches/RCM_ARD
+    patches_root_folder: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/DA_SAR_FLOOD/sar_water_extraction/data/datasets/RCM_ARD/patches/RCM_ARD
+
+ckpt_path: null

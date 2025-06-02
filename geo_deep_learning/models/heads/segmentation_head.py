@@ -1,10 +1,4 @@
-import torch
 import torch.nn as nn
-from typing import NamedTuple, Optional
-
-class SegmentationOutput(NamedTuple):
-    out: torch.Tensor
-    aux: Optional[torch.Tensor]
 
 class SegmentationHead(nn.Module):
     """

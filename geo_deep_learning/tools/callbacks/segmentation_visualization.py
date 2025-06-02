@@ -3,6 +3,10 @@ from lightning.pytorch.utilities import rank_zero_only
 from tools.visualization import visualize_prediction
 from tools.utils import denormalization
 from pathlib import Path
+import traceback
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 class VisualizationCallback(Callback):
     def __init__(self, max_samples=3, mean=None, std=None, num_classes=None, 
@@ -16,16 +20,17 @@ class VisualizationCallback(Callback):
         self.class_colors = class_colors
         self.current_batch = None
         self.current_outputs = None
+        self.best_score_epoch = 0
 
     def on_validation_batch_end(
         self, trainer, pl_module, outputs, batch, batch_idx
     ):
-        if trainer.is_global_zero:
+        if trainer.is_global_zero and batch_idx == 0:
             self.current_batch = batch
             self.current_outputs = outputs
 
     @rank_zero_only
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+    def on_train_epoch_start(self, trainer, pl_module):
         # Check if we saved a checkpoint this batch
         if hasattr(trainer, 'checkpoint_callback') and trainer.checkpoint_callback.best_model_score is not None:
             current_score = trainer.callback_metrics.get('val_loss')
@@ -57,5 +62,7 @@ class VisualizationCallback(Callback):
                     artifact_file=artifact_file,
                     run_id=trainer.logger.run_id
                 )
+                plt.close(fig)
         except Exception as e:
             print(f"Error in visualization: {e}")
+            print(f"Traceback: {traceback.print_tb(e.__traceback__)}")

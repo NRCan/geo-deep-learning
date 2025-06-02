@@ -6,10 +6,15 @@ from lightning.pytorch.cli import ArgsType, LightningCLI
 class TestMLFlowLogger(MLFlowLogger):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
     def log_hyperparams(self, params):
         # Override to prevent hyperparameter logging during test
         pass
+
 class GeoDeepLearningCLI(LightningCLI):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
     def before_fit(self):
         self.datamodule.prepare_data()
         self.datamodule.setup("fit")

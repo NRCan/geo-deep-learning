@@ -12,7 +12,7 @@ trainer:
   precision: "16-mixed"
   sync_batchnorm: true
   logger:
-    class_path: lightning.pytorch.loggers.mlflow.MLFlowLogger
+    class_path: tools.loggers.overrideStepEpochsMlflowLogger.OverrideStepEpochsMlflowLogger
     init_args:
       save_dir: /home/valhassa/Projects/geo-deep-learning/logs
       log_model: all
@@ -39,6 +39,9 @@ trainer:
         data_type_max: ${data.init_args.data_type_max}
         num_classes: ${model.init_args.num_classes}
         class_colors: ${model.init_args.class_colors}
+    - class_path: tools.callbacks.overrideEpochStepsCallback.OverrideEpochStepCallback
+      init_args:
+        override: true
   max_epochs: 10
 
 model:

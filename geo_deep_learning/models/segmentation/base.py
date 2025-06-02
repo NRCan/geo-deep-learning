@@ -16,17 +16,18 @@ class BaseSegmentationModel(nn.Module):
         self.decoder = decoder
         self.auxilary_head = auxilary_head
         self.head = head
-        self.output_struct = output_struct
+        
     def forward(self, x):
+        outputs = {}
         x = self.encoder(x)
         x = self.neck(x)
         x = self.decoder(x)
-        aux = None
         if self.auxilary_head:
             aux = self.auxilary_head(x)
+            outputs['aux'] = aux
         x = self.head(x)
-        output = self.output_struct(out=x, aux=aux)
-        return output
+        outputs['out'] = x
+        return outputs
     
     def _freeze_layers(self, layers):
         for name, param in self.named_parameters():
