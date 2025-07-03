@@ -9,14 +9,14 @@ jobs:
     steps:
       - name: checkout repository
         uses: actions/checkout@v4.1.2
-      
+
       - name: create environment
         uses: conda-incubator/setup-miniconda@v3
         with:
           mamba-version: "*"
           activate-environment: geo_deep_env
           environment-file: environment.yml
-      
+
       - name: test with pytest
         run: |
           pytest tests/
