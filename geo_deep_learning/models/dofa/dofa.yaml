@@ -1,9 +1,0 @@
-download_url: https://huggingface.co/XShadow/DOFA/resolve/main/DOFA_ViT_base_e100.pth
-
-sensor: "maxar" # sensor name
-bands: ["R", "G", "B"] # bands used in the model
-wavelengths: 
-  maxar:
-    R: 0.665
-    G: 0.549
-    B: 0.481
