@@ -102,7 +102,7 @@ def resize(  # noqa: PLR0913
     align_corners: bool | None = None,
     warning: bool = True,
 ) -> torch.Tensor:
-    """Adapted from https://github.com/open-mmlab/mmsegmentation."""
+    """Resize a tensor."""
     if warning and size is not None and align_corners:
         input_h, input_w = tuple(int(x) for x in input_.shape[2:])
         output_h, output_w = tuple(int(x) for x in size)
