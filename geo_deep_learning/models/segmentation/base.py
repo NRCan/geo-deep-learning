@@ -1,15 +1,22 @@
-import torch.nn as nn
-from models.utils import patch_first_conv   
+"""Base segmentation model."""
+
+from models.utils import patch_first_conv
+from torch import Tensor, nn
 
 
 class BaseSegmentationModel(nn.Module):
-    def __init__(self, 
-                 encoder=None, 
-                 neck=None, 
-                 decoder=None, 
-                 head=None, 
-                 output_struct=None, 
-                 auxilary_head=None):
+    """Base segmentation model."""
+
+    def __init__(  # noqa: PLR0913
+        self,
+        encoder: nn.Module | None = None,
+        neck: nn.Module | None = None,
+        decoder: nn.Module | None = None,
+        head: nn.Module | None = None,
+        output_struct: nn.Module | None = None,
+        auxilary_head: nn.Module | None = None,
+    ) -> None:
+        """Initialize base segmentation model."""
         super().__init__()
         self.encoder = encoder
         self.neck = neck
@@ -17,7 +24,9 @@ class BaseSegmentationModel(nn.Module):
         self.auxilary_head = auxilary_head
         self.head = head
         self.output_struct = output_struct
-    def forward(self, x):
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Forward pass."""
         x = self.encoder(x)
         x = self.neck(x)
         x = self.decoder(x)
@@ -25,39 +34,39 @@ class BaseSegmentationModel(nn.Module):
         if self.auxilary_head:
             aux = self.auxilary_head(x)
         x = self.head(x)
-        output = self.output_struct(out=x, aux=aux)
-        return output
-    
-    def _freeze_layers(self, layers):
+        return self.output_struct(out=x, aux=aux)
+
+    def _freeze_layers(self, layers: list[str]) -> None:
+        """Freeze layers."""
         for name, param in self.named_parameters():
             if any(layer in name for layer in layers):
                 param.requires_grad = False
 
+
 class EncoderMixin:
-    # Taken from segmentation models pytorch
-    """Add encoder functionality such as:
-    - output channels specification of feature tensors (produced by encoder)
-    - patching first convolution for arbitrary input channels
-    """
+    """Encoder mixin."""
 
     _output_stride = 32
 
     @property
-    def out_channels(self):
-        """Return channels dimensions for each tensor of forward output of encoder"""
+    def out_channels(self) -> list[int]:
+        """Return channels dimensions for each tensor of forward output of encoder."""
         return self._out_channels[: self._depth + 1]
 
     @property
-    def output_stride(self):
+    def output_stride(self) -> int:
+        """Return output stride."""
         return min(self._output_stride, 2**self._depth)
 
-    def set_in_channels(self, in_channels, pretrained=True):
-        """Change first convolution channels"""
-        if in_channels == 3:
+    def set_in_channels(self, in_channels: int, *, pretrained: bool = True) -> None:
+        """Change first convolution channels."""
+        expected_in_channels = 3
+        if in_channels == expected_in_channels:
             return
 
         self._in_channels = in_channels
-        if self._out_channels[0] == 3:
-            self._out_channels = tuple([in_channels] + list(self._out_channels)[1:])
+        expected_out_channels = 3
+        if self._out_channels[0] == expected_out_channels:
+            self._out_channels = (in_channels, *self._out_channels[1:])
 
         patch_first_conv(model=self, new_in_channels=in_channels, pretrained=pretrained)
