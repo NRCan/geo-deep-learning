@@ -1,71 +1,64 @@
-# Copyright (c) OpenMMLab. All rights reserved.
-from typing import List, Optional, Dict
-import torch.nn as nn
-import torch.nn.functional as F
-import warnings
+"""Multi-level neck for semantic segmentation."""
 
-def resize(input,
-           size=None,
-           scale_factor=None,
-           mode='nearest',
-           align_corners=None,
-           warning=True):
-    if warning:
-        if size is not None and align_corners:
-            input_h, input_w = tuple(int(x) for x in input.shape[2:])
-            output_h, output_w = tuple(int(x) for x in size)
-            if output_h > input_h or output_w > output_h:
-                if ((output_h > 1 and output_w > 1 and input_h > 1
-                     and input_w > 1) and (output_h - 1) % (input_h - 1)
-                        and (output_w - 1) % (input_w - 1)):
-                    warnings.warn(
-                        f'When align_corners={align_corners}, '
-                        'the output would more aligned if '
-                        f'input size {(input_h, input_w)} is `x+1` and '
-                        f'out size {(output_h, output_w)} is `nx+1`')
-                    
-    return F.interpolate(input, size, scale_factor, mode, align_corners)
+import torch
+from torch import nn
 
-def xavier_init(module, gain=1, bias=0, distribution='normal'):
-    assert distribution in ['uniform', 'normal']
-    if hasattr(module, 'weight') and module.weight is not None:
-        if distribution == 'uniform':
+from geo_deep_learning.models.utils import resize
+
+
+def xavier_init(
+    module: nn.Module,
+    gain: float = 1,
+    bias: float = 0,
+    distribution: str = "normal",
+) -> None:
+    """Xavier initialization."""
+    if distribution not in ["uniform", "normal"]:
+        msg = f"Invalid distribution: {distribution}"
+        raise ValueError(msg)
+    if hasattr(module, "weight") and module.weight is not None:
+        if distribution == "uniform":
             nn.init.xavier_uniform_(module.weight, gain=gain)
         else:
             nn.init.xavier_normal_(module.weight, gain=gain)
-    if hasattr(module, 'bias') and module.bias is not None:
+    if hasattr(module, "bias") and module.bias is not None:
         nn.init.constant_(module.bias, bias)
 
 
 class ConvModule(nn.Module):
-    def __init__(self, 
-                 in_channels,
-                 out_channels,
-                 kernel_size,
-                 norm_cfg=None,
-                 act_cfg=None,
-                 stride=1,
-                 padding=0):
+    """ConvModule."""
+
+    def __init__(  # noqa: PLR0913
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        norm_cfg: dict | None = None,
+        act_cfg: dict | None = None,
+        stride: int = 1,
+        padding: int = 0,
+    ) -> None:
+        """Initialize ConvModule."""
         super().__init__()
-        
+
         self.conv = nn.Conv2d(
             in_channels,
             out_channels,
             kernel_size,
             stride=stride,
-            padding=padding)
-        
+            padding=padding,
+        )
+
         self.norm = None
-        if norm_cfg is not None:
-            if norm_cfg.get('type') == 'BN':
-                self.norm = nn.BatchNorm2d(out_channels)
-            
+        if norm_cfg is not None and norm_cfg.get("type") == "BN":
+            self.norm = nn.BatchNorm2d(out_channels)
+
         self.act = None
-        if act_cfg is not None:
-            if act_cfg.get('type') == 'ReLU':
-                self.act = nn.ReLU(inplace=True)
-                
-    def forward(self, x):
+        if act_cfg is not None and act_cfg.get("type") == "ReLU":
+            self.act = nn.ReLU(inplace=True)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass."""
         x = self.conv(x)
         if self.norm is not None:
             x = self.norm(x)
@@ -73,8 +66,10 @@ class ConvModule(nn.Module):
             x = self.act(x)
         return x
 
+
 class MultiLevelNeck(nn.Module):
-    """MultiLevelNeck.
+    """
+    MultiLevelNeck.
 
     A neck structure connect vit backbone and decoder_heads.
 
@@ -86,31 +81,41 @@ class MultiLevelNeck(nn.Module):
         norm_cfg (dict): Config dict for normalization layer. Default: None.
         act_cfg (dict): Config dict for activation layer in ConvModule.
             Default: None.
+
     """
 
-    def __init__(self,
-                 in_channels: List[int],
-                 out_channels: List[int],
-                 scales: List[float] = [0.5, 1, 2, 4],
-                 norm_cfg: Optional[Dict] = None,
-                 act_cfg: Optional[Dict] = None):
+    def __init__(
+        self,
+        in_channels: list[int],
+        out_channels: list[int],
+        scales: list[float] | None = None,
+        norm_cfg: dict | None = None,
+        act_cfg: dict | None = None,
+    ) -> None:
+        """Initialize MultiLevelNeck."""
         super().__init__()
-        assert isinstance(in_channels, list)
-        assert isinstance(out_channels, list)
+        if not isinstance(in_channels, list):
+            msg = f"in_channels must be a list, but got {type(in_channels)}"
+            raise TypeError(msg)
+        if not isinstance(out_channels, list):
+            msg = f"out_channels must be a list, but got {type(out_channels)}"
+            raise TypeError(msg)
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.scales = scales
+        self.scales = scales or [0.5, 1, 2, 4]
         self.num_outs = len(scales)
         self.lateral_convs = nn.ModuleList()
         self.convs = nn.ModuleList()
-        for in_channel, out_channel in zip(in_channels, out_channels):
+        for in_channel, out_channel in zip(in_channels, out_channels, strict=False):
             self.lateral_convs.append(
                 ConvModule(
                     in_channel,
                     out_channel,
                     kernel_size=1,
                     norm_cfg=norm_cfg,
-                    act_cfg=act_cfg))
+                    act_cfg=act_cfg,
+                ),
+            )
         for out_channel in out_channels:
             self.convs.append(
                 ConvModule(
@@ -120,29 +125,36 @@ class MultiLevelNeck(nn.Module):
                     padding=1,
                     stride=1,
                     norm_cfg=norm_cfg,
-                    act_cfg=act_cfg))
+                    act_cfg=act_cfg,
+                ),
+            )
 
     # default init_weights for conv(msra) and norm in ConvModule
-    def init_weights(self):
+    def init_weights(self) -> None:
+        """Initialize weights."""
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                xavier_init(m, distribution='uniform')
+                xavier_init(m, distribution="uniform")
 
-    def forward(self, inputs):
-        assert len(inputs) == len(self.in_channels)
+    def forward(self, inputs: list[torch.Tensor]) -> tuple[torch.Tensor, ...]:
+        """Forward pass."""
+        if len(inputs) != len(self.in_channels):
+            msg = (
+                f"len(inputs) must be equal to len(in_channels), "
+                f"but got {len(inputs)} and {len(self.in_channels)}"
+            )
+            raise ValueError(msg)
         inputs = [
-            lateral_conv(inputs[i])
-            for i, lateral_conv in enumerate(self.lateral_convs)
+            lateral_conv(inputs[i]) for i, lateral_conv in enumerate(self.lateral_convs)
         ]
         # for len(inputs) not equal to self.num_outs
         if len(inputs) == 1:
             inputs = [inputs[0] for _ in range(self.num_outs)]
-        
+
         outs = []
-        
+
         for i in range(self.num_outs):
-            x_resize = resize(
-                inputs[i], scale_factor=self.scales[i], mode='bilinear')
+            x_resize = resize(inputs[i], scale_factor=self.scales[i], mode="bilinear")
             outs.append(self.convs[i](x_resize))
-        
+
         return tuple(outs)
