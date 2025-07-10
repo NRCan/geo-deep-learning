@@ -177,5 +177,5 @@ class CSVDataModule(LightningDataModule):
 if __name__ == "__main__":
     csv_root_folder = ""
     patches_root_folder = csv_root_folder
-    dataset = CSVDataModule(csv_root_folder, patches_root_folder, split="val")
+    dataset = CSVDataModule(csv_root_folder, patches_root_folder)
     # print(f"mean:{dataset.mean}, std:{dataset.std}")
