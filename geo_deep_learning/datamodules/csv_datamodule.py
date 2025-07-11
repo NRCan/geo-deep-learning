@@ -9,7 +9,7 @@ from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose
 
-from geo_deep_learning.datasets.imagery_NonGeoDataset import BlueSkyNonGeo
+from geo_deep_learning.datasets.csv_dataset import CSVDataset
 from geo_deep_learning.tools.utils import normalization, standardization
 
 
@@ -95,17 +95,17 @@ class CSVDataModule(LightningDataModule):
         train_transform = Compose([self.transform, self.preprocess])
         test_transform = Compose([self.preprocess])
 
-        self.train_dataset = BlueSkyNonGeo(
+        self.train_dataset = CSVDataset(
             split="trn",
             transforms=train_transform,
             **self.kwargs,
         )
-        self.val_dataset = BlueSkyNonGeo(
+        self.val_dataset = CSVDataset(
             split="val",
             transforms=test_transform,
             **self.kwargs,
         )
-        self.test_dataset = BlueSkyNonGeo(
+        self.test_dataset = CSVDataset(
             split="tst",
             transforms=test_transform,
             **self.kwargs,
