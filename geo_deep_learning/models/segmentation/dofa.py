@@ -3,7 +3,7 @@
 import torch
 import torch.nn.functional as fn
 from models.decoders.upernet import UperNetDecoder
-from models.encoders.dofa import DOFA
+from models.encoders.dofa import DOFA, create_dofa_base, create_dofa_large
 from models.heads.fcn_head import FCNHead
 from models.heads.segmentation_head import SegmentationHead, SegmentationOutput
 from models.necks.multilevel_neck import MultiLevelNeck
@@ -15,16 +15,14 @@ from .base import BaseSegmentationModel
 class DOFASegmentationModel(BaseSegmentationModel):
     """DOFA segmentation model."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         encoder: str = "dofa_base",
         image_size: tuple[int, int] = (512, 512),
-        wavelengths: list[float] | None = None,
         freeze_layers: list[str] | None = None,
         num_classes: int = 1,
         *,
         pretrained: bool = True,
-        **kwargs: object,
     ) -> None:
         """Initialize DOFA segmentation model."""
         super().__init__(
@@ -34,35 +32,12 @@ class DOFASegmentationModel(BaseSegmentationModel):
             SegmentationHead,
             SegmentationOutput,
         )
-        wavelengths = wavelengths or [0.665, 0.549, 0.481]
 
         if encoder == "dofa_base":
-            self.embed_dim = 768
-            kwargs |= {
-                "patch_size": 16,
-                "embed_dim": self.embed_dim,
-                "depth": 12,
-                "num_heads": 12,
-                "out_layers": [3, 6, 9, 11],
-            }
+            self.encoder = create_dofa_base(img_size=image_size, pretrained=pretrained)
 
         elif encoder == "dofa_large":
-            self.embed_dim = 1024
-            kwargs |= {
-                "patch_size": 16,
-                "embed_dim": self.embed_dim,
-                "depth": 24,
-                "num_heads": 16,
-                "out_layers": [5, 11, 17, 23],
-            }
-
-        self.encoder = DOFA(
-            encoder_name=encoder,
-            pretrained=pretrained,
-            img_size=image_size,
-            wavelengths=wavelengths,
-            **kwargs,
-        )
+            self.encoder = create_dofa_large(img_size=image_size, pretrained=pretrained)
 
         self.neck = MultiLevelNeck(
             in_channels=[self.embed_dim] * 4,
