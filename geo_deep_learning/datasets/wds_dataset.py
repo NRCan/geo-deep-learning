@@ -36,6 +36,7 @@ class ShardedDataset(Dataset):
         split: str = "trn",
         transforms: Callable | None = None,
         epoch_size: int | None = None,
+        wavelength_keys: list[str] | None = None,
     ) -> None:
         """
         Initialize MultiSensorWebDataset.
@@ -48,6 +49,7 @@ class ShardedDataset(Dataset):
             split: Data split - "trn", "val", "tst"
             transforms: Optional transforms to apply to images
             epoch_size: Size of epoch (for infinite streaming)
+            wavelength_keys: Optional list of metadata keys for wavelengths
 
         """
         super().__init__()
@@ -61,6 +63,7 @@ class ShardedDataset(Dataset):
         self.shuffle_buffer = 10000
         self.norm_stats = self._load_normalization_stats(normalization_stats_path)
         self.dataset = self._create_webdataset_pipeline()
+        self.wavelength_keys = wavelength_keys
         self.wavelengths_cache = {}
 
     def _load_normalization_stats(self, stats_path: str) -> dict[str, Any]:
@@ -250,19 +253,20 @@ class ShardedDataset(Dataset):
         """Extract wavelength information for DOFA."""
         try:
             meta = metadata["metadata"]
-            # Extract wavelengths based on available bands
-            wavelengths = [
-                float(meta[band])
-                for band in [
-                    "red_wavelength",
-                    "green_wavelength",
-                    "blue_wavelength",
-                    "nir_wavelength",
-                ]
-                if band in meta
+
+            wavelengths_keys = self.wavelength_keys or [
+                "red_wavelength",
+                "green_wavelength",
+                "blue_wavelength",
+                "nir_wavelength",
             ]
-            # Cache for efficiency
-            cache_key = f"{self.sensor_name}_{len(wavelengths)}"
+
+            wavelengths = [
+                float(meta[band]) for band in wavelengths_keys if band in meta
+            ]
+
+            cache_key = f"{self.sensor_name}_{'_'.join(wavelengths_keys)}"
+
             if cache_key not in self.wavelengths_cache:
                 self.wavelengths_cache[cache_key] = torch.tensor(
                     wavelengths,
@@ -273,7 +277,7 @@ class ShardedDataset(Dataset):
 
         except Exception as e:  # noqa: BLE001
             logger.warning("Error extracting wavelengths: %s", e)
-            return torch.tensor([0.0, 0.0, 0.0, 0.0], dtype=torch.float32)
+            return torch.tensor([0.0] * len(wavelengths_keys), dtype=torch.float32)
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
         """Return iterator for WebDataset."""
