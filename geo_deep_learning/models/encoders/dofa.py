@@ -326,7 +326,6 @@ class DOFA(nn.Module):
         self,
         encoder_name: str = "dofa_base",
         img_size: int | tuple[int, int] = 224,
-        wavelengths: list[float] | None = None,
         patch_size: int = 14,
         embed_dim: int = 768,
         num_heads: int = 12,
@@ -365,7 +364,6 @@ class DOFA(nn.Module):
         self.drop_rate = drop_rate
         self.drop_path_rate = drop_path_rate
         self.attn_drop_rate = attn_drop_rate
-        self.wavelengths = wavelengths or [0.665, 0.549, 0.481]  # Default RGB
         self.final_norm = final_norm
         self.interpolate_mode = interpolate_mode
         self.dynamic_img_size = dynamic_img_size
@@ -612,7 +610,6 @@ class DOFA(nn.Module):
 
 # Factory functions for easy model creation
 def create_dofa_base(
-    wavelengths: list[float] | None = None,
     img_size: int | tuple[int, int] = 224,
     out_layers: int | list[int] | None = None,
     *,
@@ -623,7 +620,6 @@ def create_dofa_base(
     Create DOFA base model.
 
     Args:
-        wavelengths: List of wavelengths for spectral bands.
         img_size: Input image size.
         out_layers: Layers to extract features from.
         pretrained: Whether to load pretrained weights.
@@ -635,7 +631,6 @@ def create_dofa_base(
     """
     return DOFA(
         encoder_name="dofa_base",
-        wavelengths=wavelengths,
         img_size=img_size,
         patch_size=14,
         embed_dim=768,
@@ -648,7 +643,6 @@ def create_dofa_base(
 
 
 def create_dofa_large(
-    wavelengths: list[float] | None = None,
     img_size: int | tuple[int, int] = 224,
     out_layers: int | list[int] | None = None,
     *,
@@ -659,7 +653,6 @@ def create_dofa_large(
     Create DOFA large model.
 
     Args:
-        wavelengths: List of wavelengths for spectral bands.
         img_size: Input image size.
         out_layers: Layers to extract features from.
         pretrained: Whether to load pretrained weights.
@@ -671,7 +664,6 @@ def create_dofa_large(
     """
     return DOFA(
         encoder_name="dofa_large",
-        wavelengths=wavelengths,
         img_size=img_size,
         patch_size=14,
         embed_dim=1024,
