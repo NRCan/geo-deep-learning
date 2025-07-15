@@ -44,41 +44,23 @@ def position_embedding(embed_dim: int, pos: Tensor) -> Tensor:
 def dofa_encoder_base() -> dict[str, Tensor]:
     """Load DOFA encoder base model."""
     url: str = "https://hf.co/earthflow/DOFA/resolve/main/dofav2_vit_base_e150.pth"
-    model_dict = torch.hub.load_state_dict_from_url(
+    return torch.hub.load_state_dict_from_url(
         url,
         progress=True,
         map_location="cpu",
+        weights_only=True,
     )
-    keys_to_remove = [
-        "mask_token",
-        "norm.weight",
-        "norm.bias",
-        "projector.weight",
-        "projector.bias",
-    ]
-    for key in keys_to_remove:
-        model_dict.pop(key, None)
-    return model_dict
 
 
 def dofa_encoder_large() -> dict[str, Tensor]:
     """Load DOFA encoder large model."""
     url: str = "https://hf.co/earthflow/DOFA/resolve/main/dofav2_vit_large_e150.pth"
-    model_dict = torch.hub.load_state_dict_from_url(
+    return torch.hub.load_state_dict_from_url(
         url,
         progress=True,
         map_location="cpu",
+        weights_only=True,
     )
-    keys_to_remove = [
-        "mask_token",
-        "norm.weight",
-        "norm.bias",
-        "projector.weight",
-        "projector.bias",
-    ]
-    for key in keys_to_remove:
-        model_dict.pop(key, None)
-    return model_dict
 
 
 class TransformerWeightGenerator(nn.Module):
@@ -438,14 +420,15 @@ class DOFA(nn.Module):
 
             # Handle position embedding size mismatch
             if (
-                "pos_embed" in model_dict
-                and self.model.pos_embed.shape != model_dict["pos_embed"].shape
+                self.img_size != (224, 224)
+                and "model.pos_embed" in model_dict
+                and self.model.pos_embed.shape != model_dict["model.pos_embed"].shape
             ):
                 h, w = self.img_size
                 effective_patch_size = 16 if self.convert_patch_14_to_16 else 14
-                pos_size = int(math.sqrt(model_dict["pos_embed"].shape[1] - 1))
-                model_dict["pos_embed"] = self._resize_pos_embed(
-                    model_dict["pos_embed"],
+                pos_size = int(math.sqrt(model_dict["model.pos_embed"].shape[1] - 1))
+                model_dict["model.pos_embed"] = self._resize_pos_embed(
+                    model_dict["model.pos_embed"],
                     (h // effective_patch_size, w // effective_patch_size),
                     (pos_size, pos_size),
                     self.interpolate_mode,
@@ -454,7 +437,7 @@ class DOFA(nn.Module):
             # Load state dict
             missing_keys, unexpected_keys = self.load_state_dict(
                 model_dict,
-                strict=False,
+                strict=True,
             )
 
             # Allow certain missing keys for encoder-only usage
@@ -523,20 +506,18 @@ class DOFA(nn.Module):
 
         return torch.cat((cls_token_weight, pos_embed_weight), dim=1)
 
-    def forward_features(self, datacube: dict[str, Tensor]) -> list[Tensor]:
+    def forward_features(self, x: Tensor, wavelengths: Tensor) -> list[Tensor]:
         """
         Forward pass through the encoder, extracting features.
 
         Args:
-            datacube: Dictionary containing the input data cube.
+            x: Input image tensor of shape [B, C, H, W].
+            wavelengths: Wavelengths of each spectral band (μm).
 
         Returns:
             List of feature maps from specified layers.
 
         """
-        x = datacube["pixels"]
-        wavelengths = datacube["wavelengths"]
-
         # Embed patches using dynamic convolution
         x, _ = self.patch_embed(x, wavelengths)
 
@@ -594,18 +575,19 @@ class DOFA(nn.Module):
 
         return out_features
 
-    def forward(self, datacube: dict[str, Tensor]) -> list[Tensor]:
+    def forward(self, x: Tensor, wavelengths: Tensor) -> list[Tensor]:
         """
         Forward pass of the model.
 
         Args:
-            datacube: Dictionary containing the input data cube.
+            x: Input image tensor of shape [B, C, H, W].
+            wavelengths: Wavelengths of each spectral band (μm).
 
         Returns:
             List of feature maps from specified layers.
 
         """
-        return self.forward_features(datacube)
+        return self.forward_features(x, wavelengths)
 
 
 # Factory functions for easy model creation
