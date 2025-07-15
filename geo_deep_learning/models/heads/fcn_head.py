@@ -1,8 +1,9 @@
 """FCN head for semantic segmentation."""
 
 import torch
-from models.utils import ConvModule
 from torch import nn
+
+from geo_deep_learning.models.utils import ConvModule
 
 
 class FCNHead(nn.Module):
