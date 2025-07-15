@@ -109,7 +109,7 @@ class DOFASegmentationModel(BaseSegmentationModel):
 if __name__ == "__main__":
     model = DOFASegmentationModel()
     x = torch.randn(5, 3, 512, 512)
-    wavelengths = torch.randn(5, 3)
+    wavelengths = torch.tensor([0.665, 0.549, 0.481])
     outputs = model(x, wavelengths)
     # print(f"outputs.shape: {outputs.out.shape}")
     # print(f"aux_outputs.shape: {outputs.aux.shape}")
