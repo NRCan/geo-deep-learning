@@ -1,8 +1,9 @@
 """UperNet decoder."""
 
 import torch
-from models.utils import PPM, ConvModule
 from torch import nn
+
+from geo_deep_learning.models.utils import PPM, ConvModule
 
 
 class UperNetDecoder(nn.Module):
