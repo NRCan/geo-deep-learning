@@ -1,7 +1,8 @@
 """Base segmentation model."""
 
-from models.utils import patch_first_conv
 from torch import Tensor, nn
+
+from geo_deep_learning.models.utils import patch_first_conv
 
 
 class BaseSegmentationModel(nn.Module):
