@@ -21,7 +21,7 @@ class RoundRobinSampler(Sampler):
         sensor_weighting: str = "equal",
         custom_weights: dict[str, float] | None = None,
         *,
-        drop_last: bool = True,
+        drop_last: bool = False,
     ) -> None:
         """Initialize RoundRobinSampler."""
         self.datasets = datasets
