@@ -150,22 +150,15 @@ class MultiSensorDataModule(LightningDataModule):
         self.combined_datasets = {}
 
         for split in ["trn", "val", "tst"]:
-            split_datasets = []
-            sensor_names = []
-
-            for sensor_name, sensor_splits in self.datasets.items():
-                if split in sensor_splits:
-                    dataset = sensor_splits[split]
-                    split_datasets.append(dataset)
-                    sensor_names.append(sensor_name)
-
-            if split_datasets:
+            sensor_datasets = {
+                sensor_name: sensor_splits[split]
+                for sensor_name, sensor_splits in self.datasets.items()
+                if split in sensor_splits
+            }
+            if sensor_datasets:
                 self.combined_datasets[split] = {
-                    "dataset": ConcatDataset(split_datasets),
-                    "sensor_datasets": dict(
-                        zip(sensor_names, split_datasets, strict=False),
-                    ),
-                    "sensor_names": sensor_names,
+                    "dataset": ConcatDataset(list(sensor_datasets.values())),
+                    "sensor_datasets": sensor_datasets,
                 }
 
     def _create_round_robin_dataloader(self, split: str) -> DataLoader:
@@ -246,4 +239,6 @@ class MultiSensorDataModule(LightningDataModule):
 
     def test_dataloader(self) -> DataLoader:
         """Create test DataLoader."""
+        if "tst" not in self.combined_datasets:
+            return None
         return self._create_mixed_dataloader("tst")
