@@ -1,5 +1,6 @@
 """CSV dataset."""
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -7,8 +8,17 @@ import numpy as np
 import pandas as pd
 import rasterio as rio
 import torch
+from pytorch_lightning.utilities import rank_zero_only
 from torch import Tensor
 from torchgeo.datasets import NonGeoDataset
+
+logger = logging.getLogger(__name__)
+
+
+@rank_zero_only
+def log_dataset(split: str, patch_count: int) -> None:
+    """Log dataset."""
+    logger.info("Created dataset for %s split with %s patches", split, patch_count)
 
 
 class CSVDataset(NonGeoDataset):
@@ -73,6 +83,7 @@ class CSVDataset(NonGeoDataset):
         self.split = split
         self.transforms = transforms
         self.files = self._load_files()
+        log_dataset(self.split, len(self.files))
 
     def _load_files(self) -> list[dict[str, str]]:
         """Load image and mask paths from csv files."""
