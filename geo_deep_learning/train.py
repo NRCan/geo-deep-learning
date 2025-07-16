@@ -27,12 +27,6 @@ class TestMLFlowLogger(MLFlowLogger):
 class GeoDeepLearningCLI(LightningCLI):
     """Custom LightningCLI."""
 
-    def before_fit(self) -> None:
-        """Prepare data and log dataset sizes."""
-        self.datamodule.prepare_data()
-        self.datamodule.setup("fit")
-        self.log_dataset_sizes()
-
     def after_fit(self) -> None:
         """Log test metrics."""
         if self.trainer.is_global_zero:
@@ -63,25 +57,6 @@ class GeoDeepLearningCLI(LightningCLI):
             self.trainer.logger.log_hyperparams({"best_model_path": best_model_path})
             logger.info("Test metrics logged successfully to all loggers.")
         self.trainer.strategy.barrier()
-
-    def log_dataset_sizes(self) -> None:
-        """Log dataset sizes."""
-        if self.trainer.is_global_zero:
-            train_size = len(self.datamodule.train_dataloader().dataset)
-            val_size = len(self.datamodule.val_dataloader().dataset)
-            test_size = len(self.datamodule.test_dataloader().dataset)
-
-            metrics = {
-                "num_training_samples": train_size,
-                "num_validation_samples": val_size,
-                "num_test_samples": test_size,
-            }
-
-            self.trainer.logger.log_metrics(metrics)
-
-            logger.info("Number of training samples: %s", train_size)
-            logger.info("Number of validation samples: %s", val_size)
-            logger.info("Number of test samples: %s", test_size)
 
 
 def main(args: ArgsType = None) -> None:
