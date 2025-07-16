@@ -11,6 +11,7 @@ from typing import Any
 import torch
 import webdataset as wds
 import yaml
+from pytorch_lightning.utilities import rank_zero_only
 from torch.utils.data import Dataset
 
 from geo_deep_learning.tools.utils import normalization, standardization
@@ -31,6 +32,7 @@ class ShardedDataset(Dataset):
         self,
         sensor_name: str,
         shard_paths: list[str],
+        patch_count: int,
         normalization_stats_path: str,
         model_type: str = "clay",  # "clay", "dofa", "unified"
         split: str = "trn",
@@ -44,6 +46,7 @@ class ShardedDataset(Dataset):
         Args:
             sensor_name: Name of the sensor (e.g., "geoeye-1-ortho-pansharp_base")
             shard_paths: List of WebDataset shard URLs/paths
+            patch_count: Number of patches in the dataset
             normalization_stats_path: Path to normalization statistics JSON
             model_type: Output format - "clay", "dofa", or "unified"
             split: Data split - "trn", "val", "tst"
@@ -61,6 +64,7 @@ class ShardedDataset(Dataset):
         self.transforms = transforms
         self.epoch_size = epoch_size
         self.shuffle_buffer = 10000
+        self.patch_count = patch_count
         self.norm_stats = self._load_normalization_stats(normalization_stats_path)
         self.dataset = self._create_webdataset_pipeline()
         self.wavelength_keys = wavelength_keys
@@ -285,18 +289,14 @@ class ShardedDataset(Dataset):
 
     def __len__(self) -> int:
         """Return epoch size if set, otherwise patch count."""
-        return (
-            self.epoch_size
-            if self.epoch_size is not None
-            else self.norm_stats["patch_count"]
-        )
+        return self.epoch_size if self.epoch_size is not None else self.patch_count
 
     @staticmethod
     def create_shard_split_paths(
         manifest_path: str,
         split: str,
         parent_dir: str | None = None,
-    ) -> list[str]:
+    ) -> tuple[list[str], int]:
         """
         Create shard split paths from a manifest file.
 
@@ -306,7 +306,7 @@ class ShardedDataset(Dataset):
             parent_dir: Optional parent directory for the split shards
 
         Returns:
-            List of shard paths for the specified split
+            Tuple of list of shard paths for the specified split and patch count
 
         """
         if parent_dir is None:
@@ -316,13 +316,43 @@ class ShardedDataset(Dataset):
         with Path(manifest_path).open() as f:
             data = json.load(f)
         shard_data = data["shards"][split]
-        return [(shard_parent_path / item["path"]).as_posix() for item in shard_data]
+        patch_count = data["statistics"]["patch_counts"][split]
+        return (
+            [(shard_parent_path / item["path"]).as_posix() for item in shard_data],
+            patch_count,
+        )
 
 
 def load_sensor_configs(config_path: str) -> dict[str, dict[str, str]]:
     """Load sensor configurations from a YAML file."""
     with Path(config_path).open() as f:
         return yaml.safe_load(f)
+
+
+@rank_zero_only
+def log_dataset(
+    sensor_name: str,
+    split: str,
+    shard_count: int | None = None,
+    patch_count: int | None = None,
+    *,
+    valid: bool = False,
+) -> None:
+    """Log dataset(only on rank 0)."""
+    if valid:
+        logger.info(
+            "Created dataset for %s %s split (%s shards) with %s patches",
+            sensor_name,
+            split,
+            shard_count,
+            patch_count,
+        )
+    else:
+        logger.warning(
+            "No shards found for %s %s split",
+            sensor_name,
+            split,
+        )
 
 
 def create_sharded_datasets(
@@ -345,7 +375,7 @@ def create_sharded_datasets(
     for sensor_name, config in sensor_configs.items():
         try:
             for split in ["trn", "val", "tst"]:
-                shard_paths = ShardedDataset.create_shard_split_paths(
+                shard_paths, patch_count = ShardedDataset.create_shard_split_paths(
                     manifest_path=config["manifest_path"],
                     split=split,
                     parent_dir=config["parent_dir"],
@@ -353,24 +383,24 @@ def create_sharded_datasets(
                 if sensor_name not in datasets:
                     datasets[sensor_name] = {}
                 if len(shard_paths) == 0:
-                    logger.warning(
-                        "No shards found for %s %s split",
-                        sensor_name,
-                        split,
-                    )
+                    log_dataset(sensor_name, split, valid=False)
                     continue
                 datasets[sensor_name][split] = ShardedDataset(
                     sensor_name=sensor_name,
                     shard_paths=shard_paths,
+                    patch_count=patch_count,
                     normalization_stats_path=config["stats_path"],
+                    split=split,
                     **common_kwargs,
                 )
-            logger.info(
-                "Created dataset for %s %s split with %s shards",
-                sensor_name,
-                split,
-                len(shard_paths),
-            )
+
+                log_dataset(
+                    sensor_name,
+                    split,
+                    len(shard_paths),
+                    patch_count,
+                    valid=True,
+                )
         except Exception:
             logger.exception(
                 "Failed to create dataset for %s %s split",
