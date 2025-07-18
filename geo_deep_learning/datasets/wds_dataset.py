@@ -90,9 +90,10 @@ class ShardedDataset(Dataset):
         dataset = (
             wds.WebDataset(
                 self.shard_paths,
-                shardshuffle=self.split == "trn",
+                shardshuffle=1000,
                 nodesplitter=wds.split_by_node,
                 workersplitter=wds.split_by_worker,
+                empty_check=False,
             )
             .decode()
             .map(self._process_sample, handler=wds.warn_and_continue)
@@ -355,7 +356,7 @@ def log_dataset(
         )
 
 
-def create_sharded_datasets(
+def create_sensor_datasets(
     sensor_configs_path: str,
     **common_kwargs: object,
 ) -> dict[str, ShardedDataset]:
