@@ -30,11 +30,14 @@ class GeoDeepLearningCLI(LightningCLI):
     def after_fit(self) -> None:
         """Log test metrics."""
         if self.trainer.is_global_zero:
+            test_dataloader = self.datamodule.test_dataloader()
+            if test_dataloader is None:
+                logger.warning("No test dataloader found.")
+                return
             best_model_path = self.trainer.checkpoint_callback.best_model_path
-
             test_logger = TestMLFlowLogger(
-                experiment_name=self.trainer.logger.experiment_name,
-                run_name=self.trainer.logger.run_name,
+                experiment_name=self.trainer.logger._experiment_name,  # noqa: SLF001
+                run_name=self.trainer.logger._run_name,  # noqa: SLF001
                 run_id=self.trainer.logger.run_id,
                 save_dir=self.trainer.logger.save_dir,
             )
@@ -52,7 +55,7 @@ class GeoDeepLearningCLI(LightningCLI):
             )
             test_trainer.test(
                 model=best_model,
-                dataloaders=self.datamodule.test_dataloader(),
+                dataloaders=test_dataloader,
             )
             self.trainer.logger.log_hyperparams({"best_model_path": best_model_path})
             logger.info("Test metrics logged successfully to all loggers.")
