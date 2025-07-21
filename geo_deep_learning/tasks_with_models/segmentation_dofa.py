@@ -7,10 +7,9 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from lightning.pytorch import LightningDataModule, LightningModule
+from lightning.pytorch import LightningModule
 from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
 from models.segmentation.dofa import DOFASegmentationModel
-from tools.script_model import SegmentationScriptModel
 from tools.utils import denormalization
 from tools.visualization import visualize_prediction
 from torch import Tensor
@@ -35,13 +34,8 @@ class SegmentationDOFA(LightningModule):
         *,
         pretrained: bool,
         image_size: tuple[int, int],
-        wavelengths: list[float],
-        in_channels: int,
         num_classes: int,
         max_samples: int,
-        mean: list[float],
-        std: list[float],
-        data_type_max: float,
         loss: Callable,
         optimizer: OptimizerCallable = torch.optim.Adam,
         scheduler: LRSchedulerCallable = torch.optim.lr_scheduler.ConstantLR,
@@ -59,20 +53,15 @@ class SegmentationDOFA(LightningModule):
         self.scheduler = scheduler
         self.scheduler_config = scheduler_config or {"interval": "epoch"}
         self.class_colors = class_colors
-        self.input_channels = in_channels
         self.max_samples = max_samples
-        self.mean = mean
-        self.std = std
-        self.data_type_max = data_type_max
         self.num_classes = num_classes
         self.threshold = 0.5
         self.model = DOFASegmentationModel(
-            encoder,
-            pretrained,
-            freeze_layers=freeze_layers,
+            encoder=encoder,
             image_size=image_size,
-            wavelengths=wavelengths,
+            freeze_layers=freeze_layers,
             num_classes=self.num_classes,
+            pretrained=pretrained,
         )
 
         if weights_from_checkpoint_path:
@@ -107,9 +96,9 @@ class SegmentationDOFA(LightningModule):
         scheduler = self.scheduler(optimizer)
         return [optimizer], [{"scheduler": scheduler, **self.scheduler_config}]
 
-    def forward(self, image: Tensor) -> Tensor:
+    def forward(self, image: Tensor, wavelengths: Tensor) -> Tensor:
         """Forward pass."""
-        return self.model(image)
+        return self.model(image, wavelengths)
 
     def training_step(
         self,
@@ -117,11 +106,12 @@ class SegmentationDOFA(LightningModule):
         batch_idx: int,  # noqa: ARG002
     ) -> Tensor:
         """Run training step."""
-        x = batch["image"]
+        x = batch["pixels"]
         y = batch["mask"]
+        wv = batch["wavelengths"]
         batch_size = x.shape[0]
         y = y.squeeze(1).long()
-        outputs = self(x)
+        outputs = self(x, wv)
         loss_main = self.loss(outputs.out, y)
         loss_aux = self.loss(outputs.aux, y)
         loss = loss_main + 0.4 * loss_aux
@@ -146,11 +136,12 @@ class SegmentationDOFA(LightningModule):
         batch_idx: int,  # noqa: ARG002
     ) -> Tensor:
         """Run validation step."""
-        x = batch["image"]
+        x = batch["pixels"]
         y = batch["mask"]
+        wv = batch["wavelengths"]
         batch_size = x.shape[0]
         y = y.squeeze(1).long()
-        outputs = self(x)
+        outputs = self(x, wv)
         loss_main = self.loss(outputs.out, y)
         loss_aux = self.loss(outputs.aux, y)
         loss = loss_main + 0.4 * loss_aux
@@ -178,11 +169,12 @@ class SegmentationDOFA(LightningModule):
         batch_idx: int,  # noqa: ARG002
     ) -> None:
         """Run test step."""
-        x = batch["image"]
+        x = batch["pixels"]
         y = batch["mask"]
+        wv = batch["wavelengths"]
         batch_size = x.shape[0]
         y = y.squeeze(1).long()
-        outputs = self(x)
+        outputs = self(x, wv)
         loss_main = self.loss(outputs.out, y)
         loss_aux = self.loss(outputs.aux, y)
         loss = loss_main + 0.4 * loss_aux
@@ -203,7 +195,6 @@ class SegmentationDOFA(LightningModule):
                     image,
                     mean=self.mean,
                     std=self.std,
-                    data_type_max=self.data_type_max,
                 )
                 fig = visualize_prediction(
                     image,
@@ -232,53 +223,66 @@ class SegmentationDOFA(LightningModule):
             rank_zero_only=True,
         )
 
-    def on_train_end(self) -> None:
-        """Run on train end."""
-        if self.trainer.is_global_zero and self.trainer.checkpoint_callback is not None:
-            best_model_path = self.trainer.checkpoint_callback.best_model_path
-            if best_model_path:
-                logger.info("Best model path: %s", best_model_path)
-                best_model_dir = Path(best_model_path).parent
-                best_model_name = Path(best_model_path).stem
-                best_model_export_path = str(
-                    best_model_dir / f"{best_model_name}_scripted.pt",
-                )
-                self.export_model(
-                    best_model_path,
-                    best_model_export_path,
-                    self.trainer.datamodule,
-                )
+    def on_validation_epoch_end(self) -> None:
+        """Ensure all ranks complete validation before continuing."""
+        # First, let the metrics sync across all ranks
+        super().on_validation_epoch_end()
+        # Then add barrier to ensure all ranks finish validation
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
+            if torch.distributed.get_rank() == 0:
+                logger.info("All ranks completed validation epoch")
 
-    def export_model(
-        self,
-        checkpoint_path: str,
-        export_path: str,
-        datamodule: LightningDataModule,
-    ) -> None:
-        """Export model."""
-        map_location = "cuda"
-        if self.device.type == "cpu":
-            map_location = "cpu"
-        best_model = self.__class__.load_from_checkpoint(
-            checkpoint_path,
-            weights_from_checkpoint_path=None,
-            map_location=map_location,
-        )
-        input_shape = (1, self.input_channels, *datamodule.patch_size)
-        device = torch.device(map_location)
-        script_model = SegmentationScriptModel(
-            model=best_model.model,
-            device=device,
-            num_classes=self.num_classes,
-            input_shape=input_shape,
-            mean=self.mean,
-            std=self.std,
-            image_min=0,
-            image_max=self.data_type_max,
-            norm_min=0.0,
-            norm_max=1.0,
-            from_logits=True,
-        )
-        scripted_model = torch.jit.script(script_model)
-        scripted_model.save(export_path)
-        logger.info("Model exported to TorchScript")
+    # def on_train_end(self) -> None:
+    #     """Run on train end."""
+    #     if (
+    #         self.trainer.is_global_zero
+    #         and self.trainer.checkpoint_callback is not None
+    #     ):
+    #         best_model_path = self.trainer.checkpoint_callback.best_model_path
+    #         if best_model_path:
+    #             logger.info("Best model path: %s", best_model_path)
+    #             best_model_dir = Path(best_model_path).parent
+    #             best_model_name = Path(best_model_path).stem
+    #             best_model_export_path = str(
+    #                 best_model_dir / f"{best_model_name}_scripted.pt",
+    #             )
+    #             self.export_model(
+    #                 best_model_path,
+    #                 best_model_export_path,
+    #                 self.trainer.datamodule,
+    #             )
+
+    # def export_model(
+    #     self,
+    #     checkpoint_path: str,
+    #     export_path: str,
+    #     datamodule: LightningDataModule,
+    # ) -> None:
+    #     """Export model."""
+    #     map_location = "cuda"
+    #     if self.device.type == "cpu":
+    #         map_location = "cpu"
+    #     best_model = self.__class__.load_from_checkpoint(
+    #         checkpoint_path,
+    #         weights_from_checkpoint_path=None,
+    #         map_location=map_location,
+    #     )
+    #     input_shape = (1, self.input_channels, *datamodule.patch_size)
+    #     device = torch.device(map_location)
+    #     script_model = SegmentationScriptModel(
+    #         model=best_model.model,
+    #         device=device,
+    #         num_classes=self.num_classes,
+    #         input_shape=input_shape,
+    #         mean=self.mean,
+    #         std=self.std,
+    #         image_min=0,
+    #         image_max=self.data_type_max,
+    #         norm_min=0.0,
+    #         norm_max=1.0,
+    #         from_logits=True,
+    #     )
+    #     scripted_model = torch.jit.script(script_model)
+    #     scripted_model.save(export_path)
+    #     logger.info("Model exported to TorchScript")
