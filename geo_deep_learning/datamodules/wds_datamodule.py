@@ -1,13 +1,12 @@
 """Multi-sensor data module for webdataset."""
 
 import logging
-from typing import Any
 
 import kornia as krn
 import torch
 from kornia.augmentation import AugmentationSequential
 from lightning.pytorch import LightningDataModule
-from torch.utils.data import DataLoader
+from webdataset import WebLoader
 
 from geo_deep_learning.datasets.wds_dataset import create_sensor_datasets
 from geo_deep_learning.datasets.wds_mixers import get_mixed_dataset
@@ -15,47 +14,13 @@ from geo_deep_learning.datasets.wds_mixers import get_mixed_dataset
 logger = logging.getLogger(__name__)
 
 
-def collate_multisensor_batch(batch: list[dict[str, Any]]) -> dict[str, Any]:
-    """
-    Collate function for multi-sensor batches.
-
-    Args:
-        batch: List of samples from one or more sensors
-
-    Returns:
-        Batched dictionary with stacked tensors
-
-    """
-    if not batch:
-        return {}
-
-    collated = {}
-
-    sample_keys = batch[0].keys()
-
-    for key in sample_keys:
-        values = [sample[key] for sample in batch]
-
-        if key in ["pixels", "mask", "time", "latlon", "wavelengths"]:
-            try:
-                collated[key] = torch.stack(values)
-            except RuntimeError as e:
-                logger.warning("Failed to stack %s: %s", key, e)
-                collated[key] = values
-        else:
-            collated[key] = values
-
-    return collated
-
-
 class MultiSensorDataModule(LightningDataModule):
     """PyTorch Lightning DataModule for multi-sensor Earth observation data."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         sensor_configs_path: str,
         model_type: str = "clay",
-        sampling_strategy: str | dict[str, str] = "round_robin",  # or "uniform"
         patch_size: tuple[int, int] = (512, 512),
         batch_size: int = 16,
         num_workers: int = 8,
@@ -66,9 +31,6 @@ class MultiSensorDataModule(LightningDataModule):
         Args:
             sensor_configs_path: Path to YAML config with sensor configurations
             model_type: Output format - "clay", "dofa", or "unified"
-            sampling_strategy: Sampling strategy per split. Can be:
-                - str: Same strategy for trn and val ("round_robin" or "uniform")
-                - Dict: trn and val strategy {"trn":"round_robin", "val":"uniform"}
             batch_size: Batch size for all dataloaders
             num_workers: Number of worker processes
             patch_size: Target patch size for augmentations
@@ -81,14 +43,6 @@ class MultiSensorDataModule(LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.patch_size = patch_size
-
-        if isinstance(sampling_strategy, str):
-            self.sampling_strategy = {
-                "trn": sampling_strategy,
-                "val": sampling_strategy,
-            }
-        else:
-            self.sampling_strategy = sampling_strategy
 
         self.datasets = {}
         self.combined_datasets = {}
@@ -128,11 +82,23 @@ class MultiSensorDataModule(LightningDataModule):
 
     def setup(self, stage: str | None = None) -> None:  # noqa: ARG002
         """Create datasets for each stage."""
+        if torch.distributed.is_initialized():
+            rank = torch.distributed.get_rank()
+            world_size = torch.distributed.get_world_size()
+            if rank == 0:
+                logger.info(
+                    "Setting up distributed WebDataset dataloaders with %d GPUs",
+                    world_size,
+                )
+            else:
+                logger.info("Setting up single-GPU WebDataset dataloaders")
+
         self.datasets = create_sensor_datasets(
             sensor_configs_path=self.sensor_configs_path,
             model_type=self.model_type,
             transforms=self.transform,
-            epoch_size=10,
+            batch_size=self.batch_size,
+            epoch_size=50,
         )
         self.combined_datasets = {}
         for split in ["trn", "val", "tst"]:
@@ -142,47 +108,48 @@ class MultiSensorDataModule(LightningDataModule):
                 if split in sensor_splits
             }
             if sensor_datasets:
-                strategy = self.sampling_strategy.get(split, "uniform")
                 self.combined_datasets[split] = get_mixed_dataset(
                     sensor_datasets=sensor_datasets,
-                    strategy=strategy,
+                    strategy="round_robin",
                 )
 
-    def _create_dataloader(self, split: str) -> DataLoader:
-        """Create a round-robin DataLoader for the given split."""
+    def _create_dataloader(self, split: str) -> WebLoader:
+        """Create a DataLoader for the given split."""
         if split not in self.combined_datasets:
             msg = f"No combined dataset found for split: {split}"
             raise ValueError(msg)
         num_workers = self.num_workers
-
-        if split == "trn":
-            num_workers = min(2, self.num_workers)  # Max 2 for 2 shards
-        elif split == "val":
-            num_workers = min(1, self.num_workers)  # Max 1 for 1 shard
-        else:  # test
-            num_workers = min(4, self.num_workers)  # Max 4 for 4 shards
-
-        return DataLoader(
+        if torch.distributed.is_initialized() and self.num_workers > 1:
+            world_size = torch.distributed.get_world_size()
+            max_world_size = 4
+            if world_size >= max_world_size:
+                num_workers = max(1, self.num_workers // 2)
+            if torch.distributed.get_rank() == 0:
+                logger.info(
+                    "Distributed mode: Adjusted num_workers from %d to %d for %s split",
+                    self.num_workers,
+                    num_workers,
+                    split,
+                )
+        return WebLoader(
             self.combined_datasets[split],
-            batch_size=self.batch_size,
-            shuffle=False,
             num_workers=num_workers,
-            collate_fn=collate_multisensor_batch,
+            batch_size=None,
             pin_memory=True,
-            prefetch_factor=2,
+            prefetch_factor=2 if num_workers > 0 else None,
             persistent_workers=(num_workers > 0),
-            timeout=60,
+            timeout=120 if torch.distributed.is_initialized() else 60,
         )
 
-    def train_dataloader(self) -> DataLoader:
+    def train_dataloader(self) -> WebLoader:
         """Create training DataLoader."""
         return self._create_dataloader("trn")
 
-    def val_dataloader(self) -> DataLoader:
+    def val_dataloader(self) -> WebLoader:
         """Create validation DataLoader."""
         return self._create_dataloader("val")
 
-    def test_dataloader(self) -> DataLoader:
+    def test_dataloader(self) -> WebLoader:
         """Create test DataLoader."""
         if "tst" not in self.combined_datasets:
             return None
