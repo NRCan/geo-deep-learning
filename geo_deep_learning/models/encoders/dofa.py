@@ -178,6 +178,7 @@ class DOFAEmbedding(nn.Module):
 
     def __init__(
         self,
+        wv_planes: int,
         dynamic_embed_dim: int = 128,
         kernel_size: int = 14,
         embed_dim: int = 768,
@@ -188,6 +189,7 @@ class DOFAEmbedding(nn.Module):
         Initialize a new DOFAEmbedding instance.
 
         Args:
+            wv_planes: Number of wavelength planes.
             dynamic_embed_dim: Dimensions of dynamic weight generator.
             kernel_size: Kernel size of the convolution (14 for v2).
             embed_dim: Output embedding dimensions.
@@ -195,6 +197,7 @@ class DOFAEmbedding(nn.Module):
 
         """
         super().__init__()
+        self.wv_planes = wv_planes
         self.dynamic_embed_dim = dynamic_embed_dim
         self.kernel_size = kernel_size
         self.embed_dim = embed_dim
@@ -203,13 +206,13 @@ class DOFAEmbedding(nn.Module):
         self.patch_size = (kernel_size, kernel_size)
 
         self.weight_generator = TransformerWeightGenerator(
-            dynamic_embed_dim,
+            wv_planes,
             self._num_kernel,
             embed_dim,
         )
         self.scaler = 0.01
 
-        self.fclayer = FCResLayer(dynamic_embed_dim)
+        self.fclayer = FCResLayer(wv_planes)
 
         self._init_weights()
 
@@ -370,6 +373,7 @@ class DOFA(nn.Module):
 
         # Create patch embedding layer
         self.patch_embed = DOFAEmbedding(
+            wv_planes=128,
             dynamic_embed_dim=128,
             kernel_size=14,
             embed_dim=self.embed_dim,
@@ -518,6 +522,15 @@ class DOFA(nn.Module):
             List of feature maps from specified layers.
 
         """
+        expected_ndim = 2
+        if wavelengths.dim() == expected_ndim:
+            # If all samples in batch have same wavelengths, use first sample
+            if torch.allclose(wavelengths, wavelengths[0:1].expand_as(wavelengths)):
+                wavelengths = wavelengths[0]  # Shape: [C]
+            else:
+                msg = "DOFA cannot handle different wavelengths within a batch"
+                raise ValueError(msg)
+
         # Embed patches using dynamic convolution
         x, _ = self.patch_embed(x, wavelengths)
 
