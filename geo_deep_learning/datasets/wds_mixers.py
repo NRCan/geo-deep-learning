@@ -1,10 +1,13 @@
 """Mixers for WebDataset."""
 
-import random
+import logging
 from collections.abc import Iterator
 from typing import Any, Literal
 
+import torch
 from torch.utils.data import IterableDataset
+
+logger = logging.getLogger(__name__)
 
 
 class MixedIterableDataset(IterableDataset):
@@ -34,31 +37,43 @@ class MixedIterableDataset(IterableDataset):
         self,
         iterators: list[Iterator[dict[str, Any]]],
     ) -> Iterator[dict[str, Any]]:
-        """Round-robin strategy without using exceptions."""
+        """Round-robin strategy."""
+        if not iterators:
+            return
+
         active_iterators = list(iterators)
         sentinel = object()
+        rank_str = ""
+        if torch.distributed.is_initialized():
+            rank = torch.distributed.get_rank()
+            rank_str = f"[Rank {rank}] "
+        logger.info(
+            "%sStarting round_robin with %d iterators",
+            rank_str,
+            len(active_iterators),
+        )
+        batch_count = 0
 
         while active_iterators:
-            still_active = []
-            for it in active_iterators:
-                item = next(it, sentinel)
+            i = 0
+            while i < len(active_iterators):
+                item = next(active_iterators[i], sentinel)
                 if item is not sentinel:
                     yield item
-                    still_active.append(it)
-            active_iterators = still_active
+                    batch_count += 1
+                    if batch_count % 1000 == 0:
+                        logger.debug("%sYielded %d items so far", rank_str, batch_count)
+                    i += 1
+                else:
+                    active_iterators.pop(i)
+
+        logger.info("%sRound_robin completed after %d items", rank_str, batch_count)
 
     def _uniform(
         self,
         iterators: list[Iterator[dict[str, Any]]],
-    ) -> Iterator[dict[str, Any]]:
+    ) -> None:
         """Uniform strategy."""
-        iterators = list(iterators)
-        while iterators:
-            i = random.randint(0, len(iterators) - 1)  # noqa: S311
-            try:
-                yield next(iterators[i])
-            except StopIteration:
-                iterators.pop(i)
 
 
 def get_mixed_dataset(
