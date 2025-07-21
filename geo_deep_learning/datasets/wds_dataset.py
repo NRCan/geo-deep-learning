@@ -12,14 +12,14 @@ import torch
 import webdataset as wds
 import yaml
 from pytorch_lightning.utilities import rank_zero_only
-from torch.utils.data import Dataset
+from torch.utils.data import IterableDataset
 
 from geo_deep_learning.tools.utils import normalization, standardization
 
 logger = logging.getLogger(__name__)
 
 
-class ShardedDataset(Dataset):
+class ShardedDataset(IterableDataset):
     """
     High-performance WebDataset for multi-sensor Earth observation data.
 
@@ -37,6 +37,7 @@ class ShardedDataset(Dataset):
         model_type: str = "clay",  # "clay", "dofa", "unified"
         split: str = "trn",
         transforms: Callable | None = None,
+        batch_size: int = 16,
         epoch_size: int | None = None,
         wavelength_keys: list[str] | None = None,
     ) -> None:
@@ -51,6 +52,7 @@ class ShardedDataset(Dataset):
             model_type: Output format - "clay", "dofa", or "unified"
             split: Data split - "trn", "val", "tst"
             transforms: Optional transforms to apply to images
+            batch_size: Batch size
             epoch_size: Size of epoch (for infinite streaming)
             wavelength_keys: Optional list of metadata keys for wavelengths
 
@@ -62,11 +64,12 @@ class ShardedDataset(Dataset):
         self.model_type = model_type
         self.split = split
         self.transforms = transforms
+        self.batch_size = batch_size
         self.epoch_size = epoch_size
-        self.shuffle_buffer = 10000
+        self.shuffle_buffer = 1000
         self.patch_count = patch_count
         self.norm_stats = self._load_normalization_stats(normalization_stats_path)
-        self.dataset = self._create_webdataset_pipeline()
+        # self.dataset = self._create_webdataset_pipeline()
         self.wavelength_keys = wavelength_keys
         self.wavelengths_cache = {}
 
@@ -87,23 +90,70 @@ class ShardedDataset(Dataset):
 
     def _create_webdataset_pipeline(self) -> wds.WebDataset:
         """Create optimized WebDataset pipeline for HPC."""
+        shard_list = sorted(self.shard_paths)
+        logger.info(
+            "Creating WebDataset for %s %s with %s shards",
+            self.sensor_name,
+            self.split,
+            len(shard_list),
+        )
+        if torch.distributed.is_initialized():
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+            rank_shards = shard_list[rank::world_size]
+            logger.info(
+                "[Rank %d/%d] %s %s: Assigned %d/%d shards. First shard: %s",
+                rank,
+                world_size,
+                self.sensor_name,
+                self.split,
+                len(rank_shards),
+                len(shard_list),
+                rank_shards[0] if rank_shards else "None",
+            )
+
+            if not rank_shards:
+                logger.warning(
+                    "Rank %d has no shards! Consider having more shards than ranks.",
+                    rank,
+                )
+                return wds.WebDataset([]).decode()
+            shard_list = rank_shards
+        else:
+            logger.info(
+                "Not using distributed training - using all %d shards",
+                len(shard_list),
+            )
+        shard_shuffle = self.shuffle_buffer if self.split == "trn" else None
         dataset = (
             wds.WebDataset(
-                self.shard_paths,
-                shardshuffle=1000,
+                urls=shard_list,
+                shardshuffle=shard_shuffle,
                 nodesplitter=wds.split_by_node,
                 workersplitter=wds.split_by_worker,
                 empty_check=False,
             )
-            .decode()
-            .map(self._process_sample, handler=wds.warn_and_continue)
-        )
-        if self.split == "trn" and self.shuffle_buffer > 0:
+        ).decode()
+        if self.split == "trn":
             dataset = dataset.shuffle(self.shuffle_buffer)
+        dataset = dataset.map(self._process_sample, handler=wds.warn_and_continue)
+        dataset = dataset.batched(self.batch_size, partial=True)
+        dataset = dataset.map(self.collate_fn)
         if self.epoch_size is not None:
-            dataset = dataset.with_epoch(self.epoch_size)
+            if torch.distributed.is_initialized():
+                world_size = torch.distributed.get_world_size()
+                per_gpu_epoch_size = self.epoch_size // world_size
+                dataset = dataset.with_epoch(per_gpu_epoch_size)
+            else:
+                dataset = dataset.with_epoch(self.epoch_size)
 
         return dataset
+
+    def collate_fn(self, batch: dict[str, Any]) -> dict[str, Any]:
+        """Collate function for WebDataset batches."""
+        if not batch:
+            return {}
+        return batch
 
     def _process_sample(self, sample: dict[str, Any]) -> dict[str, Any]:
         """
@@ -286,11 +336,21 @@ class ShardedDataset(Dataset):
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
         """Return iterator for WebDataset."""
-        return iter(self.dataset)
+        dataset = self._create_webdataset_pipeline()
+        return iter(dataset)
 
     def __len__(self) -> int:
         """Return epoch size if set, otherwise patch count."""
-        return self.epoch_size if self.epoch_size is not None else self.patch_count
+        if self.epoch_size is not None:
+            if torch.distributed.is_initialized():
+                world_size = torch.distributed.get_world_size()
+                return self.epoch_size // world_size
+            return self.epoch_size
+        total_batches = self.patch_count // self.batch_size
+        if torch.distributed.is_initialized():
+            world_size = torch.distributed.get_world_size()
+            return total_batches // world_size
+        return total_batches
 
     @staticmethod
     def create_shard_split_paths(
