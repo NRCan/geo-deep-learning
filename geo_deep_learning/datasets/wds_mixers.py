@@ -4,7 +4,6 @@ import logging
 from collections.abc import Iterator
 from typing import Any, Literal
 
-import torch
 from torch.utils.data import IterableDataset
 
 logger = logging.getLogger(__name__)
@@ -43,31 +42,22 @@ class MixedIterableDataset(IterableDataset):
 
         active_iterators = list(iterators)
         sentinel = object()
-        rank_str = ""
-        if torch.distributed.is_initialized():
-            rank = torch.distributed.get_rank()
-            rank_str = f"[Rank {rank}] "
-        logger.info(
-            "%sStarting round_robin with %d iterators",
-            rank_str,
-            len(active_iterators),
-        )
-        batch_count = 0
 
         while active_iterators:
             i = 0
             while i < len(active_iterators):
-                item = next(active_iterators[i], sentinel)
-                if item is not sentinel:
-                    yield item
-                    batch_count += 1
-                    if batch_count % 1000 == 0:
-                        logger.debug("%sYielded %d items so far", rank_str, batch_count)
-                    i += 1
-                else:
+                try:
+                    item = next(active_iterators[i], sentinel)
+                    if item is not sentinel:
+                        yield item
+                        i += 1
+                    else:
+                        active_iterators.pop(i)
+                except StopIteration:  # noqa: PERF203
                     active_iterators.pop(i)
-
-        logger.info("%sRound_robin completed after %d items", rank_str, batch_count)
+                except Exception:
+                    logger.exception("Error in iterator %d", i)
+                    active_iterators.pop(i)
 
     def _uniform(
         self,
