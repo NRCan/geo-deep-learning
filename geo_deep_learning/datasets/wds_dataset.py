@@ -91,17 +91,11 @@ class ShardedDataset(IterableDataset):
     def _create_webdataset_pipeline(self) -> wds.WebDataset:
         """Create optimized WebDataset pipeline for HPC."""
         shard_list = sorted(self.shard_paths)
-        logger.info(
-            "Creating WebDataset for %s %s with %s shards",
-            self.sensor_name,
-            self.split,
-            len(shard_list),
-        )
         if torch.distributed.is_initialized():
             world_size = torch.distributed.get_world_size()
             rank = torch.distributed.get_rank()
             rank_shards = shard_list[rank::world_size]
-            logger.info(
+            logger.debug(
                 "[Rank %d/%d] %s %s: Assigned %d/%d shards. First shard: %s",
                 rank,
                 world_size,
@@ -120,11 +114,11 @@ class ShardedDataset(IterableDataset):
                 return wds.WebDataset([]).decode().batched(self.batch_size)
             shard_list = rank_shards
         else:
-            logger.info(
+            logger.debug(
                 "Not using distributed training - using all %d shards",
                 len(shard_list),
             )
-        shard_shuffle = self.shuffle_buffer if self.split == "trn" else None
+        shard_shuffle = self.shuffle_buffer if self.split == "trn" else False
         dataset = wds.WebDataset(
             urls=shard_list,
             shardshuffle=shard_shuffle,
@@ -137,17 +131,10 @@ class ShardedDataset(IterableDataset):
         dataset = dataset.decode()
         dataset = dataset.map(self._process_sample, handler=wds.warn_and_continue)
         dataset = dataset.batched(self.batch_size, partial=True)
-        dataset = dataset.map(self.collate_fn)
         if self.epoch_size is not None and self.split == "trn":
             dataset = dataset.with_epoch(self.epoch_size)
 
         return dataset
-
-    def collate_fn(self, batch: dict[str, Any]) -> dict[str, Any]:
-        """Collate function for WebDataset batches."""
-        if not batch:
-            return {}
-        return batch
 
     def _process_sample(self, sample: dict[str, Any]) -> dict[str, Any]:
         """
