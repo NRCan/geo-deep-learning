@@ -98,7 +98,7 @@ class MultiSensorDataModule(LightningDataModule):
             model_type=self.model_type,
             transforms=self.transform,
             batch_size=self.batch_size,
-            epoch_size=50,
+            epoch_size=None,
         )
         self.combined_datasets = {}
         for split in ["trn", "val", "tst"]:
@@ -154,3 +154,12 @@ class MultiSensorDataModule(LightningDataModule):
         if "tst" not in self.combined_datasets:
             return None
         return self._create_dataloader("tst")
+
+    def teardown(self, stage: str | None = None) -> None:  # noqa: ARG002
+        """Clean up after training/testing."""
+        if hasattr(self, "datasets"):
+            for sensor_datasets in self.datasets.values():
+                for dataset in sensor_datasets.values():
+                    if hasattr(dataset, "dataset") and dataset.dataset is not None:
+                        # Clear cached dataset pipelines
+                        dataset.dataset = None
