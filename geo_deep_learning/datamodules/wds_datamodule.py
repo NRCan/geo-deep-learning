@@ -3,7 +3,6 @@
 import logging
 
 import kornia as krn
-import torch
 from kornia.augmentation import AugmentationSequential
 from lightning.pytorch import LightningDataModule
 from webdataset import WebLoader
@@ -84,17 +83,6 @@ class MultiSensorDataModule(LightningDataModule):
 
     def setup(self, stage: str | None = None) -> None:  # noqa: ARG002
         """Create datasets for each stage."""
-        if torch.distributed.is_initialized():
-            rank = torch.distributed.get_rank()
-            world_size = torch.distributed.get_world_size()
-            if rank == 0:
-                logger.info(
-                    "Setting up distributed WebDataset dataloaders with %d GPUs",
-                    world_size,
-                )
-            else:
-                logger.info("Setting up single-GPU WebDataset dataloaders")
-
         self.datasets = create_sensor_datasets(
             sensor_configs_path=self.sensor_configs_path,
             model_type=self.model_type,
@@ -120,27 +108,13 @@ class MultiSensorDataModule(LightningDataModule):
         if split not in self.combined_datasets:
             msg = f"No combined dataset found for split: {split}"
             raise ValueError(msg)
-        num_workers = self.num_workers
-        if torch.distributed.is_initialized() and self.num_workers > 1:
-            world_size = torch.distributed.get_world_size()
-            max_world_size = 4
-            if world_size >= max_world_size:
-                num_workers = max(1, self.num_workers // 2)
-            if torch.distributed.get_rank() == 0:
-                logger.info(
-                    "Distributed mode: Adjusted num_workers from %d to %d for %s split",
-                    self.num_workers,
-                    num_workers,
-                    split,
-                )
         return WebLoader(
             self.combined_datasets[split],
-            num_workers=num_workers,
+            num_workers=self.num_workers,
             batch_size=None,
             pin_memory=True,
-            prefetch_factor=2 if num_workers > 0 else None,
-            persistent_workers=(num_workers > 0),
-            timeout=120 if torch.distributed.is_initialized() else 60,
+            prefetch_factor=2 if self.num_workers > 0 else None,
+            persistent_workers=(self.num_workers > 0),
         )
 
     def train_dataloader(self) -> WebLoader:
@@ -163,5 +137,4 @@ class MultiSensorDataModule(LightningDataModule):
             for sensor_datasets in self.datasets.values():
                 for dataset in sensor_datasets.values():
                     if hasattr(dataset, "dataset") and dataset.dataset is not None:
-                        # Clear cached dataset pipelines
                         dataset.dataset = None
