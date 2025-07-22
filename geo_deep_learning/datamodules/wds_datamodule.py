@@ -17,11 +17,12 @@ logger = logging.getLogger(__name__)
 class MultiSensorDataModule(LightningDataModule):
     """PyTorch Lightning DataModule for multi-sensor Earth observation data."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         sensor_configs_path: str,
         model_type: str = "clay",
         patch_size: tuple[int, int] = (512, 512),
+        epoch_size: int | None = None,
         batch_size: int = 16,
         num_workers: int = 8,
     ) -> None:
@@ -31,9 +32,10 @@ class MultiSensorDataModule(LightningDataModule):
         Args:
             sensor_configs_path: Path to YAML config with sensor configurations
             model_type: Output format - "clay", "dofa", or "unified"
+            patch_size: Target patch size for augmentations
+            epoch_size: Number of patches per epoch
             batch_size: Batch size for all dataloaders
             num_workers: Number of worker processes
-            patch_size: Target patch size for augmentations
 
         """
         super().__init__()
@@ -43,7 +45,7 @@ class MultiSensorDataModule(LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.patch_size = patch_size
-
+        self.epoch_size = epoch_size
         self.datasets = {}
         self.combined_datasets = {}
 
@@ -98,7 +100,7 @@ class MultiSensorDataModule(LightningDataModule):
             model_type=self.model_type,
             transforms=self.transform,
             batch_size=self.batch_size,
-            epoch_size=None,
+            epoch_size=self.epoch_size,
         )
         self.combined_datasets = {}
         for split in ["trn", "val", "tst"]:
