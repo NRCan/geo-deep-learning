@@ -3,7 +3,7 @@
 import logging
 from typing import Any
 
-from lightning.pytorch import Trainer
+from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.cli import ArgsType, LightningCLI
 from lightning.pytorch.loggers import MLFlowLogger
 
@@ -64,6 +64,7 @@ class GeoDeepLearningCLI(LightningCLI):
 
 def main(args: ArgsType = None) -> None:
     """Run the main training pipeline."""
+    seed_everything(42, workers=True)
     cli = GeoDeepLearningCLI(
         save_config_callback=LoggerSaveConfigCallback,
         save_config_kwargs={"overwrite": True},
