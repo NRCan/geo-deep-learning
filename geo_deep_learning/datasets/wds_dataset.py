@@ -69,9 +69,9 @@ class ShardedDataset(IterableDataset):
         self.shuffle_buffer = 1000
         self.patch_count = patch_count
         self.norm_stats = self._load_normalization_stats(normalization_stats_path)
-        # self.dataset = self._create_webdataset_pipeline()
         self.wavelength_keys = wavelength_keys
         self.wavelengths_cache = {}
+        self.dataset = None
 
     def _load_normalization_stats(self, stats_path: str) -> dict[str, Any]:
         """Load normalization statistics from JSON file."""
@@ -117,7 +117,7 @@ class ShardedDataset(IterableDataset):
                     "Rank %d has no shards! Consider having more shards than ranks.",
                     rank,
                 )
-                return wds.WebDataset([]).decode()
+                return wds.WebDataset([]).decode().batched(self.batch_size)
             shard_list = rank_shards
         else:
             logger.info(
@@ -133,9 +133,10 @@ class ShardedDataset(IterableDataset):
                 workersplitter=wds.split_by_worker,
                 empty_check=False,
             )
-        ).decode()
+        ).with_length(self.patch_count)
         if self.split == "trn":
             dataset = dataset.shuffle(self.shuffle_buffer)
+        dataset = dataset.decode()
         dataset = dataset.map(self._process_sample, handler=wds.warn_and_continue)
         dataset = dataset.batched(self.batch_size, partial=True)
         dataset = dataset.map(self.collate_fn)
@@ -143,9 +144,9 @@ class ShardedDataset(IterableDataset):
             if torch.distributed.is_initialized():
                 world_size = torch.distributed.get_world_size()
                 per_gpu_epoch_size = self.epoch_size // world_size
-                dataset = dataset.with_epoch(per_gpu_epoch_size)
+                dataset = dataset.with_epoch(per_gpu_epoch_size // self.batch_size)
             else:
-                dataset = dataset.with_epoch(self.epoch_size)
+                dataset = dataset.with_epoch(self.epoch_size // self.batch_size)
 
         return dataset
 
@@ -336,8 +337,9 @@ class ShardedDataset(IterableDataset):
 
     def __iter__(self) -> Iterator[dict[str, Any]]:
         """Return iterator for WebDataset."""
-        dataset = self._create_webdataset_pipeline()
-        return iter(dataset)
+        if self.dataset is None:
+            self.dataset = self._create_webdataset_pipeline()
+        return iter(self.dataset)
 
     def __len__(self) -> int:
         """Return epoch size if set, otherwise patch count."""
