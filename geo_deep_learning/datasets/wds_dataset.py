@@ -125,28 +125,21 @@ class ShardedDataset(IterableDataset):
                 len(shard_list),
             )
         shard_shuffle = self.shuffle_buffer if self.split == "trn" else None
-        dataset = (
-            wds.WebDataset(
-                urls=shard_list,
-                shardshuffle=shard_shuffle,
-                nodesplitter=wds.split_by_node,
-                workersplitter=wds.split_by_worker,
-                empty_check=False,
-            )
-        ).with_length(self.patch_count)
+        dataset = wds.WebDataset(
+            urls=shard_list,
+            shardshuffle=shard_shuffle,
+            nodesplitter=wds.split_by_node,
+            workersplitter=wds.split_by_worker,
+            empty_check=False,
+        )
         if self.split == "trn":
             dataset = dataset.shuffle(self.shuffle_buffer)
         dataset = dataset.decode()
         dataset = dataset.map(self._process_sample, handler=wds.warn_and_continue)
         dataset = dataset.batched(self.batch_size, partial=True)
         dataset = dataset.map(self.collate_fn)
-        if self.epoch_size is not None:
-            if torch.distributed.is_initialized():
-                world_size = torch.distributed.get_world_size()
-                per_gpu_epoch_size = self.epoch_size // world_size
-                dataset = dataset.with_epoch(per_gpu_epoch_size // self.batch_size)
-            else:
-                dataset = dataset.with_epoch(self.epoch_size // self.batch_size)
+        if self.epoch_size is not None and self.split == "trn":
+            dataset = dataset.with_epoch(self.epoch_size)
 
         return dataset
 
@@ -340,19 +333,6 @@ class ShardedDataset(IterableDataset):
         if self.dataset is None:
             self.dataset = self._create_webdataset_pipeline()
         return iter(self.dataset)
-
-    def __len__(self) -> int:
-        """Return epoch size if set, otherwise patch count."""
-        if self.epoch_size is not None:
-            if torch.distributed.is_initialized():
-                world_size = torch.distributed.get_world_size()
-                return self.epoch_size // world_size
-            return self.epoch_size
-        total_batches = self.patch_count // self.batch_size
-        if torch.distributed.is_initialized():
-            world_size = torch.distributed.get_world_size()
-            return total_batches // world_size
-        return total_batches
 
     @staticmethod
     def create_shard_split_paths(
