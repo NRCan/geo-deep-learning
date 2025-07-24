@@ -103,6 +103,12 @@ def resize(  # noqa: PLR0913
     warning: bool = True,
 ) -> torch.Tensor:
     """Resize a tensor."""
+    if scale_factor is not None:
+        h, w = input_.shape[2:]
+        new_h = int(h * scale_factor)
+        new_w = int(w * scale_factor)
+        size = (new_h, new_w)
+        scale_factor = None
     if warning and size is not None and align_corners:
         input_h, input_w = tuple(int(x) for x in input_.shape[2:])
         output_h, output_w = tuple(int(x) for x in size)
@@ -122,7 +128,13 @@ def resize(  # noqa: PLR0913
                 f"out size {(output_h, output_w)} is `nx+1`",
                 stacklevel=2,
             )
-    return f.interpolate(input_, size, scale_factor, mode, align_corners)
+    return f.interpolate(
+        input_,
+        size=size,
+        scale_factor=scale_factor,
+        mode=mode,
+        align_corners=align_corners,
+    )
 
 
 def patch_first_conv(
