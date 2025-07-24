@@ -196,6 +196,8 @@ class ShardedDataset(IterableDataset):
             "time": time_tensor,
             "latlon": latlon_tensor,
             "image_name": key,
+            "mean": self.norm_stats["mean"],
+            "std": self.norm_stats["std"],
         }
 
     def _prepare_dofa_output(
@@ -213,6 +215,8 @@ class ShardedDataset(IterableDataset):
             "platform": self.sensor_name,
             "image_name": key,
             "wavelengths": wavelengths,
+            "mean": self.norm_stats["mean"],
+            "std": self.norm_stats["std"],
         }
 
     def _prepare_generic_output(
@@ -229,6 +233,8 @@ class ShardedDataset(IterableDataset):
             "platform": self.sensor_name,
             "image_name": key,
             "metadata": metadata,
+            "mean": self.norm_stats["mean"],
+            "std": self.norm_stats["std"],
         }
 
     def _encode_temporal(self, datetime_str: str) -> torch.Tensor:
