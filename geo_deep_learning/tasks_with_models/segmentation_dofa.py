@@ -10,7 +10,7 @@ import torch
 from lightning.pytorch import LightningModule
 from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
 from models.segmentation.dofa import DOFASegmentationModel
-from tools.utils import denormalization
+from tools.utils import denormalization, load_weights_from_checkpoint
 from tools.visualization import visualize_prediction
 from torch import Tensor
 from torchmetrics.segmentation import MeanIoU
@@ -49,6 +49,11 @@ class SegmentationDOFA(LightningModule):
         """Initialize the model."""
         super().__init__()
         self.save_hyperparameters()
+        self.encoder = encoder
+        self.pretrained = pretrained
+        self.image_size = image_size
+        self.freeze_layers = freeze_layers
+        self.weights_from_checkpoint_path = weights_from_checkpoint_path
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.scheduler_config = scheduler_config or {"interval": "epoch"}
@@ -56,21 +61,6 @@ class SegmentationDOFA(LightningModule):
         self.max_samples = max_samples
         self.num_classes = num_classes
         self.threshold = 0.5
-        self.model = DOFASegmentationModel(
-            encoder=encoder,
-            image_size=image_size,
-            freeze_layers=freeze_layers,
-            num_classes=self.num_classes,
-            pretrained=pretrained,
-        )
-
-        if weights_from_checkpoint_path:
-            logger.info(
-                "Loading weights from checkpoint: %s",
-                weights_from_checkpoint_path,
-            )
-            checkpoint = torch.load(weights_from_checkpoint_path)
-            self.load_state_dict(checkpoint["state_dict"])
         self.loss = loss
         num_classes = num_classes + 1 if num_classes == 1 else num_classes
         self.iou_metric = MeanIoU(
@@ -89,6 +79,30 @@ class SegmentationDOFA(LightningModule):
             labels=self.labels,
         )
         self._total_samples_visualized = 0
+
+    def configure_model(self) -> None:
+        """Configure model."""
+        self.model = DOFASegmentationModel(
+            encoder=self.encoder,
+            image_size=self.image_size,
+            freeze_layers=self.freeze_layers,
+            num_classes=self.num_classes,
+            pretrained=self.pretrained,
+        )
+        if self.weights_from_checkpoint_path:
+            map_location = self.device
+            load_parts = self.hparams.get("load_parts")
+            logger.info(
+                "Loading weights from checkpoint: %s",
+                self.weights_from_checkpoint_path,
+            )
+            load_weights_from_checkpoint(
+                self.model,
+                self.weights_from_checkpoint_path,
+                load_parts=load_parts,
+                map_location=map_location,
+            )
+        # self.model = torch.compile(model=self.model)
 
     def configure_optimizers(self) -> list[list[dict[str, Any]]]:
         """Configure optimizers."""
@@ -191,17 +205,19 @@ class SegmentationDOFA(LightningModule):
             for i in range(num_samples):
                 image = x[i]
                 image_name = batch["image_name"][i]
+                mean = batch["mean"][i]
+                std = batch["std"][i]
                 image = denormalization(
                     image,
-                    mean=self.mean,
-                    std=self.std,
+                    mean=mean,
+                    std=std,
                 )
                 fig = visualize_prediction(
-                    image,
-                    y[i],
-                    y_hat[i],
-                    image_name,
-                    self.num_classes,
+                    image=image,
+                    mask=y[i],
+                    prediction=y_hat[i],
+                    sample_name=image_name,
+                    num_classes=self.num_classes,
                     class_colors=self.class_colors,
                 )
                 artifact_file = f"test/{Path(image_name).stem}/idx_{i}.png"
