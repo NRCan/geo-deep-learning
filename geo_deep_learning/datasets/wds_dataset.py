@@ -91,7 +91,7 @@ class ShardedDataset(IterableDataset):
     def _create_webdataset_pipeline(self) -> wds.WebDataset:
         """Create optimized WebDataset pipeline for HPC."""
         shard_list = sorted(self.shard_paths)
-        if torch.distributed.is_initialized():
+        if self.split == "trn" and torch.distributed.is_initialized():
             world_size = torch.distributed.get_world_size()
             rank = torch.distributed.get_rank()
             rank_shards = shard_list[rank::world_size]
@@ -111,7 +111,7 @@ class ShardedDataset(IterableDataset):
                     "Rank %d has no shards! Consider having more shards than ranks.",
                     rank,
                 )
-                return wds.WebDataset([]).decode().batched(self.batch_size)
+                return iter([])
             shard_list = rank_shards
         else:
             logger.debug(
@@ -122,19 +122,15 @@ class ShardedDataset(IterableDataset):
         dataset = wds.WebDataset(
             urls=shard_list,
             shardshuffle=shard_shuffle,
-            nodesplitter=wds.split_by_node,
-            workersplitter=wds.split_by_worker,
+            nodesplitter=None if self.split == "tst" else wds.split_by_node,
+            workersplitter=None if self.split == "tst" else wds.split_by_worker,
             empty_check=False,
         )
         if self.split == "trn":
             dataset = dataset.shuffle(self.shuffle_buffer)
         dataset = dataset.decode()
         dataset = dataset.map(self._process_sample, handler=wds.warn_and_continue)
-        dataset = dataset.batched(self.batch_size, partial=True)
-        if self.epoch_size is not None and self.split == "trn":
-            dataset = dataset.with_epoch(self.epoch_size)
-
-        return dataset
+        return dataset.batched(self.batch_size, partial=True)
 
     def _process_sample(self, sample: dict[str, Any]) -> dict[str, Any]:
         """
