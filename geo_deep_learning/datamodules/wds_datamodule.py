@@ -101,7 +101,6 @@ class MultiSensorDataModule(LightningDataModule):
                 self.combined_datasets[split] = get_mixed_dataset(
                     sensor_datasets=sensor_datasets,
                     strategy="round_robin",
-                    split=split,
                 )
 
     def _create_dataloader(self, split: str) -> WebLoader:
