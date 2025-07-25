@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from lightning.pytorch import LightningModule
+from lightning.pytorch import LightningModule, Trainer
 from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
 from models.segmentation.dofa import DOFASegmentationModel
 from tools.utils import denormalization, load_weights_from_checkpoint
@@ -78,7 +78,6 @@ class SegmentationDOFA(LightningModule):
             self.iou_metric,
             labels=self.labels,
         )
-        self._total_samples_visualized = 0
 
     def configure_model(self) -> None:
         """Configure model."""
@@ -129,7 +128,6 @@ class SegmentationDOFA(LightningModule):
         loss_main = self.loss(outputs.out, y)
         loss_aux = self.loss(outputs.aux, y)
         loss = loss_main + 0.4 * loss_aux
-
         self.log(
             "train_loss",
             loss,
@@ -201,34 +199,16 @@ class SegmentationDOFA(LightningModule):
 
         if self._total_samples_visualized < self.max_samples:
             remaining_samples = self.max_samples - self._total_samples_visualized
-            num_samples = min(remaining_samples, len(x))
-            for i in range(num_samples):
-                image = x[i]
-                image_name = batch["image_name"][i]
-                mean = batch["mean"][i]
-                std = batch["std"][i]
-                image = denormalization(
-                    image,
-                    mean=mean,
-                    std=std,
-                )
-                fig = visualize_prediction(
-                    image=image,
-                    mask=y[i],
-                    prediction=y_hat[i],
-                    sample_name=image_name,
-                    num_classes=self.num_classes,
-                    class_colors=self.class_colors,
-                )
-                artifact_file = f"test/{Path(image_name).stem}/idx_{i}.png"
-                self.logger.experiment.log_figure(
-                    figure=fig,
-                    artifact_file=artifact_file,
-                    run_id=self.logger.run_id,
-                )
-                self._total_samples_visualized += 1
-                if self._total_samples_visualized >= self.max_samples:
-                    break
+            samples_to_visualize = min(remaining_samples, len(x))
+            samples_visualized = self._log_visualizations(
+                trainer=self.trainer,
+                batch=batch,
+                outputs=y_hat,
+                max_samples=samples_to_visualize,
+                artifact_prefix="test",
+                epoch_suffix=False,
+            )
+            self._total_samples_visualized += samples_visualized
 
         self.log_dict(
             metrics,
@@ -236,69 +216,74 @@ class SegmentationDOFA(LightningModule):
             prog_bar=False,
             logger=True,
             on_step=False,
+            sync_dist=True,
             rank_zero_only=True,
         )
 
-    def on_validation_epoch_end(self) -> None:
-        """Ensure all ranks complete validation before continuing."""
-        # First, let the metrics sync across all ranks
-        super().on_validation_epoch_end()
-        # Then add barrier to ensure all ranks finish validation
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
-            if torch.distributed.get_rank() == 0:
-                logger.info("All ranks completed validation epoch")
+    def _log_visualizations(  # noqa: PLR0913
+        self,
+        trainer: Trainer,
+        batch: dict[str, Any],
+        outputs: Tensor,
+        max_samples: int,
+        artifact_prefix: str = "val",
+        *,
+        epoch_suffix: bool = True,
+    ) -> None:
+        """
+        DOFA-specific log visualizations.
 
-    # def on_train_end(self) -> None:
-    #     """Run on train end."""
-    #     if (
-    #         self.trainer.is_global_zero
-    #         and self.trainer.checkpoint_callback is not None
-    #     ):
-    #         best_model_path = self.trainer.checkpoint_callback.best_model_path
-    #         if best_model_path:
-    #             logger.info("Best model path: %s", best_model_path)
-    #             best_model_dir = Path(best_model_path).parent
-    #             best_model_name = Path(best_model_path).stem
-    #             best_model_export_path = str(
-    #                 best_model_dir / f"{best_model_name}_scripted.pt",
-    #             )
-    #             self.export_model(
-    #                 best_model_path,
-    #                 best_model_export_path,
-    #                 self.trainer.datamodule,
-    #             )
+        Args:
+            trainer: Lightning trainer
+            batch: Batch data containing pixels, mask, image_name, mean, std
+            outputs: Model predictions
+            max_samples: Maximum number of samples to visualize
+            artifact_prefix: Prefix for artifact path ("test" or "val")
+            epoch_suffix: Whether to add epoch info to artifact filename
 
-    # def export_model(
-    #     self,
-    #     checkpoint_path: str,
-    #     export_path: str,
-    #     datamodule: LightningDataModule,
-    # ) -> None:
-    #     """Export model."""
-    #     map_location = "cuda"
-    #     if self.device.type == "cpu":
-    #         map_location = "cpu"
-    #     best_model = self.__class__.load_from_checkpoint(
-    #         checkpoint_path,
-    #         weights_from_checkpoint_path=None,
-    #         map_location=map_location,
-    #     )
-    #     input_shape = (1, self.input_channels, *datamodule.patch_size)
-    #     device = torch.device(map_location)
-    #     script_model = SegmentationScriptModel(
-    #         model=best_model.model,
-    #         device=device,
-    #         num_classes=self.num_classes,
-    #         input_shape=input_shape,
-    #         mean=self.mean,
-    #         std=self.std,
-    #         image_min=0,
-    #         image_max=self.data_type_max,
-    #         norm_min=0.0,
-    #         norm_max=1.0,
-    #         from_logits=True,
-    #     )
-    #     scripted_model = torch.jit.script(script_model)
-    #     scripted_model.save(export_path)
-    #     logger.info("Model exported to TorchScript")
+        Returns:
+            Number of samples actually visualized
+
+        """
+        if batch is None or outputs is None:
+            return 0
+
+        try:
+            logger.info("Logging visualizations")
+            image_batch = batch["pixels"]
+            mask_batch = batch["mask"].squeeze(1).long()
+            batch_image_name = batch["image_name"]
+            mean_batch = batch["mean"]
+            std_batch = batch["std"]
+            num_samples = min(max_samples, len(image_batch))
+            for i in range(num_samples):
+                image = image_batch[i]
+                image_name = batch_image_name[i]
+                mean = mean_batch[i]
+                std = std_batch[i]
+                image = denormalization(image, mean=mean, std=std)
+
+                fig = visualize_prediction(
+                    image=image,
+                    mask=mask_batch[i],
+                    prediction=outputs[i],
+                    sample_name=image_name,
+                    num_classes=self.num_classes,
+                    class_colors=self.class_colors,
+                )
+                base_path = f"{artifact_prefix}/{Path(image_name).stem}"
+                if epoch_suffix and trainer is not None:
+                    artifact_file = (
+                        f"{base_path}/idx_{i}_epoch_{trainer.current_epoch}.png"
+                    )
+                else:
+                    artifact_file = f"{base_path}/idx_{i}.png"
+                trainer.logger.experiment.log_figure(
+                    figure=fig,
+                    artifact_file=artifact_file,
+                    run_id=trainer.logger.run_id,
+                )
+        except Exception:
+            logger.exception("Error in DOFA visualization")
+        else:
+            return num_samples
