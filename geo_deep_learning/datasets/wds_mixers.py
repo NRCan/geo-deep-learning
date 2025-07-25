@@ -26,11 +26,13 @@ class MixedIterableDataset(IterableDataset):
         iterators = [iter(d) for d in self.datasets]
 
         if self.strategy == "round_robin":
-            return self._round_robin(iterators)
-        if self.strategy == "uniform":
-            return self._uniform(iterators)
-        msg = f"Unsupported strategy: {self.strategy}"
-        raise ValueError(msg)
+            iterator = self._round_robin(iterators)
+        elif self.strategy == "uniform":
+            iterator = self._uniform(iterators)
+        else:
+            msg = f"Unsupported strategy: {self.strategy}"
+            raise ValueError(msg)
+        return iterator
 
     def _round_robin(
         self,
@@ -71,4 +73,7 @@ def get_mixed_dataset(
     strategy: str,
 ) -> MixedIterableDataset:
     """Get a mixed dataset."""
-    return MixedIterableDataset(list(sensor_datasets.values()), strategy)
+    return MixedIterableDataset(
+        datasets=list(sensor_datasets.values()),
+        strategy=strategy,
+    )
