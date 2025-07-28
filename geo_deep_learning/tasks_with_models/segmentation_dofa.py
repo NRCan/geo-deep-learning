@@ -78,6 +78,7 @@ class SegmentationDOFA(LightningModule):
             self.iou_metric,
             labels=self.labels,
         )
+        self._total_samples_visualized = 0
 
     def configure_model(self) -> None:
         """Configure model."""
