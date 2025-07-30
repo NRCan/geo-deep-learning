@@ -9,14 +9,15 @@ from typing import Any
 import segmentation_models_pytorch as smp
 import torch
 from lightning.pytorch import LightningDataModule, LightningModule
-from tools.script_model import ScriptModel
-from tools.utils import denormalization
-from tools.visualization import visualize_prediction
 from torch import Tensor
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
+
+from tools.script_model import ScriptModel
+from tools.visualization import visualize_prediction
+from utils.tensors import denormalization
 
 # Ignore warning about default grid_sample and affine_grid behavior triggered by kornia
 warnings.filterwarnings(
