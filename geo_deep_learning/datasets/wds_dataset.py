@@ -205,38 +205,6 @@ class ShardedDataset:
             "dtype": stats["dtype"],
         }
 
-    def build_web_dataset(self) -> wds.WebDataset:
-        """Create optimized WebDataset pipeline for HPC."""
-        shard_list = sorted(self.shard_paths)
-
-        if self.split == "trn":
-            if torch.distributed.is_initialized():
-                world_size = torch.distributed.get_world_size()
-                rank = torch.distributed.get_rank()
-                shard_list = shard_list[rank::world_size]
-            dataset = wds.WebDataset(
-                urls=shard_list,
-                shardshuffle=self.shuffle_buffer,
-                nodesplitter=wds.split_by_node,
-                workersplitter=wds.split_by_worker,
-                empty_check=False,
-            )
-            dataset = dataset.shuffle(self.shuffle_buffer)
-        else:
-            dataset = wds.WebDataset(
-                urls=shard_list,
-                resampled=False,
-                shardshuffle=False,
-                nodesplitter=None if self.split == "tst" else wds.split_by_node,
-                workersplitter=None if self.split == "tst" else wds.split_by_worker,
-                empty_check=False,
-            )
-        return (
-            dataset.decode()
-            .map(self._process_sample, handler=wds.warn_and_continue)
-            .batched(self.batch_size, partial=self.split != "trn")
-        )
-
     def _process_sample(self, sample: dict[str, Any]) -> dict[str, Any]:
         """
         Process a single WebDataset sample.
@@ -421,3 +389,34 @@ class ShardedDataset:
         except Exception as e:  # noqa: BLE001
             logger.warning("Error extracting wavelengths: %s", e)
             return torch.tensor([0.0] * len(wavelengths_keys), dtype=torch.float32)
+
+    def build_web_dataset(self) -> wds.WebDataset:
+        """Create optimized WebDataset pipeline for HPC."""
+        shard_list = sorted(self.shard_paths)
+
+        if self.split == "trn":
+            if torch.distributed.is_initialized():
+                world_size = torch.distributed.get_world_size()
+                rank = torch.distributed.get_rank()
+                shard_list = shard_list[rank::world_size]
+            dataset = wds.WebDataset(
+                urls=shard_list,
+                shardshuffle=self.shuffle_buffer,
+                nodesplitter=wds.split_by_node,
+                workersplitter=wds.split_by_worker,
+                empty_check=False,
+            )
+            dataset = dataset.shuffle(self.shuffle_buffer)
+        else:
+            dataset = wds.WebDataset(
+                urls=shard_list,
+                shardshuffle=False,
+                nodesplitter=None if self.split == "tst" else wds.split_by_node,
+                workersplitter=None if self.split == "tst" else wds.split_by_worker,
+                empty_check=False,
+            )
+        return (
+            dataset.decode()
+            .map(self._process_sample, handler=wds.warn_and_continue)
+            .batched(self.batch_size, partial=self.split != "trn")
+        )
