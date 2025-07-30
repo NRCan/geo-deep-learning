@@ -46,20 +46,18 @@ class MixedIterableDataset(IterableDataset):
         sentinel = object()
 
         while active_iterators:
-            i = 0
-            while i < len(active_iterators):
+            next_round_iterators = []
+            for i, iterator in enumerate(active_iterators):
                 try:
-                    item = next(active_iterators[i], sentinel)
+                    item = next(iterator, sentinel)
                     if item is not sentinel:
                         yield item
-                        i += 1
-                    else:
-                        active_iterators.pop(i)
-                except StopIteration:  # noqa: PERF203
-                    active_iterators.pop(i)
-                except Exception:
+                        next_round_iterators.append(iterator)
+                except Exception:  # noqa: PERF203
                     logger.exception("Error in iterator %d", i)
-                    active_iterators.pop(i)
+            if not next_round_iterators:
+                break
+            active_iterators = next_round_iterators
 
     def _uniform(
         self,
