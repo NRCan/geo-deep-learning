@@ -3,12 +3,12 @@
 import logging
 
 import kornia as krn
+import webdataset as wds
 from kornia.augmentation import AugmentationSequential
 from lightning.pytorch import LightningDataModule
 from webdataset import WebLoader
 
 from geo_deep_learning.datasets.wds_dataset import create_sensor_datasets
-from geo_deep_learning.datasets.wds_mixers import get_mixed_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,9 @@ class MultiSensorDataModule(LightningDataModule):
         self.patch_size = patch_size
         self.epoch_size = epoch_size
         self.datasets = {}
-        self.combined_datasets = {}
+        self.train_loader = None
+        self.val_loader = None
+        self.test_loader = None
 
         random_resized_crop_zoom_in = krn.augmentation.RandomResizedCrop(
             size=self.patch_size,
@@ -90,26 +92,69 @@ class MultiSensorDataModule(LightningDataModule):
             batch_size=self.batch_size,
             epoch_size=self.epoch_size,
         )
-        self.combined_datasets = {}
-        for split in ["trn", "val", "tst"]:
-            sensor_datasets = {
-                sensor_name: sensor_splits[split]
-                for sensor_name, sensor_splits in self.datasets.items()
-                if split in sensor_splits
-            }
-            if sensor_datasets:
-                self.combined_datasets[split] = get_mixed_dataset(
-                    sensor_datasets=sensor_datasets,
-                    strategy="round_robin",
-                )
+        self._setup_train_loader()
+        self._setup_val_loader()
+        self._setup_test_loader()
 
-    def _create_dataloader(self, split: str) -> WebLoader:
-        """Create a DataLoader for the given split."""
-        if split not in self.combined_datasets:
-            msg = f"No combined dataset found for split: {split}"
-            raise ValueError(msg)
-        return WebLoader(
-            self.combined_datasets[split],
+    def _setup_train_loader(self) -> None:
+        """Set up training loader with sensor mixing."""
+        train_datasets = {}
+        for sensor_name, splits in self.datasets.items():
+            if "trn" in splits:
+                train_datasets[sensor_name] = splits["trn"]
+
+        if not train_datasets:
+            logger.warning("No training datasets found!")
+            return
+
+        if len(train_datasets) == 1:
+            # Single sensor
+            sensor_name = next(iter(train_datasets.keys()))
+            sensor_dataset = train_datasets[sensor_name].build_web_dataset()
+        else:
+            # Multiple sensors
+            train_datasets = {
+                name: dataset.build_web_dataset()
+                for name, dataset in train_datasets.items()
+            }
+            sensor_dataset = self._create_mixed_dataset(train_datasets)
+
+        self.train_loader = WebLoader(
+            sensor_dataset,
+            num_workers=self.num_workers,
+            batch_size=None,
+            pin_memory=True,
+            prefetch_factor=2 if self.num_workers > 0 else None,
+            persistent_workers=(self.num_workers > 0),
+        )
+        if self.epoch_size:
+            self.train_loader = self.train_loader.with_epoch(self.epoch_size)
+
+    def _setup_val_loader(self) -> None:
+        """Set up validation loader."""
+        val_datasets = {}
+        for sensor_name, splits in self.datasets.items():
+            if "val" in splits:
+                val_datasets[sensor_name] = splits["val"]
+
+        if not val_datasets:
+            logger.warning("No validation datasets found!")
+            return
+
+        if len(val_datasets) == 1:
+            # Single sensor
+            sensor_name = next(iter(val_datasets.keys()))
+            sensor_dataset = val_datasets[sensor_name].build_web_dataset()
+        else:
+            # Multiple sensors
+            val_datasets = {
+                name: dataset.build_web_dataset()
+                for name, dataset in val_datasets.items()
+            }
+            sensor_dataset = self._create_mixed_dataset(val_datasets)
+
+        self.val_loader = WebLoader(
+            sensor_dataset,
             num_workers=self.num_workers,
             batch_size=None,
             pin_memory=True,
@@ -117,25 +162,64 @@ class MultiSensorDataModule(LightningDataModule):
             persistent_workers=(self.num_workers > 0),
         )
 
+    def _setup_test_loader(self) -> None:
+        """Set up test loader."""
+        test_datasets = {}
+        for sensor_name, splits in self.datasets.items():
+            if "tst" in splits:
+                test_datasets[sensor_name] = splits["tst"]
+
+        if not test_datasets:
+            logger.info("No test datasets found - this is optional")
+            return
+
+        if len(test_datasets) == 1:
+            # Single sensor
+            sensor_name = next(iter(test_datasets.keys()))
+            sensor_dataset = test_datasets[sensor_name].build_web_dataset()
+        else:
+            # Multiple sensors
+            test_datasets = {
+                name: dataset.build_web_dataset()
+                for name, dataset in test_datasets.items()
+            }
+            sensor_dataset = self._create_mixed_dataset(test_datasets)
+
+        self.test_loader = WebLoader(
+            sensor_dataset,
+            num_workers=self.num_workers,
+            batch_size=None,
+            pin_memory=True,
+            prefetch_factor=2 if self.num_workers > 0 else None,
+            persistent_workers=(self.num_workers > 0),
+        )
+
+    def _create_mixed_dataset(
+        self,
+        sensor_datasets: dict[str, wds.WebDataset],
+    ) -> wds.WebDataset:
+        """Create a mixed dataset from multiple sensor datasets."""
+        datasets_list = list(sensor_datasets.values())
+        # Round robin through sensors
+        return wds.RandomMix(
+            datasets=datasets_list,
+            probs=None,  # Equal probability
+            longest=True,
+        )
+
     def train_dataloader(self) -> WebLoader:
         """Create training DataLoader."""
-        loader = self._create_dataloader("trn")
-        return loader.with_epoch(self.epoch_size)
+        return self.train_loader
 
     def val_dataloader(self) -> WebLoader:
         """Create validation DataLoader."""
-        return self._create_dataloader("val")
+        return self.val_loader
 
     def test_dataloader(self) -> WebLoader:
         """Create test DataLoader."""
-        if "tst" not in self.combined_datasets:
-            return None
-        return self._create_dataloader("tst")
+        return self.test_loader
 
     def teardown(self, stage: str | None = None) -> None:  # noqa: ARG002
         """Clean up after training/testing."""
         if hasattr(self, "datasets"):
-            for sensor_datasets in self.datasets.values():
-                for dataset in sensor_datasets.values():
-                    if hasattr(dataset, "dataset") and dataset.dataset is not None:
-                        dataset.dataset = None
+            self.datasets.clear()
