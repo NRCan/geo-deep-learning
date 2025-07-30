@@ -6,6 +6,7 @@ exclude = [
     ".vscode", "__pypackages__", "_build", "buck-out", "build", "dist",
     "node_modules", "site-packages", "venv"
 ]
+src = ["geo_deep_learning"]
 line-length = 88
 indent-width = 4
 target-version = "py310"
