@@ -2,9 +2,7 @@
 
 import logging
 
-import kornia as krn
 import webdataset as wds
-from kornia.augmentation import AugmentationSequential
 from lightning.pytorch import LightningDataModule
 from webdataset import WebLoader
 
@@ -50,36 +48,6 @@ class MultiSensorDataModule(LightningDataModule):
         self.val_loader = None
         self.test_loader = None
 
-        random_resized_crop_zoom_in = krn.augmentation.RandomResizedCrop(
-            size=self.patch_size,
-            scale=(1.0, 2.0),
-            p=0.5,
-            align_corners=False,
-            keepdim=True,
-        )
-        random_resized_crop_zoom_out = krn.augmentation.RandomResizedCrop(
-            size=self.patch_size,
-            scale=(0.5, 1.0),
-            p=0.5,
-            align_corners=False,
-            keepdim=True,
-        )
-
-        self.transform = AugmentationSequential(
-            krn.augmentation.RandomHorizontalFlip(p=0.5, keepdim=True),
-            krn.augmentation.RandomVerticalFlip(p=0.5, keepdim=True),
-            krn.augmentation.RandomRotation90(
-                times=(1, 3),
-                p=0.5,
-                align_corners=True,
-                keepdim=True,
-            ),
-            random_resized_crop_zoom_in,
-            random_resized_crop_zoom_out,
-            data_keys=None,
-            random_apply=1,
-        )
-
     def prepare_data(self) -> None:
         """Prepare data."""
 
@@ -88,7 +56,6 @@ class MultiSensorDataModule(LightningDataModule):
         self.datasets = create_sensor_datasets(
             sensor_configs_path=self.sensor_configs_path,
             model_type=self.model_type,
-            transforms=self.transform,
             batch_size=self.batch_size,
             epoch_size=self.epoch_size,
         )
