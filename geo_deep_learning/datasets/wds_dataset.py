@@ -399,7 +399,7 @@ class ShardedDataset:
                 urls=shard_list,
                 shardshuffle=False,
                 nodesplitter=None if self.split == "tst" else wds.split_by_node,
-                workersplitter=None if self.split == "tst" else wds.split_by_worker,
+                workersplitter=wds.split_by_worker,
                 empty_check=False,
             )
         return (
