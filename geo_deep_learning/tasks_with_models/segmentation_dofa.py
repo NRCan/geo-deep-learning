@@ -9,7 +9,7 @@ from typing import Any
 import torch
 from lightning.pytorch import LightningModule, Trainer
 from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
-from models.segmentation.dofa import DOFASegmentationModel
+from models.segmentation.dofa import DataAugmentation, DOFASegmentationModel
 from tools.utils import denormalization, load_weights_from_checkpoint
 from tools.visualization import visualize_prediction
 from torch import Tensor
@@ -79,6 +79,10 @@ class SegmentationDOFA(LightningModule):
             labels=self.labels,
         )
         self._total_samples_visualized = 0
+        self.train_samples_count = 0
+        self.val_samples_count = 0
+        self.test_samples_count = 0
+        self.data_augmentation = DataAugmentation(patch_size=self.image_size)
 
     def configure_model(self) -> None:
         """Configure model."""
@@ -114,16 +118,27 @@ class SegmentationDOFA(LightningModule):
         """Forward pass."""
         return self.model(image, wavelengths)
 
+    def on_before_batch_transfer(
+        self,
+        batch: dict[str, Any],
+        dataloader_idx: int,  # noqa: ARG002
+    ) -> dict[str, Any]:
+        """On before batch transfer."""
+        if self.trainer.training:
+            return self.data_augmentation(batch)
+        return batch
+
     def training_step(
         self,
         batch: dict[str, Any],
         batch_idx: int,  # noqa: ARG002
     ) -> Tensor:
         """Run training step."""
-        x = batch["pixels"]
+        x = batch["image"]
         y = batch["mask"]
         wv = batch["wavelengths"]
         batch_size = x.shape[0]
+        self.train_samples_count += batch_size
         y = y.squeeze(1).long()
         outputs = self(x, wv)
         loss_main = self.loss(outputs.out, y)
@@ -143,16 +158,25 @@ class SegmentationDOFA(LightningModule):
 
         return loss
 
+    def on_train_epoch_end(self) -> None:
+        """On train epoch end."""
+        logger.info(
+            "Training epoch complete. Processed %d samples",
+            self.train_samples_count,
+        )
+        self.train_samples_count = 0
+
     def validation_step(
         self,
         batch: dict[str, Any],
         batch_idx: int,  # noqa: ARG002
     ) -> Tensor:
         """Run validation step."""
-        x = batch["pixels"]
+        x = batch["image"]
         y = batch["mask"]
         wv = batch["wavelengths"]
         batch_size = x.shape[0]
+        self.val_samples_count += batch_size
         y = y.squeeze(1).long()
         outputs = self(x, wv)
         loss_main = self.loss(outputs.out, y)
@@ -176,16 +200,25 @@ class SegmentationDOFA(LightningModule):
 
         return y_hat
 
+    def on_validation_epoch_end(self) -> None:
+        """On validation epoch end."""
+        logger.info(
+            "Validation epoch complete. Processed %d samples",
+            self.val_samples_count,
+        )
+        self.val_samples_count = 0
+
     def test_step(
         self,
         batch: dict[str, Any],
         batch_idx: int,  # noqa: ARG002
     ) -> None:
         """Run test step."""
-        x = batch["pixels"]
+        x = batch["image"]
         y = batch["mask"]
         wv = batch["wavelengths"]
         batch_size = x.shape[0]
+        self.test_samples_count += batch_size
         y = y.squeeze(1).long()
         outputs = self(x, wv)
         loss_main = self.loss(outputs.out, y)
@@ -221,6 +254,14 @@ class SegmentationDOFA(LightningModule):
             rank_zero_only=True,
         )
 
+    def on_test_epoch_end(self) -> None:
+        """On test epoch end."""
+        logger.info(
+            "Test epoch complete. Processed %d samples",
+            self.test_samples_count,
+        )
+        self.test_samples_count = 0
+
     def _log_visualizations(  # noqa: PLR0913
         self,
         trainer: Trainer,
@@ -236,7 +277,7 @@ class SegmentationDOFA(LightningModule):
 
         Args:
             trainer: Lightning trainer
-            batch: Batch data containing pixels, mask, image_name, mean, std
+            batch: Batch data containing image, mask, image_name, mean, std
             outputs: Model predictions
             max_samples: Maximum number of samples to visualize
             artifact_prefix: Prefix for artifact path ("test" or "val")
@@ -251,7 +292,7 @@ class SegmentationDOFA(LightningModule):
 
         try:
             logger.info("Logging visualizations")
-            image_batch = batch["pixels"]
+            image_batch = batch["image"]
             mask_batch = batch["mask"].squeeze(1).long()
             batch_image_name = batch["image_name"]
             mean_batch = batch["mean"]
