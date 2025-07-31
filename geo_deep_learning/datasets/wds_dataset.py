@@ -3,7 +3,6 @@
 import json
 import logging
 import math
-from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -153,7 +152,6 @@ class ShardedDataset:
         normalization_stats_path: str,
         model_type: str = "clay",  # "clay", "dofa", "unified"
         split: str = "trn",
-        transforms: Callable | None = None,
         batch_size: int = 16,
         epoch_size: int | None = None,
         wavelength_keys: list[str] | None = None,
@@ -168,7 +166,6 @@ class ShardedDataset:
             normalization_stats_path: Path to normalization statistics JSON
             model_type: Output format - "clay", "dofa", or "unified"
             split: Data split - "trn", "val", "tst"
-            transforms: Optional transforms to apply to images
             batch_size: Batch size
             epoch_size: Size of epoch (for infinite streaming)
             wavelength_keys: Optional list of metadata keys for wavelengths
@@ -180,7 +177,6 @@ class ShardedDataset:
         self.shard_paths = shard_paths
         self.model_type = model_type
         self.split = split
-        self.transforms = transforms
         self.batch_size = batch_size
         self.epoch_size = epoch_size
         self.shuffle_buffer = 50000
@@ -198,8 +194,8 @@ class ShardedDataset:
         stats = data["statistics"][self.sensor_name]
 
         return {
-            "mean": torch.tensor(stats["mean"], dtype=torch.float32),
-            "std": torch.tensor(stats["std"], dtype=torch.float32),
+            "mean": torch.tensor(stats["mean"], dtype=torch.float32).view(-1, 1, 1),
+            "std": torch.tensor(stats["std"], dtype=torch.float32).view(-1, 1, 1),
             "band_count": stats["band_count"],
             "patch_count": stats["patch_count"],
             "dtype": stats["dtype"],
@@ -224,16 +220,7 @@ class ShardedDataset:
 
         # Apply sensor-specific normalization
         image = normalization(image)
-        mean = self.norm_stats["mean"].view(-1, 1, 1)
-        std = self.norm_stats["std"].view(-1, 1, 1)
-        image = standardization(image, mean, std)
-
-        # Apply transforms if provided
-        if self.transforms and self.split == "trn":
-            transform_sample = {"image": image, "mask": label}
-            transform_sample = self.transforms(transform_sample)
-            image = transform_sample["image"]
-            label = transform_sample["mask"]
+        image = standardization(image, self.norm_stats["mean"], self.norm_stats["std"])
 
         # Prepare output based on model type
         if self.model_type == "clay":
@@ -259,7 +246,7 @@ class ShardedDataset:
         lon = metadata["metadata"].get("coordinates_lon", 0.0)
         latlon_tensor = self._encode_spatial(lat, lon)
         return {
-            "pixels": image,
+            "image": image,
             "mask": label,
             "platform": self.sensor_name,
             "time": time_tensor,
@@ -279,7 +266,7 @@ class ShardedDataset:
         """Prepare output in DOFA format."""
         wavelengths = self._extract_wavelengths(metadata)
         return {
-            "pixels": image,
+            "image": image,
             "mask": label,
             "platform": self.sensor_name,
             "image_name": key,
@@ -297,7 +284,7 @@ class ShardedDataset:
     ) -> dict[str, Any]:
         """Prepare unified output with all metadata."""
         return {
-            "pixels": image,
+            "image": image,
             "mask": label,
             "platform": self.sensor_name,
             "image_name": key,
