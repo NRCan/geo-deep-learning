@@ -5,6 +5,7 @@ channels:
 - nvidia
 dependencies:
 - python=3.10
+- pytest
 - pytorch
 - torchvision
 - pytorch-lightning
