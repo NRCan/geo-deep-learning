@@ -1,8 +1,9 @@
 """DOFA segmentation model."""
 
+import kornia as krn
 import torch
 import torch.nn.functional as fn
-from torch import Tensor
+from kornia.augmentation import AugmentationSequential
 
 from geo_deep_learning.models.decoders.upernet import UperNetDecoder
 from geo_deep_learning.models.encoders.dofa import (
@@ -79,7 +80,7 @@ class DOFASegmentationModel(BaseSegmentationModel):
         if freeze_layers:
             self._freeze_layers(layers=freeze_layers)
 
-    def forward(self, x: Tensor, wavelengths: Tensor) -> SegmentationOutput:
+    def forward(self, x: torch.Tensor, wavelengths: torch.Tensor) -> SegmentationOutput:
         """Forward pass."""
         image_size = x.shape[2:]
         x = self.encoder(x, wavelengths)
@@ -104,6 +105,69 @@ class DOFASegmentationModel(BaseSegmentationModel):
         )
 
         return self.output_struct(out=x, aux=aux_x)
+
+
+class DataAugmentation(torch.nn.Module):
+    """Module to perform data augmentation using Kornia on torch tensors."""
+
+    def __init__(self, patch_size: tuple[int, int]) -> None:
+        """Initialize data augmentation module."""
+        super().__init__()
+        self.patch_size = patch_size
+
+        random_resized_crop_zoom_in = krn.augmentation.RandomResizedCrop(
+            size=self.patch_size,
+            scale=(1.0, 2.0),
+            p=0.5,
+            align_corners=False,
+            keepdim=True,
+        )
+        random_resized_crop_zoom_out = krn.augmentation.RandomResizedCrop(
+            size=self.patch_size,
+            scale=(0.5, 1.0),
+            p=0.5,
+            align_corners=False,
+            keepdim=True,
+        )
+
+        self.transforms = AugmentationSequential(
+            krn.augmentation.RandomHorizontalFlip(p=0.5, keepdim=True),
+            krn.augmentation.RandomVerticalFlip(p=0.5, keepdim=True),
+            krn.augmentation.RandomRotation90(
+                times=(1, 3),
+                p=0.5,
+                align_corners=True,
+                keepdim=True,
+            ),
+            random_resized_crop_zoom_in,
+            random_resized_crop_zoom_out,
+            data_keys=None,
+            random_apply=1,
+        )
+
+    @torch.no_grad()
+    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """
+        Apply augmentations to batch.
+
+        Args:
+            batch: Dict with keys 'image' and 'mask' (B, C, H, W)
+
+        Returns:
+            Dict with augmented 'image' and 'mask' tensors
+
+        """
+        transformed = self.transforms(
+            {"image": batch["image"], "mask": batch["mask"]},
+        )
+        batch.update(
+            {
+                "image": transformed["image"],
+                "mask": transformed["mask"],
+            },
+        )
+
+        return batch
 
 
 if __name__ == "__main__":
