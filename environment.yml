@@ -1,0 +1,24 @@
+name: gdl_env
+channels:
+- conda-forge
+- pytorch
+- nvidia
+dependencies:
+- python=3.10
+- pytorch
+- torchvision
+- pytorch-lightning
+- torchmetrics
+- numpy
+- matplotlib
+- pandas
+- rasterio
+- pyyaml
+- timm
+- kornia
+- segmentation-models-pytorch
+- torchgeo
+- mlflow
+- whitebox
+- pip:
+  - segmentation-models-pytorch
