@@ -106,7 +106,6 @@ class SegmentationDOFA(LightningModule):
                 load_parts=load_parts,
                 map_location=map_location,
             )
-        # self.model = torch.compile(model=self.model)
 
     def configure_optimizers(self) -> list[list[dict[str, Any]]]:
         """Configure optimizers."""
