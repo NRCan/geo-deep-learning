@@ -21,7 +21,11 @@ class MultiSensorDataModule(LightningDataModule):
         patch_size: tuple[int, int] = (512, 512),
         epoch_size: int | None = None,
         batch_size: int = 16,
-        num_workers: int = 8,
+        num_workers: int = 0,
+        prefetch_factor: int | None = None,
+        shuffle_buffer: int = 0,
+        shardshuffle: int | None = None,
+        seed: int | None = None,
     ) -> None:
         """
         Initialize MultiSensorDataModule.
@@ -33,6 +37,10 @@ class MultiSensorDataModule(LightningDataModule):
             epoch_size: Number of patches per epoch
             batch_size: Batch size for all dataloaders
             num_workers: Number of worker processes
+            prefetch_factor: Number of batches to prefetch
+            shuffle_buffer: Number of batches to prefetch for shuffling
+            shardshuffle: Number of shards to shuffle
+            seed: Random seed for shuffling
 
         """
         super().__init__()
@@ -41,6 +49,10 @@ class MultiSensorDataModule(LightningDataModule):
         self.model_type = model_type
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.prefetch_factor = prefetch_factor
+        self.shuffle_buffer = shuffle_buffer
+        self.shardshuffle = shardshuffle
+        self.seed = seed
         self.patch_size = patch_size
         self.epoch_size = epoch_size
         self.datasets = {}
@@ -58,6 +70,9 @@ class MultiSensorDataModule(LightningDataModule):
             model_type=self.model_type,
             batch_size=self.batch_size,
             epoch_size=self.epoch_size,
+            shuffle_buffer=self.shuffle_buffer,
+            shardshuffle=self.shardshuffle,
+            seed=self.seed,
         )
         self._setup_train_loader()
         self._setup_val_loader()
@@ -91,7 +106,7 @@ class MultiSensorDataModule(LightningDataModule):
             num_workers=self.num_workers,
             batch_size=None,
             pin_memory=True,
-            prefetch_factor=2 if self.num_workers > 0 else None,
+            prefetch_factor=self.prefetch_factor,
             persistent_workers=(self.num_workers > 0),
         )
         if self.epoch_size:
@@ -125,7 +140,7 @@ class MultiSensorDataModule(LightningDataModule):
             num_workers=self.num_workers,
             batch_size=None,
             pin_memory=True,
-            prefetch_factor=2 if self.num_workers > 0 else None,
+            prefetch_factor=self.prefetch_factor,
             persistent_workers=(self.num_workers > 0),
         )
 
@@ -157,7 +172,7 @@ class MultiSensorDataModule(LightningDataModule):
             num_workers=self.num_workers,
             batch_size=None,
             pin_memory=True,
-            prefetch_factor=2 if self.num_workers > 0 else None,
+            prefetch_factor=self.prefetch_factor,
             persistent_workers=(self.num_workers > 0),
         )
 
