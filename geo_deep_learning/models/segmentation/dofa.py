@@ -6,8 +6,8 @@ import torch.nn.functional as fn
 from kornia.augmentation import AugmentationSequential
 
 from geo_deep_learning.models.decoders.upernet import UperNetDecoder
-from geo_deep_learning.models.encoders.dofa import (
-    DOFA,
+from geo_deep_learning.models.encoders.dofa_v2 import (
+    DOFAv2,
     create_dofa_base,
     create_dofa_large,
 )
@@ -35,7 +35,7 @@ class DOFASegmentationModel(BaseSegmentationModel):
     ) -> None:
         """Initialize DOFA segmentation model."""
         super().__init__(
-            DOFA,
+            DOFAv2,
             MultiLevelNeck,
             UperNetDecoder,
             SegmentationHead,
