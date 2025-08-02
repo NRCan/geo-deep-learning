@@ -153,6 +153,9 @@ class ShardedDataset:
         model_type: str = "clay",  # "clay", "dofa", "unified"
         split: str = "trn",
         batch_size: int = 16,
+        shuffle_buffer: int = 1000,
+        shardshuffle: int | None = None,
+        seed: int = 42,
         epoch_size: int | None = None,
         wavelength_keys: list[str] | None = None,
     ) -> None:
@@ -167,6 +170,9 @@ class ShardedDataset:
             model_type: Output format - "clay", "dofa", or "unified"
             split: Data split - "trn", "val", "tst"
             batch_size: Batch size
+            shuffle_buffer: Number of batches to prefetch for shuffling
+            shardshuffle: Number of shards to shuffle
+            seed: Random seed for shuffling
             epoch_size: Size of epoch (for infinite streaming)
             wavelength_keys: Optional list of metadata keys for wavelengths
 
@@ -179,12 +185,14 @@ class ShardedDataset:
         self.split = split
         self.batch_size = batch_size
         self.epoch_size = epoch_size
-        self.shuffle_buffer = 50000
+        self.shuffle_buffer = shuffle_buffer
+        self.shardshuffle = shardshuffle
         self.patch_count = patch_count
         self.norm_stats = self._load_normalization_stats(normalization_stats_path)
         self.wavelength_keys = wavelength_keys
         self.wavelengths_cache = {}
         self.dataset = None
+        self.seed = seed
 
     def _load_normalization_stats(self, stats_path: str) -> dict[str, Any]:
         """Load normalization statistics from JSON file."""
@@ -388,10 +396,11 @@ class ShardedDataset:
                 shard_list = shard_list[rank::world_size]
             dataset = wds.WebDataset(
                 urls=shard_list,
-                shardshuffle=self.shuffle_buffer,
+                shardshuffle=self.shardshuffle,
                 nodesplitter=wds.split_by_node,
                 workersplitter=wds.split_by_worker,
                 empty_check=False,
+                seed=self.seed,
             )
             dataset = dataset.shuffle(self.shuffle_buffer)
         else:
