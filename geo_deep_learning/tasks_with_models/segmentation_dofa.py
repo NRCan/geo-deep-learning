@@ -6,10 +6,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import kornia as krn
 import torch
+from kornia.augmentation import AugmentationSequential
 from lightning.pytorch import LightningModule, Trainer
 from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
-from models.segmentation.dofa import DataAugmentation, DOFASegmentationModel
+from models.segmentation.dofa import DOFASegmentationModel
 from tools.utils import denormalization, load_weights_from_checkpoint
 from tools.visualization import visualize_prediction
 from torch import Tensor
@@ -82,7 +84,38 @@ class SegmentationDOFA(LightningModule):
         self.train_samples_count = 0
         self.val_samples_count = 0
         self.test_samples_count = 0
-        self.data_augmentation = DataAugmentation(patch_size=self.image_size)
+
+    def _apply_aug(self) -> AugmentationSequential:
+        """Augmentation pipeline."""
+        random_resized_crop_zoom_in = krn.augmentation.RandomResizedCrop(
+            size=self.image_size,
+            scale=(1.0, 2.0),
+            p=0.5,
+            align_corners=False,
+            keepdim=True,
+        )
+        random_resized_crop_zoom_out = krn.augmentation.RandomResizedCrop(
+            size=self.image_size,
+            scale=(0.5, 1.0),
+            p=0.5,
+            align_corners=False,
+            keepdim=True,
+        )
+
+        return AugmentationSequential(
+            krn.augmentation.RandomHorizontalFlip(p=0.5, keepdim=True),
+            krn.augmentation.RandomVerticalFlip(p=0.5, keepdim=True),
+            krn.augmentation.RandomRotation90(
+                times=(1, 3),
+                p=0.5,
+                align_corners=True,
+                keepdim=True,
+            ),
+            random_resized_crop_zoom_in,
+            random_resized_crop_zoom_out,
+            data_keys=None,
+            random_apply=1,
+        )
 
     def configure_model(self) -> None:
         """Configure model."""
@@ -124,7 +157,9 @@ class SegmentationDOFA(LightningModule):
     ) -> dict[str, Any]:
         """On before batch transfer."""
         if self.trainer.training:
-            return self.data_augmentation(batch)
+            aug = self._apply_aug()
+            transformed = aug({"image": batch["image"], "mask": batch["mask"]})
+            batch.update(transformed)
         return batch
 
     def training_step(
