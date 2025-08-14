@@ -334,7 +334,7 @@ class DOFAv2(nn.Module):
         # Load state dict
         missing_keys, unexpected_keys = self.load_state_dict(
             new_state_dict,
-            strict=True,
+            strict=False,
         )
         expected_missing = {"head.weight", "head.bias"}
         actual_missing = set(missing_keys) - expected_missing
