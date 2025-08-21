@@ -6,6 +6,7 @@ from functools import partial
 from typing import Any
 
 import torch
+import torch.nn.functional as fn
 from models.segmentation.base import EncoderMixin
 from timm.layers import DropPath, to_2tuple, trunc_normal_
 from torch import Tensor, nn
@@ -573,14 +574,7 @@ class MixVisionTransformerEncoder(MixVisionTransformer, EncoderMixin):
 
     def forward(self, x: Tensor) -> list[Tensor]:
         """Forward pass."""
-        batch_size, _, height, width = x.shape
-        dummy = torch.empty(
-            [batch_size, 0, height // 2, width // 2],
-            dtype=x.dtype,
-            device=x.device,
-        )
-
-        return [x, dummy, *self.forward_features(x)[: self._depth - 1]]
+        return self.forward_features(x)[: self._depth - 1]
 
     def load_state_dict(self, state_dict: dict[str, Tensor]) -> None:
         """Load state dict."""
@@ -609,7 +603,6 @@ mix_transformer_encoders = {
         },
         "params": {
             "out_channels": (3, 0, 32, 64, 160, 256),
-            "patch_size": 4,
             "embed_dims": [32, 64, 160, 256],
             "num_heads": [1, 2, 5, 8],
             "mlp_ratios": [4, 4, 4, 4],
@@ -628,7 +621,6 @@ mix_transformer_encoders = {
         },
         "params": {
             "out_channels": (3, 0, 64, 128, 320, 512),
-            "patch_size": 4,
             "embed_dims": [64, 128, 320, 512],
             "num_heads": [1, 2, 5, 8],
             "mlp_ratios": [4, 4, 4, 4],
@@ -647,7 +639,6 @@ mix_transformer_encoders = {
         },
         "params": {
             "out_channels": (3, 0, 64, 128, 320, 512),
-            "patch_size": 4,
             "embed_dims": [64, 128, 320, 512],
             "num_heads": [1, 2, 5, 8],
             "mlp_ratios": [4, 4, 4, 4],
@@ -666,7 +657,6 @@ mix_transformer_encoders = {
         },
         "params": {
             "out_channels": (3, 0, 64, 128, 320, 512),
-            "patch_size": 4,
             "embed_dims": [64, 128, 320, 512],
             "num_heads": [1, 2, 5, 8],
             "mlp_ratios": [4, 4, 4, 4],
@@ -685,7 +675,6 @@ mix_transformer_encoders = {
         },
         "params": {
             "out_channels": (3, 0, 64, 128, 320, 512),
-            "patch_size": 4,
             "embed_dims": [64, 128, 320, 512],
             "num_heads": [1, 2, 5, 8],
             "mlp_ratios": [4, 4, 4, 4],
@@ -704,7 +693,6 @@ mix_transformer_encoders = {
         },
         "params": {
             "out_channels": (3, 0, 64, 128, 320, 512),
-            "patch_size": 4,
             "embed_dims": [64, 128, 320, 512],
             "num_heads": [1, 2, 5, 8],
             "mlp_ratios": [4, 4, 4, 4],
@@ -762,9 +750,184 @@ def get_encoder(
             )
             warnings.warn(msg, stacklevel=2)
 
-    encoder.set_in_channels(in_channels, pretrained=weights is not None)
+    encoder.set_in_channels(in_channels)
     expected_stride = 32
     if output_stride != expected_stride:
         encoder.make_dilated(output_stride)
 
     return encoder
+
+
+class DynamicChannelEmbed(nn.Module):
+    """Dynamic channel-adaptive patch embedding using positional encodings."""
+
+    def __init__(
+        self,
+        patch_size: int = 7,
+        stride: int = 4,
+        embed_dim: int = 64,
+        hidden_dim: int = 128,
+    ) -> None:
+        """Initialize DynamicChannelEmbed."""
+        super().__init__()
+        self.patch_size = patch_size
+        self.stride = stride
+        self.embed_dim = embed_dim
+
+        # Channel position encoder
+        self.pos_dim = hidden_dim
+
+        # Dynamic weight generator (lightweight)
+        self.weight_gen = nn.Sequential(
+            nn.Linear(self.pos_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, embed_dim),
+            nn.Tanh(),  # Bounded weights
+        )
+
+        # Shared spatial convolution (not dynamic for efficiency)
+        self.spatial_conv = nn.Conv2d(
+            1,  # Process each channel independently
+            embed_dim,
+            kernel_size=patch_size,
+            stride=stride,
+            padding=patch_size // 2,
+        )
+
+        # Channel attention
+        self.channel_attention = nn.Sequential(
+            nn.Conv1d(embed_dim + self.pos_dim, embed_dim // 2, 1),
+            nn.ReLU(),
+            nn.Conv1d(embed_dim // 2, 1, 1),
+        )
+
+        # Output projection and norm
+        self.proj = nn.Linear(embed_dim, embed_dim)
+        self.norm = nn.LayerNorm(embed_dim)
+
+    def get_position_encoding(self, n_channels: int, device: torch.device) -> Tensor:
+        """Generate sinusoidal position encodings for channels."""
+        positions = torch.arange(n_channels, device=device).float()
+        dim_t = torch.arange(0, self.pos_dim, 2, device=device).float()
+
+        inv_freq = 1.0 / (10000 ** (dim_t / self.pos_dim))
+        pos_enc = torch.zeros(n_channels, self.pos_dim, device=device)
+
+        pos_enc[:, 0::2] = torch.sin(positions.unsqueeze(1) * inv_freq)
+        pos_enc[:, 1::2] = torch.cos(positions.unsqueeze(1) * inv_freq)
+
+        return pos_enc
+
+    def forward(self, x: Tensor) -> tuple[Tensor, int, int]:
+        """Forward pass."""
+        batch, channels, height, width = x.shape
+        pos_enc = self.get_position_encoding(channels, x.device)
+        channel_weights = self.weight_gen(pos_enc)
+        x_reshaped = x.view(batch * channels, 1, height, width)
+        x_conv = self.spatial_conv(x_reshaped)
+        _, embed_dim, h_out, w_out = x_conv.shape
+        x_conv = x_conv.view(batch, channels, embed_dim, h_out * w_out)
+        channel_weights = channel_weights.unsqueeze(0).unsqueeze(-1)
+        x_weighted = x_conv * channel_weights
+        batch, channels, embed_dim, hw_out = x_weighted.shape
+        pos_enc_expanded = (
+            pos_enc.unsqueeze(0).unsqueeze(-1).expand(batch, -1, -1, hw_out)
+        )
+        x_for_attn = torch.cat(
+            [x_weighted, pos_enc_expanded],
+            dim=2,
+        )
+        x_for_attn = x_for_attn.permute(0, 3, 1, 2).reshape(
+            batch * hw_out,
+            channels,
+            embed_dim + self.pos_dim,
+        )
+        x_for_attn = x_for_attn.transpose(1, 2)
+        attn_scores = self.channel_attention(x_for_attn)
+        attn_scores = (
+            attn_scores.transpose(1, 2)
+            .reshape(batch, hw_out, channels)
+            .permute(0, 2, 1)
+        )
+        attn_scores = fn.softmax(attn_scores, dim=1).unsqueeze(2)
+        x_aggregated = (x_weighted * attn_scores).sum(dim=1)
+        x_aggregated = x_aggregated.transpose(1, 2)
+        x_out = self.proj(x_aggregated)
+        x_out = self.norm(x_out)
+
+        return x_out, h_out, w_out
+
+
+class DynamicMixTransformer(nn.Module):
+    """Dynamic MixVisionTransformer, handles arbitrary channel counts."""
+
+    def __init__(
+        self,
+        encoder: str = "mit_b0",
+        in_channels: int = 3,
+        weights: str | None = None,
+    ) -> None:
+        """Initialize DynamicMixTransformer."""
+        super().__init__()
+        base_encoder = get_encoder(
+            name=encoder,
+            in_channels=in_channels,
+            weights=weights,
+        )
+        self.dynamic_patch_embed1 = DynamicChannelEmbed(
+            patch_size=7,
+            stride=4,
+            embed_dim=base_encoder.patch_embed1.proj.out_channels,
+            hidden_dim=128,
+        )
+        self.patch_embed2 = base_encoder.patch_embed2
+        self.patch_embed3 = base_encoder.patch_embed3
+        self.patch_embed4 = base_encoder.patch_embed4
+
+        self.block1 = base_encoder.block1
+        self.block2 = base_encoder.block2
+        self.block3 = base_encoder.block3
+        self.block4 = base_encoder.block4
+
+        self.norm1 = base_encoder.norm1
+        self.norm2 = base_encoder.norm2
+        self.norm3 = base_encoder.norm3
+        self.norm4 = base_encoder.norm4
+
+    def forward_features(self, x: Tensor) -> list[Tensor]:
+        """Forward features pass."""
+        batch_size = x.shape[0]
+        outs = []
+        x, h, w = self.dynamic_patch_embed1(x)
+        for blk in self.block1:
+            x = blk(x, h, w)
+        x = self.norm1(x)
+        x = x.reshape(batch_size, h, w, -1).permute(0, 3, 1, 2).contiguous()
+        outs.append(x)
+
+        x, h, w = self.patch_embed2(x)
+        for blk in self.block2:
+            x = blk(x, h, w)
+        x = self.norm2(x)
+        x = x.reshape(batch_size, h, w, -1).permute(0, 3, 1, 2).contiguous()
+        outs.append(x)
+
+        x, h, w = self.patch_embed3(x)
+        for blk in self.block3:
+            x = blk(x, h, w)
+        x = self.norm3(x)
+        x = x.reshape(batch_size, h, w, -1).permute(0, 3, 1, 2).contiguous()
+        outs.append(x)
+
+        x, h, w = self.patch_embed4(x)
+        for blk in self.block4:
+            x = blk(x, h, w)
+        x = self.norm4(x)
+        x = x.reshape(batch_size, h, w, -1).permute(0, 3, 1, 2).contiguous()
+        outs.append(x)
+
+        return outs
+
+    def forward(self, x: Tensor) -> list[Tensor]:
+        """Forward pass."""
+        return self.forward_features(x)
