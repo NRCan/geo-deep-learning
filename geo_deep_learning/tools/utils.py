@@ -56,6 +56,26 @@ def denormalization(
     return (image * data_type_max).clamp(0, data_type_max).to(torch.uint8)
 
 
+def manage_bands(
+    image: torch.Tensor,
+    band_indices: list[int] | None = None,
+) -> torch.Tensor:
+    """Select specific bands from the image tensor based on band indices."""
+    if band_indices is not None:
+        bands = image.size(0)
+        if max(band_indices) >= bands:
+            msg = (
+                f"Band index {max(band_indices)} "
+                f"is out of range for image with {bands} bands"
+            )
+            raise ValueError(
+                msg,
+            )
+        band_indices = torch.LongTensor(band_indices).to(image.device)
+        return torch.index_select(image, dim=0, index=band_indices)
+    return image
+
+
 def load_weights_from_checkpoint(
     model: torch.nn.Module,
     checkpoint_path: str,
