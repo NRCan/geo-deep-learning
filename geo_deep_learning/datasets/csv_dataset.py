@@ -1,7 +1,6 @@
 """CSV dataset."""
 
 import logging
-from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +10,8 @@ import torch
 from pytorch_lightning.utilities import rank_zero_only
 from torch import Tensor
 from torchgeo.datasets import NonGeoDataset
+
+from geo_deep_learning.tools.utils import normalization, standardization
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ class CSVDataset(NonGeoDataset):
         csv_root_folder: str,
         patches_root_folder: str,
         split: str = "trn",
-        transforms: Callable | None = None,
+        norm_stats: dict[str, list[float]] | None = None,
     ) -> None:
         """
         Initialize the dataset.
@@ -75,13 +76,13 @@ class CSVDataset(NonGeoDataset):
             csv_root_folder (str): The root folder where the csv files are stored
             patches_root_folder (str): The root folder of image and mask patches.
             split (str, optional): Defaults to "trn".
-            transforms (Callable, optional): Transforms to apply to the data.
+            norm_stats (dict[str, list[float]], optional): Normalization statistics.
 
         """
         self.csv_root_folder = csv_root_folder
         self.patches_root_folder = patches_root_folder
         self.split = split
-        self.transforms = transforms
+        self.norm_stats = norm_stats
         self.files = self._load_files()
         log_dataset(self.split, len(self.files))
 
@@ -146,14 +147,18 @@ class CSVDataset(NonGeoDataset):
 
         """
         image, image_name = self._load_image(index)
+        image = normalization(image)
+        mean = torch.tensor(self.norm_stats["mean"], dtype=torch.float32).view(-1, 1, 1)
+        std = torch.tensor(self.norm_stats["std"], dtype=torch.float32).view(-1, 1, 1)
+        image = standardization(image, mean, std)
         mask, mask_name = self._load_mask(index)
 
         sample = {"image": image, "mask": mask}
-        if self.transforms is not None:
-            sample = self.transforms(sample)
 
         sample["image_name"] = image_name
         sample["mask_name"] = mask_name
+        sample["mean"] = mean
+        sample["std"] = std
         return sample
 
 
