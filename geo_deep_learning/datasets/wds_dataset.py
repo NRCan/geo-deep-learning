@@ -115,6 +115,7 @@ def create_sensor_datasets(
                     patch_count=patch_count,
                     normalization_stats_path=config["stats_path"],
                     split=split,
+                    wavelength_keys=config.get("wavelength_keys"),
                     **common_kwargs,
                 )
 
