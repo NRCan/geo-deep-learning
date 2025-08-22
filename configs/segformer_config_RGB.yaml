@@ -18,7 +18,7 @@ trainer:
       save_dir: /home/valhassa/Projects/geo-deep-learning/logs
       log_model: all
       experiment_name: "gdl_experiment"
-      run_name: "gdl_run"
+      run_name: "segformer_mit_b0"
   callbacks:
     - class_path: lightning.pytorch.callbacks.EarlyStopping
       init_args:
@@ -35,25 +35,19 @@ trainer:
     - class_path: tools.callbacks.segmentation_visualization.VisualizationCallback
       init_args:
         max_samples: 3
-        mean: ${data.init_args.mean}
-        std: ${data.init_args.std}
-        data_type_max: ${data.init_args.data_type_max}
-        num_classes: ${model.init_args.num_classes}
-        class_colors: ${model.init_args.class_colors}
   max_epochs: 10
 
 model:
   class_path: tasks_with_models.segmentation_segformer.SegmentationSegformer
   init_args:
     encoder: "mit_b0" # "mit_b0", "mit_b1", "mit_b2", "mit_b3", "mit_b4", "mit_b5"
+    image_size: [512, 512]
     in_channels: 3
     weights: imagenet
     max_samples: 6
     num_classes: 5
-    mean: ${data.init_args.mean}
-    std: ${data.init_args.std}
-    data_type_max: ${data.init_args.data_type_max}
     freeze_layers: null
+    use_dynamic_encoder: false
     loss:
       class_path: segmentation_models_pytorch.losses.DiceLoss
       init_args:
@@ -77,9 +71,9 @@ model:
     class_labels: ["background", "fore", "hydro", "roads", "buildings"]
     class_colors: ["#000000", "#008000", "#0000FF", "#FFFF00", "#FF0000"]
     weights_from_checkpoint_path: null
-    load_parts: null
+
 data:
-  class_path: datamodules.imagery_NonGeoDataModule.BlueSkyNonGeoDataModule
+  class_path: datamodules.csv_datamodule.CSVDataModule
   init_args:
     batch_size: 4
     num_workers: 8
