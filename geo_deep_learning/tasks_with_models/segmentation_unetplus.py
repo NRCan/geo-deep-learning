@@ -16,6 +16,7 @@ from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
 from tools.utils import denormalization, load_weights_from_checkpoint
 from tools.visualization import visualize_prediction
 from torch import Tensor
+from torch.optim.lr_scheduler import _LRScheduler
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
 
@@ -140,22 +141,30 @@ class SegmentationUnetPlus(LightningModule):
                 map_location=map_location,
             )
 
-    def configure_optimizers(self) -> list[list[dict[str, Any]]]:
-        """Configure optimizers."""
+    def configure_optimizers(self) -> list:
+        """Configure optimizers and schedulers."""
         optimizer = self.optimizer(self.parameters())
-        if (
-            self.hparams["scheduler"]["class_path"]
-            == "torch.optim.lr_scheduler.OneCycleLR"
-        ):
-            max_lr = (
-                self.hparams.get("scheduler", {}).get("init_args", {}).get("max_lr")
-            )
+        scheduler_cfg = self.hparams.get("scheduler", None)
+
+        # Initialize scheduler variable (either an LR scheduler or None)
+        scheduler: _LRScheduler | None = None
+
+        # Handle non-CLI case
+        if not scheduler_cfg or not isinstance(scheduler_cfg, dict):
+            scheduler = self.scheduler(optimizer) if callable(self.scheduler) else None
+            if scheduler:
+                return [optimizer], [{"scheduler": scheduler, **self.scheduler_config}]
+            return [optimizer]
+
+        # CLI-compatible config logic
+        scheduler_class_path = scheduler_cfg.get("class_path", "")
+        if scheduler_class_path == "torch.optim.lr_scheduler.OneCycleLR":
+            max_lr = scheduler_cfg.get("init_args", {}).get("max_lr")
             stepping_batches = self.trainer.estimated_stepping_batches
+
             if stepping_batches > -1:
                 scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                    optimizer,
-                    max_lr=max_lr,
-                    total_steps=stepping_batches,
+                    optimizer, max_lr=max_lr, total_steps=stepping_batches
                 )
             elif (
                 stepping_batches == -1
@@ -165,10 +174,12 @@ class SegmentationUnetPlus(LightningModule):
                 epoch_size = self.trainer.datamodule.epoch_size
                 accumulate_grad_batches = self.trainer.accumulate_grad_batches
                 max_epochs = self.trainer.max_epochs
+
                 steps_per_epoch = math.ceil(
-                    epoch_size / (batch_size * accumulate_grad_batches),
+                    epoch_size / (batch_size * accumulate_grad_batches)
                 )
                 buffer_steps = int(steps_per_epoch * accumulate_grad_batches)
+
                 scheduler = torch.optim.lr_scheduler.OneCycleLR(
                     optimizer,
                     max_lr=max_lr,
@@ -176,20 +187,16 @@ class SegmentationUnetPlus(LightningModule):
                     epochs=max_epochs,
                 )
             else:
-                stepping_batches = (
-                    self.hparams.get("scheduler", {})
-                    .get("init_args", {})
-                    .get("total_steps")
-                )
+                total_steps = scheduler_cfg.get("init_args", {}).get("total_steps")
                 scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                    optimizer,
-                    max_lr=max_lr,
-                    total_steps=stepping_batches,
+                    optimizer, max_lr=max_lr, total_steps=total_steps
                 )
         else:
             scheduler = self.scheduler(optimizer)
 
-        return [optimizer], [{"scheduler": scheduler, **self.scheduler_config}]
+        return [optimizer], [
+            {"scheduler": scheduler, **self.scheduler_config}
+        ] if scheduler else [optimizer]
 
     def forward(self, image: Tensor) -> Tensor:
         """Forward pass."""
