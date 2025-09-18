@@ -13,12 +13,13 @@ import torch
 from kornia.augmentation import AugmentationSequential
 from lightning.pytorch import LightningModule, Trainer
 from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
-from tools.utils import denormalization, load_weights_from_checkpoint
-from tools.visualization import visualize_prediction
 from torch import Tensor
 from torch.optim.lr_scheduler import _LRScheduler
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
+
+from geo_deep_learning.tools.utils import denormalization, load_weights_from_checkpoint
+from geo_deep_learning.tools.visualization import visualize_prediction
 
 # Ignore warning about default grid_sample and affine_grid behavior triggered by kornia
 warnings.filterwarnings(
@@ -164,7 +165,9 @@ class SegmentationUnetPlus(LightningModule):
 
             if stepping_batches > -1:
                 scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                    optimizer, max_lr=max_lr, total_steps=stepping_batches
+                    optimizer,
+                    max_lr=max_lr,
+                    total_steps=stepping_batches,
                 )
             elif (
                 stepping_batches == -1
@@ -176,7 +179,7 @@ class SegmentationUnetPlus(LightningModule):
                 max_epochs = self.trainer.max_epochs
 
                 steps_per_epoch = math.ceil(
-                    epoch_size / (batch_size * accumulate_grad_batches)
+                    epoch_size / (batch_size * accumulate_grad_batches),
                 )
                 buffer_steps = int(steps_per_epoch * accumulate_grad_batches)
 
@@ -189,13 +192,15 @@ class SegmentationUnetPlus(LightningModule):
             else:
                 total_steps = scheduler_cfg.get("init_args", {}).get("total_steps")
                 scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                    optimizer, max_lr=max_lr, total_steps=total_steps
+                    optimizer,
+                    max_lr=max_lr,
+                    total_steps=total_steps,
                 )
         else:
             scheduler = self.scheduler(optimizer)
 
         return [optimizer], [
-            {"scheduler": scheduler, **self.scheduler_config}
+            {"scheduler": scheduler, **self.scheduler_config},
         ] if scheduler else [optimizer]
 
     def forward(self, image: Tensor) -> Tensor:
@@ -282,6 +287,7 @@ class SegmentationUnetPlus(LightningModule):
         y_hat = self(x)
         loss = self.loss(y_hat, y)
         y = y.squeeze(1).long()
+
         if self.num_classes == 1:
             y_hat = (y_hat.sigmoid().squeeze(1) > self.threshold).long()
         else:

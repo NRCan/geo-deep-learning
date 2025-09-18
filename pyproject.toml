@@ -63,6 +63,7 @@ ignore = [
     "ANN101", "ANN102",  # allow skipping `self`, `cls` annotations
     "EXE002", # ignore missing executable bit on scripts with shebangs
     "ERA001", # ignore commented out code
+    "TC002", # allow third-party imports in type annotations without TYPE_CHECKING
 ]
 
 [tool.ruff.lint]
