@@ -1,4 +1,11 @@
 *__pycache__**
 *.idea**
 *.vscode**
-*geo_deep_learning/notebooks*
+
+# Specific folders name
+waterloo_subset_512/
+mlruns/
+.ipynb_checkpoints/
+
+# Specific files
+environment_full_conda_bckp.yml
