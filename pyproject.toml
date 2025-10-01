@@ -1,3 +1,47 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geo-deep-learning"
+version = "0.1.0a0"
+description = "Geospatial deep learning framework for segmentation tasks"
+readme = "README.md"
+authors = [
+  { name = "Victor Alhassan", email = "victor.alhassan@NRCan-RNCan.gc.ca" },
+  { name = "Luca Romanini", email = "luca.romanini@NRCan-RNCan.gc.ca" },
+]
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+keywords = ["pytorch", "deep learning", "machine learning", "remote sensing", "satellite imagery", "earth observation", "geospatial"]
+
+# Dependencies are pulled from requirements.txt
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "pre-commit"]
+
+[project.urls]
+Homepage = "https://github.com/NRCan/geo-deep-learning"
+Repository = "https://github.com/NRCan/geo-deep-learning"
+Issues = "https://github.com/NRCan/geo-deep-learning/issues"
+
+
+# --------------------------
+# Ruff configuration
+# --------------------------
+
 [tool.ruff]
 exclude = [
     ".bzr", ".direnv", ".eggs", ".git", ".git-rewrite", ".hg",
@@ -6,6 +50,7 @@ exclude = [
     ".vscode", "__pypackages__", "_build", "buck-out", "build", "dist",
     "node_modules", "site-packages", "venv"
 ]
+src = ["geo_deep_learning"]
 line-length = 88
 indent-width = 4
 target-version = "py310"
@@ -18,10 +63,8 @@ ignore = [
     "ANN101", "ANN102",  # allow skipping `self`, `cls` annotations
     "EXE002", # ignore missing executable bit on scripts with shebangs
     "ERA001", # ignore commented out code
+    "TC002", # allow third-party imports in type annotations without TYPE_CHECKING
 ]
-
-# You can limit to specific rule groups instead of ALL:
-# select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "D", "PT"]
 
 [tool.ruff.lint]
 fixable = ["ALL"]
@@ -34,3 +77,17 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.ruff.lint.isort]
+# Treat both the package and legacy alias names as first-party
+known-first-party = [
+  "geo_deep_learning",
+  "tools",
+  "models",
+  "datasets",
+  "datamodules",
+  "tasks_with_models",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
