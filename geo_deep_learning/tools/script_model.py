@@ -1,9 +1,10 @@
 """Script model for inference."""
 
 import torch
-from tools.utils import normalization, standardization
 from torch import nn
 from torch.nn import functional as f
+
+from geo_deep_learning.utils.tensors import normalization, standardization
 
 
 class ScriptModel(nn.Module):

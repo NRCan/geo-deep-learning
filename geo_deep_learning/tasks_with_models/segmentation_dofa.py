@@ -12,12 +12,14 @@ import torch
 from kornia.augmentation import AugmentationSequential
 from lightning.pytorch import LightningModule, Trainer
 from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
-from models.segmentation.dofa import DOFASegmentationModel
-from tools.utils import denormalization, load_weights_from_checkpoint
-from tools.visualization import visualize_prediction
 from torch import Tensor
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
+
+from geo_deep_learning.utils.models import load_weights_from_checkpoint
+from geo_deep_learning.utils.tensors import denormalization
+from models.segmentation.dofa import DOFASegmentationModel
+from tools.visualization import visualize_prediction
 
 # Ignore warning about default grid_sample and affine_grid behavior triggered by kornia
 warnings.filterwarnings(

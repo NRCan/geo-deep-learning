@@ -12,7 +12,7 @@ import webdataset as wds
 import yaml
 from pytorch_lightning.utilities import rank_zero_only
 
-from geo_deep_learning.tools.utils import normalization, standardization
+from geo_deep_learning.utils.tensors import normalization, standardization
 
 logger = logging.getLogger(__name__)
 

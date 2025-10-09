@@ -12,12 +12,14 @@ import torch
 from kornia.augmentation import AugmentationSequential
 from lightning.pytorch import LightningModule, Trainer
 from lightning.pytorch.cli import LRSchedulerCallable, OptimizerCallable
-from models.segmentation.segformer import SegFormerSegmentationModel
-from tools.utils import denormalization, load_weights_from_checkpoint
-from tools.visualization import visualize_prediction
 from torch import Tensor
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
+
+from geo_deep_learning.utils.models import load_weights_from_checkpoint
+from geo_deep_learning.utils.tensors import denormalization
+from models.segmentation.segformer import SegFormerSegmentationModel
+from tools.visualization import visualize_prediction
 
 warnings.filterwarnings(
     "ignore",
