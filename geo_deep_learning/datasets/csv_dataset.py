@@ -11,7 +11,7 @@ from pytorch_lightning.utilities import rank_zero_only
 from torch import Tensor
 from torchgeo.datasets import NonGeoDataset
 
-from geo_deep_learning.tools.utils import normalization, standardization
+from geo_deep_learning.utils.tensors import normalization, standardization
 
 logger = logging.getLogger(__name__)
 

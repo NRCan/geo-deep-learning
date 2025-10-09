@@ -18,8 +18,9 @@ from torch.optim.lr_scheduler import _LRScheduler
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
 
-from geo_deep_learning.tools.utils import denormalization, load_weights_from_checkpoint
 from geo_deep_learning.tools.visualization import visualize_prediction
+from geo_deep_learning.utils.models import load_weights_from_checkpoint
+from geo_deep_learning.utils.tensors import denormalization
 
 # Ignore warning about default grid_sample and affine_grid behavior triggered by kornia
 warnings.filterwarnings(
