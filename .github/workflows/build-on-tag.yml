@@ -1,5 +1,8 @@
+
 on:
-  create
+  push:
+    tags:
+      - '*'
 
 env:
   REGISTRY: docker.io
