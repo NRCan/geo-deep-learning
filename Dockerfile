@@ -14,7 +14,7 @@ RUN micromamba create -y -n geo-dl -c conda-forge python=3.10 pip && \
     micromamba clean -a -y && \
     rm -rf /tmp/* /var/tmp/* && \
     find /opt/conda/envs/geo-dl -name "*.pyc" -delete && \
-    find /opt/conda/envs/geo-dl -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+    find /opt/conda/envs/geo-dl -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null
 
 # Set environment path and activation
 ENV PATH="/opt/conda/envs/geo-dl/bin:$PATH"
