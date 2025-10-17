@@ -1,29 +1,29 @@
 # syntax=docker/dockerfile:1
-FROM mambaorg/micromamba:1.5.8-bullseye
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
-# Set up environment
-ENV MAMBA_DOCKERFILE_ACTIVATE=1
+RUN apt-get update && apt-get install -y curl bzip2 && \
+    curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | \
+    tar -xvj -C /usr/local/bin --strip-components=1 bin/micromamba && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy environment files
-COPY requirements.txt ./
-COPY pyproject.toml ./
+ENV MAMBA_DOCKERFILE_ACTIVATE=1 \
+    CONDA_ENV_NAME=geo-dl \
+    PATH="/opt/conda/envs/geo-dl/bin:$PATH"
 
-# Create environment and install dependencies with space optimization
-RUN micromamba create -y -n geo-dl -c conda-forge python=3.10 pip && \
-    micromamba run -n geo-dl pip install --no-cache-dir -r requirements.txt && \
+WORKDIR /tmp
+COPY requirements.txt pyproject.toml ./
+
+RUN micromamba create -y -n $CONDA_ENV_NAME -c conda-forge python=3.10 pip && \
+    micromamba run -n $CONDA_ENV_NAME pip install --no-cache-dir -r requirements.txt && \
     micromamba clean -a -y && \
-    rm -rf /tmp/* /var/tmp/* && \
-    find /opt/conda/envs/geo-dl -name "*.pyc" -delete && \
-    find /opt/conda/envs/geo-dl -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null
+    find /opt/conda/envs/$CONDA_ENV_NAME -name "*.pyc" -delete && \
+    find /opt/conda/envs/$CONDA_ENV_NAME -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null
 
-# Set environment path and activation
-ENV PATH="/opt/conda/envs/geo-dl/bin:$PATH"
-ARG MAMBA_DOCKERFILE_ACTIVATE=1
+RUN useradd -m -u 1000 gdl_user && mkdir -p /app && chown -R gdl_user /app
+USER gdl_user
 
-# Copy source code
-COPY . /app
 WORKDIR /app
+COPY --chown=gdl_user:gdl_user . /app
 
-# Set entrypoint (override as needed)
 ENTRYPOINT ["python"]
 CMD ["-m", "geo_deep_learning.train"]
