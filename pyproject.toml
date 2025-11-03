@@ -7,35 +7,82 @@ name = "geo-deep-learning"
 version = "0.1.0a0"
 description = "Geospatial deep learning framework for segmentation tasks"
 readme = "README.md"
+requires-python = ">=3.12.0,<3.13"
 authors = [
   { name = "Victor Alhassan", email = "victor.alhassan@NRCan-RNCan.gc.ca" },
   { name = "Luca Romanini", email = "luca.romanini@NRCan-RNCan.gc.ca" },
 ]
-requires-python = ">=3.10"
 license = { file = "LICENSE" }
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Scientific/Engineering :: GIS",
 ]
 keywords = ["pytorch", "deep learning", "machine learning", "remote sensing", "satellite imagery", "earth observation", "geospatial"]
 
-# Dependencies are pulled from requirements.txt
-dynamic = ["dependencies"]
-
-[tool.setuptools.dynamic]
-dependencies = { file = ["requirements.txt"] }
+dependencies = [
+  "lightning>=2.0.0",
+  "torchmetrics>=1.0.0",
+  "kornia>=0.7.0",
+  "timm>=0.9.0",
+  "segmentation-models-pytorch>=0.3.3",
+  "torchgeo>=0.5.0",
+  "rasterio>=1.3.0",
+  "numpy>=1.24.0",
+  "pandas>=2.0.0",
+  "matplotlib>=3.7.0",
+  "mlflow>=2.0.0",
+  "colorlog>=6.7.0",
+  "PyYAML>=6.0",
+  "jsonargparse[all]>=4.27.7",
+  "jupyterlab>=4.0.0",
+  ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "pre-commit"]
+cpu = ["torch>=2.7.0", "torchvision>=0.22.0",]
+cu128 = ["torch>=2.7.0", "torchvision>=0.22.0",]
+dev = ["pytest", "ruff", "pre-commit",]
 
 [project.urls]
 Homepage = "https://github.com/NRCan/geo-deep-learning"
 Repository = "https://github.com/NRCan/geo-deep-learning"
 Issues = "https://github.com/NRCan/geo-deep-learning/issues"
+
+
+# --------------------------
+# UV configuration
+# --------------------------
+
+[tool.uv]
+conflicts = [
+  [
+    { extra = "cpu" },
+    { extra = "cu128" },
+  ],
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu128", extra = "cu128" },
+]
+torchvision = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu128", extra = "cu128" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 
 # --------------------------
@@ -53,8 +100,9 @@ exclude = [
 src = ["geo_deep_learning"]
 line-length = 88
 indent-width = 4
-target-version = "py310"
+target-version = "py312"
 
+[tool.ruff.lint]
 # Enable full PEP 8 + modern checks
 select = ["ALL"]
 ignore = [
@@ -65,8 +113,6 @@ ignore = [
     "ERA001", # ignore commented out code
     "TC002", "TC003" # allow imports in type annotations without TYPE_CHECKING
 ]
-
-[tool.ruff.lint]
 fixable = ["ALL"]
 unfixable = []
 
