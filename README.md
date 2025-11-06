@@ -68,6 +68,7 @@ Or use `uv run` to execute commands without manual activation:
 ```bash
 uv run python geo_deep_learning/train.py fit --config configs/dofa_config_RGB.yaml
 ```
+**Note:** *If you prefer to use conda or another environment manager, you can generate a `requirements.txt` file from the dependencies listed in `pyproject.toml` for manual installation.*
 
 ### Configuration
 
