@@ -16,10 +16,10 @@ from torch import Tensor
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
 
+from geo_deep_learning.models.segmentation.dofa import DOFASegmentationModel
+from geo_deep_learning.tools.visualization import visualize_prediction
 from geo_deep_learning.utils.models import load_weights_from_checkpoint
 from geo_deep_learning.utils.tensors import denormalization
-from models.segmentation.dofa import DOFASegmentationModel
-from tools.visualization import visualize_prediction
 
 # Ignore warning about default grid_sample and affine_grid behavior triggered by kornia
 warnings.filterwarnings(
