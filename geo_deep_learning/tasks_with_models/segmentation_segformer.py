@@ -16,10 +16,10 @@ from torch import Tensor
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.wrappers import ClasswiseWrapper
 
+from geo_deep_learning.models.segmentation.segformer import SegFormerSegmentationModel
+from geo_deep_learning.tools.visualization import visualize_prediction
 from geo_deep_learning.utils.models import load_weights_from_checkpoint
 from geo_deep_learning.utils.tensors import denormalization
-from models.segmentation.segformer import SegFormerSegmentationModel
-from tools.visualization import visualize_prediction
 
 warnings.filterwarnings(
     "ignore",

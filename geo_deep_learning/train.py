@@ -7,7 +7,7 @@ from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.cli import ArgsType, LightningCLI
 from lightning.pytorch.loggers import MLFlowLogger
 
-from configs import logging_config  # noqa: F401
+from geo_deep_learning.config import logging_config  # noqa: F401
 from geo_deep_learning.tools.mlflow_logger import LoggerSaveConfigCallback
 
 logger = logging.getLogger(__name__)

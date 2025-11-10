@@ -2,8 +2,12 @@
 
 import torch
 import torch.nn.functional as fn
-from models.decoders.segformer_mlp import Decoder
-from models.encoders.mix_transformer import DynamicMixTransformer, get_encoder
+
+from geo_deep_learning.models.decoders.segformer_mlp import Decoder
+from geo_deep_learning.models.encoders.mix_transformer import (
+    DynamicMixTransformer,
+    get_encoder,
+)
 
 from .base import BaseSegmentationModel
 
