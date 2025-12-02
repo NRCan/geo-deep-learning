@@ -52,6 +52,7 @@ class ElevationStackDataModule(CSVDataModule):
         output_root: str = "",
         csv_path: str = "",
         csv_infer_path: str = "",
+        *,
         include_intensity: bool = False,
         stride: int = 256,
         test_ratio: float = 0.2,

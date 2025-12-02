@@ -1,5 +1,8 @@
+"""Data preparation for water extraction: TWI, tiling, preprocessing."""
+
 import logging
 import shutil
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -27,7 +30,7 @@ def compute_ndsm(
     block_size: int = 2048,
 ) -> None:
     """
-    Compute normalized DSM (nDSM = DSM - DTM) using chunked processing and save as GeoTIFF.
+    Compute nDSM (DSM - DTM) using chunked processing.
 
     Args:
         dsm_path (str): Path to aligned DSM raster.
@@ -38,9 +41,15 @@ def compute_ndsm(
 
     """
     with rasterio.open(dsm_path) as dsm_src, rasterio.open(dtm_path) as dtm_src:
-        assert dsm_src.shape == dtm_src.shape, "DSM and DTM must have the same shape"
-        assert dsm_src.transform == dtm_src.transform, "Transforms do not match"
-        assert dsm_src.crs == dtm_src.crs, "CRS does not match"
+        if dsm_src.shape != dtm_src.shape:
+            msg = "DSM and DTM must have the same shape"
+            raise ValueError(msg)
+        if dsm_src.transform != dtm_src.transform:
+            msg = "Transforms do not match"
+            raise ValueError(msg)
+        if dsm_src.crs != dtm_src.crs:
+            msg = "CRS does not match"
+            raise ValueError(msg)
 
         profile = dsm_src.profile
         profile.update(
@@ -76,9 +85,9 @@ def compute_ndsm(
 
 
 def log_system_resources(tag: str = "") -> None:
-    # Debug function
+    """Log current RAM and temporary disk usage for debugging."""
     ram = psutil.virtual_memory()
-    tmp = shutil.disk_usage("/tmp")
+    tmp = shutil.disk_usage(tempfile.gettempdir())
     log.info(
         "[RESOURCES %s] RAM used: %.1f GB / %.1f GB",
         tag,
@@ -93,7 +102,7 @@ def log_system_resources(tag: str = "") -> None:
     )
 
 
-def compute_twi_whitebox(
+def compute_twi_whitebox(  # noqa: C901
     dtm_path: str,
     twi_output_path: str,
     temp_dir: str | None = None,
@@ -140,7 +149,8 @@ def compute_twi_whitebox(
         ret = wbt.breach_depressions(dem=dtm_path, output=dtm_breached)
         log_system_resources("after breach_depressions")
         if ret != 0:
-            raise RuntimeError(f"[Whitebox] breach_depressions failed with code {ret}")
+            error_msg = f"[Whitebox] breach_depressions failed with code {ret}"
+            raise RuntimeError(error_msg)
 
     # Step 2: Slope
     if not Path(slope_path).exists():
@@ -149,7 +159,8 @@ def compute_twi_whitebox(
         ret = wbt.slope(dem=dtm_breached, output=slope_path, zfactor=1.0)
         log_system_resources("after slope")
         if ret != 0:
-            raise RuntimeError(f"[Whitebox] slope failed with code {ret}")
+            error_msg = f"[Whitebox] slope failed with code {ret}"
+            raise RuntimeError(error_msg)
 
     # Step 3: Flow accumulation
     if not Path(flow_acc_path).exists():
@@ -160,20 +171,19 @@ def compute_twi_whitebox(
             out_type="sca",
         )
         if ret != 0:
-            raise RuntimeError(
-                f"[Whitebox] d8_flow_accumulation failed with code {ret}",
-            )
+            error_msg = f"[Whitebox] d8_flow_accumulation failed with code {ret}"
+            raise RuntimeError(error_msg)
 
     if not Path(slope_path).exists() or not Path(flow_acc_path).exists():
-        raise FileNotFoundError(
-            "[Whitebox] One or more required intermediate files are missing.",
-        )
+        error_msg = "[Whitebox] One or more required intermediate files are missing."
+        raise FileNotFoundError(error_msg)
 
     # Step 4: Wetness index
     log.info("[TWI] Running wetness_index...")
     ret = wbt.wetness_index(sca=flow_acc_path, slope=slope_path, output=twi_output_path)
     if ret != 0 or not Path(twi_output_path).exists():
-        raise RuntimeError(f"[Whitebox] wetness_index failed. Code: {ret}")
+        error_msg = f"[Whitebox] wetness_index failed. Code: {ret}"
+        raise RuntimeError(error_msg)
 
     log.info("[TWI] TWI created: %s", twi_output_path)
 
@@ -187,9 +197,9 @@ def stack_rasters(
     Stack multiple single-band rasters into a multi-band raster.
 
     Args:
-        raster_paths (list of str): Ordered list of raster file paths (TWI, nDSM, Intensity, etc.).
-        output_path (str): Path to save the stacked raster.
-        nodata_val (float): Value to use for NoData in the output bands.
+        raster_paths: Ordered list of raster file paths (TWI, nDSM, Intensity).
+        output_path: Path to save the stacked raster.
+        nodata_val: Value to use for NoData in the output bands.
 
     """
     sources = [rasterio.open(path) for path in raster_paths]
@@ -198,12 +208,17 @@ def stack_rasters(
     ref_shape = sources[0].shape
     ref_transform = sources[0].transform
     ref_crs = sources[0].crs
-    dtype = sources[0].dtypes[0]
 
     for src in sources[1:]:
-        assert src.shape == ref_shape, f"Shape mismatch: {src.name}"
-        assert src.transform == ref_transform, f"Transform mismatch: {src.name}"
-        assert src.crs == ref_crs, f"CRS mismatch: {src.name}"
+        if src.shape != ref_shape:
+            error_msg = f"Shape mismatch: {src.name}"
+            raise ValueError(error_msg)
+        if src.transform != ref_transform:
+            error_msg = f"Transform mismatch: {src.name}"
+            raise ValueError(error_msg)
+        if src.crs != ref_crs:
+            error_msg = f"CRS mismatch: {src.name}"
+            raise ValueError(error_msg)
 
     profile = sources[0].profile
     profile.update(
@@ -225,15 +240,29 @@ def stack_rasters(
         src.close()
 
 
-def rasterize_labels_binary_aoi_mask(
+def rasterize_labels_binary_aoi_mask(  # noqa: PLR0913
     label_vector_path: str,
     aoi_vector_path: str,
     reference_raster_path: str,
     output_path: str,
+    *,
     burn_value: int = 1,
     fill_value: int = 0,
     ignore_value: int = -1,
 ) -> None:
+    """
+    Rasterize label vector and apply AOI mask.
+
+    Args:
+        label_vector_path: Path to label vector file
+        aoi_vector_path: Path to AOI vector file
+        reference_raster_path: Raster to match for shape, transform, CRS
+        output_path: Where to save the output raster
+        burn_value: Value to burn for label geometries
+        fill_value: Value for background pixels
+        ignore_value: Value for pixels outside AOI
+
+    """
     # Open reference raster
     with rasterio.open(reference_raster_path) as ref:
         ref_profile = ref.profile
@@ -252,7 +281,9 @@ def rasterize_labels_binary_aoi_mask(
             if not geom.is_valid:
                 geom = make_valid(geom)
             if crs_vector != crs:
-                from fiona.transform import transform_geom
+                from fiona.transform import (
+                    transform_geom,
+                )
 
                 geom = shape(transform_geom(crs_vector, crs, mapping(geom)))
             shapes.append((mapping(geom), burn_value))
@@ -276,7 +307,9 @@ def rasterize_labels_binary_aoi_mask(
             if not geom.is_valid:
                 geom = make_valid(geom)
             if crs_aoi != crs:
-                from fiona.transform import transform_geom
+                from fiona.transform import (
+                    transform_geom,
+                )
 
                 geom = shape(transform_geom(crs_aoi, crs, mapping(geom)))
             aoi_shapes.append((mapping(geom), 1))
@@ -313,14 +346,25 @@ def rasterize_labels_binary_aoi_mask(
     log.info("Saved AOI-masked label raster to: %s", output_path)
 
 
-# TODO revise if need to be kept LR
 def rasterize_labels_binary(
     vector_path: str,
     output_path: str,
     ref_profile: dict,
+    *,
     burn_value: int = 1,
     fill_value: int = 0,
 ) -> None:
+    """
+    Rasterize a vector file to a binary raster matching a reference profile.
+
+    Args:
+        vector_path: Path to vector file to rasterize
+        output_path: Where to save the output raster
+        ref_profile: Reference raster profile (shape, transform, CRS)
+        burn_value: Value to burn for geometries
+        fill_value: Value for background pixels
+
+    """
     with fiona.open(vector_path, "r") as src:
         crs_vector = src.crs
         shapes = []
@@ -331,7 +375,9 @@ def rasterize_labels_binary(
             if not geom.is_valid:
                 geom = make_valid(geom)
             if crs_vector != ref_profile["crs"]:
-                from fiona.transform import transform_geom
+                from fiona.transform import (
+                    transform_geom,
+                )
 
                 geom = shape(
                     transform_geom(crs_vector, ref_profile["crs"], mapping(geom)),
@@ -353,38 +399,42 @@ def rasterize_labels_binary(
         dst.write(label_raster, 1)
 
 
-def tile_raster_pair(
+def tile_raster_pair(  # noqa: PLR0913
     input_path: str,
     label_path: str,
     output_dir: str,
+    *,
     patch_size: int = 256,
     stride: int = 256,
     nodata_val: float = -32767,
     min_valid_ratio: float = 0.9,
 ) -> None:
     """
-    Tile a multi-band input raster and its corresponding single-band label raster into patches.
+    Tile a multi-band input and single-band label raster into patches.
 
     Args:
-        input_path (str): Path to multi-band raster (e.g., stacked_inputs.tif).
-        label_path (str): Path to label raster (e.g., labels.tif).
-        output_dir (str): Output folder to save tiled patches.
-        patch_size (int): Size of square tiles (patch_size x patch_size).
-        stride (int): Step size between tiles.
-        nodata_val (float): NoData value to skip invalid tiles.
-        min_valid_ratio (float): Minimum ratio of valid pixels required to keep a tile.
+        input_path: Path to multi-band raster (e.g., stacked_inputs.tif).
+        label_path: Path to label raster (e.g., labels.tif).
+        output_dir: Output folder to save tiled patches.
+        patch_size: Size of square tiles (patch_size x patch_size).
+        stride: Step size between tiles.
+        nodata_val: NoData value to skip invalid tiles.
+        min_valid_ratio: Minimum ratio of valid pixels required to keep a tile.
 
     """
     Path(output_dir, "inputs").mkdir(parents=True, exist_ok=True)
     Path(output_dir, "labels").mkdir(parents=True, exist_ok=True)
 
     with rasterio.open(input_path) as src_input, rasterio.open(label_path) as src_label:
-        assert (
-            src_input.width == src_label.width and src_input.height == src_label.height
-        ), "Input and label size mismatch"
-        assert src_input.transform == src_label.transform, (
-            "Input and label geotransform mismatch"
-        )
+        if src_input.width != src_label.width:
+            msg = "Input and label width mismatch"
+            raise ValueError(msg)
+        if src_input.height != src_label.height:
+            msg = "Input and label height mismatch"
+            raise ValueError(msg)
+        if src_input.transform != src_label.transform:
+            msg = "Input and label geotransform mismatch"
+            raise ValueError(msg)
 
         tile_id = 0
         for y in range(0, src_input.height - patch_size + 1, stride):
@@ -445,17 +495,19 @@ def generate_csv_from_tiles(
     root_output_folder: str,
     csv_tiling_path: str,
     csv_inference_path: str,
+    *,
     test_ratio: float = 0.2,
     remove_empty_labels: bool = False,
 ) -> None:
     """
-    Generate training/validation and inference CSVs from pre-tiled input/label folders.
+    Generate training/validation and inference CSVs from pre-tiled folders.
 
     Args:
-        root_output_folder (str): Path to folder containing AOI subfolders (each with `tiles/inputs/` and `tiles/labels/`).
-        csv_tiling_path (str): Where to save the full tile CSV.
-        csv_inference_path (str): Where to save the inference subset CSV.
-        test_ratio (float): Ratio of tiles to allocate to the test split.
+        root_output_folder: Path to folder with AOI subfolders.
+        csv_tiling_path: Where to save the full tile CSV.
+        csv_inference_path: Where to save the inference subset CSV.
+        test_ratio: Ratio of tiles to allocate to the test split.
+        remove_empty_labels: Whether to filter out tiles with empty labels.
 
     """
     all_rows = []
@@ -501,40 +553,41 @@ def generate_csv_from_tiles(
             log.info("Removed %d empty-labeled tile(s).", filetered_count)
 
     if not all_rows:
-        raise ValueError("No labeled tiles found. Check data or label filtering logic.")
+        error_msg = "No labeled tiles found. Check data or label filtering logic."
+        raise ValueError(error_msg)
 
-    df = pd.DataFrame(all_rows)
-    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+    tiles_df = pd.DataFrame(all_rows)
+    tiles_df = tiles_df.sample(frac=1, random_state=42).reset_index(drop=True)
 
     # Assign split
     # Assign split with trn/val/tst
     val_ratio = test_ratio  # Same size as test set; customize if needed
     train_ratio = 1 - test_ratio - val_ratio
 
-    num_tiles = len(df)
+    num_tiles = len(tiles_df)
     num_train = int(np.floor(num_tiles * train_ratio))
     num_val = int(np.floor(num_tiles * val_ratio))
     num_test = num_tiles - num_train - num_val
 
     split_list = ["trn"] * num_train + ["val"] * num_val + ["tst"] * num_test
-    df["split"] = split_list
-    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+    tiles_df["split"] = split_list
+    tiles_df = tiles_df.sample(frac=1, random_state=42).reset_index(drop=True)
 
     # DEBUG
-    # df['split'] = 'trn'
+    # tiles_df['split'] = 'trn'
     # test_every = int(1 / test_ratio)
-    # df.loc[::test_every, 'split'] = 'tst'
+    # tiles_df.loc[::test_every, 'split'] = 'tst'
 
     # Save full CSV
     Path(csv_tiling_path).parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(csv_tiling_path, index=False)
+    tiles_df.to_csv(csv_tiling_path, index=False)
     log.info("Saved full tiling CSV to: %s", csv_tiling_path)
 
     # Save inference subset
-    df_infer = df[df["split"] == "tst"].copy()
-    df_infer["split"] = "inference"
+    infer_df = tiles_df[tiles_df["split"] == "tst"].copy()
+    infer_df["split"] = "inference"
     Path(csv_inference_path).parent.mkdir(parents=True, exist_ok=True)
-    df_infer.to_csv(csv_inference_path, index=False)
+    infer_df.to_csv(csv_inference_path, index=False)
     log.info("Saved inference CSV to: %s", csv_inference_path)
 
 
@@ -593,14 +646,24 @@ def prepare_inference_dataset(
     nodata_val: float = -32767,
 ) -> str:
     """
-    Prepare stacked inputs for inference given an AOI folder
-    with dtm.tif, dsm.tif, and intensity.tif inside.
+    Prepare stacked inputs for inference from an AOI folder.
+
+    Given an AOI folder with dtm.tif, dsm.tif, and intensity.tif inside.
 
     Workflow:
       1. Align DSM and Intensity to DTM
       2. Compute nDSM
       3. Compute TWI
       4. Stack all rasters into stacked_inputs.tif
+
+    Args:
+        aoi_folder: Path to AOI folder with elevation data
+        output_folder: Where to save processed outputs
+        nodata_val: NoData value for output rasters
+
+    Returns:
+        Path to the stacked inputs raster
+
     """
     if output_folder is None:
         output_folder = str(Path(aoi_folder) / "processed")
@@ -655,7 +718,15 @@ def prepare_inference_dataset(
 
 
 if __name__ == "__main__":
-    aoi_folder = "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/gdl-refactor-water-temp/data/mb_aoi_05OJ001"
-    outdir = "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/gdl-refactor-water-temp/geo_deep_learning/outputs/mb_aoi_05OJ001"
+    aoi_folder = (
+        "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/"
+        "deep_learning/gdl_projects/gdl-refactor-water-temp/"
+        "data/mb_aoi_05OJ001"
+    )
+    outdir = (
+        "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/"
+        "deep_learning/gdl_projects/gdl-refactor-water-temp/"
+        "geo_deep_learning/outputs/mb_aoi_05OJ001"
+    )
 
     prepare_inference_dataset(aoi_folder, outdir)

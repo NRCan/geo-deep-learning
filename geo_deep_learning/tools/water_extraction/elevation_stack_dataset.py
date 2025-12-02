@@ -69,10 +69,11 @@ class ElevationStackDataset(CSVDataset):
         """
         Load image and mask paths from CSV file with custom column names.
 
-        Overrides the base class method to handle CSV with "tif", "gpkg", and "split" columns.
+        Overrides the base class method to handle CSV with "tif", "gpkg",
+        and "split" columns.
 
         Returns:
-            List of dictionaries with "image" and "mask" keys containing file paths.
+            List of dictionaries with "image" and "mask" keys.
 
         """
         # Look for a single CSV file in the root folder
