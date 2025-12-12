@@ -4,17 +4,18 @@ A PyTorch Lightning-based framework for geospatial deep learning with multi-sens
 
 ## Overview
 
-Geo Deep Learning (GDL) is a modular framework designed for semantic segmentation of geospatial imagery using state-of-the-art deep learning models. Built on PyTorch Lightning, it provides efficient training pipelines for multi-sensor data with WebDataset support.
+Geo Deep Learning (GDL) is a modular framework designed to support a wide range of geospatial deep learning tasks such as semantic segmentation, object detection, and regression.
+Built on PyTorch Lightning, it provides efficient training pipelines for multi-sensor data.
 
 ## Features
 
-- **Multi-sensor Support**: Handle multiple Earth observation sensors simultaneously
-- **Modular Architecture**: Encoder-neck-decoder pattern with interchangeable components
-- **WebDataset Integration**: Efficient large-scale data loading and processing
-- **Multiple Model Types**: UNet++, SegFormer, DOFA (Dynamic-one-for-all Architecture)
-- **Distributed Training**: Multi-GPU training with DDP strategy
-- **MLflow Logging**: Comprehensive experiment tracking and model versioning
-- **Flexible Data Pipeline**: Support for CSV and WebDataset formats
+- **Multi-sensor Support**: Handle multiple Earth observation sensors simultaneously.
+- **Modular Architecture**: Encoder-neck-decoder pattern with interchangeable components.
+- **WebDataset Integration**: Efficient large-scale data loading and processing.
+- **Multiple Model Types**: UNet++, SegFormer, DOFA (Dynamic-one-for-all Architecture).
+- **Distributed Training**: Multi-GPU training with supported strategies.
+- **MLflow Logging**: Comprehensive experiment tracking and model versioning.
+- **Flexible Data Pipeline**: Support for CSV and WebDataset formats.
 
 ## Architecture
 
@@ -31,23 +32,47 @@ Geo Deep Learning (GDL) is a modular framework designed for semantic segmentatio
 └── samplers/              # Custom data sampling strategies
 ```
 
+## Requirements
+- Install [uv](https://docs.astral.sh/uv/) package manager for your OS.
+
 ## Quick Start
 
+1. **Clone the repository:**
 ```bash
-git clone <repository-url>
+git clone https://github.com/NRCan/geo-deep-learning.git
 cd geo-deep-learning
 ```
+2. **Install dependencies:**
 
-### Training
-
+For **GPU training** with CUDA 12.8:
 ```bash
-# Single GPU training
-python geo_deep_learning/train.py fit --config configs/dofa_config_RGB.yaml
+uv sync --extra cu128
 ```
+
+For **CPU-only** training:
+```bash
+uv sync --extra cpu
+```
+This creates a virtual environment in `.venv/` and installs all dependencies.
+
+3. **Activate the environment:**
+```bash
+# Linux/macOS
+source .venv/bin/activate
+
+# Windows
+.venv\Scripts\activate
+```
+
+Or use `uv run` to execute commands without manual activation:
+```bash
+uv run python geo_deep_learning/train.py fit --config configs/dofa_config_RGB.yaml
+```
+**Note:** *If you prefer to use conda or another environment manager, you can generate a `requirements.txt` file from the dependencies listed in `pyproject.toml` for manual installation.*
 
 ### Configuration
 
-Models are configured via YAML files in `configs/`:
+Models are configured via YAML files in the `configs/` directory:
 
 ```yaml
 model:
@@ -65,54 +90,53 @@ data:
     sensor_configs_path: "path/to/sensor_configs.yaml"
     batch_size: 16
     patch_size: [512, 512]
+
+trainer:
+  max_epochs: 100
+  precision: 16-mixed
+  accelerator: gpu
+  devices: 1
 ```
 
 ## Supported Models
 
-### DOFA (Domain-Oriented Foundation Architecture)
-- **DOFA Base**: 768-dim embeddings, suitable for most tasks
-- **DOFA Large**: 1024-dim embeddings, higher capacity
-- Multi-scale feature extraction with UperNet decoder
-- Support for wavelength-specific processing
-
 ### UNet++
-- Classic U-Net architecture with dense skip connections
-- Multiple encoder backbones (ResNet, EfficientNet, etc.)
-- Optimized for medical and satellite imagery
+- Classic U-Net architecture with dense skip connections.
+- Multiple encoder backbones (ResNet, EfficientNet, etc.).
+- Available through segmentation-models-pytorch.
 
 ### SegFormer
-- Transformer-based architecture for semantic segmentation
-- Hierarchical feature representation
-- Efficient attention mechanisms
+- Transformer-based architecture for semantic segmentation.
+- Hierarchical feature representation (MixTransformer encoder).
+- Multiple model sizes (B0-B5).
+
+### DOFA (Dynamic One-For-All foundation model)
+- **DOFA Base**: 768-dim embeddings, suitable for most tasks.
+- **DOFA Large**: 1024-dim embeddings, higher capacity.
+- Multi-scale feature extraction with UperNet decoder.
+- Support for wavelength-specific processing.
+
 
 ## Data Pipeline
 
 ### Multi-Sensor DataModule
-- **Sensor Mixing**: Combine data from multiple sensors during training
-- **WebDataset Format**: Efficient sharded data storage and loading
-- **Patch-based Processing**: Configurable patch sizes (default: 512x512)
-- **Data Augmentation**: Built-in augmentation pipeline
+- **Sensor Mixing**: Combine data from multiple sensors during training.
+- **WebDataset Format**: Efficient sharded data storage and loading.
 
 ### Supported Data Formats
-- **WebDataset**: Sharded tar files with metadata
-- **CSV**: Traditional CSV with file paths and labels
-- **Multi-sensor**: YAML configuration for sensor-specific settings
+- **WebDataset**: Sharded tar files with metadata.
+- **CSV**: Traditional CSV with file paths and labels.
+- **Multi-sensor**: YAML configuration for sensor-specific settings.
 
 ## Training Features
-
-- **Mixed Precision**: 16-bit mixed precision training
-- **Gradient Clipping**: Configurable gradient clipping
-- **Early Stopping**: Automatic training termination
-- **Model Checkpointing**: Best model saving based on validation metrics
-- **Visualization**: Built-in prediction visualization callbacks
-
-## Distributed Training
-
-The framework supports multi-GPU training with:
-- DDP (Distributed Data Parallel) strategy
-- Automatic mixed precision
-- Synchronized batch normalization
-- Efficient NCCL communication
+- **Large-scale training**: Distributed training strategies enabled with pytorch lightning.
+- **Mixed Precision Training**: 16-bit mixed precision for faster training.
+- **Gradient Clipping**: Configurable gradient clipping for stability.
+- **Early Stopping**: Automatic training termination based on validation metrics.
+- **Model Checkpointing**: Saves best models based on validation performance.
+- **MLflow Integration**: Experiment tracking, metrics logging, and model registry.
+- **Visualization Callbacks**: Built-in prediction visualization during training.
+- **Learning Rate Scheduling**: Cosine annealing, step decay, and more.
 
 ## Development
 

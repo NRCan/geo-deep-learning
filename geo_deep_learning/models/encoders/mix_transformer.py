@@ -7,10 +7,11 @@ from typing import Any
 
 import torch
 import torch.nn.functional as fn
-from models.segmentation.base import EncoderMixin
 from timm.layers import DropPath, to_2tuple, trunc_normal_
 from torch import Tensor, nn
 from torch.utils import model_zoo
+
+from geo_deep_learning.models.segmentation.base import EncoderMixin
 
 
 class Mlp(nn.Module):

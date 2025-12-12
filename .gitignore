@@ -2,6 +2,9 @@
 *.idea**
 *.vscode**
 
+# Distribution / packaging
+*.egg-info/
+
 # Specific folders name
 waterloo_subset_512/
 mlruns/
