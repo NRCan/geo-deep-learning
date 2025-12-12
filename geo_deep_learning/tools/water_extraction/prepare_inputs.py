@@ -399,6 +399,68 @@ def rasterize_labels_binary(
         dst.write(label_raster, 1)
 
 
+def rasterize_valid_lidar_mask(
+    vector_path: str,
+    reference_raster_path: str,
+    output_path: str,
+    *,
+    burn_value: int = 1,
+    fill_value: int = 0,
+) -> None:
+    """
+    Rasterize a LiDAR validity polygon to a binary mask matching a reference raster.
+
+    Args:
+        vector_path: Path to vector file describing valid LiDAR coverage.
+        reference_raster_path: Raster to match for shape, transform, CRS.
+        output_path: Where to save the output raster.
+        burn_value: Value to burn for valid geometries (defaults to 1).
+        fill_value: Value for background pixels (defaults to 0).
+
+    """
+    with rasterio.open(reference_raster_path) as ref:
+        ref_profile = ref.profile
+        shape_hw = (ref.height, ref.width)
+        transform = ref.transform
+        crs = ref.crs
+
+    with fiona.open(vector_path, "r") as src:
+        crs_vector = src.crs
+        shapes = []
+        for feat in src:
+            if feat["geometry"] is None:
+                continue
+            geom = shape(feat["geometry"])
+            if not geom.is_valid:
+                geom = make_valid(geom)
+            if crs_vector != crs:
+                from fiona.transform import transform_geom
+
+                geom = shape(transform_geom(crs_vector, crs, mapping(geom)))
+            shapes.append((mapping(geom), burn_value))
+
+    valid_mask = rasterize(
+        shapes=shapes,
+        out_shape=shape_hw,
+        transform=transform,
+        fill=fill_value,
+        dtype=np.uint8,
+    )
+
+    ref_profile.update(
+        {
+            "count": 1,
+            "dtype": "uint8",
+            "nodata": fill_value,
+            "compress": "lzw",
+            "tiled": True,
+        },
+    )
+
+    with rasterio.open(output_path, "w", **ref_profile) as dst:
+        dst.write(valid_mask, 1)
+
+
 def tile_raster_pair(  # noqa: PLR0913
     input_path: str,
     label_path: str,
@@ -408,6 +470,10 @@ def tile_raster_pair(  # noqa: PLR0913
     stride: int = 256,
     nodata_val: float = -32767,
     min_valid_ratio: float = 0.9,
+    valid_mask_path: str | None = None,
+    valid_mask_min_ratio: float | None = 0.9,
+    save_rejected_tiles: bool = False,
+    rejected_dir: str | None = None,
 ) -> None:
     """
     Tile a multi-band input and single-band label raster into patches.
@@ -420,10 +486,54 @@ def tile_raster_pair(  # noqa: PLR0913
         stride: Step size between tiles.
         nodata_val: NoData value to skip invalid tiles.
         min_valid_ratio: Minimum ratio of valid pixels required to keep a tile.
+        valid_mask_path: Optional path to a binary valid-mask raster aligned to
+            the inputs.
+        valid_mask_min_ratio: Minimum ratio of valid pixels in the valid mask
+            required to keep a tile (ignored if valid_mask_path is None).
+        save_rejected_tiles: If True, save filtered-out tiles to a separate
+            folder for debugging.
+        rejected_dir: Destination folder for rejected tiles (defaults to
+            <output_dir>/rejected_tiles).
 
     """
     Path(output_dir, "inputs").mkdir(parents=True, exist_ok=True)
     Path(output_dir, "labels").mkdir(parents=True, exist_ok=True)
+
+    rejected_root = Path(rejected_dir) if rejected_dir else Path(output_dir) / "rejected_tiles"
+    rejected_inputs = rejected_root / "inputs"
+    rejected_labels = rejected_root / "labels"
+    rejected_masks = rejected_root / "valid_masks"
+
+    def _save_rejected_tile(
+        *,
+        x_coord: int,
+        y_coord: int,
+        input_patch: np.ndarray,
+        label_patch: np.ndarray,
+        input_meta: dict,
+        label_meta: dict,
+        mask_patch: np.ndarray | None = None,
+    ) -> None:
+        if not save_rejected_tiles:
+            return
+
+        rejected_inputs.mkdir(parents=True, exist_ok=True)
+        rejected_labels.mkdir(parents=True, exist_ok=True)
+
+        tile_name = f"reject_x{x_coord:05d}_y{y_coord:05d}.tif"
+
+        with rasterio.open(rejected_inputs / tile_name, "w", **input_meta) as dst:
+            dst.write(input_patch)
+
+        with rasterio.open(rejected_labels / tile_name, "w", **label_meta) as dst:
+            dst.write(label_patch, 1)
+
+        if mask_patch is not None:
+            rejected_masks.mkdir(parents=True, exist_ok=True)
+            mask_meta = label_meta.copy()
+            mask_meta.update({"dtype": "uint8", "nodata": 0})
+            with rasterio.open(rejected_masks / tile_name, "w", **mask_meta) as dst:
+                dst.write(mask_patch.astype("uint8"), 1)
 
     with rasterio.open(input_path) as src_input, rasterio.open(label_path) as src_label:
         if src_input.width != src_label.width:
@@ -436,6 +546,13 @@ def tile_raster_pair(  # noqa: PLR0913
             msg = "Input and label geotransform mismatch"
             raise ValueError(msg)
 
+        valid_mask_src = None
+        if valid_mask_path:
+            valid_mask_src = rasterio.open(valid_mask_path)
+            if valid_mask_src.transform != src_input.transform or valid_mask_src.shape != src_input.shape:
+                msg = "Valid mask must share shape and transform with inputs"
+                raise ValueError(msg)
+
         tile_id = 0
         for y in range(0, src_input.height - patch_size + 1, stride):
             for x in range(0, src_input.width - patch_size + 1, stride):
@@ -444,23 +561,54 @@ def tile_raster_pair(  # noqa: PLR0913
                 input_patch = src_input.read(window=window)
                 label_patch = src_label.read(1, window=window)
 
-                # Check for too much NoData
-                valid_mask = label_patch != nodata_val
-                if np.mean(valid_mask) < min_valid_ratio:
-                    continue
-
-                # Save input tile
                 input_meta = src_input.meta.copy()
                 input_meta.update(
                     {
                         "height": patch_size,
                         "width": patch_size,
-                        "transform": rasterio.windows.transform(
-                            window,
-                            src_input.transform,
-                        ),
+                        "transform": rasterio.windows.transform(window, src_input.transform),
                     },
                 )
+
+                label_meta = src_label.meta.copy()
+                label_meta.update(
+                    {
+                        "count": 1,
+                        "height": patch_size,
+                        "width": patch_size,
+                        "transform": rasterio.windows.transform(window, src_label.transform),
+                    },
+                )
+
+                # Check for too much NoData in labels
+                valid_mask = label_patch != nodata_val
+                if np.mean(valid_mask) < min_valid_ratio:
+                    _save_rejected_tile(
+                        x_coord=x,
+                        y_coord=y,
+                        input_patch=input_patch,
+                        label_patch=label_patch,
+                        input_meta=input_meta,
+                        label_meta=label_meta,
+                    )
+                    continue
+
+                mask_patch = None
+                if valid_mask_src and valid_mask_min_ratio is not None:
+                    mask_patch = valid_mask_src.read(1, window=window)
+                    if np.mean(mask_patch == 1) < valid_mask_min_ratio:
+                        _save_rejected_tile(
+                            x_coord=x,
+                            y_coord=y,
+                            input_patch=input_patch,
+                            label_patch=label_patch,
+                            input_meta=input_meta,
+                            label_meta=label_meta,
+                            mask_patch=mask_patch,
+                        )
+                        continue
+
+                # Save input tile
                 input_tile_path = (
                     Path(output_dir) / "inputs" / f"tile_{tile_id:04d}.tif"
                 )
@@ -468,18 +616,6 @@ def tile_raster_pair(  # noqa: PLR0913
                     dst.write(input_patch)
 
                 # Save label tile
-                label_meta = src_label.meta.copy()
-                label_meta.update(
-                    {
-                        "count": 1,
-                        "height": patch_size,
-                        "width": patch_size,
-                        "transform": rasterio.windows.transform(
-                            window,
-                            src_label.transform,
-                        ),
-                    },
-                )
                 label_tile_path = (
                     Path(output_dir) / "labels" / f"tile_{tile_id:04d}_label.tif"
                 )
@@ -487,6 +623,9 @@ def tile_raster_pair(  # noqa: PLR0913
                     dst.write(label_patch, 1)
 
                 tile_id += 1
+
+        if valid_mask_src:
+            valid_mask_src.close()
 
     log.info("Tiling complete. %d tiles created in %s", tile_id, output_dir)
 
@@ -498,6 +637,8 @@ def generate_csv_from_tiles(
     *,
     test_ratio: float = 0.2,
     remove_empty_labels: bool = False,
+    valid_mask_min_ratio: float | None = 0.9,
+    valid_mask_filename: str = "valid_mask.tif",
 ) -> None:
     """
     Generate training/validation and inference CSVs from pre-tiled folders.
@@ -508,6 +649,9 @@ def generate_csv_from_tiles(
         csv_inference_path: Where to save the inference subset CSV.
         test_ratio: Ratio of tiles to allocate to the test split.
         remove_empty_labels: Whether to filter out tiles with empty labels.
+        valid_mask_min_ratio: Minimum ratio of valid pixels required in the
+            valid mask to keep a tile when valid_mask.tif is present.
+        valid_mask_filename: File name for the rasterized valid mask.
 
     """
     all_rows = []
@@ -522,11 +666,16 @@ def generate_csv_from_tiles(
         aoi_name = Path(aoi_folder).name
         inputs_folder = Path(aoi_folder) / "tiles" / "inputs"
         labels_folder = Path(aoi_folder) / "tiles" / "labels"
+        valid_mask_path = Path(aoi_folder) / valid_mask_filename
+        valid_mask_src = None
+        if valid_mask_path.exists() and valid_mask_min_ratio is not None:
+            valid_mask_src = rasterio.open(valid_mask_path)
 
         input_tiles = sorted(str(p) for p in inputs_folder.glob("*.tif"))
 
         log.info("Filtering tiles with 0 labeled pixel")
-        filetered_count = 0
+        filtered_empty_label_count = 0
+        filtered_by_valid_mask = 0
         for input_path in input_tiles:
             tile_id = Path(input_path).stem.split("_")[1]
             label_path = labels_folder / f"tile_{tile_id}_label.tif"
@@ -541,7 +690,27 @@ def generate_csv_from_tiles(
                 valid_mask = label_data >= 1
 
                 if not np.any(valid_mask):
-                    filetered_count += 1
+                    filtered_empty_label_count += 1
+                    if remove_empty_labels:
+                        Path(input_path).unlink()
+                        label_path.unlink()
+                    continue
+
+            if valid_mask_src:
+                with rasterio.open(input_path) as src_input:
+                    bounds = rasterio.windows.bounds(
+                        Window(0, 0, src_input.width, src_input.height),
+                        transform=src_input.transform,
+                    )
+                mask_window = rasterio.windows.from_bounds(
+                    *bounds,
+                    transform=valid_mask_src.transform,
+                    width=valid_mask_src.width,
+                    height=valid_mask_src.height,
+                ).round_offsets().round_lengths()
+                mask_patch = valid_mask_src.read(1, window=mask_window, boundless=True, fill_value=0)
+                if np.mean(mask_patch == 1) < valid_mask_min_ratio:
+                    filtered_by_valid_mask += 1
                     if remove_empty_labels:
                         Path(input_path).unlink()
                         label_path.unlink()
@@ -550,7 +719,12 @@ def generate_csv_from_tiles(
             all_rows.append({"tif": input_path, "gpkg": label_path, "aoi": aoi_name})
 
         if remove_empty_labels:
-            log.info("Removed %d empty-labeled tile(s).", filetered_count)
+            log.info("Removed %d empty-labeled tile(s).", filtered_empty_label_count)
+        if filtered_by_valid_mask:
+            log.info("Removed %d tile(s) failing valid mask coverage.", filtered_by_valid_mask)
+
+        if valid_mask_src:
+            valid_mask_src.close()
 
     if not all_rows:
         error_msg = "No labeled tiles found. Check data or label filtering logic."

@@ -57,6 +57,7 @@ AOI_Name/
 ├── dtm.tif           # Digital Terrain Model (bare earth elevation)
 ├── dsm.tif           # Digital Surface Model (first-return elevation)
 ├── intensity.tif     # (Optional) LiDAR intensity
+├── valid_lidar_mask.gpkg  # (Optional) polygon coverage of valid LiDAR regions
 ├── aoi.shp           # Polygon defining the area of interest
 └── waterbodies.shp   # Polygon labels for water bodies
 ```
@@ -66,6 +67,8 @@ AOI_Name/
 - DTM is used as the reference grid; DSM and intensity will be aligned to it
 - Vector files (shapefiles) can be in any CRS; they will be reprojected as needed
 - NoData values will be handled automatically
+- If provided, `valid_lidar_mask.gpkg` is rasterized to `valid_mask.tif` and used
+  to filter out tiles with insufficient valid coverage (>90% required by default)
 
 ## Usage
 
@@ -147,6 +150,8 @@ python -m geo_deep_learning.train fit --config config/water_extraction_config.ya
      - Computes nDSM = DSM - DTM
      - Computes TWI using WhiteboxTools
      - Stacks layers into multi-band raster: [TWI, nDSM, intensity]
+     - Rasterizes `valid_lidar_mask.gpkg` to `valid_mask.tif` when present and
+       uses it to filter tiles by valid coverage
      - Rasterizes water body labels with AOI masking
      - Tiles into 512×512 patches with 256px stride
    - Generates CSV with train/val/test splits

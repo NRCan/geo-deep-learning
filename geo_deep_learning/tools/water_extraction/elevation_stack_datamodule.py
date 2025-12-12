@@ -18,6 +18,7 @@ from .prepare_inputs import (
     compute_twi_whitebox,
     generate_csv_from_tiles,
     rasterize_labels_binary_aoi_mask,
+    rasterize_valid_lidar_mask,
     stack_rasters,
     tile_raster_pair,
 )
@@ -56,6 +57,8 @@ class ElevationStackDataModule(CSVDataModule):
         include_intensity: bool = False,
         stride: int = 256,
         test_ratio: float = 0.2,
+        valid_mask_min_ratio: float | None = 0.9,
+        save_rejected_tiles: bool = False,
     ) -> None:
         """
         Initialize ElevationStackDataModule.
@@ -77,6 +80,11 @@ class ElevationStackDataModule(CSVDataModule):
                 Defaults to False.
             stride (int): Stride for tiling. Defaults to 256.
             test_ratio (float): Ratio for test split. Defaults to 0.2.
+            valid_mask_min_ratio (float | None): Minimum ratio of valid LiDAR
+                pixels required per tile (uses valid_mask.tif when present).
+                Set to None to disable. Defaults to 0.9.
+            save_rejected_tiles (bool): If True, save tiles filtered out during
+                tiling for debugging. Defaults to False.
 
         """
         super().__init__(
@@ -98,6 +106,8 @@ class ElevationStackDataModule(CSVDataModule):
         self.intensity = include_intensity
         self.stride = stride
         self.test_ratio = test_ratio
+        self.valid_mask_min_ratio = valid_mask_min_ratio
+        self.save_rejected_tiles = save_rejected_tiles
 
     def setup(self, stage: str | None = None) -> None:  # noqa: ARG002
         """
@@ -165,6 +175,7 @@ class ElevationStackDataModule(CSVDataModule):
             csv_inference_path=self.csv_infer_path,
             test_ratio=self.test_ratio,
             remove_empty_labels=True,
+            valid_mask_min_ratio=self.valid_mask_min_ratio,
         )
 
         # Compute and save statistics
@@ -252,6 +263,7 @@ class ElevationStackDataModule(CSVDataModule):
         dsm = Path(aoi_path) / "dsm.tif"
         intensity = Path(aoi_path) / "intensity.tif"
         labels_vector = Path(aoi_path) / "waterbodies.shp"
+        valid_mask_vector = Path(aoi_path) / "valid_lidar_mask.gpkg"
 
         # Step 1: Align inputs to DTM
         log.info("Aligning inputs to DTM")
@@ -299,6 +311,19 @@ class ElevationStackDataModule(CSVDataModule):
         log.info("Stacking %d bands: %s", len(stack_inputs), stack_inputs)
         stack_rasters(stack_inputs, str(stack_path))
 
+        # Optional: rasterize valid LiDAR mask
+        valid_mask_raster = out_dir / "valid_mask.tif"
+        if valid_mask_vector.exists():
+            if not valid_mask_raster.exists():
+                log.info("Rasterizing valid LiDAR mask: %s", valid_mask_vector)
+                rasterize_valid_lidar_mask(
+                    str(valid_mask_vector),
+                    str(dtm),
+                    str(valid_mask_raster),
+                )
+            else:
+                log.info("Skipping valid mask rasterization (already exists)")
+
         # Step 4: Rasterize labels
         label_raster = out_dir / "labels_aligned.tif"
         rasterize_labels_binary_aoi_mask(
@@ -319,6 +344,9 @@ class ElevationStackDataModule(CSVDataModule):
             output_dir=str(out_dir / "tiles"),
             patch_size=self.patch_size[0],
             stride=self.stride,
+            valid_mask_path=str(valid_mask_raster) if valid_mask_raster.exists() else None,
+            valid_mask_min_ratio=self.valid_mask_min_ratio,
+            save_rejected_tiles=self.save_rejected_tiles,
         )
 
     def train_dataloader(self) -> DataLoader[Any]:
