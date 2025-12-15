@@ -1,0 +1,107 @@
+seed_everything: true
+
+trainer:
+  accelerator: "gpu"
+  devices: -1
+  strategy:
+    class_path: lightning.pytorch.strategies.DDPStrategy
+    init_args:
+      find_unused_parameters: false
+      gradient_as_bucket_view: true
+      static_graph: true
+  gradient_clip_val: 1.0
+  precision: "16-mixed"
+  sync_batchnorm: true
+  logger:
+    class_path: lightning.pytorch.loggers.mlflow.MLFlowLogger
+    init_args:
+      save_dir: ./logs
+      log_model: false
+      experiment_name: "gdl_experiment"
+      run_name: "swin_building_classifier_rgb"
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: "val_loss"
+        mode: "min"
+        verbose: False
+        patience: 20
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: "val_accuracy"
+        mode: "max"
+        save_top_k: 1
+        filename: "model_e{epoch:02d}_acc{val_accuracy:.3f}"
+  max_epochs: 10
+
+model:
+  class_path: tasks_with_models.building_swinclassifier.BuildingSwinClassifier
+  init_args:
+    image_size: [512, 512]
+    in_channels: 3
+    patch_size: 4
+    window_size: 8
+    mlp_ratio: 4.0
+    depths: [2, 2, 6, 2]
+    embed_dim: 96
+    num_heads: [3, 6, 12, 24]
+    qkv_bias: true
+    qk_scale: null
+    drop_rate: 0.0
+    drop_path_rate: 0.1 # Drop path rate for stochastic depth
+    attn_drop_rate: 0.0
+    ape: false
+    patch_norm: true
+    use_checkpoint: true
+    max_samples: 6
+    num_classes: 2  # Binary classification: building quality or type
+    bbox_mlp_hidden_dim: 128
+    bbox_mlp_output_dim: 256
+    classifier_hidden_dim: 512
+    classifier_dropout: 0.5
+    freeze_encoder: false
+    class_labels: ["Non Damage", "Damage"]
+    
+    loss:
+      class_path: torch.nn.CrossEntropyLoss
+      init_args:
+        label_smoothing: 0.1
+    
+    optimizer:
+      class_path: torch.optim.AdamW
+      init_args:
+        lr: 1e-3
+        weight_decay: 0.05
+        betas: [0.9, 0.95]
+    scheduler:
+      class_path: geo_deep_learning.tools.schedulers.lr_scheduler.MaeLRSchedulerFactory
+      init_args:
+        accum_iter: 4
+        min_lr: 0
+        warmup_epochs: 4
+        iteration_per_epoch: null
+        max_iterations: null
+    scheduler_config:
+      interval: "step"
+      frequency: 1
+      monitor: "val_loss"
+    weights_from_checkpoint_path: ./checkpoint/rgb_swinmae_checkpoint_99.pth
+
+data:
+  class_path: datamodules.building_classification_datamodule.BuildingClassificationDataModule
+  init_args:
+    batch_size: 4
+    num_workers: 8
+    data_type_max: 255
+    patch_size:
+    - 512
+    - 512
+    mean: null
+    std: null
+    csv_root_folder: ./data/building_classification
+    patches_root_folder: ./data/building_classification
+    min_instance_area: 100  # Minimum area threshold for building instances
+    use_oversampling: false  # Enable oversampling for training data
+    oversampling_strategy: "balance"  # Options: 'balance', 'max', 'min'
+
+ckpt_path: null

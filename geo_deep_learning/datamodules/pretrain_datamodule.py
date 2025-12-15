@@ -1,15 +1,15 @@
-"""CSVDataModule."""
+"""PretrainDataModule."""
 
 from typing import Any
 
 from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader
 
-from geo_deep_learning.datasets.csv_dataset import CSVDataset
+from geo_deep_learning.datasets.pretrain_dataset import PretrainDataset
 
 
-class CSVDataModule(LightningDataModule):
-    """CSV DataModule."""
+class PretrainDataModule(LightningDataModule):
+    """Pretrain DataModule."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -21,9 +21,8 @@ class CSVDataModule(LightningDataModule):
         std: list[float] | None = None,
         csv_root_folder: str = "",
         patches_root_folder: str = "",
-        enhanced_prob: float | None = None,
     ) -> None:
-        """Initialize CSVDataModule."""
+        """Initialize PretrainDataModule."""
         super().__init__()
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -31,7 +30,6 @@ class CSVDataModule(LightningDataModule):
         self.data_type_max = data_type_max
         self.csv_root_folder = csv_root_folder
         self.patches_root_folder = patches_root_folder
-        self.enhanced_prob = enhanced_prob
         self.norm_stats = {
             "mean": mean or [0.0, 0.0, 0.0],
             "std": std or [1.0, 1.0, 1.0],
@@ -39,21 +37,14 @@ class CSVDataModule(LightningDataModule):
 
     def setup(self, stage: str | None = None) -> None:  # noqa: ARG002
         """Create dataset."""
-        self.train_dataset = CSVDataset(
+        self.train_dataset = PretrainDataset(
             split="trn",
             norm_stats=self.norm_stats,
             csv_root_folder=self.csv_root_folder,
             patches_root_folder=self.patches_root_folder,
-            enhanced_prob=self.enhanced_prob,
         )
-        self.val_dataset = CSVDataset(
-            split="val",
-            norm_stats=self.norm_stats,
-            csv_root_folder=self.csv_root_folder,
-            patches_root_folder=self.patches_root_folder,
-            enhanced_prob=self.enhanced_prob,
-        )
-        self.test_dataset = CSVDataset(
+
+        self.test_dataset = PretrainDataset(
             split="tst",
             norm_stats=self.norm_stats,
             csv_root_folder=self.csv_root_folder,
@@ -72,18 +63,6 @@ class CSVDataModule(LightningDataModule):
             shuffle=True,
         )
 
-    def val_dataloader(self) -> DataLoader[Any]:
-        """Dataloader for validation."""
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            persistent_workers=True,
-            prefetch_factor=2,
-            shuffle=False,
-        )
-
     def test_dataloader(self) -> DataLoader[Any]:
         """Dataloader for testing."""
         return DataLoader(
@@ -100,5 +79,4 @@ class CSVDataModule(LightningDataModule):
 if __name__ == "__main__":
     csv_root_folder = ""
     patches_root_folder = csv_root_folder
-    dataset = CSVDataModule(csv_root_folder, patches_root_folder)
-    # print(f"mean:{dataset.mean}, std:{dataset.std}")
+    dataset = PretrainDataModule(csv_root_folder, patches_root_folder)

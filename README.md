@@ -116,7 +116,26 @@ trainer:
 - Multi-scale feature extraction with UperNet decoder.
 - Support for wavelength-specific processing.
 
+### MAE
+- Masked Autoencoder with Vision Transformer backbone for self-supervised pretraining
+- Reconstructs masked image patches to learn rich visual representations
+- Configurable mask ratio and patch-based reconstruction loss
 
+### Swin MAE
+- Masked Autoencoder with Swin Transformer backbone for self-supervised pretraining
+- Hierarchical feature extraction with shifted window attention mechanisms
+- Efficient pretraining for downstream geospatial tasks
+
+### Swin Unet
+- Swin Transformer-based encoder-decoder architecture for semantic segmentation
+- Hierarchical feature representation with skip connections
+- U-Net style decoder for pixel-level classification
+
+### Swin Classifier
+- Instance-level building classifier using Swin Transformer encoders
+- Processes RGB images and binary masks through separate encoders
+- Fuses image features with bounding box information for classification
+  
 ## Data Pipeline
 
 ### Multi-Sensor DataModule

@@ -17,3 +17,4 @@ torchgeo==0.5.2
 torchmetrics==1.6.0
 torchvision==0.19.1
 whitebox==2.3.6
+opencv-python

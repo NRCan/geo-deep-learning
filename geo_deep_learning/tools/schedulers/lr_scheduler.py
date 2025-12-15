@@ -163,6 +163,150 @@ class LinearWarmupCosineAnnealingLR(_LRScheduler):
         ]
 
 
+class MaeLRScheduler:
+    """Cosine scheduler with linear warmup designed for MAE-style training loops."""
+
+    def __init__(  # noqa: PLR0913
+        self,
+        optimizer: Optimizer,
+        accum_iter: int,
+        lr: float | None,
+        min_lr: float,
+        warmup_epochs: int,
+        iteration_per_epoch: int,
+        max_iterations: int,
+    ) -> None:
+        if accum_iter < 1:
+            msg = "`accum_iter` must be >= 1."
+            raise ValueError(msg)
+        if iteration_per_epoch <= 0:
+            msg = "`iteration_per_epoch` must be a positive integer."
+            raise ValueError(msg)
+        if max_iterations <= 0:
+            msg = "`max_iterations` must be a positive integer."
+            raise ValueError(msg)
+        if warmup_epochs < 0:
+            msg = "`warmup_epochs` must be non-negative."
+            raise ValueError(msg)
+        if max_iterations < iteration_per_epoch:
+            msg = "`max_iterations` must be >= `iteration_per_epoch`."
+            raise ValueError(msg)
+
+        self.optimizer = optimizer
+        self.accum_iter = accum_iter
+        self.lr = lr
+        self.min_lr = min_lr
+        self.warmup_epochs = warmup_epochs
+        self.iteration_per_epoch = iteration_per_epoch
+        self.max_iterations = max_iterations
+
+        self.iter_num = 0
+        self._last_lr = [group["lr"] for group in optimizer.param_groups]
+
+    def get_last_lr(self) -> list[float]:
+        """Return last computed learning rate."""
+        return list(self._last_lr)
+
+    def step(self) -> None:
+        """Advance the scheduler by one iteration."""
+        current_epoch = self.iter_num // self.iteration_per_epoch
+        total_epochs = self.max_iterations // self.iteration_per_epoch
+        if total_epochs <= self.warmup_epochs:
+            total_epochs = max(self.warmup_epochs + 1, total_epochs)
+        i_batch = self.iter_num % self.iteration_per_epoch
+        epoch = current_epoch + i_batch / self.iteration_per_epoch
+
+        if i_batch % self.accum_iter == 0:
+            if epoch < self.warmup_epochs:
+                lr = self.lr * epoch / max(1, self.warmup_epochs)
+            else:
+                cosine_progress = (epoch - self.warmup_epochs) / max(
+                    1,
+                    total_epochs - self.warmup_epochs,
+                )
+                cosine_progress = min(max(cosine_progress, 0.0), 1.0)
+                lr = self.min_lr + (self.lr - self.min_lr) * 0.5 * (
+                    1.0 + math.cos(math.pi * cosine_progress)
+                )
+
+            updated_lrs = []
+            for group in self.optimizer.param_groups:
+                scaled_lr = lr * group.get("lr_scale", 1.0)
+                group["lr"] = scaled_lr
+                updated_lrs.append(scaled_lr)
+            self._last_lr = updated_lrs
+
+        self.iter_num += 1
+
+    def state_dict(self) -> dict[str, float | int | list[float]]:
+        """Serialize scheduler state."""
+        exclude = {
+            "optimizer",
+            "max_iterations",
+            "iteration_per_epoch",
+            "warmup_epochs",
+            "accum_iter",
+        }
+        return {k: v for k, v in self.__dict__.items() if k not in exclude}
+
+    def load_state_dict(self, state_dict: dict[str, float | int | list[float]]) -> None:
+        """Restore scheduler state."""
+        self.__dict__.update(state_dict)
+
+
+class MaeLRSchedulerFactory:
+    """Callable wrapper so Lightning CLI can configure :class:`MaeLRScheduler`."""
+
+    def __init__(
+        self,
+        *,
+        accum_iter: int,
+        min_lr: float,
+        warmup_epochs: int,
+        lr: float | None = None,
+        iteration_per_epoch: int | None = None,
+        max_iterations: int | None = None,
+    ) -> None:
+        self.accum_iter = accum_iter
+        self.lr = lr
+        self.min_lr = min_lr
+        self.warmup_epochs = warmup_epochs
+        self.iteration_per_epoch = iteration_per_epoch
+        self.max_iterations = max_iterations
+
+    def __call__(
+        self,
+        optimizer: Optimizer,
+        *,
+        lr: float | None = None,
+        iteration_per_epoch: int | None = None,
+        max_iterations: int | None = None,
+    ) -> MaeLRScheduler:
+        iteration_per_epoch = (
+            iteration_per_epoch if iteration_per_epoch is not None else self.iteration_per_epoch
+        )
+        max_iterations = (
+            max_iterations if max_iterations is not None else self.max_iterations
+        )
+        base_lr = self.lr if self.lr is not None else lr
+        if base_lr is None:
+            msg = (
+                "MaeLRSchedulerFactory requires `lr` to be provided either at construction "
+                "time or when calling the factory."
+            )
+            raise ValueError(msg)
+        
+        return MaeLRScheduler(
+            optimizer=optimizer,
+            accum_iter=self.accum_iter,
+            lr=base_lr,
+            min_lr=self.min_lr,
+            warmup_epochs=self.warmup_epochs,
+            iteration_per_epoch=iteration_per_epoch,
+            max_iterations=max_iterations,
+        )
+
+
 # warmup + decay as a function
 def linear_warmup_decay(
     warmup_steps: int,
