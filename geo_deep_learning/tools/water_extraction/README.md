@@ -65,7 +65,7 @@ AOI_Name/
 **Data specifications:**
 - All rasters should be in the same CRS (coordinate reference system)
 - DTM is used as the reference grid; DSM and intensity will be aligned to it
-- Vector files (shapefiles) can be in any CRS; they will be reprojected as needed
+ - Vector files (shapefiles or GeoPackage) can be in any CRS; they will be reprojected as needed
 - NoData values will be handled automatically
 - If provided, `valid_lidar_mask.gpkg` is rasterized to `valid_mask.tif` and used
   to filter out tiles with insufficient valid coverage (>90% required by default)

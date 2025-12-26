@@ -8,6 +8,7 @@ import pandas as pd
 import rasterio as rio
 import torch
 from torch import Tensor
+import time
 
 from geo_deep_learning.datasets.csv_dataset import CSVDataset, log_dataset
 from geo_deep_learning.utils.tensors import normalization, standardization
@@ -38,6 +39,8 @@ class ElevationStackDataset(CSVDataset):
         patches_root_folder: str,
         split: str = "trn",
         norm_stats: dict[str, list[float]] | None = None,
+        csv_path: str | None = None,
+        csv_infer_path: str | None = None,
     ) -> None:
         """
         Initialize the ElevationStackDataset.
@@ -54,6 +57,8 @@ class ElevationStackDataset(CSVDataset):
         self.csv_root_folder = csv_root_folder
         self.patches_root_folder = patches_root_folder
         self.split = split
+        self.csv_path = csv_path
+        self.csv_infer_path = csv_infer_path
         self.norm_stats = norm_stats or {
             "mean": [0.0, 0.0, 0.0],
             "std": [1.0, 1.0, 1.0],
@@ -76,14 +81,17 @@ class ElevationStackDataset(CSVDataset):
             List of dictionaries with "image" and "mask" keys.
 
         """
-        # Look for a single CSV file in the root folder
-        csv_files = list(Path(self.csv_root_folder).glob("*.csv"))
-        if not csv_files:
-            msg = f"No CSV files found in {self.csv_root_folder}"
+        # Select the correct CSV path
+        if self.split == "inference":
+            logger.info("INFERENCE CSV: %s", self.csv_infer_path)
+            csv_path = Path(self.csv_infer_path)
+        else:
+            csv_path = Path(self.csv_path)
+
+        if not csv_path.exists():
+            msg = f"CSV file not found: {csv_path}"
             raise FileNotFoundError(msg)
 
-        # Use the first CSV file found (or you could look for a specific name)
-        csv_path = csv_files[0]
         logger.info("Loading dataset from: %s", csv_path)
 
         # Read CSV with headers
@@ -129,11 +137,15 @@ class ElevationStackDataset(CSVDataset):
             dict containing image, mask, and metadata tensors
 
         """
+        #row = self.df.iloc[index] # DEBUG
+        
         image, image_name = self._load_image(index)
         mask, mask_name = self._load_mask(index)
 
         # Apply normalization (0-1 scaling)
-        image = normalization(image)
+        #image = normalization(image)
+
+        #print(f"Normalization stats: {self.norm_stats}")
 
         # Apply standardization using provided statistics
         mean = torch.tensor(self.norm_stats["mean"], dtype=torch.float32).view(-1, 1, 1)
