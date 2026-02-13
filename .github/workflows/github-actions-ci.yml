@@ -16,7 +16,7 @@ jobs:
           activate-environment: true
 
       - name: Install dependencies
-        run: uv sync --frozen --extra dev --extra cpu
+        run: cp uv.lock.cpu uv.lock && uv sync --frozen --extra dev --extra cpu
 
       - name: Lint
         run: uv run ruff check . && uv run ruff format --check .
