@@ -113,7 +113,8 @@ ignore = [
     "D212",  # same, docstring starts on wrong line
     "EXE002", # ignore missing executable bit on scripts with shebangs
     "ERA001", # ignore commented out code
-    "TC002", "TC003" # allow imports in type annotations without TYPE_CHECKING
+    "TC002", "TC003",  # allow imports in type annotations without TYPE_CHECKING
+    "COM812",  # conflicts with formatter
 ]
 fixable = ["ALL"]
 unfixable = []
