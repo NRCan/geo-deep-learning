@@ -879,11 +879,13 @@ dependencies = [
 cpu = [
     { name = "torch", version = "2.8.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-17-geo-deep-learning-cpu') or (extra == 'extra-17-geo-deep-learning-cpu' and extra == 'extra-17-geo-deep-learning-cu128')" },
     { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-17-geo-deep-learning-cpu') or (extra == 'extra-17-geo-deep-learning-cpu' and extra == 'extra-17-geo-deep-learning-cu128')" },
+    { name = "torchaudio" },
     { name = "torchvision", version = "0.23.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-17-geo-deep-learning-cpu') or (platform_machine != 'aarch64' and extra == 'extra-17-geo-deep-learning-cpu' and extra == 'extra-17-geo-deep-learning-cu128') or (platform_python_implementation != 'CPython' and extra == 'extra-17-geo-deep-learning-cpu' and extra == 'extra-17-geo-deep-learning-cu128') or (sys_platform == 'darwin' and extra == 'extra-17-geo-deep-learning-cpu') or (sys_platform != 'linux' and extra == 'extra-17-geo-deep-learning-cpu' and extra == 'extra-17-geo-deep-learning-cu128')" },
     { name = "torchvision", version = "0.23.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-17-geo-deep-learning-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-17-geo-deep-learning-cpu') or (sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'extra-17-geo-deep-learning-cpu') or (sys_platform == 'darwin' and extra == 'extra-17-geo-deep-learning-cpu' and extra == 'extra-17-geo-deep-learning-cu128') or (sys_platform == 'linux' and extra == 'extra-17-geo-deep-learning-cpu' and extra == 'extra-17-geo-deep-learning-cu128')" },
 ]
 cu128 = [
     { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
+    { name = "torchaudio" },
     { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
 ]
 dev = [
@@ -911,7 +913,10 @@ requires-dist = [
     { name = "segmentation-models-pytorch", specifier = ">=0.5.0,<0.6.0" },
     { name = "timm", specifier = ">=1.0.0,<1.1.0" },
     { name = "torch", marker = "extra == 'cpu'", specifier = ">=2.8.0,<2.9.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "geo-deep-learning", extra = "cpu" } },
+    { name = "torch", marker = "extra == 'cpu' or extra == 'cu128'", specifier = ">=2.8.0,<2.9.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "geo-deep-learning", extra = "cpu" } },
     { name = "torch", marker = "extra == 'cu128'", specifier = ">=2.8.0,<2.9.0", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "geo-deep-learning", extra = "cu128" } },
+    { name = "torchaudio", marker = "extra == 'cpu'", specifier = ">=2.8.0,<2.9.0" },
+    { name = "torchaudio", marker = "extra == 'cu128'", specifier = ">=2.8.0,<2.9.0" },
     { name = "torchgeo", specifier = ">=0.8.0,<0.9.0" },
     { name = "torchmetrics", specifier = ">=1.8.0,<1.9.0" },
     { name = "torchvision", marker = "extra == 'cpu'", specifier = ">=0.23.0,<0.24.0", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "geo-deep-learning", extra = "cpu" } },
@@ -3639,6 +3644,22 @@ dependencies = [
 wheels = [
     { url = "https://download.pytorch.org/whl/cu128/torch-2.8.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:4354fc05bb79b208d6995a04ca1ceef6a9547b1c4334435574353d381c55087c" },
     { url = "https://download.pytorch.org/whl/cu128/torch-2.8.0%2Bcu128-cp312-cp312-win_amd64.whl", hash = "sha256:0ad925202387f4e7314302a1b4f8860fa824357f9b1466d7992bf276370ebcff" },
+]
+
+[[package]]
+name = "torchaudio"
+version = "2.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "torch", version = "2.8.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-17-geo-deep-learning-cpu') or (extra == 'extra-17-geo-deep-learning-cpu' and extra == 'extra-17-geo-deep-learning-cu128')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-17-geo-deep-learning-cpu') or (extra == 'extra-17-geo-deep-learning-cpu' and extra == 'extra-17-geo-deep-learning-cu128')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "extra == 'extra-17-geo-deep-learning-cu128'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ac/cc/c2e2a3eb6ee956f73c68541e439916f8146170ea9cc61e72adea5c995312/torchaudio-2.8.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:ddef94bf181e6447cbb05f38beaca8f6c5bb8d2b9ddced1aa3452025b9fc70d3", size = 1856736, upload-time = "2025-08-06T14:58:36.3Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/0d/24dad878784f1edd62862f27173781669f0c71eb46368636787d1e364188/torchaudio-2.8.0-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:862e2e40bf09d865e5df080a84c1a39bbcef40e43140f4b1737eb3a389d3b38f", size = 1692930, upload-time = "2025-08-06T14:58:41.312Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/a6/84d80f34472503e9eb82245d7df501c59602d75d7360e717fb9b84f91c5e/torchaudio-2.8.0-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:93a8583f280fe83ba021aa713319381ea71362cc87b67ee38e97a43cb2254aee", size = 4014607, upload-time = "2025-08-06T14:58:47.234Z" },
+    { url = "https://files.pythonhosted.org/packages/43/ab/96ad33afa320738a7cfb4b51ba97e2f3cfb1e04ae3115d5057655103ba4f/torchaudio-2.8.0-cp312-cp312-win_amd64.whl", hash = "sha256:4b82cacd1b8ccd543b1149d8cab257a40dfda8119023d2e3a96c66349c84bffb", size = 2499890, upload-time = "2025-08-06T14:58:55.066Z" },
 ]
 
 [[package]]
