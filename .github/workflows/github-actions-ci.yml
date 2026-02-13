@@ -21,5 +21,8 @@ jobs:
       - name: Lint
         run: uv run ruff check . && uv run ruff format --check .
 
+      - name: Inspect lockfile for CUDA
+        run: grep -E "cu12|nvidia|cudart|cublas" uv.lock || echo "No CUDA entries"
+
       - name: Run tests
         run: uv run --frozen pytest tests/
