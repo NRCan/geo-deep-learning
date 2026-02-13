@@ -111,7 +111,6 @@ select = ["ALL"]
 ignore = [
     "D203",  # conflicting docstring rules
     "D212",  # same, docstring starts on wrong line
-    "ANN101", "ANN102",  # allow skipping `self`, `cls` annotations
     "EXE002", # ignore missing executable bit on scripts with shebangs
     "ERA001", # ignore commented out code
     "TC002", "TC003" # allow imports in type annotations without TYPE_CHECKING
@@ -138,3 +137,12 @@ known-first-party = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+"notebooks/*.ipynb" = [
+    "T201",   # print is fine in notebooks
+    "E402",   # imports not at top of cell
+    "F811",   # redefinition across cells
+    "SLF001", # private member (monkeypatch)
+    "ANN001", "ANN202",  # type annotations in demo code
+    "N812",   # lightning as L is conventional
+    "PLR2004",  # magic values in demo code
+]
