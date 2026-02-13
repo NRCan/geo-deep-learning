@@ -313,7 +313,7 @@ class ShardedDataset:
             if datetime_str.endswith("Z"):
                 datetime_str = datetime_str[:-1] + "+00:00"
 
-            dt = datetime.fromisoformat(datetime_str.replace("Z", "+00:00"))
+            dt = datetime.fromisoformat(datetime_str)
 
             # Week of year (1-52 or 53)
             week = dt.isocalendar().week
