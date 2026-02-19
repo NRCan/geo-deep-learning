@@ -1,8 +1,12 @@
 """Data preparation for water extraction: TWI, tiling, preprocessing."""
+
 from __future__ import annotations
 
 import logging
+import math
+import os
 import shutil
+import subprocess
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -12,19 +16,14 @@ import numpy as np
 import pandas as pd
 import psutil
 import rasterio
-from rasterio.features import rasterize
-from rasterio.warp import Resampling, reproject
+import whitebox_workflows as wbw
 from rasterio.enums import Resampling
 from rasterio.errors import RasterioIOError
+from rasterio.features import rasterize
+from rasterio.warp import Resampling, reproject
 from rasterio.windows import Window
 from shapely.geometry import mapping, shape
 from shapely.validation import make_valid
-import whitebox_workflows as wbw
-
-import math
-import os
-import subprocess
-
 
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -110,7 +109,7 @@ def log_system_resources(tag: str = "") -> None:
     )
 
 
-# def compute_twi_whitebox(  # noqa: C901
+# def compute_twi_whitebox(
 #     dtm_path: str,
 #     twi_output_path: str,
 #     temp_dir: str | None = None,
@@ -273,11 +272,13 @@ def log_system_resources(tag: str = "") -> None:
 
 #     log.info("[TWI] TWI created: %s", twi_output_path)
 
+
 def get_raster_size(path: str) -> tuple[int, int]:
     with rasterio.open(path) as ds:
         height = ds.height  # rows
-        width = ds.width    # cols
+        width = ds.width  # cols
     return height, width
+
 
 def write_raster_window(
     src_path: str,
@@ -307,6 +308,7 @@ def write_raster_window(
         with rasterio.open(dst_path, "w", **profile) as dst:
             dst.write(data, 1)
 
+
 def compute_twi_whitebox(
     dtm_path: str,
     twi_output_path: str,
@@ -334,7 +336,6 @@ def compute_twi_whitebox(
       5) wetness_index using (SCA tile, slope tile)
       6) mosaic tiles to final TWI
     """
-
     dtm_path = Path(dtm_path).resolve()
     twi_output_path = Path(twi_output_path).resolve()
 
@@ -350,7 +351,12 @@ def compute_twi_whitebox(
     log.info("[TWI] DTM: %s", dtm_path)
     log.info("[TWI] Output: %s", twi_output_path)
     log.info("[TWI] Temp dir: %s", temp_dir)
-    log.info("[TWI] tile_size=%d halo=%d OMP_NUM_THREADS=%s", tile_size, halo, os.environ.get("OMP_NUM_THREADS"))
+    log.info(
+        "[TWI] tile_size=%d halo=%d OMP_NUM_THREADS=%s",
+        tile_size,
+        halo,
+        os.environ.get("OMP_NUM_THREADS"),
+    )
 
     wbe = wbw.WbEnvironment()
     wbe.working_directory = str(temp_dir)
@@ -434,7 +440,7 @@ def compute_twi_whitebox(
     total_tiles = n_tiles_x * n_tiles_y
     done_tiles = 0
     log_every_tiles = max(1, total_tiles // 100)  # ~1% increments
-    
+
     for ty in range(n_tiles_y):
         for tx in range(n_tiles_x):
             core_row0 = ty * tile_size
@@ -447,17 +453,22 @@ def compute_twi_whitebox(
             buf_col0 = max(core_col0 - halo, 0)
             buf_row1 = min(core_row1 + halo, nrows)
             buf_col1 = min(core_col1 + halo, ncols)
-            
+
             tile_id = f"twi_{ty:03d}_{tx:03d}"
             tile_dir = tiles_dir / tile_id
             tile_dir.mkdir(parents=True, exist_ok=True)
 
             if tx == 0:
                 pct = 100.0 * (ty * n_tiles_x) / total_tiles
-                log.info("[TWI] Row %d/%d (%.1f%%) tiles %d–%d of %d",
-                        ty + 1, n_tiles_y, pct,
-                        ty * n_tiles_x + 1, min((ty + 1) * n_tiles_x, total_tiles),
-                        total_tiles)
+                log.info(
+                    "[TWI] Row %d/%d (%.1f%%) tiles %d–%d of %d",
+                    ty + 1,
+                    n_tiles_y,
+                    pct,
+                    ty * n_tiles_x + 1,
+                    min((ty + 1) * n_tiles_x, total_tiles),
+                    total_tiles,
+                )
 
             dem_tile_path = tile_dir / "dem_buf.tif"
             sca_tile_path = tile_dir / "sca_core.tif"
@@ -522,7 +533,7 @@ def compute_twi_whitebox(
             # if done_tiles % log_every_tiles == 0 or done_tiles == total_tiles:
             #     pct = 100.0 * done_tiles / total_tiles
             #     log.info("[TWI] Progress: %d/%d tiles (%.1f%%)", done_tiles, total_tiles, pct)
-                
+
     # ---------------------------------------------------------------------
     # Step 6 — mosaic tiles to final output using GDAL (robust)
     # ---------------------------------------------------------------------
@@ -541,10 +552,14 @@ def compute_twi_whitebox(
     subprocess.run(
         [
             "gdal_translate",
-            "-of", "GTiff",
-            "-co", "COMPRESS=DEFLATE",
-            "-co", "TILED=YES",
-            "-co", "BIGTIFF=YES",
+            "-of",
+            "GTiff",
+            "-co",
+            "COMPRESS=DEFLATE",
+            "-co",
+            "TILED=YES",
+            "-co",
+            "BIGTIFF=YES",
             str(vrt_path),
             str(tmp_tif),
         ],
@@ -566,6 +581,7 @@ def compute_twi_whitebox(
         shutil.rmtree(tiles_dir, ignore_errors=True)
         if vrt_path.exists():
             vrt_path.unlink(missing_ok=True)
+
 
 # def stack_rasters(
 #     raster_paths: "Sequence[str]",
@@ -620,6 +636,7 @@ def compute_twi_whitebox(
 #     for src in sources:
 #         src.close()
 
+
 def stack_rasters(
     input_rasters: Sequence[str],
     output_path: str,
@@ -637,8 +654,8 @@ def stack_rasters(
         input_rasters: Ordered list of single-band raster paths
         output_path: Output stacked GeoTIFF path
         nodata_val: Default NoData for floating-point rasters
-    """
 
+    """
     if not input_rasters:
         raise ValueError("No input rasters provided for stacking")
 
@@ -649,7 +666,9 @@ def stack_rasters(
         with rasterio.open(input_rasters[0]) as ref:
             profile = ref.profile.copy()
     except RasterioIOError as e:
-        raise RuntimeError(f"Failed to open reference raster: {input_rasters[0]}") from e
+        raise RuntimeError(
+            f"Failed to open reference raster: {input_rasters[0]}"
+        ) from e
 
     profile.update(
         count=len(input_rasters),
@@ -689,10 +708,10 @@ def stack_rasters(
 
                 # Optional: band description for readability
                 dst.set_band_description(
-                    band_idx, Path(raster_path).stem
+                    band_idx,
+                    Path(raster_path).stem,
                 )
 
-    return None
 
 def rasterize_labels_binary_aoi_mask(  # noqa: PLR0913
     label_vector_path: str,
@@ -946,17 +965,18 @@ def tile_raster_pair(  # noqa: PLR0913
     Tile input/label rasters into patches, apply all validity filtering once,
     and compute authoritative tile-level statistics.
     """
-
     from pathlib import Path
+
     import numpy as np
-    import pandas as pd
     import rasterio
     from rasterio.windows import Window
 
     Path(output_dir, "inputs").mkdir(parents=True, exist_ok=True)
     Path(output_dir, "labels").mkdir(parents=True, exist_ok=True)
 
-    rejected_root = Path(rejected_dir) if rejected_dir else Path(output_dir) / "rejected_tiles"
+    rejected_root = (
+        Path(rejected_dir) if rejected_dir else Path(output_dir) / "rejected_tiles"
+    )
     rejected_inputs = rejected_root / "inputs"
     rejected_labels = rejected_root / "labels"
     rejected_masks = rejected_root / "valid_masks"
@@ -991,7 +1011,10 @@ def tile_raster_pair(  # noqa: PLR0913
                 dst.write(mask_patch.astype("uint8"), 1)
 
     with rasterio.open(input_path) as src_input, rasterio.open(label_path) as src_label:
-        if src_input.transform != src_label.transform or src_input.shape != src_label.shape:
+        if (
+            src_input.transform != src_label.transform
+            or src_input.shape != src_label.shape
+        ):
             raise ValueError("Input and label rasters must be aligned")
 
         valid_mask_src = rasterio.open(valid_mask_path) if valid_mask_path else None
@@ -1008,18 +1031,20 @@ def tile_raster_pair(  # noqa: PLR0913
                 input_patch = src_input.read(window=window)
                 label_patch = src_label.read(1, window=window)
 
-                #valid_pixels = np.sum(label_patch != nodata_val)
+                # valid_pixels = np.sum(label_patch != nodata_val)
                 valid_pixels = np.sum(label_patch != -1)
                 if valid_pixels == 0:
                     filtered += 1
                     _save_rejected(...)
                     continue
-                
+
                 valid_ratio = valid_pixels / label_patch.size
 
                 if valid_ratio < min_valid_ratio:
                     filtered += 1
-                    _save_rejected(x, y, input_patch, label_patch, src_input.meta, src_label.meta)
+                    _save_rejected(
+                        x, y, input_patch, label_patch, src_input.meta, src_label.meta
+                    )
                     continue
 
                 if valid_mask_src and valid_mask_min_ratio is not None:
@@ -1027,8 +1052,12 @@ def tile_raster_pair(  # noqa: PLR0913
                     if np.mean(mask_patch == 1) < valid_mask_min_ratio:
                         filtered += 1
                         _save_rejected(
-                            x, y, input_patch, label_patch,
-                            src_input.meta, src_label.meta,
+                            x,
+                            y,
+                            input_patch,
+                            label_patch,
+                            src_input.meta,
+                            src_label.meta,
                             mask_patch=mask_patch,
                         )
                         continue
@@ -1040,33 +1069,43 @@ def tile_raster_pair(  # noqa: PLR0913
                 input_meta = src_input.meta | {
                     "height": patch_size,
                     "width": patch_size,
-                    "transform": rasterio.windows.transform(window, src_input.transform),
+                    "transform": rasterio.windows.transform(
+                        window, src_input.transform
+                    ),
                 }
                 label_meta = src_label.meta | {
                     "count": 1,
                     "height": patch_size,
                     "width": patch_size,
-                    "transform": rasterio.windows.transform(window, src_label.transform),
+                    "transform": rasterio.windows.transform(
+                        window, src_label.transform
+                    ),
                 }
 
                 with rasterio.open(
-                    Path(output_dir) / "inputs" / f"tile_{tile_id:05d}.tif", "w", **input_meta
+                    Path(output_dir) / "inputs" / f"tile_{tile_id:05d}.tif",
+                    "w",
+                    **input_meta,
                 ) as dst:
                     dst.write(input_patch)
 
                 with rasterio.open(
-                    Path(output_dir) / "labels" / f"tile_{tile_id:05d}_label.tif", "w", **label_meta
+                    Path(output_dir) / "labels" / f"tile_{tile_id:05d}_label.tif",
+                    "w",
+                    **label_meta,
                 ) as dst:
                     dst.write(label_patch, 1)
 
-                tile_stats.append({
-                    "tile_id": tile_id,
-                    "x": x,
-                    "y": y,
-                    "valid_pixels": valid_pixels,
-                    "water_pixels": water_pixels,
-                    "water_ratio": water_ratio,
-                })
+                tile_stats.append(
+                    {
+                        "tile_id": tile_id,
+                        "x": x,
+                        "y": y,
+                        "valid_pixels": valid_pixels,
+                        "water_pixels": water_pixels,
+                        "water_ratio": water_ratio,
+                    }
+                )
 
                 tile_id += 1
 
@@ -1074,8 +1113,8 @@ def tile_raster_pair(  # noqa: PLR0913
             valid_mask_src.close()
 
     pd.DataFrame(tile_stats).to_csv(
-    Path(output_dir).parent / "tile_stats.csv",
-    index=False,
+        Path(output_dir).parent / "tile_stats.csv",
+        index=False,
     )
 
     log.info(
@@ -1085,6 +1124,7 @@ def tile_raster_pair(  # noqa: PLR0913
         filtered,
         output_dir,
     )
+
 
 def generate_csv_from_tiles(
     root_output_folder: str,
@@ -1103,10 +1143,9 @@ def generate_csv_from_tiles(
       - tiles with water_pixels < min_water_pixels are removed
       - filtering is applied BEFORE split
     """
-
-    import pandas as pd
-    import numpy as np
     from pathlib import Path
+
+    import numpy as np
 
     rows: list[dict] = []
 
@@ -1114,12 +1153,11 @@ def generate_csv_from_tiles(
     log.info(f"[DEBUG] Path(root_output_folder) = {Path(root_output_folder)}")
 
     for aoi_dir in Path(root_output_folder).iterdir():
-        
         log.info(f"[DEBUG] aoi_dir inside loop = {aoi_dir}")
-        
+
         if not aoi_dir.is_dir():
             continue
-        
+
         tiles_root = aoi_dir / "tiles"
         if not tiles_root.exists():
             raise FileNotFoundError(f"Missing tiles directory in {aoi_dir}")
@@ -1132,13 +1170,17 @@ def generate_csv_from_tiles(
 
         for _, row in stats_df.iterrows():
             tid = int(row["tile_id"])
-            rows.append({
-                "tif": str(aoi_dir / "tiles" / "inputs" / f"tile_{tid:05d}.tif"),
-                "gpkg": str(aoi_dir / "tiles" / "labels" / f"tile_{tid:05d}_label.tif"),
-                "aoi": aoi_dir.name,
-                "water_pixels": int(row["water_pixels"]),
-                "water_ratio": float(row["water_ratio"]),
-            })
+            rows.append(
+                {
+                    "tif": str(aoi_dir / "tiles" / "inputs" / f"tile_{tid:05d}.tif"),
+                    "gpkg": str(
+                        aoi_dir / "tiles" / "labels" / f"tile_{tid:05d}_label.tif"
+                    ),
+                    "aoi": aoi_dir.name,
+                    "water_pixels": int(row["water_pixels"]),
+                    "water_ratio": float(row["water_ratio"]),
+                }
+            )
 
     df = pd.DataFrame(rows)
 
@@ -1177,16 +1219,14 @@ def generate_csv_from_tiles(
         n_test = int(np.floor(n * test_ratio))
 
         splits.extend(
-            ["val"] * n_val +
-            ["tst"] * n_test +
-            ["trn"] * (n - n_val - n_test)
+            ["val"] * n_val + ["tst"] * n_test + ["trn"] * (n - n_val - n_test),
         )
 
     if test_ratio == 1.0:
         df["split"] = "tst"
     else:
         df["split"] = splits
-    
+
     df = df.sample(frac=1, random_state=42).reset_index(drop=True)
 
     # -------------------------------------------------
@@ -1207,7 +1247,8 @@ def generate_csv_from_tiles(
         (df["split"] == "val").sum(),
         (df["split"] == "tst").sum(),
     )
-    
+
+
 def align_to_reference(
     ref_path: str,
     src_path: str,

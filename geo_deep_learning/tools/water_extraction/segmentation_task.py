@@ -19,7 +19,7 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
 
     Extends SegmentationUnetPlus to handle ignore_index (-1) properly in IoU
     calculation by creating a valid mask that excludes ignored pixels.
-    
+
     Includes comprehensive diagnostics for debugging class imbalance and label issues.
     """
 
@@ -31,11 +31,12 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
             *args: Positional arguments for SegmentationUnetPlus
             ignore_index: Value to ignore in loss and metrics (default: -1)
             **kwargs: Keyword arguments for SegmentationUnetPlus
+
         """
         super().__init__(*args, **kwargs)
         self.ignore_index = ignore_index
         self._logged_label_values = False
-        
+
         # # BACKWARD-COMPATIBILITY ALIAS (NO REBUILD)
         # if not hasattr(self, "model"):
         #     raise RuntimeError(
@@ -50,10 +51,11 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
             y: Ground truth labels (B, H, W)
             stage: Stage name ("train" or "val")
             batch_idx: Current batch index
+
         """
         # y: (B, H, W)
         valid = y != self.ignore_index
-        
+
         if not valid.any():
             self.log(f"{stage}_valid_pixels", 0, prog_bar=True, batch_size=y.shape[0])
             logger.warning(
@@ -64,15 +66,21 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
             return
 
         unique, counts = torch.unique(y[valid], return_counts=True)
-        stats = dict(zip(unique.tolist(), counts.tolist()))
+        stats = dict(zip(unique.tolist(), counts.tolist(), strict=False))
 
         total_valid = valid.sum().item()
         water_pixels = stats.get(1, 0)
         water_ratio = water_pixels / max(total_valid, 1)
 
-        self.log(f"{stage}_valid_pixels", total_valid, prog_bar=True, batch_size=y.shape[0])
-        self.log(f"{stage}_water_pixels", water_pixels, prog_bar=True, batch_size=y.shape[0])
-        self.log(f"{stage}_water_ratio", water_ratio, prog_bar=True, batch_size=y.shape[0])
+        self.log(
+            f"{stage}_valid_pixels", total_valid, prog_bar=True, batch_size=y.shape[0]
+        )
+        self.log(
+            f"{stage}_water_pixels", water_pixels, prog_bar=True, batch_size=y.shape[0]
+        )
+        self.log(
+            f"{stage}_water_ratio", water_ratio, prog_bar=True, batch_size=y.shape[0]
+        )
         self.log(f"{stage}_background_pixels", stats.get(0, 0), batch_size=y.shape[0])
 
         # Log warning if water ratio is very low
@@ -85,6 +93,7 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
                 water_pixels,
                 total_valid,
             )
+
     def _forward_and_loss(self, batch: dict[str, Any]) -> Tensor:
         """
         Single source of truth for forward + loss.
@@ -115,14 +124,14 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
     #         y = batch["mask"]
     #         unique = torch.unique(y)
     #         self.log("label_unique_count", unique.numel(), batch_size=y.shape[0])
-            
+
     #         unique_list = unique.cpu().tolist()
     #         logger.info("=" * 80)
     #         logger.info("LABEL VALUE DIAGNOSTICS (Step 0)")
     #         logger.info("=" * 80)
     #         logger.info("Unique label values in first batch: %s", unique_list)
     #         logger.info("Expected: [-1, 0, 1] (ignore, background, water)")
-            
+
     #         # Interpret findings
     #         if unique_list == [0]:
     #             logger.error("❌ CRITICAL: Only background (0) found - water missing!")
@@ -132,7 +141,7 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
     #             logger.info("✓ All expected label values present")
     #         else:
     #             logger.warning("⚠️  Unexpected label values: %s", unique_list)
-            
+
     #         logger.info("=" * 80)
     #         self._logged_label_values = True
 
@@ -150,14 +159,15 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
 
         Returns:
             Loss tensor
+
         """
         x = batch["image"]
         y = batch["mask"]
         batch_size = x.shape[0]
-        
+
         # Log class statistics
-        #self._log_class_stats(y, "train", batch_idx)
-        
+        # self._log_class_stats(y, "train", batch_idx)
+
         unique_vals = torch.unique(y)
         if torch.any(y < 0):
             self.log("has_ignore_pixels", 1, prog_bar=True)
@@ -167,7 +177,7 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
         if torch.any(y > self.num_classes - 1):
             self.log("has_invalid_labels", 1, prog_bar=True)
             print("INVALID LABEL VALUES:", unique_vals.tolist())
-        
+
         y_hat = self(x)
         loss = self.loss(y_hat, y)
 
@@ -199,14 +209,15 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
 
         Returns:
             Predictions
+
         """
         x = batch["image"]
         y = batch["mask"]
         batch_size = x.shape[0]
-        
+
         # Log class statistics
-        #self._log_class_stats(y, "val", batch_idx)
-        
+        # self._log_class_stats(y, "val", batch_idx)
+
         unique_vals = torch.unique(y)
         if torch.any(y < 0):
             self.log("has_ignore_pixels", 1, prog_bar=True)
@@ -216,21 +227,21 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
         if torch.any(y > self.num_classes - 1):
             self.log("has_invalid_labels", 1, prog_bar=True)
             print("INVALID LABEL VALUES:", unique_vals.tolist())
-        
+
         y_hat = self(x)
         loss = self.loss(y_hat, y)
-        
-        if loss > 2.0:  # threshold to tune
-            image_paths = batch.get("image_path")
-            mask_paths = batch.get("label_path")
-                
-            logger.warning(
-                f"[VAL-OUTLIER] batch_idx={batch_idx} "
-                f"loss={loss.item():.3f}\n"
-                f"images={image_paths}\n"
-                f"labels={mask_paths}"
-            )
-            
+
+        # if loss > 2.0:  # threshold to tune
+        #     image_paths = batch.get("image_path")
+        #     mask_paths = batch.get("label_path")
+
+        #     logger.warning(
+        #         f"[VAL-OUTLIER] batch_idx={batch_idx} "
+        #         f"loss={loss.item():.3f}\n"
+        #         f"images={image_paths}\n"
+        #         f"labels={mask_paths}",
+        #     )
+
         self.log(
             "val_loss",
             loss,
@@ -242,7 +253,7 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
             sync_dist=True,
             rank_zero_only=True,
         )
-        
+
         if self.num_classes == 1:
             y_hat = (y_hat.sigmoid().squeeze(1) > self.threshold).long()
         else:
@@ -265,10 +276,12 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
         Args:
             batch: Batch dictionary containing image, mask, and metadata
             batch_idx: Index of the current batch
+
         """
         x = batch["image"]
         y = batch["mask"]
         batch_size = x.shape[0]
+
         y_hat = self(x)
         
         # Compute loss with ignore_index handling (loss function handles this)
@@ -285,13 +298,15 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
 
         # Apply mask to both predictions and ground truth
         y_masked = torch.where(valid_mask, y, torch.zeros_like(y))
-        y_hat_masked = torch.where(valid_mask, y_hat_classes, torch.zeros_like(y_hat_classes))
+        y_hat_masked = torch.where(
+            valid_mask, y_hat_classes, torch.zeros_like(y_hat_classes)
+        )
 
         # Only compute metrics if there are valid pixels
         if valid_mask.any():
             metrics = self.iou_classwise_metric(y_hat_masked, y_masked)
-            #self.iou_classwise_metric.reset()
-            
+            # self.iou_classwise_metric.reset()
+
             # Log the percentage of valid pixels for debugging
             valid_ratio = valid_mask.float().mean().item()
             metrics["valid_pixel_ratio"] = valid_ratio

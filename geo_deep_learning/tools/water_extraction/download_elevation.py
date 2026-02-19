@@ -30,7 +30,6 @@ from rasterio.merge import merge
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
 
-
 log = logging.getLogger(__name__)
 
 logging.getLogger("rasterio.session").setLevel(logging.WARNING)  # Remove boto warning
@@ -116,7 +115,9 @@ def resolve_aoi_path(aoi_input: str) -> str:
     raise FileNotFoundError(msg)
 
 
-def load_aoi(aoi_path: str) -> tuple[list[dict], CRS, tuple[float, float, float, float]]:
+def load_aoi(
+    aoi_path: str,
+) -> tuple[list[dict], CRS, tuple[float, float, float, float]]:
     """Load AOI geometries, CRS and bounds from a vector file."""
     with fiona.open(aoi_path, "r") as src:
         geoms = [feature["geometry"] for feature in src]
@@ -134,6 +135,7 @@ def create_directory(path: str) -> None:
 
     Args:
         path: Directory path to create
+
     """
     Path(path).mkdir(parents=True, exist_ok=True)
 
@@ -147,6 +149,7 @@ def is_valid_geotiff(path: str) -> bool:
 
     Returns:
         True if valid, False otherwise
+
     """
     try:
         with rasterio.open(path) as src:
@@ -321,7 +324,11 @@ def download_stac_asset_mosaic(
 
         # Ensure local asset exists and is valid; otherwise download.
         try:
-            if local_path.exists() and _is_nonempty_file(local_path) and is_valid_geotiff(str(local_path)):
+            if (
+                local_path.exists()
+                and _is_nonempty_file(local_path)
+                and is_valid_geotiff(str(local_path))
+            ):
                 log.info("[SKIP-ASSET] %s already present and valid.", local_path.name)
                 _flush_logs()
             else:
@@ -342,10 +349,14 @@ def download_stac_asset_mosaic(
         if p.exists() and _is_nonempty_file(p) and is_valid_geotiff(str(p)):
             valid_assets.append(p)
         else:
-            log.warning("[SKIP-BAD-ASSET] %s is missing/invalid; excluding from merge.", p.name)
+            log.warning(
+                "[SKIP-BAD-ASSET] %s is missing/invalid; excluding from merge.", p.name
+            )
 
     if not valid_assets:
-        raise RuntimeError(f"All local assets are invalid for '{identifier}' in {assets_dir}")
+        raise RuntimeError(
+            f"All local assets are invalid for '{identifier}' in {assets_dir}"
+        )
 
     log.info("Opening %d local rasters for %s", len(valid_assets), identifier)
     _flush_logs()
@@ -406,8 +417,8 @@ def download_stac_asset_mosaic(
 
         merged, merged_transform = merge(
             vrt_sources,
-            bounds=aoi_bounds,   # AOI bounds in AOI CRS (correct)
-            res=resolution,      # resolution in AOI CRS units (meters)
+            bounds=aoi_bounds,  # AOI bounds in AOI CRS (correct)
+            res=resolution,  # resolution in AOI CRS units (meters)
             nodata=nodata,
         )
 
@@ -528,13 +539,12 @@ def download_all_for_aoi(
                 log.info("[SKIP] %s already exists and is valid.", identifier)
                 _flush_logs()
                 continue
-            else:
-                log.warning(
-                    "[REBUILD] %s exists but is invalid/empty (size=%s). Will rebuild.",
-                    out_path.name,
-                    out_path.stat().st_size if out_path.exists() else "NA",
-                )
-                _flush_logs()
+            log.warning(
+                "[REBUILD] %s exists but is invalid/empty (size=%s). Will rebuild.",
+                out_path.name,
+                out_path.stat().st_size if out_path.exists() else "NA",
+            )
+            _flush_logs()
 
         try:
             download_stac_asset_mosaic(
