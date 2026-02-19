@@ -8,10 +8,9 @@ import pandas as pd
 import rasterio as rio
 import torch
 from torch import Tensor
-import time
 
 from geo_deep_learning.datasets.csv_dataset import CSVDataset, log_dataset
-from geo_deep_learning.utils.tensors import normalization, standardization
+from geo_deep_learning.utils.tensors import standardization
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +40,7 @@ class ElevationStackDataset(CSVDataset):
         norm_stats: dict[str, list[float]] | None = None,
         csv_path: str | None = None,
         csv_infer_path: str | None = None,
+        include_intensity: bool = True,
     ) -> None:
         """
         Initialize the ElevationStackDataset.
@@ -51,6 +51,7 @@ class ElevationStackDataset(CSVDataset):
             split (str, optional): Data split ("trn", "val", "tst"). Defaults to "trn".
             norm_stats (dict[str, list[float]], optional): Normalization statistics.
                 Should contain "mean" and "std" keys with lists of per-band values.
+            include_intensity (bool, optional): Whether to load intensity band. Defaults to True.
 
         """
         # Initialize parent class attributes first
@@ -59,6 +60,7 @@ class ElevationStackDataset(CSVDataset):
         self.split = split
         self.csv_path = csv_path
         self.csv_infer_path = csv_infer_path
+        self.include_intensity = include_intensity
         self.norm_stats = norm_stats or {
             "mean": [0.0, 0.0, 0.0],
             "std": [1.0, 1.0, 1.0],
@@ -137,19 +139,44 @@ class ElevationStackDataset(CSVDataset):
             dict containing image, mask, and metadata tensors
 
         """
-        #row = self.df.iloc[index] # DEBUG
-        
+        # row = self.df.iloc[index] # DEBUG
+
         image, image_name = self._load_image(index)
         mask, mask_name = self._load_mask(index)
 
         # Apply normalization (0-1 scaling)
-        #image = normalization(image)
+        # image = normalization(image)
 
-        #print(f"Normalization stats: {self.norm_stats}")
+        # Validate channel count matches stats
+        num_channels = image.shape[0]
+        num_stats = len(self.norm_stats["mean"])
+        
+        if num_channels != num_stats:
+            error_msg = (
+                f"Channel mismatch in {image_name}: "
+                f"image has {num_channels} channels but "
+                f"normalization stats have {num_stats} values. "
+                f"Stats: mean={self.norm_stats['mean']}, std={self.norm_stats['std']}. "
+                f"include_intensity={self.include_intensity}"
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
         # Apply standardization using provided statistics
         mean = torch.tensor(self.norm_stats["mean"], dtype=torch.float32).view(-1, 1, 1)
         std = torch.tensor(self.norm_stats["std"], dtype=torch.float32).view(-1, 1, 1)
+        
+        # Debug logging for first few samples
+        # if index < 3:
+        #     logger.info(
+        #         f"Sample {index} ({image_name}): "
+        #         f"channels={num_channels}, "
+        #         f"include_intensity={self.include_intensity}, "
+        #         f"mean={self.norm_stats['mean']}, "
+        #         f"std={self.norm_stats['std']}, "
+        #         f"split={self.split}"
+        #     )
+        
         image = standardization(image, mean, std)
 
         # Handle mask - ensure it's long type for segmentation
@@ -175,6 +202,10 @@ class ElevationStackDataset(CSVDataset):
     def _load_image(self, index: int) -> tuple[Tensor, str]:
         """
         Load image with enhanced nodata handling for elevation data.
+        
+        Loads channels based on include_intensity setting:
+        - include_intensity=True: loads all 3 channels [TWI, nDSM, Intensity]
+        - include_intensity=False: loads only 2 channels [TWI, nDSM]
 
         Args:
             index: Index of the sample to load
@@ -186,8 +217,44 @@ class ElevationStackDataset(CSVDataset):
         image_path = self.files[index]["image"]
         image_name = Path(image_path).name
 
+        # Determine how many channels to load based on include_intensity
+        num_channels = 3 if self.include_intensity else 2
+
         with rio.open(image_path) as image:
-            image_array = image.read().astype(np.float32)
+            total_bands = image.count
+            
+            # Validate that the raster has enough bands
+            if total_bands < num_channels:
+                error_msg = (f"Insufficient bands in {image_name}: "
+                             f"expected {num_channels} bands (include_intensity={self.include_intensity}) "
+                             f"but file only has {total_bands} bands")
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+
+            # Load only the required number of channels (1-indexed in rasterio)
+            if num_channels < total_bands:
+                # Load subset of bands: [1, 2] for 2 channels, [1, 2, 3] for 3 channels
+                channels_to_load = list(range(1, num_channels + 1))
+                image_array = image.read(channels_to_load).astype(np.float32)
+                # if index < 3:  # Debug logging for first few samples
+                #     logger.info("Loading %d/%d channels from %s (include_intensity=%s, split=%s)",
+                #         num_channels,
+                #         total_bands,
+                #         image_name,
+                #         self.include_intensity,
+                #         self.split,
+                #     )
+            else:
+                # Load all bands
+                image_array = image.read().astype(np.float32)
+                if index < 3:
+                    logger.info(
+                        "Loading all %d channels from %s (include_intensity=%s, split=%s)",
+                        total_bands,
+                        image_name,
+                        self.include_intensity,
+                        self.split,
+                    )
 
             # Handle nodata values - set them to 0 (matching original implementation)
             if image.nodata is not None:

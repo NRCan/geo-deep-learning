@@ -1,4 +1,5 @@
-"""End-to-end inference script for water extraction from elevation data.
+"""
+End-to-end inference script for water extraction from elevation data.
 
 This script performs the complete inference pipeline:
 1. Preprocesses raw LiDAR data (alignment, nDSM, TWI, stacking)
@@ -16,24 +17,20 @@ Usage:
 """
 
 import argparse
-from datetime import datetime
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 import fiona
 import numpy as np
 import rasterio
 import torch
-from fiona.crs import from_epsg
-from rasterio.features import shapes, rasterize
+from rasterio.features import rasterize, shapes
 from rasterio.windows import Window
-from shapely.geometry import shape as shapely_shape
 from shapely.geometry import mapping
-from torch import Tensor
+from shapely.geometry import shape as shapely_shape
 from tqdm import tqdm
-import segmentation_models_pytorch as smp
 
 from geo_deep_learning.tools.water_extraction.prepare_inputs import (
     compute_ndsm,
@@ -44,7 +41,8 @@ from geo_deep_learning.tools.water_extraction.segmentation_task import (
     WaterExtractionSegmentation,
 )
 from geo_deep_learning.utils.rasters import align_to_reference
-#from geo_deep_learning.utils.tensors import standardization
+
+# from geo_deep_learning.utils.tensors import standardization
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,7 +85,6 @@ def preprocess_aoi(
         FileNotFoundError: If required input files are missing
 
     """
-   
     data_path = Path(data_folder).resolve()
     aoi_name = data_path.name
 
@@ -95,7 +92,7 @@ def preprocess_aoi(
     base_output = Path(output_folder).resolve()
     output_path = base_output / f"preprocessed_{aoi_name}"
     output_path.mkdir(parents=True, exist_ok=True)
-    
+
     # Check required inputs
     dtm_path = data_path / "dtm.tif"
     dsm_path = data_path / "dsm.tif"
@@ -143,7 +140,10 @@ def preprocess_aoi(
             log.info("Skipping intensity alignment (already exists)")
         has_intensity = True
     elif include_intensity:
-        log.warning("Intensity file not found: %s (proceeding without intensity)", intensity_path)
+        log.warning(
+            "Intensity file not found: %s (proceeding without intensity)",
+            intensity_path,
+        )
 
     # Compute nDSM
     ndsm_path = output_path / "ndsm.tif"
@@ -286,7 +286,6 @@ def preprocess_aoi(
 #     return model
 
 
-
 # def load_model(checkpoint_path: str, device: str):
 #     ckpt = torch.load(checkpoint_path, map_location=device)
 
@@ -319,6 +318,7 @@ def preprocess_aoi(
 #     model.to(device)
 #     return model
 
+
 def load_model(checkpoint_path: str, device: str):
     import torch
 
@@ -333,7 +333,7 @@ def load_model(checkpoint_path: str, device: str):
         num_classes=hp["num_classes"],
         image_size=tuple(hp["image_size"]),
         max_samples=hp["max_samples"],
-        loss=None,  # LOSS IS IRRELEVANT FOR INFERENCE
+        loss=None,
         ignore_index=hp["ignore_index"],
         weights=hp.get("weights"),
         class_labels=hp.get("class_labels"),
@@ -351,6 +351,7 @@ def load_model(checkpoint_path: str, device: str):
     model.to(device)
     return model
 
+
 def standardization(
     input_tensor: torch.Tensor,
     mean: torch.Tensor,
@@ -359,6 +360,7 @@ def standardization(
     mean = mean.to(input_tensor.device)
     std = std.to(input_tensor.device)
     return (input_tensor - mean) / std
+
 
 # =============================================================================
 # 3. SLIDING WINDOW INFERENCE
@@ -372,6 +374,7 @@ def sliding_window_inference(  # noqa: PLR0913
     mean: list[float],
     std: list[float],
     *,
+    model_in_channels: int | None = None,
     window_size: int = 512,
     stride: int = 512,
     batch_size: int = 4,
@@ -390,6 +393,7 @@ def sliding_window_inference(  # noqa: PLR0913
         output_raster_path: Where to save prediction raster
         mean: Per-band mean for standardization
         std: Per-band standard deviation for standardization
+        model_in_channels: Number of input channels the model expects (if None, uses all bands from raster)
         window_size: Size of inference windows (height and width)
         stride: Stride between window positions (< window_size for overlap)
         batch_size: Number of windows to process in parallel
@@ -411,12 +415,26 @@ def sliding_window_inference(  # noqa: PLR0913
         profile = src.profile
         transform = src.transform
         crs = src.crs
-        
-        ref_shape = src.shape          # (H, W)
+
+        ref_shape = src.shape  # (H, W)
         ref_transform = src.transform
         ref_crs = src.crs
 
-        log.info("Input shape: (%d, %d, %d)", num_bands, height, width)
+        # Determine how many channels to actually load
+        channels_to_load = model_in_channels if model_in_channels is not None else num_bands
+        
+        # Validate that input raster has enough bands
+        if channels_to_load > num_bands:
+            msg = f"Model expects {channels_to_load} channels but input raster only has {num_bands} bands"
+            raise ValueError(msg)
+        
+        # Log channel information
+        log.info("Input raster bands: %d", num_bands)
+        log.info("Model expects: %d channels", channels_to_load)
+        if channels_to_load < num_bands:
+            log.info("Will load only first %d channels (excluding intensity)", channels_to_load)
+        
+        log.info("Input shape: (%d, %d, %d)", channels_to_load, height, width)
 
         # Initialize output arrays
         # Prediction accumulator (sum of predictions)
@@ -454,15 +472,27 @@ def sliding_window_inference(  # noqa: PLR0913
 
         log.info("Total windows to process: %d", len(windows))
 
+        # Validate and slice mean/std to match model's expected channels
+        if len(mean) < channels_to_load or len(std) < channels_to_load:
+            msg = f"Mean/std arrays have {len(mean)}/{len(std)} values but model expects {channels_to_load} channels"
+            raise ValueError(msg)
+        
+        # Slice mean/std if they have more values than needed
+        mean_sliced = mean[:channels_to_load]
+        std_sliced = std[:channels_to_load]
+        
+        if len(mean) > channels_to_load:
+            log.info("Slicing mean/std from %d to %d values to match model channels", len(mean), channels_to_load)
+        
         # Convert stats to tensors
-        mean_t = torch.tensor(mean, dtype=torch.float32, device=device).view(-1, 1, 1)
-        std_t = torch.tensor(std, dtype=torch.float32, device=device).view(-1, 1, 1)
+        mean_t = torch.tensor(mean_sliced, dtype=torch.float32, device=device).view(-1, 1, 1)
+        std_t = torch.tensor(std_sliced, dtype=torch.float32, device=device).view(-1, 1, 1)
 
         # Process windows in batches
         batch_windows = []
         batch_positions = []
 
-        valid_lidar_mask_path = str("/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/02NB000/valir_lidar_mask.gpkg")
+        valid_lidar_mask_path = "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/02NB000/valir_lidar_mask.gpkg"
 
         # Load valid lidar mask GPKG
         with fiona.open(valid_lidar_mask_path) as shp:
@@ -484,16 +514,22 @@ def sliding_window_inference(  # noqa: PLR0913
             for i, (x, y) in enumerate(tqdm(windows, desc="Inference")):
                 window = Window(x, y, window_size, window_size)
 
-                # Read window data
-                window_data = src.read(window=window).astype(np.float32)  # (C, H, W)
+                # Read window data - load only the channels the model expects
+                if channels_to_load < num_bands:
+                    # Load only first N channels (1-indexed in rasterio)
+                    bands_to_read = list(range(1, channels_to_load + 1))
+                    window_data = src.read(bands_to_read, window=window).astype(np.float32)  # (C, H, W)
+                else:
+                    # Load all bands
+                    window_data = src.read(window=window).astype(np.float32)  # (C, H, W)
 
                 # Check for nodata
-                #valid_mask = window_data[0] != nodata_val
-                #valid_mask_window = valid_mask_full[y:y+window_size, x:x+window_size].astype(bool)
+                # valid_mask = window_data[0] != nodata_val
+                # valid_mask_window = valid_mask_full[y:y+window_size, x:x+window_size].astype(bool)
 
                 valid_mask_window = valid_mask_full[
-                    y:y + window_size,
-                    x:x + window_size
+                    y : y + window_size,
+                    x : x + window_size,
                 ].astype(bool)
 
                 valid_mask_window[:] = True
@@ -502,15 +538,17 @@ def sliding_window_inference(  # noqa: PLR0913
                 window_tensor = torch.from_numpy(window_data).float()  # (C, H, W)
 
                 # Apply standardization
-                #window_tensor = standardization(window_tensor.unsqueeze(0), mean_t, std_t)  # (1, C, H, W)
+                # window_tensor = standardization(window_tensor.unsqueeze(0), mean_t, std_t)  # (1, C, H, W)
 
                 window_tensor = window_tensor.to(device)
-                window_tensor = standardization(window_tensor.unsqueeze(0), mean_t, std_t)
-                
+                window_tensor = standardization(
+                    window_tensor.unsqueeze(0), mean_t, std_t
+                )
+
                 window_tensor[:, :, ~valid_mask_window] = 0.0
 
                 batch_windows.append(window_tensor)
-                #batch_positions.append((x, y, valid_mask))
+                # batch_positions.append((x, y, valid_mask))
                 batch_positions.append((x, y, valid_mask_window))
 
                 # # Convert to tensor
@@ -550,7 +588,9 @@ def sliding_window_inference(  # noqa: PLR0913
                 # Process batch when full or at end
                 if len(batch_windows) == batch_size or i == len(windows) - 1:
                     # Stack batch
-                    batch_tensor = torch.cat(batch_windows, dim=0).to(device)  # (B, C, H, W)
+                    batch_tensor = torch.cat(batch_windows, dim=0).to(
+                        device
+                    )  # (B, C, H, W)
 
                     # Run inference
                     logits = model(batch_tensor)  # (B, num_classes, H, W)
@@ -577,8 +617,12 @@ def sliding_window_inference(  # noqa: PLR0913
                         weight[~valid_mask] = 0
 
                         # Accumulate
-                        prediction_sum[by : by + window_size, bx : bx + window_size] += pred * weight
-                        weight_sum[by : by + window_size, bx : bx + window_size] += weight
+                        prediction_sum[
+                            by : by + window_size, bx : bx + window_size
+                        ] += pred * weight
+                        weight_sum[by : by + window_size, bx : bx + window_size] += (
+                            weight
+                        )
 
                     # Clear batch
                     batch_windows = []
@@ -588,7 +632,9 @@ def sliding_window_inference(  # noqa: PLR0913
     # Avoid division by zero
     final_prediction = np.zeros_like(prediction_sum)
     valid_pixels = weight_sum > 0
-    final_prediction[valid_pixels] = prediction_sum[valid_pixels] / weight_sum[valid_pixels]
+    final_prediction[valid_pixels] = (
+        prediction_sum[valid_pixels] / weight_sum[valid_pixels]
+    )
 
     # Convert probabilities to binary mask (threshold at 0.5)
     binary_prediction = (final_prediction > 0.5).astype(np.uint8)
@@ -660,45 +706,52 @@ def crop_raster_to_aoi(
 
     """
     import rasterio.mask
-    
+
     log.info("Cropping raster to AOI boundary")
     log.info("  Input: %s", input_raster_path)
     log.info("  AOI: %s", aoi_vector_path)
     log.info("  Output: %s", output_raster_path)
-    
+
     # Read AOI geometries
     with fiona.open(aoi_vector_path, "r") as aoi_src:
         aoi_geoms = [feature["geometry"] for feature in aoi_src]
         aoi_crs = aoi_src.crs
-    
+
     # Crop raster
     with rasterio.open(input_raster_path) as src:
         # Check CRS compatibility
         if src.crs != aoi_crs:
-            log.warning("CRS mismatch between raster (%s) and AOI (%s)", src.crs, aoi_crs)
-        
+            log.warning(
+                "CRS mismatch between raster (%s) and AOI (%s)", src.crs, aoi_crs
+            )
+
         # Mask and crop
         out_image, out_transform = rasterio.mask.mask(
-            src, aoi_geoms, crop=True, nodata=src.nodata
+            src,
+            aoi_geoms,
+            crop=True,
+            nodata=src.nodata,
         )
-        
+
         # Update metadata - preserve compression and dtype
         out_meta = src.meta.copy()
-        out_meta.update({
-            "height": out_image.shape[1],
-            "width": out_image.shape[2],
-            "transform": out_transform,
-            "compress": "lzw",  # Ensure compression is enabled
-        })
-        
+        out_meta.update(
+            {
+                "height": out_image.shape[1],
+                "width": out_image.shape[2],
+                "transform": out_transform,
+                "compress": "lzw",  # Ensure compression is enabled
+            }
+        )
+
         log.info("  Cropped shape: %s", out_image.shape)
         log.info("  Output dtype: %s", out_meta["dtype"])
         log.info("  Compression: %s", out_meta.get("compress", "none"))
-    
+
     # Write cropped raster
     with rasterio.open(output_raster_path, "w", **out_meta) as dst:
         dst.write(out_image)
-    
+
     log.info("Cropped raster saved: %s", output_raster_path)
 
 
@@ -810,24 +863,27 @@ def export_vectors(
 def _resolve_aoi_vector(data_folder: str) -> Path | None:
     """
     Find the AOI vector file in the data folder.
-    
+
     Looks for aoi.gpkg or aoi.shp.
-    
+
     Args:
         data_folder: Path to the data folder
-        
+
     Returns:
         Path to AOI vector file, or None if not found
+
     """
     data_path = Path(data_folder)
     candidates = [data_path / "aoi.gpkg", data_path / "aoi.shp"]
-    
+
     for candidate in candidates:
         if candidate.exists():
             log.info("Found AOI vector: %s", candidate)
             return candidate
-    
-    log.warning("No AOI vector found (checked: %s)", ", ".join(str(c) for c in candidates))
+
+    log.warning(
+        "No AOI vector found (checked: %s)", ", ".join(str(c) for c in candidates)
+    )
     return None
 
 
@@ -895,14 +951,14 @@ def run_inference(  # noqa: PLR0913
     # Actual inference uses stacked_inputs from preprocessed folder
     aoi_name = "unknown_aoi"
     aoi_vector_path = None
-    
+
     if data_folder is not None:
         # data_folder contains RAW data: dtm.tif, dsm.tif, aoi.gpkg, etc.
         # Used ONLY to extract AOI name and find AOI boundary
         aoi_name = Path(data_folder).name
         aoi_vector_path = _resolve_aoi_vector(data_folder)
         log.info("Using data_folder for AOI metadata: %s", data_folder)
-    
+
     # If no data_folder provided, try to infer AOI name from stacked_inputs path
     if data_folder is None and stacked_inputs is not None:
         # Expected path: .../preprocessed_{aoi_name}/stacked_inputs.tif
@@ -911,13 +967,15 @@ def run_inference(  # noqa: PLR0913
         if parent_name.startswith("preprocessed_"):
             aoi_name = parent_name.replace("preprocessed_", "")
             log.info("Inferred AOI name from stacked_inputs path: %s", aoi_name)
-        
+
         # Try to find the original data folder for AOI vector
         # Common pattern: data/{aoi_name}/ contains raw data
         possible_data_folder = stacked_path.parent.parent / aoi_name
         if possible_data_folder.exists():
             aoi_vector_path = _resolve_aoi_vector(str(possible_data_folder))
-            log.info("Found AOI vector in inferred data folder: %s", possible_data_folder)
+            log.info(
+                "Found AOI vector in inferred data folder: %s", possible_data_folder
+            )
 
     log.info("=" * 80)
     log.info("WATER EXTRACTION INFERENCE")
@@ -951,14 +1009,19 @@ def run_inference(  # noqa: PLR0913
     # Step 2: Load model
     model = load_model(checkpoint_path, device=device)
 
-    print("[DEBUG] Encoder first conv weight mean:",
-      model.model.encoder.conv1.weight.mean().item())
+    # Get model's expected input channels
+    model_in_channels = model.hparams.get("in_channels", None)
+    
+    print(
+        "[DEBUG] Encoder first conv weight mean:",
+        model.model.encoder.conv1.weight.mean().item(),
+    )
 
     print("[DEBUG] Model class:", model.__class__)
-    print("[DEBUG] In channels:", model.hparams.get("in_channels", "N/A"))
+    print("[DEBUG] In channels:", model_in_channels)
     print("[DEBUG] Num classes:", model.hparams.get("num_classes", "N/A"))
     print("[DEBUG] Encoder:", model.hparams.get("encoder", "N/A"))
-    
+
     for name, p in model.named_parameters():
         if not torch.isfinite(p).all():
             print("[DEBUG] Non-finite weights in:", name)
@@ -972,6 +1035,7 @@ def run_inference(  # noqa: PLR0913
         output_raster_path=prediction_raster_full,
         mean=mean,
         std=std,
+        model_in_channels=model_in_channels,
         window_size=window_size,
         stride=stride,
         batch_size=batch_size,
@@ -1012,11 +1076,16 @@ def run_inference(  # noqa: PLR0913
     elapsed_seconds = end_time - start_time
     hours, remainder = divmod(elapsed_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
-    
+
     log.info("=" * 80)
     log.info("INFERENCE COMPLETE")
     log.info("End time: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    log.info("Total duration: %02d:%02d:%02d (HH:MM:SS)", int(hours), int(minutes), int(seconds))
+    log.info(
+        "Total duration: %02d:%02d:%02d (HH:MM:SS)",
+        int(hours),
+        int(minutes),
+        int(seconds),
+    )
     log.info("=" * 80)
     for key, value in outputs.items():
         log.info("%s: %s", key, value)
@@ -1063,7 +1132,7 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Per-band std for standardization (e.g., --std 1.0 1.0 1.0)",
     )
-    
+
     # Input arguments - at least one is required
     parser.add_argument(
         "--stacked_inputs",
@@ -1076,7 +1145,7 @@ def parse_args() -> argparse.Namespace:
         type=str,
         required=False,
         help="Path to RAW data folder with aoi.gpkg/shp (e.g., data/02NB000/). Used only for AOI name and boundary vector. "
-             "If not provided, AOI name is inferred from stacked_inputs path.",
+        "If not provided, AOI name is inferred from stacked_inputs path.",
     )
 
     # Optional arguments
@@ -1133,7 +1202,7 @@ def main() -> None:
     if len(args.mean) != len(args.std):
         msg = "Mean and std must have the same length"
         raise ValueError(msg)
-    
+
     # Validate that at least stacked_inputs or data_folder is provided
     if args.stacked_inputs is None and args.data_folder is None:
         msg = "Must provide at least --stacked_inputs (for inference) or --data_folder (for preprocessing)"

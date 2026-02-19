@@ -17,11 +17,9 @@ from .prepare_inputs import (
     align_to_reference,
     compute_ndsm,
     compute_twi_whitebox,
-    generate_csv_from_tiles,
     rasterize_labels_binary_aoi_mask,
     rasterize_valid_lidar_mask,
     stack_rasters,
-    tile_raster_pair,
 )
 
 log = logging.getLogger(__name__)
@@ -72,7 +70,9 @@ class ElevationStackDataModule(CSVDataModule):
         self.output_root = output_root
         self.csv_path = csv_path
         self.csv_infer_path = csv_infer_path
-        log.info(f"[DEBUG] ElevationStackDataModule __init__: csv_infer_path = {csv_infer_path}")
+        log.info(
+            f"[DEBUG] ElevationStackDataModule __init__: csv_infer_path = {csv_infer_path}"
+        )
         self.include_intensity = include_intensity
         self.stride = stride
         self.test_ratio = test_ratio
@@ -81,6 +81,15 @@ class ElevationStackDataModule(CSVDataModule):
         self.regenerate_csv = regenerate_csv
         self.min_water_pixels = min_water_pixels
         self.test_only = test_only
+
+        # Track if user provided custom stats (to avoid overwriting with stats.npy)
+        self.user_provided_stats = mean is not None and std is not None
+        
+        # Slice user-provided stats to match include_intensity setting
+        if self.user_provided_stats and not self.include_intensity and len(self.norm_stats["mean"]) > 2:
+            log.info("Slicing user-provided stats to 2 channels (excluding intensity)")
+            self.norm_stats["mean"] = self.norm_stats["mean"][:2]
+            self.norm_stats["std"] = self.norm_stats["std"][:2]
 
     # ------------------------------------------------------------------
     # Setup datasets
@@ -95,7 +104,10 @@ class ElevationStackDataModule(CSVDataModule):
     ) -> Path | None:
         """Return the first existing vector file (gpkg or shp) for a base name."""
         aoi_dir = Path(aoi_path)
-        candidate_paths = [aoi_dir / f"{base_filename}.gpkg", aoi_dir / f"{base_filename}.shp"]
+        candidate_paths = [
+            aoi_dir / f"{base_filename}.gpkg",
+            aoi_dir / f"{base_filename}.shp",
+        ]
         for candidate in candidate_paths:
             if candidate.exists():
                 return candidate
@@ -111,7 +123,7 @@ class ElevationStackDataModule(CSVDataModule):
             ", ".join(str(path) for path in candidate_paths),
         )
         return None
-    
+
         @staticmethod
         def _crop_raster_to_aoi(
             input_raster_path: str,
@@ -122,34 +134,41 @@ class ElevationStackDataModule(CSVDataModule):
             import fiona
             import rasterio
             import rasterio.mask
-        
-            log.info("Cropping raster to AOI: %s → %s", input_raster_path, output_raster_path)
-        
+
+            log.info(
+                "Cropping raster to AOI: %s → %s", input_raster_path, output_raster_path
+            )
+
             # Read AOI geometries
             with fiona.open(aoi_vector_path, "r") as aoi_src:
                 aoi_geoms = [feature["geometry"] for feature in aoi_src]
-        
+
             # Crop raster
             with rasterio.open(input_raster_path) as src:
                 out_image, out_transform = rasterio.mask.mask(
-                    src, aoi_geoms, crop=True, nodata=src.nodata
+                    src,
+                    aoi_geoms,
+                    crop=True,
+                    nodata=src.nodata,
                 )
                 # Update metadata
                 out_meta = src.meta.copy()
-                out_meta.update({
-                    "height": out_image.shape[1],
-                    "width": out_image.shape[2],
-                    "transform": out_transform,
-                    "compress": "lzw",
-                    "BIGTIFF": "YES",
-                })
+                out_meta.update(
+                    {
+                        "height": out_image.shape[1],
+                        "width": out_image.shape[2],
+                        "transform": out_transform,
+                        "compress": "lzw",
+                        "BIGTIFF": "YES",
+                    }
+                )
 
             # Write cropped raster
             with rasterio.open(output_raster_path, "w", **out_meta) as dst:
                 dst.write(out_image)
-        
+
             log.info("Cropped raster saved: %s", output_raster_path)
-            
+
     @staticmethod
     def _crop_raster_to_aoi(
         input_raster_path: str,
@@ -160,36 +179,74 @@ class ElevationStackDataModule(CSVDataModule):
         import fiona
         import rasterio
         import rasterio.mask
-        
-        log.info("Cropping raster to AOI: %s → %s", input_raster_path, output_raster_path)
-        
+
+        log.info(
+            "Cropping raster to AOI: %s → %s", input_raster_path, output_raster_path
+        )
+
         # Read AOI geometries
         with fiona.open(aoi_vector_path, "r") as aoi_src:
             aoi_geoms = [feature["geometry"] for feature in aoi_src]
-        
+
         # Crop raster
         with rasterio.open(input_raster_path) as src:
             out_image, out_transform = rasterio.mask.mask(
-                src, aoi_geoms, crop=True, nodata=src.nodata
+                src,
+                aoi_geoms,
+                crop=True,
+                nodata=src.nodata,
             )
-            
+
             # Update metadata
             out_meta = src.meta.copy()
-            out_meta.update({
-                "height": out_image.shape[1],
-                "width": out_image.shape[2],
-                "transform": out_transform,
-                "compress": "lzw",
-                "BIGTIFF": "YES",
-            })
-        
+            out_meta.update(
+                {
+                    "height": out_image.shape[1],
+                    "width": out_image.shape[2],
+                    "transform": out_transform,
+                    "compress": "lzw",
+                    "BIGTIFF": "YES",
+                }
+            )
+
         # Write cropped raster
         with rasterio.open(output_raster_path, "w", **out_meta) as dst:
             dst.write(out_image)
-        
+
         log.info("Cropped raster saved: %s", output_raster_path)
-    
+
     def setup(self, stage: str | None = None) -> None:  # noqa: ARG002
+        # Validate stats configuration before creating datasets
+        expected_channels = 3 if self.include_intensity else 2
+        mean_channels = len(self.norm_stats["mean"])
+        std_channels = len(self.norm_stats["std"])
+        if mean_channels != expected_channels:
+            error_msg = (
+                f"Normalization stats mismatch: expected {expected_channels} channels "
+                f"(include_intensity={self.include_intensity}) but mean has {mean_channels} values: "
+                f"{self.norm_stats['mean']}"
+            )
+            log.error(error_msg)
+            raise ValueError(error_msg)
+
+        if std_channels != expected_channels:
+            error_msg = (
+                f"Normalization stats mismatch: expected {expected_channels} channels "
+                f"(include_intensity={self.include_intensity}) but std has {std_channels} values: "
+                f"{self.norm_stats['std']}"
+            )
+            log.error(error_msg)
+            raise ValueError(error_msg)
+
+        log.info(
+            "Setting up datasets: include_intensity=%s, expected_channels=%d, "
+            "mean=%s, std=%s",
+            self.include_intensity,
+            expected_channels,
+            self.norm_stats["mean"],
+            self.norm_stats["std"],
+        )
+
         if self.test_only:
             self.test_dataset = ElevationStackDataset(
                 split="inference",
@@ -197,7 +254,8 @@ class ElevationStackDataModule(CSVDataModule):
                 csv_root_folder=self.csv_root_folder,
                 patches_root_folder=self.patches_root_folder,
                 csv_path=self.csv_infer_path,
-                csv_infer_path=self.csv_infer_path
+                csv_infer_path=self.csv_infer_path,
+                include_intensity=self.include_intensity,
             )
         else:
             self.train_dataset = ElevationStackDataset(
@@ -206,6 +264,7 @@ class ElevationStackDataModule(CSVDataModule):
                 csv_root_folder=self.csv_root_folder,
                 patches_root_folder=self.patches_root_folder,
                 csv_path=self.csv_path,
+                include_intensity=self.include_intensity,
             )
             self.val_dataset = ElevationStackDataset(
                 split="val",
@@ -213,6 +272,7 @@ class ElevationStackDataModule(CSVDataModule):
                 csv_root_folder=self.csv_root_folder,
                 patches_root_folder=self.patches_root_folder,
                 csv_path=self.csv_path,
+                include_intensity=self.include_intensity,
             )
             self.test_dataset = ElevationStackDataset(
                 split="tst",
@@ -220,6 +280,7 @@ class ElevationStackDataModule(CSVDataModule):
                 csv_root_folder=self.csv_root_folder,
                 patches_root_folder=self.patches_root_folder,
                 csv_path=self.csv_path,
+                include_intensity=self.include_intensity,
             )
 
     # ------------------------------------------------------------------
@@ -235,7 +296,6 @@ class ElevationStackDataModule(CSVDataModule):
         - Tiling is skipped if tiles exist OR regenerate_csv=True
         - CSV generation is forced when regenerate_csv=True
         """
-
         if self._data_already_exists() and not self.regenerate_csv:
             log.info("[SKIP] Tiles already exist and CSV handling resolved.")
             self._load_or_compute_stats()
@@ -284,12 +344,10 @@ class ElevationStackDataModule(CSVDataModule):
         """
         Determine whether data preparation can be skipped.
         """
-
         if self.regenerate_csv:
             log.info("regenerate_csv=True → bypassing CSV existence check")
-        else:
-            if not Path(self.csv_path).exists():
-                return False
+        elif not Path(self.csv_path).exists():
+            return False
 
         if not self.input_folders:
             return True
@@ -320,6 +378,17 @@ class ElevationStackDataModule(CSVDataModule):
     # ------------------------------------------------------------------
 
     def _load_or_compute_stats(self) -> None:
+        # If user provided stats in config, don't load from stats.npy
+        if self.user_provided_stats:
+            log.info("Using user-provided statistics from config")
+            log.info(
+                "[DEBUG] User stats (include_intensity=%s): mean=%s, std=%s",
+                self.include_intensity,
+                self.norm_stats["mean"],
+                self.norm_stats["std"],
+            )
+            return
+        
         stats_path = Path(self.output_root) / "stats.npy"
         log.info("[DEBUG] loaded stats path: %s", stats_path)
 
@@ -327,8 +396,21 @@ class ElevationStackDataModule(CSVDataModule):
             stats = np.load(stats_path, allow_pickle=True).item()
             self.norm_stats["mean"] = stats["means"]
             self.norm_stats["std"] = stats["stds"]
-            log.info("Loaded existing statistics")
-            log.info("[DEBUG] stats path: %s, %s", self.norm_stats["mean"], self.norm_stats["std"])
+            
+            # Slice stats to match include_intensity setting
+            # Always use first 2 channels (TWI, nDSM) if intensity is not included
+            if not self.include_intensity and len(self.norm_stats["mean"]) > 2:
+                log.info("Slicing stats to 2 channels (excluding intensity)")
+                self.norm_stats["mean"] = self.norm_stats["mean"][:2]
+                self.norm_stats["std"] = self.norm_stats["std"][:2]
+            
+            log.info("Loaded existing statistics from stats.npy")
+            log.info(
+                "[DEBUG] stats (include_intensity=%s): mean=%s, std=%s",
+                self.include_intensity,
+                self.norm_stats["mean"],
+                self.norm_stats["std"],
+            )
         else:
             self._compute_and_save_stats()
 
@@ -337,7 +419,6 @@ class ElevationStackDataModule(CSVDataModule):
         Compute normalization statistics strictly from tiles listed in the CSV.
         This guarantees consistency with training data.
         """
-        import pandas as pd
         from pathlib import Path
 
         if not Path(self.csv_path).exists():
@@ -391,7 +472,7 @@ class ElevationStackDataModule(CSVDataModule):
         intensity = Path(aoi_path) / "intensity.tif"
         if not self.test_only:
             labels_vector = self._resolve_vector_file(aoi_path, "waterbodies")
-            
+
         valid_mask_vector = self._resolve_vector_file(
             aoi_path,
             "valid_lidar_mask",
@@ -412,17 +493,21 @@ class ElevationStackDataModule(CSVDataModule):
         if self.include_intensity and intensity.exists():
             intensity_temp = out_dir / "intensity_temp.tif"
             needs_alignment = not intensity_aligned.exists()
-            
+
             if needs_alignment:
                 log.info("Aligning Intensity: %s", intensity_temp)
                 # Patch: ensure BIGTIFF=YES for large files
                 align_to_reference(
-                    str(dtm), str(intensity), str(intensity_temp),
+                    str(dtm),
+                    str(intensity),
+                    str(intensity_temp),
                 )
                 # Crop aligned intensity to AOI boundary
                 aoi_vector = self._resolve_vector_file(aoi_path, "aoi")
                 if aoi_vector:
-                    log.info("Cropping intensity to AOI boundary: %s", intensity_aligned)
+                    log.info(
+                        "Cropping intensity to AOI boundary: %s", intensity_aligned
+                    )
                     self._crop_raster_to_aoi(
                         str(intensity_temp),
                         str(intensity_aligned),
@@ -453,8 +538,9 @@ class ElevationStackDataModule(CSVDataModule):
             log.info("Skipping nDSM (already exists at %s)", ndsm_path)
 
         # Step 3: Stack inputs
+        # Always use same filename - channel selection happens at load time
         stack_path = out_dir / "stacked_inputs.tif"
-        
+
         if not stack_path.exists():
             log.info("Stacking Inputs")
 
@@ -468,7 +554,6 @@ class ElevationStackDataModule(CSVDataModule):
         else:
             log.info("Skipping stacking (already exists at %s)", stack_path)
 
-
         # Optional: rasterize valid LiDAR mask
         valid_mask_raster = out_dir / "valid_mask.tif"
         if valid_mask_vector is not None:
@@ -481,7 +566,7 @@ class ElevationStackDataModule(CSVDataModule):
                 )
             else:
                 log.info("Skipping valid mask rasterization (already exists)")
-                  
+
         label_raster = out_dir / "labels_aligned.tif"
 
         if not self.test_only:
@@ -496,23 +581,24 @@ class ElevationStackDataModule(CSVDataModule):
                 fill_value=0,
                 ignore_value=-1,
             )
-        else:
-            # Create a dummy label raster (all zeros, same shape as stack_path)
-            if not label_raster.exists():
-                log.info("Creating dummy label because test_only mode")
-                import rasterio
-                with rasterio.open(str(stack_path)) as src:
-                    profile = src.profile.copy()
-                    profile.update({"count": 1, "dtype": "int16", "nodata": -1})
-                    data = np.full(
-                        (src.height, src.width),
-                        fill_value=1,  # ignore_index
-                        dtype=np.int16,
-                    )
-                    with rasterio.open(str(label_raster), "w", **profile) as dst:
-                        dst.write(data, 1)
+        # Create a dummy label raster (all zeros, same shape as stack_path)
+        elif not label_raster.exists():
+            log.info("Creating dummy label because test_only mode")
+            import rasterio
+
+            with rasterio.open(str(stack_path)) as src:
+                profile = src.profile.copy()
+                profile.update({"count": 1, "dtype": "int16", "nodata": -1})
+                data = np.full(
+                    (src.height, src.width),
+                    fill_value=1,  # ignore_index
+                    dtype=np.int16,
+                )
+                with rasterio.open(str(label_raster), "w", **profile) as dst:
+                    dst.write(data, 1)
         # Quick debug
         import sys
+
         log.info("TIME TAG")
         sys.exit("Exiting early, data preparation done")
 
