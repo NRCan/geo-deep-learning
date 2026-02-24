@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import logging
 import shutil
-from itertools import combinations
 from pathlib import Path
 
 import fiona
@@ -34,37 +33,29 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
-_MIN_POLYGON_COUNT: int = 2
 _MIN_SMOOTH_WEIGHT: float = 1e-6
-_LINEAR_GEOM_TYPES: tuple[str, ...] = ("LineString", "MultiLineString")
 
 
-def _collect_linear_parts(geom: object) -> list:
-    """Return a list of linear geometry parts extracted from an intersection result."""
-    if geom.geom_type in _LINEAR_GEOM_TYPES:
-        return [geom]
-    if geom.geom_type == "GeometryCollection":
-        return [part for part in geom.geoms if part.geom_type in _LINEAR_GEOM_TYPES]
-    return []
-
-
-def _extract_seam_lines(gpkg_path: str, target_crs: object) -> object | None:
+def _extract_boundary_lines(gpkg_path: str, target_crs: object) -> object | None:
     """
-    Extract interior seam lines from touching project boundary polygons.
+    Extract the boundary edges of all project extent polygons.
 
-    Computes pairwise intersections between all polygon pairs. Where adjacent
-    polygons share a boundary edge, the intersection is a LineString - the seam.
+    Each polygon boundary represents a lidar acquisition project edge — the
+    location where the raster mosaic may have a seam artifact. All polygon
+    boundaries that overlap with the raster extent are used as correction
+    centerlines, regardless of whether polygons are adjacent to each other.
 
     Args:
         gpkg_path: Path to GeoPackage containing one polygon per project extent.
         target_crs: Rasterio CRS object; geometries are reprojected to this CRS.
 
     Returns:
-        Unified Shapely geometry of all seam lines, or None if no seams found.
+        Unified Shapely geometry of all polygon boundary lines, or None if the
+        GeoPackage contains no valid geometries.
 
     """
     crs_str = str(target_crs)
-    polygons: list = []
+    boundaries: list = []
 
     with fiona.open(gpkg_path) as src:
         src_crs = src.crs
@@ -76,29 +67,14 @@ def _extract_seam_lines(gpkg_path: str, target_crs: object) -> object | None:
                 geom = shape(transform_geom(src_crs, crs_str, mapping(geom)))
             if not geom.is_valid:
                 geom = make_valid(geom)
-            polygons.append(geom)
+            boundaries.append(geom.boundary)
 
-    if len(polygons) < _MIN_POLYGON_COUNT:
-        log.warning(
-            "[SEAM] Found %d polygon(s) in %s; need at least 2 to form a seam.",
-            len(polygons),
-            gpkg_path,
-        )
+    if not boundaries:
+        log.warning("[SEAM] No valid geometries found in %s.", gpkg_path)
         return None
 
-    seam_parts: list = []
-    for p1, p2 in combinations(polygons, 2):
-        if not p1.intersects(p2):
-            continue
-        inter = p1.intersection(p2)
-        if not inter.is_empty:
-            seam_parts.extend(_collect_linear_parts(inter))
-
-    if not seam_parts:
-        log.warning("[SEAM] No shared linear boundaries found between polygon pairs.")
-        return None
-
-    return unary_union(seam_parts)
+    log.info("[SEAM] Loaded %d boundary line(s) from %s.", len(boundaries), gpkg_path)
+    return unary_union(boundaries)
 
 
 def _build_blend_weight(
@@ -189,10 +165,11 @@ def correct_seams(
     buffer around the detected seam centerlines. NoData pixels are never modified.
 
     Correction procedure:
-      1. Shared boundary edges are extracted from adjacent project extent polygons
-         in ``project_extents_path``.
+      1. The boundary edge of every polygon in ``project_extents_path`` is
+         extracted. Each edge marks a lidar acquisition project limit where a
+         seam artifact may appear in the raster.
       2. A distance-based blend weight is computed for each pixel: weight=1 at
-         the seam centerline, tapering linearly to 0 at ``buffer_pixels`` away.
+         the boundary centerline, tapering linearly to 0 at ``buffer_pixels`` away.
       3. A NoData-safe Gaussian-smoothed copy of each band is blended with the
          original using that weight:
          output = weight * smoothed + (1 - weight) * original.
@@ -225,11 +202,11 @@ def correct_seams(
     )
 
     # --- Step 1: extract seam geometry from project boundary polygons ---
-    log.info("[SEAM] Extracting seam lines from: %s", project_extents_path)
-    seam_geom = _extract_seam_lines(project_extents_path, crs)
+    log.info("[SEAM] Extracting polygon boundaries from: %s", project_extents_path)
+    seam_geom = _extract_boundary_lines(project_extents_path, crs)
 
     if seam_geom is None or seam_geom.is_empty:
-        log.warning("[SEAM] No seam lines detected. Writing input raster unchanged.")
+        log.warning("[SEAM] No boundary lines found. Writing input raster unchanged.")
         shutil.copy2(input_path, output_path)
         return
 
