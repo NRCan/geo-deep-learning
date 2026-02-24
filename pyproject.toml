@@ -40,12 +40,14 @@ dependencies = [
   "PyYAML>=6.0",
   "jsonargparse[all]>=4.27.7",
   "jupyterlab>=4.0.0",
-  ]
+  "scikit-image>=0.26.0",
+]
 
 [project.optional-dependencies]
 cpu = ["torch>=2.7.0", "torchvision>=0.22.0",]
 cu128 = ["torch>=2.7.0", "torchvision>=0.22.0",]
 dev = ["pytest", "ruff", "pre-commit",]
+water = ["pystac", "pystac-client", "whitebox", "whitebox-workflows",]
 
 [project.urls]
 Homepage = "https://github.com/NRCan/geo-deep-learning"
