@@ -7,22 +7,27 @@ Usage:
         --project_extents path/to/project_boundaries.gpkg \
         [--output path/to/twi_seam_corrected.tif] \
         [--buffer_pixels 15] \
-        [--sigma 3.0]
+        [--sigma 3.0] \
+        [--chunk_rows 512]
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import math
 import shutil
 from pathlib import Path
 
 import fiona
 import numpy as np
 import rasterio
+import rasterio.windows
 from fiona.transform import transform_geom
 from rasterio.features import rasterize
+from rasterio.windows import Window
 from scipy.ndimage import distance_transform_edt, gaussian_filter
+from shapely.geometry import box as shapely_box
 from shapely.geometry import mapping, shape
 from shapely.ops import unary_union
 from shapely.validation import make_valid
@@ -77,43 +82,6 @@ def _extract_boundary_lines(gpkg_path: str, target_crs: object) -> object | None
     return unary_union(boundaries)
 
 
-def _build_blend_weight(
-    seam_geom: object,
-    height: int,
-    width: int,
-    transform: object,
-    buffer_pixels: int,
-) -> np.ndarray:
-    """
-    Build a distance-based feathering weight array from seam line geometry.
-
-    Args:
-        seam_geom: Shapely geometry of the seam lines.
-        height: Raster height in pixels.
-        width: Raster width in pixels.
-        transform: Rasterio affine transform.
-        buffer_pixels: Half-width of correction zone; weight reaches 0 at this
-            distance from the seam centerline.
-
-    Returns:
-        Float32 array of shape (height, width). Value 1 at the seam centerline,
-        tapering linearly to 0 at ``buffer_pixels`` distance, 0 beyond.
-
-    """
-    seam_raster = rasterize(
-        [(mapping(seam_geom), 1)],
-        out_shape=(height, width),
-        transform=transform,
-        fill=0,
-        dtype=np.uint8,
-    )
-    # Euclidean distance (pixels) from each cell to the nearest seam pixel
-    dist = distance_transform_edt(seam_raster == 0).astype(np.float32)
-    # Linear taper: 1 at seam, 0 at buffer_pixels away, clipped to [0, 1]
-    weight = np.clip(1.0 - dist / buffer_pixels, 0.0, 1.0)
-    return weight.astype(np.float32)
-
-
 def _gaussian_smooth_nodata_safe(
     band: np.ndarray,
     valid_mask: np.ndarray,
@@ -147,16 +115,17 @@ def _gaussian_smooth_nodata_safe(
     return smoothed.astype(np.float32)
 
 
-def correct_seams(
+def correct_seams(  # noqa: PLR0913, PLR0915
     input_path: str,
     output_path: str,
     project_extents_path: str,
     *,
     buffer_pixels: int = 15,
     gaussian_sigma: float = 3.0,
+    chunk_rows: int = 512,
 ) -> None:
     """
-    Apply seam correction to a LiDAR-derived raster.
+    Apply seam correction to a LiDAR-derived raster using strip-based processing.
 
     When multiple LiDAR acquisition projects are mosaicked, shared boundaries
     create 2-5 pixel linear artifacts in derived rasters (TWI, slope, etc.)
@@ -168,40 +137,49 @@ def correct_seams(
       1. The boundary edge of every polygon in ``project_extents_path`` is
          extracted. Each edge marks a lidar acquisition project limit where a
          seam artifact may appear in the raster.
-      2. A distance-based blend weight is computed for each pixel: weight=1 at
+      2. The raster is processed in horizontal strips of ``chunk_rows`` rows.
+         Each strip is read with a halo of max(buffer_pixels, 3*sigma) rows so
+         that the Euclidean distance transform and Gaussian filter are accurate
+         at strip boundaries.
+      3. For each strip a distance-based blend weight is computed: weight=1 at
          the boundary centerline, tapering linearly to 0 at ``buffer_pixels`` away.
-      3. A NoData-safe Gaussian-smoothed copy of each band is blended with the
+      4. A NoData-safe Gaussian-smoothed copy of each band is blended with the
          original using that weight:
          output = weight * smoothed + (1 - weight) * original.
-      4. Pixels flagged as NoData are written back unchanged.
+      5. Pixels flagged as NoData are written back unchanged.
+      6. Strips with no seam lines are copied directly without processing.
 
     Args:
         input_path: Path to the input raster (single or multi-band GeoTIFF).
         output_path: Path for the corrected output raster.
         project_extents_path: Path to a GeoPackage with one polygon per LiDAR
-            project extent. Touching polygon boundaries define seam locations.
+            project extent. Polygon boundary edges define seam locations.
         buffer_pixels: Half-width of the correction zone in pixels (default 15).
         gaussian_sigma: Standard deviation of the Gaussian blur kernel in pixels
             (default 3.0).
+        chunk_rows: Number of core rows processed per strip (default 512).
+            Lower values reduce peak memory at the cost of more I/O passes.
 
     """
     with rasterio.open(input_path) as src:
         profile = src.profile.copy()
         crs = src.crs
         transform = src.transform
-        nodata_vals = src.nodatavals  # per-band tuple, values may be None
-        data = src.read()  # (C, H, W), original dtype
+        nodata_vals = src.nodatavals
+        height = src.height
+        width = src.width
+        band_count = src.count
+        bounds = src.bounds
 
-    height, width = profile["height"], profile["width"]
     log.info(
-        "[SEAM] Input: %s  (%d band(s), %dx%d px)",
+        "[SEAM] Input: %s (%d band(s), %dx%d px)",
         input_path,
-        data.shape[0],
+        band_count,
         width,
         height,
     )
 
-    # --- Step 1: extract seam geometry from project boundary polygons ---
+    # --- Step 1: extract seam geometry ---
     log.info("[SEAM] Extracting polygon boundaries from: %s", project_extents_path)
     seam_geom = _extract_boundary_lines(project_extents_path, crs)
 
@@ -210,59 +188,120 @@ def correct_seams(
         shutil.copy2(input_path, output_path)
         return
 
-    # --- Step 2: build feathering weight mask ---
-    log.info(
-        "[SEAM] Building blend weight mask (buffer=%d px, sigma=%.1f)",
-        buffer_pixels,
-        gaussian_sigma,
-    )
-    blend_weight = _build_blend_weight(
-        seam_geom,
-        height,
-        width,
-        transform,
-        buffer_pixels,
-    )
-
-    if blend_weight.max() == 0.0:
+    # Quick geometric check before touching any raster data
+    if not seam_geom.intersects(shapely_box(*bounds)):
         log.warning(
-            "[SEAM] Seam mask is empty after rasterisation "
-            "(seam lies outside raster extent). Writing input raster unchanged.",
+            "[SEAM] No seam lines intersect raster extent. "
+            "Writing input raster unchanged.",
         )
         shutil.copy2(input_path, output_path)
         return
 
+    # --- Step 2: set up output and strip parameters ---
+    # Halo ensures accurate EDT and Gaussian at strip boundaries.
+    # EDT needs buffer_pixels rows of context; Gaussian needs ~3*sigma rows.
+    halo = max(buffer_pixels, math.ceil(3.0 * gaussian_sigma))
+
+    profile.update(
+        tiled=True,
+        blockxsize=256,
+        blockysize=256,
+        compress="lzw",
+        BIGTIFF="IF_SAFER",
+    )
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    n_strips = math.ceil(height / chunk_rows)
     log.info(
-        "[SEAM] Correction zone covers %.2f%% of raster pixels.",
-        100.0 * np.sum(blend_weight > 0) / blend_weight.size,
+        "[SEAM] Processing %d strip(s) of %d core rows each (halo=%d px, sigma=%.1f).",
+        n_strips,
+        chunk_rows,
+        halo,
+        gaussian_sigma,
     )
 
-    # --- Step 3: per-band feathered Gaussian correction ---
-    corrected = data.copy()
-    for band_idx in range(data.shape[0]):
-        band = data[band_idx].astype(np.float32)
-        nodata = nodata_vals[band_idx]
+    # --- Step 3: strip-by-strip processing ---
+    with (
+        rasterio.open(input_path) as src,
+        rasterio.open(output_path, "w", **profile) as dst,
+    ):
+        for strip_idx, core_row_start in enumerate(range(0, height, chunk_rows)):
+            core_row_end = min(core_row_start + chunk_rows, height)
+            core_rows = core_row_end - core_row_start
 
-        valid_mask = (
-            band != np.float32(nodata) if nodata is not None else np.isfinite(band)
-        )
+            # Halo boundaries, clamped to raster extent
+            read_row_start = max(0, core_row_start - halo)
+            read_row_end = min(height, core_row_end + halo)
+            halo_top = core_row_start - read_row_start
+            strip_height = read_row_end - read_row_start
 
-        smoothed = _gaussian_smooth_nodata_safe(band, valid_mask, sigma=gaussian_sigma)
+            log.info(
+                "[SEAM] Strip %d/%d (rows %d-%d)",
+                strip_idx + 1,
+                n_strips,
+                core_row_start,
+                core_row_end,
+            )
 
-        # Blend weight is 0 where nodata, so nodata pixels are preserved
-        w = blend_weight * valid_mask.astype(np.float32)
-        blended = w * smoothed + (1.0 - w) * band
+            strip_window = Window(0, read_row_start, width, strip_height)
+            strip_transform = rasterio.windows.transform(strip_window, transform)
+            core_window = Window(0, core_row_start, width, core_rows)
 
-        # Restore original nodata values exactly
-        corrected[band_idx] = np.where(valid_mask, blended, band).astype(data.dtype)
+            # Rasterize seam lines for this strip only (no full-raster mask)
+            seam_strip = rasterize(
+                [(mapping(seam_geom), 1)],
+                out_shape=(strip_height, width),
+                transform=strip_transform,
+                fill=0,
+                dtype=np.uint8,
+            )
 
-    # --- Step 4: write output ---
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    log.info("[SEAM] Writing corrected raster: %s", output_path)
-    with rasterio.open(output_path, "w", **profile) as dst:
-        dst.write(corrected)
+            # If no seam falls in this strip, copy core rows directly
+            if seam_strip.max() == 0:
+                dst.write(src.read(window=core_window), window=core_window)
+                continue
 
-    log.info("[SEAM] Seam correction complete.")
+            # EDT and blend weight for this strip
+            dist_strip = distance_transform_edt(seam_strip == 0).astype(np.float32)
+            weight_strip = np.clip(
+                1.0 - dist_strip / buffer_pixels,
+                0.0,
+                1.0,
+            ).astype(np.float32)
+
+            # Read band data for this strip (with halo)
+            data_strip = src.read(window=strip_window)  # (C, strip_H, W)
+            corrected_strip = data_strip.copy()
+
+            for band_idx in range(band_count):
+                band = data_strip[band_idx].astype(np.float32)
+                nodata = nodata_vals[band_idx]
+                if nodata is not None:
+                    valid_mask = band != np.float32(nodata)
+                else:
+                    valid_mask = np.isfinite(band)
+
+                smoothed = _gaussian_smooth_nodata_safe(
+                    band,
+                    valid_mask,
+                    sigma=gaussian_sigma,
+                )
+
+                w = weight_strip * valid_mask.astype(np.float32)
+                blended = w * smoothed + (1.0 - w) * band
+                corrected_strip[band_idx] = np.where(
+                    valid_mask,
+                    blended,
+                    band,
+                ).astype(data_strip.dtype)
+
+            # Write only the core rows (discard halo)
+            dst.write(
+                corrected_strip[:, halo_top : halo_top + core_rows, :],
+                window=core_window,
+            )
+
+    log.info("[SEAM] Seam correction complete. Output: %s", output_path)
 
 
 def parse_args() -> argparse.Namespace:
@@ -304,6 +343,12 @@ def parse_args() -> argparse.Namespace:
         default=3.0,
         help="Gaussian blur sigma in pixels",
     )
+    parser.add_argument(
+        "--chunk_rows",
+        type=int,
+        default=512,
+        help="Rows processed per strip; lower values reduce peak RAM",
+    )
     return parser.parse_args()
 
 
@@ -334,6 +379,7 @@ def main() -> None:
         project_extents_path=str(extents_path),
         buffer_pixels=args.buffer_pixels,
         gaussian_sigma=args.sigma,
+        chunk_rows=args.chunk_rows,
     )
 
 
