@@ -107,9 +107,12 @@ def _gaussian_smooth_nodata_safe(
     data_w = band.astype(np.float64) * weights
     smooth_data_w = gaussian_filter(data_w, sigma=sigma)
     smooth_weights = gaussian_filter(weights, sigma=sigma)
+    # Replace near-zero weights with 1.0 before dividing to avoid RuntimeWarning;
+    # np.where selects band values for those pixels so the result is unchanged.
+    safe_weights = np.where(smooth_weights > _MIN_SMOOTH_WEIGHT, smooth_weights, 1.0)
     smoothed = np.where(
         smooth_weights > _MIN_SMOOTH_WEIGHT,
-        smooth_data_w / smooth_weights,
+        smooth_data_w / safe_weights,
         band.astype(np.float64),
     )
     return smoothed.astype(np.float32)
