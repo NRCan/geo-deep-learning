@@ -8,7 +8,9 @@ Usage:
         [--output path/to/twi_seam_corrected.tif] \
         [--buffer_pixels 15] \
         [--seam_width_pixels 3] \
+        [--nodata_fill_pixels 5] \
         [--sigma 5.0] \
+        [--blend_sigma 1.0] \
         [--chunk_rows 512]
 """
 
@@ -130,6 +132,7 @@ def correct_seams(  # noqa: PLR0913, PLR0915
     seam_width_pixels: int = 3,
     nodata_fill_pixels: int = 5,
     gaussian_sigma: float = 5.0,
+    blend_sigma: float = 1.0,
     chunk_rows: int = 512,
 ) -> None:
     """
@@ -161,8 +164,10 @@ def correct_seams(  # noqa: PLR0913, PLR0915
            Gaussian estimate when the kernel has enough valid neighbors.
       4. A nodata-safe Gaussian is applied with the inpainting zone masked out.
       5. A linear blend weight (1 at the centerline, 0 at ``buffer_pixels``)
-         blends inpainted values back for valid pixels:
-         output = weight * inpainted + (1 - weight) * original.
+         blends values back for valid pixels. Inside the inpainting zone the
+         inpainted value is used; outside it a lightly smoothed copy
+         (``blend_sigma``) is used to preserve local texture:
+         output = weight * source + (1 - weight) * original.
       6. nodata pixels inside the fill zone with a reliable Gaussian estimate
          are written as filled; all other nodata pixels are written unchanged.
       7. Strips with no seam lines are copied directly without processing.
@@ -181,8 +186,13 @@ def correct_seams(  # noqa: PLR0913, PLR0915
             centerline are filled by Gaussian interpolation from valid neighbors.
             Keep this narrow (a few pixels) to avoid filling legitimate nodata.
         gaussian_sigma: Standard deviation of the Gaussian blur kernel in pixels
-            (default 5.0). Should be at least ``seam_width_pixels`` so the kernel
-            bridges the inpainting zone from both sides.
+            (default 5.0). Used for inpainting and nodata fill; should be at
+            least ``seam_width_pixels`` so the kernel bridges the gap from both
+            sides.
+        blend_sigma: Standard deviation of the Gaussian used only for valid
+            pixels in the taper zone outside the inpainting zone (default 1.0).
+            Keep small (0-2) to preserve local texture and avoid a visible smudge.
+            Set to 0 to skip any smoothing in the taper zone entirely.
         chunk_rows: Number of core rows processed per strip (default 512).
             Lower values reduce peak memory at the cost of more I/O passes.
 
@@ -240,13 +250,15 @@ def correct_seams(  # noqa: PLR0913, PLR0915
     n_strips = math.ceil(height / chunk_rows)
     log.info(
         "[SEAM] Processing %d strip(s) of %d core rows each "
-        "(halo=%d px, seam_width=%d px, nodata_fill=%d px, sigma=%.1f).",
+        "(halo=%d px, seam_width=%d px, nodata_fill=%d px, "
+        "sigma=%.1f, blend_sigma=%.1f).",
         n_strips,
         chunk_rows,
         halo,
         seam_width_pixels,
         nodata_fill_pixels,
         gaussian_sigma,
+        blend_sigma,
     )
 
     # --- Step 3: strip-by-strip processing ---
@@ -314,19 +326,31 @@ def correct_seams(  # noqa: PLR0913, PLR0915
                 else:
                     valid_mask = np.isfinite(band)
 
-                # Exclude seam-zone pixels from the Gaussian source so the kernel
-                # fills them by interpolating from clean data on both sides.
-                # smooth_weights tells us where the Gaussian had enough valid
-                # source data to produce a reliable estimate (used for nodata fill).
-                smoothed, smooth_weights = _gaussian_smooth_nodata_safe(
+                # Inpainting Gaussian: seam-zone pixels excluded from source so
+                # the kernel interpolates from clean data on both sides.
+                # smooth_weights indicates where the estimate is reliable enough
+                # to fill nodata.
+                inpaint_smoothed, smooth_weights = _gaussian_smooth_nodata_safe(
                     band,
                     valid_mask & ~seam_zone,
                     sigma=gaussian_sigma,
                 )
 
+                # Blend Gaussian: small sigma preserves local texture in the taper
+                # zone so the buffer does not produce a visible smudge.
+                blend_smoothed, _ = _gaussian_smooth_nodata_safe(
+                    band,
+                    valid_mask,
+                    sigma=blend_sigma,
+                )
+
+                # In the inpainting zone use the high-sigma result; outside use
+                # the lightly smoothed value so the taper adds no visible blur.
+                taper_src = np.where(seam_zone, inpaint_smoothed, blend_smoothed)
+
                 # Pass 1: blend valid pixels within the correction zone
                 w = weight_strip * valid_mask.astype(np.float32)
-                blended = w * smoothed + (1.0 - w) * band
+                blended = w * taper_src + (1.0 - w) * band
                 result = np.where(valid_mask, blended, band).astype(data_strip.dtype)
 
                 # Pass 2: fill nodata pixels in the thin fill zone where the
@@ -336,7 +360,7 @@ def correct_seams(  # noqa: PLR0913, PLR0915
                 )
                 corrected_strip[band_idx] = np.where(
                     fill_mask,
-                    smoothed.astype(data_strip.dtype),
+                    inpaint_smoothed.astype(data_strip.dtype),
                     result,
                 )
 
@@ -408,8 +432,17 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=5.0,
         help=(
-            "Gaussian blur sigma in pixels. "
-            "Should be >= seam_width_pixels for effective inpainting."
+            "Gaussian sigma for inpainting and nodata fill in pixels. "
+            "Should be >= seam_width_pixels to bridge the inpainting zone."
+        ),
+    )
+    parser.add_argument(
+        "--blend_sigma",
+        type=float,
+        default=1.0,
+        help=(
+            "Gaussian sigma for the blend taper zone outside the inpainting zone. "
+            "Keep small (0-2) to preserve texture and avoid a visible smudge."
         ),
     )
     parser.add_argument(
@@ -450,6 +483,7 @@ def main() -> None:
         seam_width_pixels=args.seam_width_pixels,
         nodata_fill_pixels=args.nodata_fill_pixels,
         gaussian_sigma=args.sigma,
+        blend_sigma=args.blend_sigma,
         chunk_rows=args.chunk_rows,
     )
 
