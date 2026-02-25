@@ -101,7 +101,9 @@ def _gaussian_smooth_nodata_safe(
         sigma: Gaussian standard deviation in pixels.
 
     Returns:
-        Smoothed float32 array.
+        Tuple of (smoothed float32 array, smooth_weights float64 array).
+        smooth_weights > _MIN_SMOOTH_WEIGHT indicates pixels where the
+        Gaussian had enough valid source data to produce a reliable estimate.
 
     """
     weights = valid_mask.astype(np.float64)
@@ -116,7 +118,7 @@ def _gaussian_smooth_nodata_safe(
         smooth_data_w / safe_weights,
         band.astype(np.float64),
     )
-    return smoothed.astype(np.float32)
+    return smoothed.astype(np.float32), smooth_weights
 
 
 def correct_seams(  # noqa: PLR0913, PLR0915
@@ -126,6 +128,7 @@ def correct_seams(  # noqa: PLR0913, PLR0915
     *,
     buffer_pixels: int = 15,
     seam_width_pixels: int = 3,
+    nodata_fill_pixels: int = 5,
     gaussian_sigma: float = 5.0,
     chunk_rows: int = 512,
 ) -> None:
@@ -135,11 +138,12 @@ def correct_seams(  # noqa: PLR0913, PLR0915
     When multiple LiDAR acquisition projects are mosaicked, shared boundaries
     create 2-5 pixel linear artifacts in derived rasters (TWI, slope, etc.)
     that are falsely detected as water. This function removes those artifacts
-    by inpainting: pixels within ``seam_width_pixels`` of each seam centerline
-    are excluded from the Gaussian source and replaced by values interpolated
-    from valid data on both sides. The result is blended back using a linear
-    taper over ``buffer_pixels`` so the correction is invisible. nodata pixels
-    are never modified.
+    by two complementary passes: (1) nodata filling — nodata pixels within
+    ``nodata_fill_pixels`` of a seam are replaced by Gaussian interpolation
+    from valid neighbors; (2) seamless blending — valid artifact pixels within
+    ``seam_width_pixels`` are excluded from the Gaussian source so the kernel
+    draws from clean data on both sides, then the result is faded in over
+    ``buffer_pixels``. nodata pixels outside the fill zone are never modified.
 
     Correction procedure:
       1. The boundary edge of every polygon in ``project_extents_path`` is
@@ -150,13 +154,17 @@ def correct_seams(  # noqa: PLR0913, PLR0915
          that the Euclidean distance transform and Gaussian filter are accurate
          at strip boundaries.
       3. For each strip a Euclidean distance map is computed from the seam
-         centerline. Pixels within ``seam_width_pixels`` form the inpainting zone.
-      4. A nodata-safe Gaussian is applied with the inpainting zone masked out
-         so the kernel draws only from clean data on both sides of the seam.
+         centerline. Two zones are derived:
+         - inpainting zone (``seam_width_pixels``): valid artifact pixels excluded
+           from the Gaussian source so it interpolates from clean data.
+         - fill zone (``nodata_fill_pixels``): nodata pixels replaced by the
+           Gaussian estimate when the kernel has enough valid neighbors.
+      4. A nodata-safe Gaussian is applied with the inpainting zone masked out.
       5. A linear blend weight (1 at the centerline, 0 at ``buffer_pixels``)
-         blends inpainted values back:
+         blends inpainted values back for valid pixels:
          output = weight * inpainted + (1 - weight) * original.
-      6. Pixels flagged as nodata are written back unchanged.
+      6. nodata pixels inside the fill zone with a reliable Gaussian estimate
+         are written as filled; all other nodata pixels are written unchanged.
       7. Strips with no seam lines are copied directly without processing.
 
     Args:
@@ -165,9 +173,13 @@ def correct_seams(  # noqa: PLR0913, PLR0915
         project_extents_path: Path to a GeoPackage with one polygon per LiDAR
             project extent. Polygon boundary edges define seam locations.
         buffer_pixels: Half-width of the blend taper zone in pixels (default 15).
-        seam_width_pixels: Half-width of the inpainting zone around the seam
-            centerline in pixels (default 3). Pixels within this distance are
-            treated as missing and filled by Gaussian interpolation.
+        seam_width_pixels: Half-width of the inpainting zone for valid artifact
+            pixels in pixels (default 3). These pixels are excluded from the
+            Gaussian source so clean data from both sides fills the gap.
+        nodata_fill_pixels: Half-width of the nodata fill zone in pixels
+            (default 5). nodata pixels within this distance of the seam
+            centerline are filled by Gaussian interpolation from valid neighbors.
+            Keep this narrow (a few pixels) to avoid filling legitimate nodata.
         gaussian_sigma: Standard deviation of the Gaussian blur kernel in pixels
             (default 5.0). Should be at least ``seam_width_pixels`` so the kernel
             bridges the inpainting zone from both sides.
@@ -228,11 +240,12 @@ def correct_seams(  # noqa: PLR0913, PLR0915
     n_strips = math.ceil(height / chunk_rows)
     log.info(
         "[SEAM] Processing %d strip(s) of %d core rows each "
-        "(halo=%d px, seam_width=%d px, sigma=%.1f).",
+        "(halo=%d px, seam_width=%d px, nodata_fill=%d px, sigma=%.1f).",
         n_strips,
         chunk_rows,
         halo,
         seam_width_pixels,
+        nodata_fill_pixels,
         gaussian_sigma,
     )
 
@@ -277,10 +290,12 @@ def correct_seams(  # noqa: PLR0913, PLR0915
                 dst.write(src.read(window=core_window), window=core_window)
                 continue
 
-            # EDT, inpainting zone, and blend weight for this strip
+            # EDT, inpainting zone, nodata fill zone, and blend weight for this strip
             dist_strip = distance_transform_edt(seam_strip == 0).astype(np.float32)
             # Pixels within seam_width_pixels of the centerline are inpainted
             seam_zone = dist_strip <= seam_width_pixels
+            # Thin zone where nodata pixels may be filled (kept narrow on purpose)
+            fill_zone = dist_strip <= nodata_fill_pixels
             weight_strip = np.clip(
                 1.0 - dist_strip / buffer_pixels,
                 0.0,
@@ -301,19 +316,29 @@ def correct_seams(  # noqa: PLR0913, PLR0915
 
                 # Exclude seam-zone pixels from the Gaussian source so the kernel
                 # fills them by interpolating from clean data on both sides.
-                smoothed = _gaussian_smooth_nodata_safe(
+                # smooth_weights tells us where the Gaussian had enough valid
+                # source data to produce a reliable estimate (used for nodata fill).
+                smoothed, smooth_weights = _gaussian_smooth_nodata_safe(
                     band,
                     valid_mask & ~seam_zone,
                     sigma=gaussian_sigma,
                 )
 
+                # Pass 1: blend valid pixels within the correction zone
                 w = weight_strip * valid_mask.astype(np.float32)
                 blended = w * smoothed + (1.0 - w) * band
+                result = np.where(valid_mask, blended, band).astype(data_strip.dtype)
+
+                # Pass 2: fill nodata pixels in the thin fill zone where the
+                # Gaussian had enough valid neighbors to produce a reliable value
+                fill_mask = (
+                    ~valid_mask & fill_zone & (smooth_weights > _MIN_SMOOTH_WEIGHT)
+                )
                 corrected_strip[band_idx] = np.where(
-                    valid_mask,
-                    blended,
-                    band,
-                ).astype(data_strip.dtype)
+                    fill_mask,
+                    smoothed.astype(data_strip.dtype),
+                    result,
+                )
 
             # Write only the core rows (discard halo)
             dst.write(
@@ -363,8 +388,19 @@ def parse_args() -> argparse.Namespace:
         default=3,
         help=(
             "Half-width of the inpainting zone around the seam centerline in pixels. "
-            "Pixels within this distance are excluded from the Gaussian source and "
-            "filled by interpolation from both sides."
+            "Valid pixels within this distance are excluded from the Gaussian source "
+            "so the kernel interpolates from clean data on both sides."
+        ),
+    )
+    parser.add_argument(
+        "--nodata_fill_pixels",
+        type=int,
+        default=5,
+        help=(
+            "Half-width of the nodata fill zone in pixels. "
+            "nodata pixels within this distance of the seam centerline are filled "
+            "by Gaussian interpolation when valid neighbors exist. "
+            "Keep narrow (a few pixels) to avoid filling legitimate nodata."
         ),
     )
     parser.add_argument(
@@ -412,6 +448,7 @@ def main() -> None:
         project_extents_path=str(extents_path),
         buffer_pixels=args.buffer_pixels,
         seam_width_pixels=args.seam_width_pixels,
+        nodata_fill_pixels=args.nodata_fill_pixels,
         gaussian_sigma=args.sigma,
         chunk_rows=args.chunk_rows,
     )
