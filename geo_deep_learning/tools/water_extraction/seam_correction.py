@@ -6,11 +6,11 @@ Usage:
         --input path/to/twi.tif \
         --project_extents path/to/project_boundaries.gpkg \
         [--output path/to/twi_seam_corrected.tif] \
-        [--buffer_pixels 15] \
-        [--seam_width_pixels 3] \
+        [--buffer_pixels 3] \
+        [--seam_width_pixels 1] \
         [--nodata_fill_pixels 5] \
-        [--sigma 5.0] \
-        [--blend_sigma 1.0] \
+        [--sigma 1.5] \
+        [--blend_sigma 0.0] \
         [--chunk_rows 512]
 """
 
@@ -128,11 +128,11 @@ def correct_seams(  # noqa: PLR0913, PLR0915
     output_path: str,
     project_extents_path: str,
     *,
-    buffer_pixels: int = 15,
-    seam_width_pixels: int = 3,
+    buffer_pixels: int = 3,
+    seam_width_pixels: int = 1,
     nodata_fill_pixels: int = 5,
-    gaussian_sigma: float = 5.0,
-    blend_sigma: float = 1.0,
+    gaussian_sigma: float = 1.5,
+    blend_sigma: float = 0.0,
     chunk_rows: int = 512,
 ) -> None:
     """
@@ -308,10 +308,12 @@ def correct_seams(  # noqa: PLR0913, PLR0915
             seam_zone = dist_strip <= seam_width_pixels
             # Thin zone where nodata pixels may be filled (kept narrow on purpose)
             fill_zone = dist_strip <= nodata_fill_pixels
-            weight_strip = np.clip(
-                1.0 - dist_strip / buffer_pixels,
+            # Cosine taper: weight=1 at centerline, 0 at buffer_pixels.
+            # Smooth S-curve avoids the hard blend boundary of a linear ramp.
+            weight_strip = np.where(
+                dist_strip <= buffer_pixels,
+                0.5 * (1.0 - np.cos(np.pi * (1.0 - dist_strip / buffer_pixels))),
                 0.0,
-                1.0,
             ).astype(np.float32)
 
             # Read band data for this strip (with halo)
@@ -403,13 +405,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--buffer_pixels",
         type=int,
-        default=15,
-        help="Half-width of the blend taper zone in pixels",
+        default=3,
+        help="Half-width of the cosine taper zone in pixels",
     )
     parser.add_argument(
         "--seam_width_pixels",
         type=int,
-        default=3,
+        default=1,
         help=(
             "Half-width of the inpainting zone around the seam centerline in pixels. "
             "Valid pixels within this distance are excluded from the Gaussian source "
@@ -430,7 +432,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sigma",
         type=float,
-        default=5.0,
+        default=1.5,
         help=(
             "Gaussian sigma for inpainting and nodata fill in pixels. "
             "Should be >= seam_width_pixels to bridge the inpainting zone."
@@ -439,7 +441,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--blend_sigma",
         type=float,
-        default=1.0,
+        default=0.0,
         help=(
             "Gaussian sigma for the blend taper zone outside the inpainting zone. "
             "Keep small (0-2) to preserve texture and avoid a visible smudge."
