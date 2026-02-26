@@ -15,6 +15,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Prepare lockfile for Docker build
+        run: cp uv.lock.cu128 uv.lock
+
       - name: Log in to Container registry
         uses: docker/login-action@v3
         with:
