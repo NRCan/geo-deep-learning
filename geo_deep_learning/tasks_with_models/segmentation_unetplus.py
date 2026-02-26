@@ -88,6 +88,7 @@ class SegmentationUnetPlus(LightningModule):
             labels=self.labels,
         )
         self._total_samples_visualized = 0
+        self.configure_model() #TODO Verify if its necessary/better in the core code or if it should only be in water_extraction
 
     def _apply_aug(self) -> AugmentationSequential:
         """Augmentation pipeline."""

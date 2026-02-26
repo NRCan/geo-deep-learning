@@ -1,0 +1,101 @@
+seed_everything: 42
+
+trainer:
+  accelerator: "gpu"
+  devices: 1
+  strategy: auto
+  precision: "16-mixed"
+  sync_batchnorm: false
+  logger:
+    class_path: lightning.pytorch.loggers.mlflow.MLFlowLogger
+    init_args:
+      save_dir: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/logs
+      log_model: true
+      experiment_name: "01BG001_gaspe"
+      run_name: "unetplus_full_dataset"
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        monitor: "val_loss"
+        mode: "min"
+        save_top_k: 3
+        save_last: true
+        filename: "model-{epoch:02d}-{val_loss:.3f}"
+    - class_path: lightning.pytorch.callbacks.EarlyStopping
+      init_args:
+        monitor: "val_loss"
+        mode: "min"
+        verbose: False
+        patience: 10
+    - class_path: tools.callbacks.segmentation_visualization.VisualizationCallback
+      init_args:
+        max_samples: 3
+        #mean: ${data.init_args.mean}                   #TODO verify if used in callback with older versions
+        #std: ${data.init_args.std}                     #TODO verify if used in callback with older versions
+        #data_type_max: ${data.init_args.data_type_max} #TODO verify if used in callback with older versions
+        #num_classes: ${model.init_args.num_classes}    #TODO verify if used in callback with older versions
+        #class_colors: ${model.init_args.class_colors}  #TODO verify if used in callback with older versions
+  max_epochs: 150
+  log_every_n_steps: 50
+  val_check_interval: 1.0
+  check_val_every_n_epoch: 1
+
+model:
+  class_path: tools.water_extraction.segmentation_task.WaterExtractionSegmentation
+  init_args:
+    encoder: "resnext101_32x8d"
+    image_size: [512, 512]
+    #weights: imagenet
+    in_channels: 3  # TWI, nDSM, intensity
+    max_samples: 8
+    num_classes: 2  # Background (0) and Water (1)
+    ignore_index: -1  # Ignore pixels outside AOI boundaries (MIoU)
+    loss:
+      class_path: torch.nn.CrossEntropyLoss
+      init_args:
+        ignore_index: -1  # Ignore pixels outside AOI boundaries
+        weight: null  # Can be set to handle class imbalance if needed
+    optimizer:
+      class_path: torch.optim.AdamW
+      init_args:
+        lr: 1e-4
+        weight_decay: 1e-5
+        betas: [0.9, 0.999]
+    scheduler:
+      class_path: torch.optim.lr_scheduler.ReduceLROnPlateau
+      init_args:
+        mode: "min"
+        factor: 0.5
+        patience: 8
+        cooldown: 2
+        min_lr: 1e-7
+    scheduler_config:
+      interval: "epoch"
+      frequency: 1
+      monitor: "val_loss"
+    class_labels: ["background", "water"]
+    class_colors: ["#2E2E2E", "#0077BE"]  # Dark gray for background, blue for water
+    weights_from_checkpoint_path: null
+
+data:
+  class_path: tools.water_extraction.elevation_stack_datamodule.ElevationStackDataModule
+  init_args:
+    # Required by parent CSVDataModule
+    csv_root_folder: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/combined_gaspe_train/"
+    patches_root_folder: ""
+    # ElevationStackDataModule specific parameters
+    input_folders: []  # Empty = skip processing, use existing CSV
+    output_root: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/combined_gaspe_train/"
+    csv_path: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/combined_gaspe_train/combined_gaspe_water_extraction.csv"
+    csv_infer_path: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/combined_gaspe_train/combined_gaspe_water_extraction.csv"
+    include_intensity: true
+    stride: 256  # 50% overlap for better coverage
+    patch_size: [512, 512]
+    batch_size: 8  # Increased for full training
+    num_workers: 16  # Utilize more CPU cores
+    
+# Training configuration
+ckpt_path: null
+
+# Optional: Resume from checkpoint
+# ckpt_path: "/path/to/checkpoint.ckpt"

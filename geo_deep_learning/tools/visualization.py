@@ -42,8 +42,17 @@ def visualize_prediction(  # noqa: PLR0913
     image = np.transpose(image, (1, 2, 0))
     num_channels = image.shape[-1]
     rgb_channels = 3
+    
+    # Handle different channel counts for visualization
     if num_channels > rgb_channels:
+        # More than 3 channels: take first 3
         image = image[..., :rgb_channels]
+    elif num_channels == 2:
+        # 2 channels: pad with zeros to make 3 channels (RGB)
+        image = np.concatenate([image, np.zeros_like(image[..., :1])], axis=-1)
+    elif num_channels == 1:
+        # 1 channel: convert grayscale to RGB by repeating
+        image = np.repeat(image, 3, axis=-1)
 
     # Create a color map for the masks
     if class_colors is None:
