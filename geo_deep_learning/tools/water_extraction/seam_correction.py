@@ -9,7 +9,8 @@ Usage:
         [--buffer_pixels 3] \
         [--seam_width_pixels 1] \
         [--nodata_fill_pixels 5] \
-        [--sigma 1.5] \
+        [--sigma_color 0.05] \
+        [--sigma_spatial 2] \
         [--blend_sigma 0.0] \
         [--chunk_rows 512]
 """
@@ -34,6 +35,7 @@ from shapely.geometry import box as shapely_box
 from shapely.geometry import mapping, shape
 from shapely.ops import unary_union
 from shapely.validation import make_valid
+from skimage.restoration import denoise_bilateral
 
 log = logging.getLogger(__name__)
 logging.basicConfig(
@@ -123,6 +125,71 @@ def _gaussian_smooth_nodata_safe(
     return smoothed.astype(np.float32), smooth_weights
 
 
+def _bilateral_inpaint_nodata_safe(
+    band: np.ndarray,
+    valid_mask: np.ndarray,
+    seam_zone: np.ndarray,
+    sigma_color: float,
+    sigma_spatial: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Apply bilateral filter for seam inpainting, excluding seam-zone and nodata pixels.
+
+    Before filtering, pixels excluded from the source (seam zone + nodata) are
+    filled with the value of their nearest valid source neighbour so the bilateral
+    range kernel sees plausible values and does not produce edge artefacts from
+    extreme nodata fill values.  The filter then smooths across the seam zone
+    while preserving real terrain edges.
+
+    Args:
+        band: 2-D float32 patch around the seam buffer zone.
+        valid_mask: Boolean array, True where data is valid (not nodata).
+        seam_zone: Boolean array, True within seam_width_pixels of centerline.
+        sigma_color: Bilateral range-kernel sigma in data units.  Controls how
+            aggressively the filter smooths across value differences; smaller
+            values preserve more edges.
+        sigma_spatial: Bilateral spatial-kernel sigma in pixels.  Controls
+            neighbourhood reach; must be large enough to bridge the seam zone.
+
+    Returns:
+        Tuple of (filtered float32 array, smooth_weights float64 array).
+        smooth_weights > _MIN_SMOOTH_WEIGHT indicates pixels with enough valid
+        source data nearby to produce a reliable estimate (used for nodata fill).
+
+    """
+    source_mask = valid_mask & ~seam_zone
+
+    if source_mask.any():
+        # Nearest-neighbour fill: non-source pixels get the value of the
+        # closest source pixel so the bilateral range kernel is not confused
+        # by extreme nodata sentinel values.
+        near_idx = distance_transform_edt(
+            ~source_mask,
+            return_distances=False,
+            return_indices=True,
+        )
+        work = band[near_idx[0], near_idx[1]].astype(np.float64)
+    else:
+        work = band.astype(np.float64)
+
+    filtered = denoise_bilateral(
+        work,
+        sigma_color=sigma_color,
+        sigma_spatial=sigma_spatial,
+        channel_axis=None,
+    )
+
+    # Gaussian on the source mask serves as a proxy for "enough valid source
+    # data nearby" — used downstream to decide whether nodata pixels may be
+    # filled.  Bilateral does not expose internal kernel weights directly.
+    smooth_weights = gaussian_filter(
+        source_mask.astype(np.float64),
+        sigma=sigma_spatial,
+    )
+
+    return filtered.astype(np.float32), smooth_weights
+
+
 def correct_seams(  # noqa: PLR0913, PLR0915
     input_path: str,
     output_path: str,
@@ -131,7 +198,8 @@ def correct_seams(  # noqa: PLR0913, PLR0915
     buffer_pixels: int = 3,
     seam_width_pixels: int = 1,
     nodata_fill_pixels: int = 5,
-    gaussian_sigma: float = 1.5,
+    sigma_color: float = 0.05,
+    sigma_spatial: float = 2.0,
     blend_sigma: float = 0.0,
     chunk_rows: int = 512,
 ) -> None:
@@ -162,10 +230,13 @@ def correct_seams(  # noqa: PLR0913, PLR0915
            from the Gaussian source so it interpolates from clean data.
          - fill zone (``nodata_fill_pixels``): nodata pixels replaced by the
            Gaussian estimate when the kernel has enough valid neighbors.
-      4. A nodata-safe Gaussian is applied with the inpainting zone masked out.
-      5. A linear blend weight (1 at the centerline, 0 at ``buffer_pixels``)
+      4. A bilateral filter (``skimage.restoration.denoise_bilateral``) is
+         applied to a padded bounding box around the seam buffer zone only.
+         Seam-zone and nodata pixels are nearest-neighbour filled before
+         filtering so the range kernel is not biased by sentinel values.
+      5. A cosine taper weight (1 at the centerline, 0 at ``buffer_pixels``)
          blends values back for valid pixels. Inside the inpainting zone the
-         inpainted value is used; outside it a lightly smoothed copy
+         bilateral result is used; outside it a lightly smoothed copy
          (``blend_sigma``) is used to preserve local texture:
          output = weight * source + (1 - weight) * original.
       6. nodata pixels inside the fill zone with a reliable Gaussian estimate
@@ -185,10 +256,13 @@ def correct_seams(  # noqa: PLR0913, PLR0915
             (default 5). nodata pixels within this distance of the seam
             centerline are filled by Gaussian interpolation from valid neighbors.
             Keep this narrow (a few pixels) to avoid filling legitimate nodata.
-        gaussian_sigma: Standard deviation of the Gaussian blur kernel in pixels
-            (default 5.0). Used for inpainting and nodata fill; should be at
-            least ``seam_width_pixels`` so the kernel bridges the gap from both
-            sides.
+        sigma_color: Bilateral range-kernel sigma in data units (default 0.05).
+            Smaller values preserve more terrain edges; larger values smooth
+            more aggressively across value differences.  Tune to the value
+            range of your input raster (e.g. nDSM metres, TWI dimensionless).
+        sigma_spatial: Bilateral spatial-kernel sigma in pixels (default 2.0).
+            Must be large enough to bridge the ``seam_width_pixels`` gap.
+            Also controls the halo size added around each strip.
         blend_sigma: Standard deviation of the Gaussian used only for valid
             pixels in the taper zone outside the inpainting zone (default 1.0).
             Keep small (0-2) to preserve local texture and avoid a visible smudge.
@@ -234,9 +308,9 @@ def correct_seams(  # noqa: PLR0913, PLR0915
         return
 
     # --- Step 2: set up output and strip parameters ---
-    # Halo ensures accurate EDT and Gaussian at strip boundaries.
-    # EDT needs buffer_pixels rows of context; Gaussian needs ~3*sigma rows.
-    halo = max(buffer_pixels, math.ceil(3.0 * gaussian_sigma))
+    # Halo ensures accurate EDT and bilateral at strip boundaries.
+    # EDT needs buffer_pixels rows of context; bilateral needs ~3*sigma_spatial rows.
+    halo = max(buffer_pixels, math.ceil(3.0 * sigma_spatial))
 
     profile.update(
         tiled=True,
@@ -249,15 +323,18 @@ def correct_seams(  # noqa: PLR0913, PLR0915
 
     n_strips = math.ceil(height / chunk_rows)
     log.info(
+        "[SEAM] Using bilateral filter: sigma_color=%.4f, sigma_spatial=%.1f.",
+        sigma_color,
+        sigma_spatial,
+    )
+    log.info(
         "[SEAM] Processing %d strip(s) of %d core rows each "
-        "(halo=%d px, seam_width=%d px, nodata_fill=%d px, "
-        "sigma=%.1f, blend_sigma=%.1f).",
+        "(halo=%d px, seam_width=%d px, nodata_fill=%d px, blend_sigma=%.1f).",
         n_strips,
         chunk_rows,
         halo,
         seam_width_pixels,
         nodata_fill_pixels,
-        gaussian_sigma,
         blend_sigma,
     )
 
@@ -320,6 +397,18 @@ def correct_seams(  # noqa: PLR0913, PLR0915
             data_strip = src.read(window=strip_window)  # (C, strip_H, W)
             corrected_strip = data_strip.copy()
 
+            # Bounding box of the correction zone within this strip, padded by
+            # the bilateral kernel radius so the filter has enough context.
+            # Bilateral is applied to this subregion only — not the full-width
+            # strip — to keep runtime acceptable on wide rasters.
+            bil_pad = math.ceil(3.0 * sigma_spatial)
+            buf_rows = np.where((weight_strip > 0).any(axis=1))[0]
+            buf_cols = np.where((weight_strip > 0).any(axis=0))[0]
+            r0 = max(0, int(buf_rows[0]) - bil_pad)
+            r1 = min(strip_height, int(buf_rows[-1]) + 1 + bil_pad)
+            c0 = max(0, int(buf_cols[0]) - bil_pad)
+            c1 = min(width, int(buf_cols[-1]) + 1 + bil_pad)
+
             for band_idx in range(band_count):
                 band = data_strip[band_idx].astype(np.float32)
                 nodata = nodata_vals[band_idx]
@@ -328,15 +417,20 @@ def correct_seams(  # noqa: PLR0913, PLR0915
                 else:
                     valid_mask = np.isfinite(band)
 
-                # Inpainting Gaussian: seam-zone pixels excluded from source so
-                # the kernel interpolates from clean data on both sides.
+                # Bilateral inpainting on the seam bounding box only.
                 # smooth_weights indicates where the estimate is reliable enough
-                # to fill nodata.
-                inpaint_smoothed, smooth_weights = _gaussian_smooth_nodata_safe(
-                    band,
-                    valid_mask & ~seam_zone,
-                    sigma=gaussian_sigma,
+                # to fill nodata pixels.
+                patch_inpainted, patch_weights = _bilateral_inpaint_nodata_safe(
+                    band[r0:r1, c0:c1],
+                    valid_mask[r0:r1, c0:c1],
+                    seam_zone[r0:r1, c0:c1],
+                    sigma_color=sigma_color,
+                    sigma_spatial=sigma_spatial,
                 )
+                inpaint_smoothed = band.copy()
+                smooth_weights = np.zeros(band.shape, dtype=np.float64)
+                inpaint_smoothed[r0:r1, c0:c1] = patch_inpainted
+                smooth_weights[r0:r1, c0:c1] = patch_weights
 
                 # Blend Gaussian: small sigma preserves local texture in the taper
                 # zone so the buffer does not produce a visible smudge.
@@ -430,12 +524,22 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--sigma",
+        "--sigma_color",
         type=float,
-        default=1.5,
+        default=0.05,
         help=(
-            "Gaussian sigma for inpainting and nodata fill in pixels. "
-            "Should be >= seam_width_pixels to bridge the inpainting zone."
+            "Bilateral range-kernel sigma in data units. "
+            "Smaller values preserve more terrain edges. "
+            "Tune to the value range of your input raster."
+        ),
+    )
+    parser.add_argument(
+        "--sigma_spatial",
+        type=float,
+        default=2.0,
+        help=(
+            "Bilateral spatial-kernel sigma in pixels. "
+            "Must be >= seam_width_pixels to bridge the inpainting zone."
         ),
     )
     parser.add_argument(
@@ -484,7 +588,8 @@ def main() -> None:
         buffer_pixels=args.buffer_pixels,
         seam_width_pixels=args.seam_width_pixels,
         nodata_fill_pixels=args.nodata_fill_pixels,
-        gaussian_sigma=args.sigma,
+        sigma_color=args.sigma_color,
+        sigma_spatial=args.sigma_spatial,
         blend_sigma=args.blend_sigma,
         chunk_rows=args.chunk_rows,
     )
