@@ -77,7 +77,7 @@ class Decoder(nn.Module):
     def forward(self, x: list[torch.Tensor]) -> torch.Tensor:
         """Forward pass."""
         c1, c2, c3, c4 = x
-        n, _, h, w = c4.shape
+        n, _, _h, _w = c4.shape
 
         _c4 = (
             self.linear_c4(c4)

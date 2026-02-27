@@ -1,0 +1,62 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Data and models
+data/
+datasets/
+checkpoints/
+*.pth
+*.ckpt
+*.h5
+*.pb
+*.onnx
+logs/
+outputs/
+wandb/
+
+# Git
+.git/
+.gitignore
+.github/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+
+# Documentation and notebooks
+docs/
+notebooks/
+*.ipynb
+*.md
+!README.md
+
+# Project config
+.pre-commit-config.yaml
+.dockerignore
+CITATION.cff
+
+# Misc
+.DS_Store
+*.log
+tmp/
+temp/

@@ -1,4 +1,3 @@
-
 name: Build Docker Image on Tag (CUDA 12)
 
 on:
@@ -10,39 +9,36 @@ env:
   REGISTRY: docker.io
 
 jobs:
-
   build:
-
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Log in to the Container registry
-      uses: docker/login-action@v2
-      with:
-        registry: docker.io
-        username: ${{ secrets.DOCKER_USER }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Prepare lockfile for Docker build
+        run: cp uv.lock.cu128 uv.lock
 
-    - name: Extract metadata (tags, labels) for Docker
-      id: meta
-      uses: docker/metadata-action@v4
-      with:
-        images:  ${{ env.REGISTRY }}/${{ secrets.DOCKER_REPO }}
+      - name: Log in to Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Build the docker image
-      run: docker build . --file Dockerfile --tag gdl-cuda12:${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }} --build-arg GIT_TAG=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ secrets.DOCKER_REPO }}/gdl-cuda12
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=true
 
-    - name: Tag the docker image
-      run: docker tag gdl-cuda12:${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }} ${{ secrets.DOCKER_REPO }}/gdl-cuda12:${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
-
-    - name: Push the docker image
-      run: docker push ${{ secrets.DOCKER_REPO }}/gdl-cuda12:${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
-
-    - name: Tag the docker image to latest
-      run: docker tag gdl-cuda12:${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }} ${{ secrets.DOCKER_REPO }}/gdl-cuda12:latest
-
-    - name: Push the docker image (latest tag)
-      run: docker push ${{ secrets.DOCKER_REPO }}/gdl-cuda12:latest
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

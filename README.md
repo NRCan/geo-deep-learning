@@ -32,43 +32,72 @@ Built on PyTorch Lightning, it provides efficient training pipelines for multi-s
 └── samplers/              # Custom data sampling strategies
 ```
 
-## Requirements
-- Install [uv](https://docs.astral.sh/uv/) package manager for your OS.
+## Installation
 
-## Quick Start
+This project supports **CPU-only** and **GPU (CUDA 12.8)** PyTorch builds.
+The two environments are fully isolated and reproducible via separate lockfiles.
 
-1. **Clone the repository:**
+### Requirements
+
+- Python **3.12**
+- [uv](https://docs.astral.sh/uv/) package manager
+
+### CPU-only
+
+Installs CPU-only PyTorch and works everywhere.
+
 ```bash
 git clone https://github.com/NRCan/geo-deep-learning.git
 cd geo-deep-learning
-```
-2. **Install dependencies:**
 
-For **GPU training** with CUDA 12.8:
-```bash
-uv sync --extra cu128
+cp uv.lock.cpu uv.lock
+uv sync --extra cpu --extra dev --frozen
 ```
 
-For **CPU-only** training:
-```bash
-uv sync --extra cpu
-```
-This creates a virtual environment in `.venv/` and installs all dependencies.
+Verify:
 
-3. **Activate the environment:**
 ```bash
-# Linux/macOS
-source .venv/bin/activate
-
-# Windows
-.venv\Scripts\activate
+python -c "import torch; print(torch.__version__, 'CUDA:', torch.cuda.is_available())"
+# Expected: 2.x.x+cpu CUDA: False
 ```
 
-Or use `uv run` to execute commands without manual activation:
+### GPU (CUDA 12.8)
+
+Use only on systems with NVIDIA GPUs and CUDA 12.8–compatible drivers.
+
 ```bash
+cp uv.lock.cu128 uv.lock
+uv sync --extra cu128 --extra dev --frozen
+```
+
+Verify:
+
+```bash
+python -c "import torch; print(torch.__version__, 'CUDA:', torch.cuda.is_available())"
+# Expected: 2.x.x+cu128 CUDA: True
+```
+
+### Lockfiles
+
+| File        | PyTorch build | Use case                    |
+|-------------|---------------|-----------------------------|
+| `uv.lock.cpu`  | CPU-only      | CI, laptops with no GPUs   |
+| `uv.lock.cu128`| CUDA 12.8     | GPU training                |
+
+Copy the appropriate lockfile to `uv.lock` before running `uv sync`. Do not edit `uv.lock` manually.
+
+### Activate and run
+
+```bash
+source .venv/bin/activate   # Linux/macOS
+# or: .venv\Scripts\activate  # Windows
+
 uv run python geo_deep_learning/train.py fit --config configs/dofa_config_RGB.yaml
 ```
-**Note:** *If you prefer to use conda or another environment manager, you can generate a `requirements.txt` file from the dependencies listed in `pyproject.toml` for manual installation.*
+
+### Troubleshooting
+
+If you see `libcudart`, `nvidia-*`, or `cu12` errors on a CPU machine: ensure `uv.lock.cpu` is active and re-run `uv sync --extra cpu --frozen`.
 
 ### Configuration
 
