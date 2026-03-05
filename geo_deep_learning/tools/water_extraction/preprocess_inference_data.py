@@ -50,12 +50,12 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--seam_sigma_color",
+        "--seam_sigma",
         type=float,
-        default=0.3,
+        default=1.5,
         help=(
-            "Bilateral range-kernel sigma for seam correction, in data units (metres "
-            "for DTM/DSM). Default 0.3 m is appropriate for elevation rasters."
+            "Gaussian sigma for seam correction inpainting in pixels (default 1.5). "
+            "Should be at least seam_width_pixels to bridge the inpainting gap."
         ),
     )
     return parser.parse_args()
@@ -69,7 +69,7 @@ def main() -> None:
         output_folder=args.output_folder,
         include_intensity=not args.no_intensity,
         project_extents_path=args.project_extents,
-        seam_sigma_color=args.seam_sigma_color,
+        seam_gaussian_sigma=args.seam_sigma,
     )
     log.info("Preprocessing complete. Outputs in: %s", args.output_folder)
 

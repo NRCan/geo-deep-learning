@@ -64,7 +64,7 @@ class ElevationStackDataModule(CSVDataModule):
         min_water_pixels: int = 1,
         test_only: bool = False,
         project_extents_path: str | None = None,
-        seam_sigma_color: float = 0.3,
+        seam_gaussian_sigma: float = 1.5,
     ) -> None:
         """Initialise the datamodule and propagate settings to the parent."""
         super().__init__(
@@ -95,10 +95,7 @@ class ElevationStackDataModule(CSVDataModule):
         self.min_water_pixels = min_water_pixels
         self.test_only = test_only
         self.project_extents_path = project_extents_path
-        # sigma_color in metres — DTM/DSM are elevation rasters in metres, so the
-        # bilateral range kernel needs a much larger sigma than for TWI (which is
-        # dimensionless and typically spans ~0-20, requiring sigma ~0.05).
-        self.seam_sigma_color = seam_sigma_color
+        self.seam_gaussian_sigma = seam_gaussian_sigma
 
         # Track if user provided custom stats (to avoid overwriting with stats.npy)
         self.user_provided_stats = mean is not None and std is not None
@@ -509,7 +506,7 @@ class ElevationStackDataModule(CSVDataModule):
                     input_path=str(dtm),
                     output_path=str(dtm_corrected),
                     project_extents_path=self.project_extents_path,
-                    sigma_color=self.seam_sigma_color,
+                    gaussian_sigma=self.seam_gaussian_sigma,
                 )
             else:
                 log.info("Skipping DTM seam correction (already exists)")
@@ -520,7 +517,7 @@ class ElevationStackDataModule(CSVDataModule):
                     input_path=str(dsm_aligned),
                     output_path=str(dsm_corrected),
                     project_extents_path=self.project_extents_path,
-                    sigma_color=self.seam_sigma_color,
+                    gaussian_sigma=self.seam_gaussian_sigma,
                 )
             else:
                 log.info("Skipping DSM seam correction (already exists)")

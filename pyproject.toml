@@ -40,7 +40,6 @@ dependencies = [
   "PyYAML>=6.0",
   "jsonargparse[all]>=4.27.7",
   "jupyterlab>=4.0.0",
-  "scikit-image>=0.26.0",
 ]
 
 [project.optional-dependencies]

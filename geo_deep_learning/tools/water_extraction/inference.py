@@ -68,7 +68,7 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
     nodata_val: float = -32767,
     include_intensity: bool = True,
     project_extents_path: str | None = None,
-    seam_sigma_color: float = 0.3,
+    seam_gaussian_sigma: float = 1.5,
 ) -> str:
     """
     Preprocess raw LiDAR data for inference.
@@ -89,9 +89,8 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
         project_extents_path: Path to GeoPackage with one polygon per LiDAR project
             extent. When provided, seam correction is applied to the DTM and aligned
             DSM before any derivatives are computed. Pass None to skip seam correction.
-        seam_sigma_color: Bilateral range-kernel sigma for seam correction, in data
-            units (metres for DTM/DSM). Default 0.3 m is appropriate for elevation
-            rasters; TWI uses ~0.05 because it is dimensionless.
+        seam_gaussian_sigma: Gaussian sigma for seam correction inpainting in pixels
+            (default 1.5). Should be at least seam_width_pixels to bridge the gap.
 
     Returns:
         Path to stacked multi-band input raster
@@ -172,10 +171,7 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
                 input_path=str(dtm_path),
                 output_path=str(dtm_corrected),
                 project_extents_path=project_extents_path,
-                # sigma_color in metres — DTM/DSM are elevation rasters in metres,
-                # so the bilateral range kernel needs a much larger sigma than for
-                # TWI (which is dimensionless and uses ~0.05).
-                sigma_color=seam_sigma_color,
+                gaussian_sigma=seam_gaussian_sigma,
             )
         else:
             log.info("Skipping DTM seam correction (already exists)")
@@ -186,7 +182,7 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
                 input_path=str(dsm_aligned),
                 output_path=str(dsm_corrected),
                 project_extents_path=project_extents_path,
-                sigma_color=seam_sigma_color,
+                gaussian_sigma=seam_gaussian_sigma,
             )
         else:
             log.info("Skipping DSM seam correction (already exists)")
@@ -994,7 +990,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     export_vector: bool = True,
     simplify_tolerance: float = 1.0,
     project_extents_path: str | None = None,
-    seam_sigma_color: float = 0.3,
+    seam_gaussian_sigma: float = 1.5,
 ) -> dict[str, str]:
     """
     Run complete inference pipeline.
@@ -1025,8 +1021,8 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         project_extents_path: Path to GeoPackage with one polygon per LiDAR project
             extent. When provided, seam correction is applied before derivatives are
             computed. Pass None to skip seam correction.
-        seam_sigma_color: Bilateral range-kernel sigma for seam correction, in data
-            units (metres for DTM/DSM). Default 0.3 m.
+        seam_gaussian_sigma: Gaussian sigma for seam correction inpainting in pixels
+            (default 1.5). Should be at least seam_width_pixels to bridge the gap.
 
     Returns:
         Dictionary with paths to outputs:
@@ -1103,7 +1099,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
             output_folder=output_folder,
             include_intensity=include_intensity,
             project_extents_path=project_extents_path,
-            seam_sigma_color=seam_sigma_color,
+            seam_gaussian_sigma=seam_gaussian_sigma,
         )
     else:
         msg = "Must provide either --stacked_inputs or --data_folder"
@@ -1313,12 +1309,12 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--seam_sigma_color",
+        "--seam_sigma",
         type=float,
-        default=0.3,
+        default=1.5,
         help=(
-            "Bilateral range-kernel sigma for seam correction, in data units (metres "
-            "for DTM/DSM). Default 0.3 m is appropriate for elevation rasters."
+            "Gaussian sigma for seam correction inpainting in pixels (default 1.5). "
+            "Should be at least seam_width_pixels to bridge the inpainting gap."
         ),
     )
 
@@ -1358,7 +1354,7 @@ def main() -> None:
         export_vector=not args.no_vector,
         simplify_tolerance=args.simplify_tolerance,
         project_extents_path=args.project_extents,
-        seam_sigma_color=args.seam_sigma_color,
+        seam_gaussian_sigma=args.seam_sigma,
     )
 
 
