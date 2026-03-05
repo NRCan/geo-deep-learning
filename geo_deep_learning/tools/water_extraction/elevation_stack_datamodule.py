@@ -1,19 +1,23 @@
 """Elevation Stack DataModule for water extraction."""
 
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
+import fiona
 import numpy as np
 import pandas as pd
+import rasterio
+import rasterio.mask
 from lightning.pytorch.utilities import rank_zero_only
 from torch.utils.data import DataLoader
 
 from geo_deep_learning.datamodules.csv_datamodule import CSVDataModule
-from geo_deep_learning.utils.rasters import compute_dataset_stats_from_list
-
-from .elevation_stack_dataset import ElevationStackDataset
-from .prepare_inputs import (
+from geo_deep_learning.tools.water_extraction.elevation_stack_dataset import (
+    ElevationStackDataset,
+)
+from geo_deep_learning.tools.water_extraction.prepare_inputs import (
     align_to_reference,
     compute_ndsm,
     compute_twi_whitebox,
@@ -21,14 +25,19 @@ from .prepare_inputs import (
     rasterize_valid_lidar_mask,
     stack_rasters,
 )
+from geo_deep_learning.tools.water_extraction.seam_correction import correct_seams
+from geo_deep_learning.utils.rasters import compute_dataset_stats_from_list
+
+_NUM_BASE_CHANNELS = 2
 
 log = logging.getLogger(__name__)
 
 
 class ElevationStackDataModule(CSVDataModule):
     """
-    DataModule handling the full elevation-stack preprocessing pipeline
-    for water extraction.
+    DataModule handling the full elevation-stack preprocessing pipeline.
+
+    Handles water extraction preprocessing end-to-end.
     """
 
     def __init__(  # noqa: PLR0913
@@ -54,7 +63,10 @@ class ElevationStackDataModule(CSVDataModule):
         regenerate_csv: bool = False,
         min_water_pixels: int = 1,
         test_only: bool = False,
+        project_extents_path: str | None = None,
+        seam_sigma_color: float = 0.3,
     ) -> None:
+        """Initialise the datamodule and propagate settings to the parent."""
         super().__init__(
             batch_size=batch_size,
             num_workers=num_workers,
@@ -71,7 +83,8 @@ class ElevationStackDataModule(CSVDataModule):
         self.csv_path = csv_path
         self.csv_infer_path = csv_infer_path
         log.info(
-            f"[DEBUG] ElevationStackDataModule __init__: csv_infer_path = {csv_infer_path}"
+            "[DEBUG] ElevationStackDataModule __init__: csv_infer_path = %s",
+            csv_infer_path,
         )
         self.include_intensity = include_intensity
         self.stride = stride
@@ -81,15 +94,24 @@ class ElevationStackDataModule(CSVDataModule):
         self.regenerate_csv = regenerate_csv
         self.min_water_pixels = min_water_pixels
         self.test_only = test_only
+        self.project_extents_path = project_extents_path
+        # sigma_color in metres — DTM/DSM are elevation rasters in metres, so the
+        # bilateral range kernel needs a much larger sigma than for TWI (which is
+        # dimensionless and typically spans ~0-20, requiring sigma ~0.05).
+        self.seam_sigma_color = seam_sigma_color
 
         # Track if user provided custom stats (to avoid overwriting with stats.npy)
         self.user_provided_stats = mean is not None and std is not None
-        
+
         # Slice user-provided stats to match include_intensity setting
-        if self.user_provided_stats and not self.include_intensity and len(self.norm_stats["mean"]) > 2:
+        if (
+            self.user_provided_stats
+            and not self.include_intensity
+            and len(self.norm_stats["mean"]) > _NUM_BASE_CHANNELS
+        ):
             log.info("Slicing user-provided stats to 2 channels (excluding intensity)")
-            self.norm_stats["mean"] = self.norm_stats["mean"][:2]
-            self.norm_stats["std"] = self.norm_stats["std"][:2]
+            self.norm_stats["mean"] = self.norm_stats["mean"][:_NUM_BASE_CHANNELS]
+            self.norm_stats["std"] = self.norm_stats["std"][:_NUM_BASE_CHANNELS]
 
     # ------------------------------------------------------------------
     # Setup datasets
@@ -124,51 +146,6 @@ class ElevationStackDataModule(CSVDataModule):
         )
         return None
 
-        @staticmethod
-        def _crop_raster_to_aoi(
-            input_raster_path: str,
-            output_raster_path: str,
-            aoi_vector_path: str,
-        ) -> None:
-            """Crop a raster to the extent of an AOI polygon."""
-            import fiona
-            import rasterio
-            import rasterio.mask
-
-            log.info(
-                "Cropping raster to AOI: %s → %s", input_raster_path, output_raster_path
-            )
-
-            # Read AOI geometries
-            with fiona.open(aoi_vector_path, "r") as aoi_src:
-                aoi_geoms = [feature["geometry"] for feature in aoi_src]
-
-            # Crop raster
-            with rasterio.open(input_raster_path) as src:
-                out_image, out_transform = rasterio.mask.mask(
-                    src,
-                    aoi_geoms,
-                    crop=True,
-                    nodata=src.nodata,
-                )
-                # Update metadata
-                out_meta = src.meta.copy()
-                out_meta.update(
-                    {
-                        "height": out_image.shape[1],
-                        "width": out_image.shape[2],
-                        "transform": out_transform,
-                        "compress": "lzw",
-                        "BIGTIFF": "YES",
-                    }
-                )
-
-            # Write cropped raster
-            with rasterio.open(output_raster_path, "w", **out_meta) as dst:
-                dst.write(out_image)
-
-            log.info("Cropped raster saved: %s", output_raster_path)
-
     @staticmethod
     def _crop_raster_to_aoi(
         input_raster_path: str,
@@ -176,12 +153,10 @@ class ElevationStackDataModule(CSVDataModule):
         aoi_vector_path: str,
     ) -> None:
         """Crop a raster to the extent of an AOI polygon."""
-        import fiona
-        import rasterio
-        import rasterio.mask
-
         log.info(
-            "Cropping raster to AOI: %s → %s", input_raster_path, output_raster_path
+            "Cropping raster to AOI: %s → %s",
+            input_raster_path,
+            output_raster_path,
         )
 
         # Read AOI geometries
@@ -206,7 +181,7 @@ class ElevationStackDataModule(CSVDataModule):
                     "transform": out_transform,
                     "compress": "lzw",
                     "BIGTIFF": "YES",
-                }
+                },
             )
 
         # Write cropped raster
@@ -216,6 +191,7 @@ class ElevationStackDataModule(CSVDataModule):
         log.info("Cropped raster saved: %s", output_raster_path)
 
     def setup(self, stage: str | None = None) -> None:  # noqa: ARG002
+        """Validate normalization stats and create train/val/test datasets."""
         # Validate stats configuration before creating datasets
         expected_channels = 3 if self.include_intensity else 2
         mean_channels = len(self.norm_stats["mean"])
@@ -223,8 +199,8 @@ class ElevationStackDataModule(CSVDataModule):
         if mean_channels != expected_channels:
             error_msg = (
                 f"Normalization stats mismatch: expected {expected_channels} channels "
-                f"(include_intensity={self.include_intensity}) but mean has {mean_channels} values: "
-                f"{self.norm_stats['mean']}"
+                f"(include_intensity={self.include_intensity}) but mean has "
+                f"{mean_channels} values: {self.norm_stats['mean']}"
             )
             log.error(error_msg)
             raise ValueError(error_msg)
@@ -232,8 +208,8 @@ class ElevationStackDataModule(CSVDataModule):
         if std_channels != expected_channels:
             error_msg = (
                 f"Normalization stats mismatch: expected {expected_channels} channels "
-                f"(include_intensity={self.include_intensity}) but std has {std_channels} values: "
-                f"{self.norm_stats['std']}"
+                f"(include_intensity={self.include_intensity}) but std has "
+                f"{std_channels} values: {self.norm_stats['std']}"
             )
             log.error(error_msg)
             raise ValueError(error_msg)
@@ -340,10 +316,8 @@ class ElevationStackDataModule(CSVDataModule):
     # Existence checks
     # ------------------------------------------------------------------
 
-    def _data_already_exists(self) -> bool:
-        """
-        Determine whether data preparation can be skipped.
-        """
+    def _data_already_exists(self) -> bool:  # noqa: PLR0911
+        """Determine whether data preparation can be skipped."""
         if self.regenerate_csv:
             log.info("regenerate_csv=True → bypassing CSV existence check")
         elif not Path(self.csv_path).exists():
@@ -352,14 +326,14 @@ class ElevationStackDataModule(CSVDataModule):
         if not self.input_folders:
             return True
 
-        log.info(f"[DEBUG] self.input_folders = {self.input_folders}")
+        log.info("[DEBUG] self.input_folders = %s", self.input_folders)
 
         for aoi_path in self.input_folders:
             aoi_name = Path(aoi_path).name
             tiles_root = Path(self.output_root) / aoi_name / "tiles"
 
-            log.info(f"[DEBUG] aoi_name = {aoi_name}")
-            log.info(f"[DEBUG] tiles_root = {tiles_root}")
+            log.info("[DEBUG] aoi_name = %s", aoi_name)
+            log.info("[DEBUG] tiles_root = %s", tiles_root)
 
             if not (tiles_root / "inputs").is_dir():
                 return False
@@ -388,7 +362,7 @@ class ElevationStackDataModule(CSVDataModule):
                 self.norm_stats["std"],
             )
             return
-        
+
         stats_path = Path(self.output_root) / "stats.npy"
         log.info("[DEBUG] loaded stats path: %s", stats_path)
 
@@ -396,14 +370,15 @@ class ElevationStackDataModule(CSVDataModule):
             stats = np.load(stats_path, allow_pickle=True).item()
             self.norm_stats["mean"] = stats["means"]
             self.norm_stats["std"] = stats["stds"]
-            
+
             # Slice stats to match include_intensity setting
             # Always use first 2 channels (TWI, nDSM) if intensity is not included
-            if not self.include_intensity and len(self.norm_stats["mean"]) > 2:
+            num_mean_channels = len(self.norm_stats["mean"])
+            if not self.include_intensity and num_mean_channels > _NUM_BASE_CHANNELS:
                 log.info("Slicing stats to 2 channels (excluding intensity)")
-                self.norm_stats["mean"] = self.norm_stats["mean"][:2]
-                self.norm_stats["std"] = self.norm_stats["std"][:2]
-            
+                self.norm_stats["mean"] = self.norm_stats["mean"][:_NUM_BASE_CHANNELS]
+                self.norm_stats["std"] = self.norm_stats["std"][:_NUM_BASE_CHANNELS]
+
             log.info("Loaded existing statistics from stats.npy")
             log.info(
                 "[DEBUG] stats (include_intensity=%s): mean=%s, std=%s",
@@ -417,22 +392,22 @@ class ElevationStackDataModule(CSVDataModule):
     def _compute_and_save_stats(self) -> None:
         """
         Compute normalization statistics strictly from tiles listed in the CSV.
+
         This guarantees consistency with training data.
         """
-        from pathlib import Path
-
         if not Path(self.csv_path).exists():
             log.warning("CSV not found — cannot compute dataset statistics")
             return
 
         log.info("Computing dataset statistics from CSV tiles")
 
-        df = pd.read_csv(self.csv_path)
+        tiles_df = pd.read_csv(self.csv_path)
 
-        if "tif" not in df.columns:
-            raise ValueError("CSV must contain a 'tif' column with tile paths")
+        if "tif" not in tiles_df.columns:
+            msg = "CSV must contain a 'tif' column with tile paths"
+            raise ValueError(msg)
 
-        tile_paths = df["tif"].dropna().astype(str).unique().tolist()
+        tile_paths = tiles_df["tif"].dropna().astype(str).unique().tolist()
 
         if not tile_paths:
             log.warning("No tiles found in CSV for statistics computation")
@@ -452,7 +427,7 @@ class ElevationStackDataModule(CSVDataModule):
             stats_path,
         )
 
-    def _process_aoi(self, aoi_path: str) -> None:
+    def _process_aoi(self, aoi_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
         """
         Process a single AOI through the full pipeline.
 
@@ -506,7 +481,8 @@ class ElevationStackDataModule(CSVDataModule):
                 aoi_vector = self._resolve_vector_file(aoi_path, "aoi")
                 if aoi_vector:
                     log.info(
-                        "Cropping intensity to AOI boundary: %s", intensity_aligned
+                        "Cropping intensity to AOI boundary: %s",
+                        intensity_aligned,
                     )
                     self._crop_raster_to_aoi(
                         str(intensity_temp),
@@ -521,19 +497,53 @@ class ElevationStackDataModule(CSVDataModule):
             else:
                 log.info("Skipping Intensity alignment (already exists)")
 
+        # Seam correction on DTM and DSM
+        # Skipped when project_extents_path is not configured.
+        if self.project_extents_path is not None:
+            dtm_corrected = out_dir / "dtm_corrected.tif"
+            dsm_corrected = out_dir / "dsm_corrected.tif"
+
+            if not dtm_corrected.exists():
+                log.info("Applying seam correction to DTM: %s", dtm_corrected)
+                correct_seams(
+                    input_path=str(dtm),
+                    output_path=str(dtm_corrected),
+                    project_extents_path=self.project_extents_path,
+                    sigma_color=self.seam_sigma_color,
+                )
+            else:
+                log.info("Skipping DTM seam correction (already exists)")
+
+            if not dsm_corrected.exists():
+                log.info("Applying seam correction to DSM: %s", dsm_corrected)
+                correct_seams(
+                    input_path=str(dsm_aligned),
+                    output_path=str(dsm_corrected),
+                    project_extents_path=self.project_extents_path,
+                    sigma_color=self.seam_sigma_color,
+                )
+            else:
+                log.info("Skipping DSM seam correction (already exists)")
+
+            dtm_for_deriv = dtm_corrected
+            dsm_for_deriv = dsm_corrected
+        else:
+            dtm_for_deriv = dtm
+            dsm_for_deriv = dsm_aligned
+
         # Step 2: Compute derivatives
         twi_path = out_dir / "twi.tif"
         ndsm_path = out_dir / "ndsm.tif"
 
         if not twi_path.exists():
             log.info("Computing TWI: %s", twi_path)
-            compute_twi_whitebox(str(dtm), str(twi_path))
+            compute_twi_whitebox(str(dtm_for_deriv), str(twi_path))
         else:
             log.info("Skipping TWI (already exists at %s)", twi_path)
 
         if not ndsm_path.exists():
             log.info("Computing nDSM: %s", ndsm_path)
-            compute_ndsm(str(dsm_aligned), str(dtm), str(ndsm_path))
+            compute_ndsm(str(dsm_for_deriv), str(dtm_for_deriv), str(ndsm_path))
         else:
             log.info("Skipping nDSM (already exists at %s)", ndsm_path)
 
@@ -584,8 +594,6 @@ class ElevationStackDataModule(CSVDataModule):
         # Create a dummy label raster (all zeros, same shape as stack_path)
         elif not label_raster.exists():
             log.info("Creating dummy label because test_only mode")
-            import rasterio
-
             with rasterio.open(str(stack_path)) as src:
                 profile = src.profile.copy()
                 profile.update({"count": 1, "dtype": "int16", "nodata": -1})
@@ -597,8 +605,6 @@ class ElevationStackDataModule(CSVDataModule):
                 with rasterio.open(str(label_raster), "w", **profile) as dst:
                     dst.write(data, 1)
         # Quick debug
-        import sys
-
         log.info("TIME TAG")
         sys.exit("Exiting early, data preparation done")
 
@@ -611,7 +617,9 @@ class ElevationStackDataModule(CSVDataModule):
         #     output_dir=str(out_dir / "tiles"),
         #     patch_size=self.patch_size[0],
         #     stride=self.stride,
-        #     valid_mask_path=str(valid_mask_raster) if valid_mask_raster.exists() else None,
+        #     valid_mask_path=(
+        #         str(valid_mask_raster) if valid_mask_raster.exists() else None
+        #     ),
         #     valid_mask_min_ratio=self.valid_mask_min_ratio,
         #     save_rejected_tiles=self.save_rejected_tiles,
         # )
