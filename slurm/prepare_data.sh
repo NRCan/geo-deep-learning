@@ -3,7 +3,7 @@
 #SBATCH --partition=standard
 #SBATCH --account=nrcan_geobase
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=128G
+#SBATCH --mem=256G
 #SBATCH --time=48:00:00
 #SBATCH --output=slurm/logs/%j_prepare_data.out
 #SBATCH --error=slurm/logs/%j_prepare_data.out
