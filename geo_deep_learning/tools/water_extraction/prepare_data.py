@@ -19,9 +19,22 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    """Prepare data from config file."""
+    """Prepare data from config file with optional CLI overrides."""
     parser = argparse.ArgumentParser(
         description="Prepare data for water extraction training (no GPU required)",
+        epilog="""
+Examples:
+  # Use config as-is
+  python -m geo_deep_learning.tools.water_extraction.prepare_data \\
+      --config config.yaml
+
+  # Override specific parameters
+  python -m geo_deep_learning.tools.water_extraction.prepare_data \\
+      --config config.yaml \\
+      --data.init_args.project_extents_path=/path/to/extents.gpkg \\
+      --data.init_args.regenerate_csv=true
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--config",
@@ -29,7 +42,9 @@ def main() -> None:
         required=True,
         help="Path to YAML configuration file",
     )
-    args = parser.parse_args()
+
+    # Parse known args to allow OmegaConf overrides from command line
+    args, cli_overrides = parser.parse_known_args()
 
     # Load config
     config_path = Path(args.config)
@@ -39,6 +54,12 @@ def main() -> None:
 
     logger.info("Loading config from: %s", config_path)
     config = OmegaConf.load(config_path)
+
+    # Apply CLI overrides using OmegaConf
+    if cli_overrides:
+        logger.info("Applying CLI overrides: %s", cli_overrides)
+        cli_config = OmegaConf.from_cli(cli_overrides)
+        config = OmegaConf.merge(config, cli_config)
 
     # Extract data module config
     if "data" not in config:
@@ -50,9 +71,13 @@ def main() -> None:
         msg = "Data config must contain 'init_args'"
         raise ValueError(msg)
 
+    # Convert OmegaConf to dict for datamodule initialization
+    init_args = OmegaConf.to_container(data_config["init_args"], resolve=True)
+
     # Initialize datamodule
     logger.info("Initializing datamodule...")
-    datamodule = ElevationStackDataModule(**data_config["init_args"])
+    logger.info("Data config: %s", OmegaConf.to_yaml(data_config["init_args"]))
+    datamodule = ElevationStackDataModule(**init_args)
 
     # Run data preparation
     logger.info("Starting data preparation...")
