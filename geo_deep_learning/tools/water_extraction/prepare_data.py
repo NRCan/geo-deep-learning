@@ -55,11 +55,30 @@ Examples:
     logger.info("Loading config from: %s", config_path)
     config = OmegaConf.load(config_path)
 
+    # Log original project_extents_path value
+    if "data" in config and "init_args" in config["data"]:
+        original_path = config["data"]["init_args"].get(
+            "project_extents_path",
+            "NOT_SET",
+        )
+        logger.info("Original project_extents_path from config: %r", original_path)
+
     # Apply CLI overrides using OmegaConf
     if cli_overrides:
         logger.info("Applying CLI overrides: %s", cli_overrides)
         cli_config = OmegaConf.from_cli(cli_overrides)
+        logger.info("Parsed CLI config: %s", OmegaConf.to_yaml(cli_config))
         config = OmegaConf.merge(config, cli_config)
+
+        # Log merged project_extents_path value
+        if "data" in config and "init_args" in config["data"]:
+            merged_path = config["data"]["init_args"].get(
+                "project_extents_path",
+                "NOT_SET",
+            )
+            logger.info("Merged project_extents_path: %r", merged_path)
+    else:
+        logger.info("No CLI overrides provided")
 
     # Extract data module config
     if "data" not in config:
@@ -73,6 +92,15 @@ Examples:
 
     # Convert OmegaConf to dict for datamodule initialization
     init_args = OmegaConf.to_container(data_config["init_args"], resolve=True)
+
+    # Log the actual init_args being passed
+    logger.info("=" * 60)
+    logger.info("Final init_args being passed to ElevationStackDataModule:")
+    logger.info("project_extents_path = %r", init_args.get("project_extents_path"))
+    logger.info("include_intensity = %r", init_args.get("include_intensity"))
+    logger.info("regenerate_csv = %r", init_args.get("regenerate_csv"))
+    logger.info("output_root = %r", init_args.get("output_root"))
+    logger.info("=" * 60)
 
     # Initialize datamodule
     logger.info("Initializing datamodule...")

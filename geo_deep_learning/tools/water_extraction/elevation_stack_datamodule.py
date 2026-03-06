@@ -496,7 +496,16 @@ class ElevationStackDataModule(CSVDataModule):
 
         # Seam correction on DTM and DSM
         # Skipped when project_extents_path is not configured.
-        if self.project_extents_path is not None:
+        log.info(
+            "[DEBUG] project_extents_path = %r (type=%s)",
+            self.project_extents_path,
+            type(self.project_extents_path).__name__,
+        )
+        if self.project_extents_path is not None and self.project_extents_path != "":
+            log.info(
+                "Seam correction will be applied using: %s",
+                self.project_extents_path,
+            )
             dtm_corrected = out_dir / "dtm_corrected.tif"
             dsm_corrected = out_dir / "dsm_corrected.tif"
 
@@ -525,6 +534,7 @@ class ElevationStackDataModule(CSVDataModule):
             dtm_for_deriv = dtm_corrected
             dsm_for_deriv = dsm_corrected
         else:
+            log.info("Skipping seam correction (project_extents_path not configured)")
             dtm_for_deriv = dtm
             dsm_for_deriv = dsm_aligned
 
