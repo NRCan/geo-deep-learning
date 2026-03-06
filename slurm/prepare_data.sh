@@ -59,30 +59,30 @@ echo ""
 # ══════════════════════════════════════════════════════════════
 # OPTION 1: Use config file as-is (no overrides)
 # ══════════════════════════════════════════════════════════════
-# python -m geo_deep_learning.tools.water_extraction.prepare_data \
-#     --config $CONFIG_FILE
+python -m geo_deep_learning.tools.water_extraction.prepare_data \
+    --config configs/02NB000.yaml
 
 # ══════════════════════════════════════════════════════════════
 # OPTION 2: Use config file with CLI overrides
 # ══════════════════════════════════════════════════════════════
-# Uncomment the following block and comment out OPTION 1 above
-# to override specific parameters from the command line
+# NOTE: CLI overrides with OmegaConf can be tricky. If they don't work,
+# set values directly in the config file instead (Option 1 above).
 
-python -m geo_deep_learning.tools.water_extraction.prepare_data \
-    --config configs/02NB000.yaml \
-    --data.init_args.project_extents_path=/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/02NB000/02NB000_lidar_projects_boundaries.gpkg \
-    --data.init_args.seam_gaussian_sigma=1.5 \
-    --data.init_args.include_intensity=true \
-    --data.init_args.regenerate_csv=false \
-    --data.init_args.stride=256 \
-    --data.init_args.patch_size='[512,512]' \
-    --data.init_args.test_ratio=0.2 \
-    --data.init_args.min_water_pixels=1 \
-    --data.init_args.valid_mask_min_ratio=0.9 \
-    --data.init_args.save_rejected_tiles=false \
-    --data.init_args.test_only=false \
-    --data.init_args.batch_size=16 \
-    --data.init_args.num_workers=32
+# python -m geo_deep_learning.tools.water_extraction.prepare_data \
+#     --config configs/02NB000.yaml \
+#     --data.init_args.project_extents_path=/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/02NB000/02NB000_lidar_projects_boundaries.gpkg \
+#     --data.init_args.seam_gaussian_sigma=1.5 \
+#     --data.init_args.include_intensity=true \
+#     --data.init_args.regenerate_csv=false \
+#     --data.init_args.stride=256 \
+#     --data.init_args.patch_size='[512,512]' \
+#     --data.init_args.test_ratio=0.2 \
+#     --data.init_args.min_water_pixels=1 \
+#     --data.init_args.valid_mask_min_ratio=0.9 \
+#     --data.init_args.save_rejected_tiles=false \
+#     --data.init_args.test_only=false \
+#     --data.init_args.batch_size=16 \
+#     --data.init_args.num_workers=32
 
 echo ""
 echo "============================================"
