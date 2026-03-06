@@ -64,7 +64,7 @@ data:
     #csv_root_folder: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/preprocessed_02NB000"
     patches_root_folder: ""
     # ElevationStackDataModule specific parameters
-    input_folders: 
+    input_folders:
       - "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/02NB000"
     output_root: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/preprocessed_02NB000"
     #csv_path: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/preprocessed_02NB000/02NB000_water_extraction.csv"
@@ -76,6 +76,8 @@ data:
     num_workers: 16  # Utilize more CPU cores
     regenerate_csv: false
     min_water_pixels: 1
+    project_extents_path: None
+    seam_gaussian_sigma: 1.5 # Default
     mean:
     - 3.9649343334774128
     - 8.978241985499926
