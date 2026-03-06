@@ -76,7 +76,7 @@ data:
     num_workers: 16  # Utilize more CPU cores
     regenerate_csv: false
     min_water_pixels: 1
-    project_extents_path: None
+    project_extents_path: null  # Use 'null' not 'None' in YAML
     seam_gaussian_sigma: 1.5 # Default
     mean:
     - 3.9649343334774128
