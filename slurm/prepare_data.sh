@@ -6,7 +6,7 @@
 #SBATCH --mem=128G
 #SBATCH --time=48:00:00
 #SBATCH --output=slurm/logs/%j_prepare_data.out
-#SBATCH --error=slurm/logs/%j_prepare_data.err
+#SBATCH --error=slurm/logs/%j_prepare_data.out
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=luca.romanini@nrcan-rncan.gc.ca
 #SBATCH --qos=low
