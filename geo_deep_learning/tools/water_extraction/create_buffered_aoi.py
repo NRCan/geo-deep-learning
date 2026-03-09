@@ -161,7 +161,7 @@ def create_buffered_aoi(  # noqa: PLR0915
             )
 
         # Create new feature with buffered geometry
-        buffered_feature = feature.copy()
+        buffered_feature = dict(feature)
         buffered_feature["geometry"] = buffered_geom.__geo_interface__
         buffered_features.append(buffered_feature)
 
