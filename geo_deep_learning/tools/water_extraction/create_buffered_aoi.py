@@ -169,6 +169,10 @@ def create_buffered_aoi(  # noqa: PLR0915
     output_path = Path(output_aoi_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Update schema geometry type to match actual buffered geometries
+    if buffered_features:
+        schema["geometry"] = buffered_features[0]["geometry"]["type"]
+
     # Write buffered AOI
     with fiona.open(
         output_aoi_path,
