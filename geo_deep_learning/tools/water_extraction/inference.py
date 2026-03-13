@@ -430,6 +430,7 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     batch_size: int = 4,
     device: str = "cuda",
     _nodata_val: float = -32767,
+    data_folder: str | None = None,
 ) -> None:
     """
     Perform sliding window inference over full AOI raster.
@@ -450,6 +451,7 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         batch_size: Number of windows to process in parallel
         device: Device to run inference on
         _nodata_val: NoData value (reserved for future use)
+        data_folder: Optional path to original data folder for finding valid_lidar_mask
 
     """
     log.info("=" * 80)
@@ -565,27 +567,29 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         batch_windows = []
         batch_positions = []
 
-        valid_lidar_mask_path = (
-            "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning"
-            "/gdl_projects/geo-deep-learning/data/02NB000/valir_lidar_mask.gpkg"
-        )
+        # Load valid lidar mask if available
+        valid_mask_full = None
+        if data_folder is not None:
+            valid_lidar_mask_path = _resolve_valid_lidar_mask(data_folder)
+            if valid_lidar_mask_path is not None:
+                with fiona.open(valid_lidar_mask_path) as shp:
+                    # Reproject check (important)
+                    if shp.crs and shp.crs != ref_crs:
+                        msg = "CRS mismatch between valid mask and raster"
+                        raise ValueError(msg)
 
-        # Load valid lidar mask GPKG
-        with fiona.open(valid_lidar_mask_path) as shp:
-            # Reproject check (important)
-            if shp.crs and shp.crs != ref_crs:
-                msg = "CRS mismatch between valid mask and raster"
-                raise ValueError(msg)
+                    geometries = [feature["geometry"] for feature in shp]
 
-            geometries = [feature["geometry"] for feature in shp]
-
-        valid_mask_full = rasterize(
-            [(geom, 1) for geom in geometries],
-            out_shape=ref_shape,
-            transform=ref_transform,
-            fill=0,
-            dtype="uint8",
-        )
+                valid_mask_full = rasterize(
+                    [(geom, 1) for geom in geometries],
+                    out_shape=ref_shape,
+                    transform=ref_transform,
+                    fill=0,
+                    dtype="uint8",
+                )
+                log.info("Valid LiDAR mask loaded and rasterized successfully")
+        else:
+            log.info("No data_folder provided - skipping valid LiDAR mask filtering")
 
         with torch.no_grad():
             for i, (x, y) in enumerate(tqdm(windows, desc="Inference")):
@@ -604,18 +608,18 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
                         np.float32,
                     )  # (C, H, W)
 
-                # Check for nodata
-                # valid_mask = window_data[0] != nodata_val
-                # valid_mask_window = valid_mask_full[
-                #     y:y+window_size, x:x+window_size
-                # ].astype(bool)
-
-                valid_mask_window = valid_mask_full[
-                    y : y + window_size,
-                    x : x + window_size,
-                ].astype(bool)
-
-                valid_mask_window[:] = True
+                # Check for nodata and apply valid mask if available
+                if valid_mask_full is not None:
+                    valid_mask_window = valid_mask_full[
+                        y : y + window_size,
+                        x : x + window_size,
+                    ].astype(bool)
+                else:
+                    # No valid mask - process all pixels
+                    valid_mask_window = np.ones(
+                        (window_size, window_size),
+                        dtype=bool,
+                    )
 
                 # Convert to tensor
                 window_tensor = torch.from_numpy(window_data).float()  # (C, H, W)
@@ -974,6 +978,38 @@ def _resolve_aoi_vector(data_folder: str) -> Path | None:
     return None
 
 
+def _resolve_valid_lidar_mask(data_folder: str) -> Path | None:
+    """
+    Find the valid LiDAR mask vector file in the data folder.
+
+    Looks for valid_lidar_mask.gpkg or valid_lidar_mask.shp.
+
+    Args:
+        data_folder: Path to the data folder
+
+    Returns:
+        Path to valid LiDAR mask vector file, or None if not found
+
+    """
+    data_path = Path(data_folder)
+    candidates = [
+        data_path / "valid_lidar_mask.gpkg",
+        data_path / "valid_lidar_mask.shp",
+    ]
+
+    for candidate in candidates:
+        if candidate.exists():
+            log.info("Found valid LiDAR mask: %s", candidate)
+            return candidate
+
+    log.warning(
+        "Valid LiDAR mask not found in %s (checked: %s) - will skip mask filtering",
+        data_folder,
+        ", ".join(str(c) for c in candidates),
+    )
+    return None
+
+
 def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     checkpoint_path: str,
     output_folder: str,
@@ -1139,6 +1175,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         stride=stride,
         batch_size=batch_size,
         device=device,
+        data_folder=data_folder,
     )
 
     # Step 4: Crop to AOI boundary (if available)
