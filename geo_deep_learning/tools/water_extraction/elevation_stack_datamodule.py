@@ -1,7 +1,6 @@
 """Elevation Stack DataModule for water extraction."""
 
 import logging
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +20,11 @@ from geo_deep_learning.tools.water_extraction.prepare_inputs import (
     align_to_reference,
     compute_ndsm,
     compute_twi_whitebox,
+    generate_csv_from_tiles,
     rasterize_labels_binary_aoi_mask,
     rasterize_valid_lidar_mask,
     stack_rasters,
+    tile_raster_pair,
 )
 from geo_deep_learning.tools.water_extraction.seam_correction import correct_seams
 from geo_deep_learning.utils.rasters import compute_dataset_stats_from_list
@@ -263,19 +264,36 @@ class ElevationStackDataModule(CSVDataModule):
     @rank_zero_only
     def prepare_data(self) -> None:
         """
-        Prepare data for training.
+        Prepare data for training or inference.
+
+        Behavior depends on test_only flag:
+
+        test_only=False (training):
+          - Preprocesses: alignment, TWI, nDSM, stacking
+          - Rasterizes labels with AOI masking
+          - Tiles inputs and labels
+          - Generates CSV with train/val/test splits
+          - Computes normalization statistics
+
+        test_only=True (inference preprocessing):
+          - Preprocesses: alignment, TWI, nDSM, stacking
+          - Skips: label rasterization, tiling, CSV, stats
+          - Output: stacked_inputs.tif ready for inference
 
         Semantics:
-        - Tiling is skipped if tiles exist OR regenerate_csv=True
-        - CSV generation is forced when regenerate_csv=True
+        - Skips if data already exists (based on test_only mode)
+        - regenerate_csv=True forces CSV regeneration (training mode only)
         """
         if self._data_already_exists() and not self.regenerate_csv:
-            log.info("[SKIP] Tiles already exist and CSV handling resolved.")
-            self._load_or_compute_stats()
+            if self.test_only:
+                log.info("[SKIP] Preprocessed stacks already exist.")
+            else:
+                log.info("[SKIP] Tiles already exist and CSV handling resolved.")
+                self._load_or_compute_stats()
             return
 
         # -------------------------------
-        # AOI processing (tiling)
+        # AOI processing (preprocessing + tiling for training)
         # -------------------------------
         if self.input_folders and not self.regenerate_csv:
             for aoi_path in self.input_folders:
@@ -284,37 +302,46 @@ class ElevationStackDataModule(CSVDataModule):
             log.info("regenerate_csv=True → skipping AOI processing")
 
         # -------------------------------
-        # CSV generation
+        # CSV generation and stats (training only)
         # -------------------------------
-        log.info("[WARNING] Generating CSV files and STATS TEMPORARILY DISABLED")
-        # log.info("Generating CSV files")
-        # if self.test_only:
-        #     # Only generate inference CSV
-        #     generate_csv_from_tiles(
-        #         root_output_folder=self.output_root,
-        #         csv_tiling_path=self.csv_path,
-        #         csv_inference_path=self.csv_infer_path,
-        #         test_ratio=1.0,  # All tiles go to inference
-        #         min_water_pixels=self.min_water_pixels,
-        #     )
-        #     log.info("Test only, no stats computation")
-        # else:
-        #     generate_csv_from_tiles(
-        #         root_output_folder=self.output_root,
-        #         csv_tiling_path=self.csv_path,
-        #         csv_inference_path=self.csv_infer_path,
-        #         test_ratio=self.test_ratio,
-        #         min_water_pixels=self.min_water_pixels,
-        #     )
-
-        #     self._compute_and_save_stats()
+        if not self.test_only:
+            log.info("Generating CSV files for training")
+            generate_csv_from_tiles(
+                root_output_folder=self.output_root,
+                csv_tiling_path=self.csv_path,
+                csv_inference_path=self.csv_infer_path,
+                test_ratio=self.test_ratio,
+                min_water_pixels=self.min_water_pixels,
+            )
+            log.info("Computing normalization statistics")
+            self._compute_and_save_stats()
+        else:
+            log.info("test_only=True → skipping CSV generation and stats computation")
 
     # ------------------------------------------------------------------
     # Existence checks
     # ------------------------------------------------------------------
 
-    def _data_already_exists(self) -> bool:  # noqa: PLR0911
+    def _data_already_exists(self) -> bool:  # noqa: PLR0911, C901
         """Determine whether data preparation can be skipped."""
+        # test_only mode: check if preprocessed stacks exist
+        if self.test_only:
+            if not self.input_folders:
+                return True
+
+            log.info("test_only=True → checking for preprocessed stacks only")
+            for aoi_path in self.input_folders:
+                aoi_name = Path(aoi_path).name
+                stacked_path = Path(self.output_root) / aoi_name / "stacked_inputs.tif"
+
+                if not stacked_path.exists():
+                    log.info("Stacked inputs not found: %s", stacked_path)
+                    return False
+
+            log.info("All preprocessed stacks exist → skipping preprocessing")
+            return True
+
+        # Training mode: check for tiles and CSV
         if self.regenerate_csv:
             log.info("regenerate_csv=True → bypassing CSV existence check")
         elif not Path(self.csv_path).exists():
@@ -584,10 +611,11 @@ class ElevationStackDataModule(CSVDataModule):
             else:
                 log.info("Skipping valid mask rasterization (already exists)")
 
-        label_raster = out_dir / "labels_aligned.tif"
-
+        # Step 4 & 5: Label rasterization and tiling (training only)
         if not self.test_only:
-            # Step 4: Rasterize labels
+            label_raster = out_dir / "labels_aligned.tif"
+
+            # Rasterize labels
             aoi_vector = self._resolve_vector_file(aoi_path, "aoi")
             rasterize_labels_binary_aoi_mask(
                 label_vector_path=str(labels_vector),
@@ -598,38 +626,23 @@ class ElevationStackDataModule(CSVDataModule):
                 fill_value=0,
                 ignore_value=-1,
             )
-        # Create a dummy label raster (all zeros, same shape as stack_path)
-        elif not label_raster.exists():
-            log.info("Creating dummy label because test_only mode")
-            with rasterio.open(str(stack_path)) as src:
-                profile = src.profile.copy()
-                profile.update({"count": 1, "dtype": "int16", "nodata": -1})
-                data = np.full(
-                    (src.height, src.width),
-                    fill_value=1,  # ignore_index
-                    dtype=np.int16,
-                )
-                with rasterio.open(str(label_raster), "w", **profile) as dst:
-                    dst.write(data, 1)
-        # Quick debug
-        log.info("TIME TAG")
-        sys.exit("Exiting early, data preparation done")
 
-        log.info("[DEBUG] TILING IS COMMENTED OUT TEMPORARILY")
-        # # Step 5: Tile
-        # log.info("Tiling...")
-        # tile_raster_pair(
-        #     input_path=str(stack_path),
-        #     label_path=str(label_raster),
-        #     output_dir=str(out_dir / "tiles"),
-        #     patch_size=self.patch_size[0],
-        #     stride=self.stride,
-        #     valid_mask_path=(
-        #         str(valid_mask_raster) if valid_mask_raster.exists() else None
-        #     ),
-        #     valid_mask_min_ratio=self.valid_mask_min_ratio,
-        #     save_rejected_tiles=self.save_rejected_tiles,
-        # )
+            # Tile for training
+            log.info("Tiling for training...")
+            tile_raster_pair(
+                input_path=str(stack_path),
+                label_path=str(label_raster),
+                output_dir=str(out_dir / "tiles"),
+                patch_size=self.patch_size[0],
+                stride=self.stride,
+                valid_mask_path=(
+                    str(valid_mask_raster) if valid_mask_raster.exists() else None
+                ),
+                valid_mask_min_ratio=self.valid_mask_min_ratio,
+                save_rejected_tiles=self.save_rejected_tiles,
+            )
+        else:
+            log.info("test_only=True → skipping label rasterization and tiling")
 
     def train_dataloader(self) -> DataLoader[Any]:
         """
