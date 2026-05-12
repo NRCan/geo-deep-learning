@@ -122,6 +122,30 @@ def test_compute_dataset_stats_from_list(tmp_path: Path) -> None:
     assert pytest.approx(stds[0], rel=1e-6) == expected_std
 
 
+def test_compute_dataset_stats_from_band_nodata_tags(tmp_path: Path) -> None:
+    """Fallback band tags should be honored when raster nodata metadata is absent."""
+    path = tmp_path / "tagged_nodata_tile.tif"
+    data = np.array([[[1, -9999], [3, 5]]], dtype=np.float32)
+
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=2,
+        width=2,
+        count=1,
+        dtype=data.dtype,
+        transform=from_origin(0, 2, 1, 1),
+    ) as dst:
+        dst.write(data)
+        dst.update_tags(1, NODATA_VALUE=-9999)
+
+    means, stds = compute_dataset_stats_from_list([path])
+
+    assert pytest.approx(means[0], rel=1e-6) == 3.0
+    assert pytest.approx(stds[0], rel=1e-6) == np.sqrt(8 / 3)
+
+
 def test_compute_dataset_stats_empty_list() -> None:
     """Test that empty list raises ValueError."""
     with pytest.raises(ValueError, match="No input tiles provided for statistics"):

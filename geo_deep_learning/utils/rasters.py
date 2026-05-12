@@ -113,6 +113,22 @@ def compute_dataset_stats_from_list(
         msg = "No input tiles provided for statistics."
         raise ValueError(msg)
 
+    def _band_nodata(src: rasterio.io.DatasetReader, band_index: int) -> float | None:
+        """Resolve per-band nodata from raster metadata or fallback band tags."""
+        nodata_val = src.nodatavals[band_index]
+        if nodata_val is not None:
+            return nodata_val
+
+        band_tags = src.tags(band_index + 1)
+        band_nodata = band_tags.get("NODATA_VALUE")
+        if band_nodata is None:
+            return None
+
+        try:
+            return float(band_nodata)
+        except (TypeError, ValueError):
+            return None
+
     sum_pixels = None
     sum_sq_pixels = None
     total_valid_pixels = None
@@ -120,14 +136,17 @@ def compute_dataset_stats_from_list(
     for path in tqdm(tile_paths, desc="Computing global dataset stats"):
         with rasterio.open(path) as src:
             img = src.read().astype(np.float32)  # shape (C, H, W)
-            nodata_vals = src.nodatavals  # tuple of nodata values per band
-
-        valid_pixels = []
-        for i in range(img.shape[0]):
-            band = img[i]
-            nodata_val = nodata_vals[i] if nodata_vals[i] is not None else np.nan
-            mask = band != nodata_val
-            valid_pixels.append(band[mask])
+            valid_pixels = []
+            for i in range(img.shape[0]):
+                band = img[i]
+                nodata_val = _band_nodata(src, i)
+                if nodata_val is None:
+                    mask = np.isfinite(band)
+                elif np.isnan(nodata_val):
+                    mask = ~np.isnan(band)
+                else:
+                    mask = (band != nodata_val) & np.isfinite(band)
+                valid_pixels.append(band[mask])
 
         if sum_pixels is None:
             sum_pixels = np.zeros(img.shape[0])
