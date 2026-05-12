@@ -150,7 +150,7 @@ class ElevationStackDataset(CSVDataset):
         # Validate channel count matches stats
         num_channels = image.shape[0]
         num_stats = len(self.norm_stats["mean"])
-        
+
         if num_channels != num_stats:
             error_msg = (
                 f"Channel mismatch in {image_name}: "
@@ -165,7 +165,7 @@ class ElevationStackDataset(CSVDataset):
         # Apply standardization using provided statistics
         mean = torch.tensor(self.norm_stats["mean"], dtype=torch.float32).view(-1, 1, 1)
         std = torch.tensor(self.norm_stats["std"], dtype=torch.float32).view(-1, 1, 1)
-        
+
         # Debug logging for first few samples
         # if index < 3:
         #     logger.info(
@@ -176,8 +176,21 @@ class ElevationStackDataset(CSVDataset):
         #         f"std={self.norm_stats['std']}, "
         #         f"split={self.split}"
         #     )
-        
+
         image = standardization(image, mean, std)
+        
+        # Guard: Check for non-finite values after preprocessing
+        if not torch.isfinite(image).all():
+            nan_count = torch.isnan(image).sum().item()
+            inf_count = torch.isinf(image).sum().item()
+            error_msg = (
+                f"Non-finite values detected in preprocessed image {image_name}!\n"
+                f"  NaN count: {nan_count}, Inf count: {inf_count}\n"
+                f"  Raw image stats: min={image.min():.3f}, max={image.max():.3f}\n"
+                f"  Normalization: mean={self.norm_stats['mean']}, std={self.norm_stats['std']}"
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
         # Handle mask - ensure it's long type for segmentation
         # Remove channel dim if present
@@ -202,7 +215,7 @@ class ElevationStackDataset(CSVDataset):
     def _load_image(self, index: int) -> tuple[Tensor, str]:
         """
         Load image with enhanced nodata handling for elevation data.
-        
+
         Loads channels based on include_intensity setting:
         - include_intensity=True: loads all 3 channels [TWI, nDSM, Intensity]
         - include_intensity=False: loads only 2 channels [TWI, nDSM]
@@ -222,7 +235,7 @@ class ElevationStackDataset(CSVDataset):
 
         with rio.open(image_path) as image:
             total_bands = image.count
-            
+
             # Validate that the raster has enough bands
             if total_bands < num_channels:
                 error_msg = (f"Insufficient bands in {image_name}: "
@@ -247,14 +260,14 @@ class ElevationStackDataset(CSVDataset):
             else:
                 # Load all bands
                 image_array = image.read().astype(np.float32)
-                if index < 3:
-                    logger.info(
-                        "Loading all %d channels from %s (include_intensity=%s, split=%s)",
-                        total_bands,
-                        image_name,
-                        self.include_intensity,
-                        self.split,
-                    )
+                # if index < 3:
+                #     logger.info(
+                #         "Loading all %d channels from %s (include_intensity=%s, split=%s)",
+                #         total_bands,
+                #         image_name,
+                #         self.include_intensity,
+                #         self.split,
+                #     )
 
             # Handle nodata values - set them to 0 (matching original implementation)
             if image.nodata is not None:
