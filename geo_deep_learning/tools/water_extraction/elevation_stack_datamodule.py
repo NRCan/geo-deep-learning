@@ -212,6 +212,9 @@ class ElevationStackDataModule(CSVDataModule):
             log.error(error_msg)
             raise ValueError(error_msg)
 
+        log.info("=" * 80)
+        log.info("DATAMODULE SETUP DIAGNOSTICS")
+        log.info("=" * 80)
         log.info(
             "Setting up datasets: include_intensity=%s, expected_channels=%d, "
             "mean=%s, std=%s",
@@ -231,6 +234,7 @@ class ElevationStackDataModule(CSVDataModule):
                 csv_infer_path=self.csv_infer_path,
                 include_intensity=self.include_intensity,
             )
+            log.info("Test-only mode: created inference dataset with %d samples", len(self.test_dataset))
         else:
             self.train_dataset = ElevationStackDataset(
                 split="trn",
@@ -256,6 +260,43 @@ class ElevationStackDataModule(CSVDataModule):
                 csv_path=self.csv_path,
                 include_intensity=self.include_intensity,
             )
+            
+            log.info("Training mode: created datasets")
+            log.info("  Train: %d samples", len(self.train_dataset))
+            log.info("  Val: %d samples", len(self.val_dataset))
+            log.info("  Test: %d samples", len(self.test_dataset))
+            
+            # === DIAGNOSTIC: Check unique mask values across splits ===
+            self._log_unique_mask_values()
+        
+        log.info("=" * 80)
+    
+    def _log_unique_mask_values(self) -> None:
+        """Log unique mask values for train/val/test splits to verify preprocessing consistency."""
+        import torch
+        
+        log.info("=" * 80)
+        log.info("MASK VALUE VERIFICATION")
+        log.info("=" * 80)
+        
+        for split_name, dataset in [("train", self.train_dataset), ("val", self.val_dataset), ("test", self.test_dataset)]:
+            # Sample first few masks to check unique values
+            unique_values_set = set()
+            samples_to_check = min(5, len(dataset))
+            
+            for i in range(samples_to_check):
+                try:
+                    sample = dataset[i]
+                    mask = sample["mask"]
+                    unique_vals = torch.unique(mask).tolist()
+                    unique_values_set.update(unique_vals)
+                except Exception as e:
+                    log.warning("Error loading %s sample %d: %s", split_name, i, e)
+            
+            log.info("%s split - Unique mask values from first %d samples: %s", 
+                    split_name.upper(), samples_to_check, sorted(unique_values_set))
+        
+        log.info("=" * 80)
 
     # ------------------------------------------------------------------
     # Data preparation entry point
