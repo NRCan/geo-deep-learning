@@ -695,15 +695,11 @@ def stack_rasters(
                 # ------------------------------------------------------------------
                 # Per-band NoData handling
                 # ------------------------------------------------------------------
-                src_dtype = src.dtypes[0]
                 src_nodata = src.nodata
 
-                if np.issubdtype(np.dtype(src_dtype), np.integer):
-                    # Integer rasters (e.g. intensity)
-                    if src_nodata is not None:
-                        dst.update_tags(band_idx, NODATA_VALUE=src_nodata)
-                else:
-                    # Floating-point rasters (TWI, nDSM)
+                if src_nodata is not None:
+                    dst.update_tags(band_idx, NODATA_VALUE=src_nodata)
+                elif np.issubdtype(np.dtype(src.dtypes[0]), np.floating):
                     dst.update_tags(band_idx, NODATA_VALUE=nodata_val)
 
                 # Optional: band description for readability
@@ -983,6 +979,20 @@ def tile_raster_pair(  # noqa: PLR0913
 
     tile_stats: list[dict] = []
 
+    def _copy_input_band_metadata(
+        src_input: rasterio.io.DatasetReader,
+        dst_input: rasterio.io.DatasetWriter,
+    ) -> None:
+        """Preserve per-band descriptions and nodata tags on tiled inputs."""
+        for band_idx in range(1, src_input.count + 1):
+            description = src_input.descriptions[band_idx - 1]
+            if description:
+                dst_input.set_band_description(band_idx, description)
+
+            band_tags = src_input.tags(band_idx)
+            if band_tags:
+                dst_input.update_tags(band_idx, **band_tags)
+
     def _save_rejected(
         x: int,
         y: int,
@@ -1035,7 +1045,9 @@ def tile_raster_pair(  # noqa: PLR0913
                 valid_pixels = np.sum(label_patch != -1)
                 if valid_pixels == 0:
                     filtered += 1
-                    _save_rejected(...)
+                    _save_rejected(
+                        x, y, input_patch, label_patch, src_input.meta, src_label.meta
+                    )
                     continue
 
                 valid_ratio = valid_pixels / label_patch.size
@@ -1088,6 +1100,7 @@ def tile_raster_pair(  # noqa: PLR0913
                     **input_meta,
                 ) as dst:
                     dst.write(input_patch)
+                    _copy_input_band_metadata(src_input, dst)
 
                 with rasterio.open(
                     Path(output_dir) / "labels" / f"tile_{tile_id:05d}_label.tif",
