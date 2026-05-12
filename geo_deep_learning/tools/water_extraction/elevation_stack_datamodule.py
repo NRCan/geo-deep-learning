@@ -531,34 +531,15 @@ class ElevationStackDataModule(CSVDataModule):
             log.info("Skipping DSM alignment (already exists)")
 
         if self.include_intensity and intensity.exists():
-            intensity_temp = out_dir / "intensity_temp.tif"
-            needs_alignment = not intensity_aligned.exists()
-
-            if needs_alignment:
-                log.info("Aligning Intensity: %s", intensity_temp)
-                # Patch: ensure BIGTIFF=YES for large files
+            if not intensity_aligned.exists():
+                log.info("Aligning Intensity: %s", intensity_aligned)
+                # Align to DTM without cropping
+                # Cropping should only happen after inference to remove edge artifacts
                 align_to_reference(
                     str(dtm),
                     str(intensity),
-                    str(intensity_temp),
+                    str(intensity_aligned),
                 )
-                # Crop aligned intensity to AOI boundary
-                aoi_vector = self._resolve_vector_file(aoi_path, "aoi")
-                if aoi_vector:
-                    log.info(
-                        "Cropping intensity to AOI boundary: %s",
-                        intensity_aligned,
-                    )
-                    self._crop_raster_to_aoi(
-                        str(intensity_temp),
-                        str(intensity_aligned),
-                        str(aoi_vector),
-                    )
-                    # Remove temp file
-                    intensity_temp.unlink()
-                else:
-                    # No AOI vector, just rename temp to final
-                    intensity_temp.rename(intensity_aligned)
             else:
                 log.info("Skipping Intensity alignment (already exists)")
 
