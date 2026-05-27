@@ -36,7 +36,7 @@ my_aoi/
 ```bash
 python -m geo_deep_learning.tools.water_extraction.inference \
     --checkpoint path/to/model.ckpt \
-    --data_folder path/to/aoi \
+    --data_folder data/inference/raw/<aoi> \
     --output_folder path/to/outputs \
     --mean 0.0 0.0 0.0 \
     --std 1.0 1.0 1.0
@@ -47,7 +47,7 @@ python -m geo_deep_learning.tools.water_extraction.inference \
 ```bash
 python -m geo_deep_learning.tools.water_extraction.inference \
     --checkpoint /path/to/checkpoints/best_model.ckpt \
-    --data_folder /data/my_watershed \
+    --data_folder /data/inference/raw/my_watershed \
     --output_folder /outputs/my_watershed_predictions \
     --mean 5.234 2.145 87.532 \
     --std 3.421 1.876 45.231 \
@@ -65,7 +65,7 @@ python -m geo_deep_learning.tools.water_extraction.inference \
 | Argument | Type | Description |
 |----------|------|-------------|
 | `--checkpoint` | str | Path to trained model checkpoint (`.ckpt`) |
-| `--data_folder` | str | Path to folder containing input rasters |
+| `--data_folder` | str | Path to workflow raw AOI folder, e.g. `data/inference/raw/<aoi>` |
 | `--output_folder` | str | Path where outputs will be saved |
 | `--mean` | float+ | Per-band mean for standardization (space-separated) |
 | `--std` | float+ | Per-band std for standardization (space-separated) |
@@ -86,9 +86,9 @@ python -m geo_deep_learning.tools.water_extraction.inference \
 
 The script generates the following outputs in `output_folder`:
 
-**Preprocessing outputs** (saved in `preprocessed_{aoi_name}/`, only if preprocessing from raw data):
+**Preprocessing outputs** (saved in `data/inference/preprocessed/<aoi_name>/`, only if preprocessing from raw data):
 ```
-preprocessed_02NB000/
+data/inference/preprocessed/02NB000/
 ├── dsm_aligned.tif          # DSM aligned to DTM grid
 ├── intensity_aligned.tif    # Intensity aligned to DTM grid (if available)
 ├── ndsm.tif                 # Normalized DSM (DSM - DTM)
@@ -106,9 +106,9 @@ output_folder/
 
 **AOI Name Extraction**:
 - **From `--data_folder`**: The AOI name is extracted from the folder name
-  - Example: `--data_folder /data/02NB000` → AOI name = "02NB000"
+  - Example: `--data_folder /data/inference/raw/02NB000` → AOI name = "02NB000"
 - **From `--stacked_inputs`** (if no data_folder): Inferred from parent folder name
-  - Example: `--stacked_inputs /data/preprocessed_02NB000/stacked_inputs.tif` → AOI name = "02NB000"
+  - Example: `--stacked_inputs /data/inference/preprocessed/02NB000/stacked_inputs.tif` → AOI name = "02NB000"
 
 **AOI Boundary Cropping**:
 - The AOI vector (`aoi.gpkg` or `aoi.shp`) must be in the `--data_folder` (raw data folder)
@@ -124,8 +124,8 @@ output_folder/
 # --data_folder: points to raw data folder containing aoi.gpkg for cropping
 python -m geo_deep_learning.tools.water_extraction.inference \
     --checkpoint model.ckpt \
-    --stacked_inputs /data/preprocessed_02NB000/stacked_inputs.tif \
-    --data_folder /data/02NB000 \
+    --stacked_inputs /data/inference/preprocessed/02NB000/stacked_inputs.tif \
+    --data_folder /data/inference/raw/02NB000 \
     --output_folder /results/ \
     --mean 3.96 8.98 137.23 \
     --std 2.22 6.30 63.83

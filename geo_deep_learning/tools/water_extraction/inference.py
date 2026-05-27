@@ -65,6 +65,7 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
     data_folder: str,
     output_folder: str,
     *,
+    workflow: str = "inference",
     nodata_val: float = -32767,
     include_intensity: bool = True,
     project_extents_path: str | None = None,
@@ -83,7 +84,9 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
 
     Args:
         data_folder: Path to folder containing dtm.tif, dsm.tif, intensity.tif
-        output_folder: Where to save intermediate and final outputs
+        output_folder: Path to the workflow preprocessed root. Outputs are saved
+            in ``<output_folder>/<aoi_name>/``.
+        workflow: Workflow layout used to validate input/output roots
         nodata_val: NoData value for output rasters
         include_intensity: Whether to include intensity band in stack
         project_extents_path: Path to GeoPackage with one polygon per LiDAR project
@@ -101,10 +104,31 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
     """
     data_path = Path(data_folder).resolve()
     aoi_name = data_path.name
+    if workflow not in {"training", "inference"}:
+        msg = f"workflow must be either 'training' or 'inference', got: {workflow}"
+        raise ValueError(msg)
 
-    # If user passes a parent output directory, we nest AOI_processed inside it
+    data_path_str = data_path.as_posix()
+    expected_raw_segment = f"/{workflow}/raw/"
+    if expected_raw_segment not in data_path_str:
+        msg = (
+            f"data_folder does not match workflow='{workflow}' layout: {data_folder}. "
+            f"Expected path containing '{expected_raw_segment}'."
+        )
+        raise ValueError(msg)
+
     base_output = Path(output_folder).resolve()
-    output_path = base_output / f"preprocessed_{aoi_name}"
+    base_output_str = base_output.as_posix()
+    expected_preprocessed_segment = f"/{workflow}/preprocessed"
+    if expected_preprocessed_segment not in base_output_str:
+        msg = (
+            f"output_folder does not match workflow='{workflow}' layout: "
+            f"{output_folder}. Expected path containing "
+            f"'{expected_preprocessed_segment}'."
+        )
+        raise ValueError(msg)
+
+    output_path = base_output / aoi_name
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Check required inputs
@@ -1092,22 +1116,41 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
 
     # If no data_folder provided, try to infer AOI name from stacked_inputs path
     if data_folder is None and stacked_inputs is not None:
-        # Expected path: .../preprocessed_{aoi_name}/stacked_inputs.tif
+        # Preferred layout: .../<workflow>/preprocessed/<aoi_name>/stacked_inputs.tif
         stacked_path = Path(stacked_inputs)
         parent_name = stacked_path.parent.name
+        aoi_name = parent_name
         if parent_name.startswith("preprocessed_"):
+            # Backward compatibility with older single-folder layout
             aoi_name = parent_name.replace("preprocessed_", "")
+        if aoi_name != "unknown_aoi":
             log.info("Inferred AOI name from stacked_inputs path: %s", aoi_name)
 
-        # Try to find the original data folder for AOI vector
-        # Common pattern: data/{aoi_name}/ contains raw data
-        possible_data_folder = stacked_path.parent.parent / aoi_name
-        if possible_data_folder.exists():
-            aoi_vector_path = _resolve_aoi_vector(str(possible_data_folder))
-            log.info(
-                "Found AOI vector in inferred data folder: %s",
-                possible_data_folder,
+        # Try the new workflow layout first: .../<workflow>/raw/<aoi_name>/
+        possible_data_folders = []
+        preprocessed_root = stacked_path.parent.parent
+        workflow_name = preprocessed_root.parent.name
+        if preprocessed_root.name == "preprocessed" and workflow_name in {
+            "training",
+            "inference",
+        }:
+            possible_data_folders.append(
+                preprocessed_root.parent / "raw" / aoi_name,
             )
+
+        # Backward compatibility with older layout:
+        # .../preprocessed_<aoi_name>/stacked_inputs.tif and sibling raw AOI folder
+        possible_data_folders.append(preprocessed_root / aoi_name)
+
+        for possible_data_folder in possible_data_folders:
+            if possible_data_folder.exists():
+                aoi_vector_path = _resolve_aoi_vector(str(possible_data_folder))
+                log.info(
+                    "Found AOI vector in inferred data folder: %s",
+                    possible_data_folder,
+                )
+                if aoi_vector_path is not None:
+                    break
 
     log.info("=" * 80)
     log.info("WATER EXTRACTION INFERENCE")
@@ -1279,7 +1322,8 @@ def parse_args() -> argparse.Namespace:
         required=False,
         help=(
             "Path to preprocessed stacked_inputs.tif "
-            "(e.g., preprocessed_02NB000/stacked_inputs.tif). Required for inference."
+            "(e.g., data/inference/preprocessed/02NB000/stacked_inputs.tif). "
+            "Required for inference."
         ),
     )
     parser.add_argument(
@@ -1287,7 +1331,8 @@ def parse_args() -> argparse.Namespace:
         type=str,
         required=False,
         help=(
-            "Path to RAW data folder with aoi.gpkg/shp (e.g., data/02NB000/). "
+            "Path to RAW data folder with aoi.gpkg/shp "
+            "(e.g., data/inference/raw/02NB000/). "
             "Used only for AOI name and boundary vector. "
             "If not provided, AOI name is inferred from stacked_inputs path."
         ),

@@ -3,8 +3,8 @@ CLI for preprocessing AOI for inference (no model required).
 
 Usage:
     python -m geo_deep_learning.tools.water_extraction.preprocess_inference_data \
-        --data_folder path/to/aoi \
-        --output_folder path/to/outputs
+        --data_folder data/inference/raw/<aoi> \
+        --output_folder data/inference/preprocessed
 """
 
 import argparse
@@ -26,13 +26,19 @@ def parse_args() -> argparse.Namespace:
         "--data_folder",
         type=str,
         required=True,
-        help="Path to AOI folder with dtm.tif, dsm.tif, intensity.tif",
+        help=(
+            "Path to inference AOI raw folder with dtm.tif, dsm.tif, intensity.tif "
+            "(e.g., data/inference/raw/02NB000)"
+        ),
     )
     parser.add_argument(
         "--output_folder",
         type=str,
         required=True,
-        help="Where to save preprocessed outputs",
+        help=(
+            "Path to inference preprocessed root "
+            "(e.g., data/inference/preprocessed)"
+        ),
     )
     parser.add_argument(
         "--no_intensity",
@@ -67,11 +73,16 @@ def main() -> None:
     preprocess_aoi(
         data_folder=args.data_folder,
         output_folder=args.output_folder,
+        workflow="inference",
         include_intensity=not args.no_intensity,
         project_extents_path=args.project_extents,
         seam_gaussian_sigma=args.seam_sigma,
     )
-    log.info("Preprocessing complete. Outputs in: %s", args.output_folder)
+    log.info(
+        "Preprocessing complete. Outputs in: %s/%s",
+        args.output_folder,
+        args.data_folder.rstrip("/").split("/")[-1],
+    )
 
 
 if __name__ == "__main__":

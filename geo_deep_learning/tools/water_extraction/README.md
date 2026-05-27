@@ -115,11 +115,12 @@ data:
   init_args:
     # Input/output paths
     input_folders:
-      - "/path/to/AOI_1"
-      - "/path/to/AOI_2"
-    output_root: "/path/to/processed_data"
-    csv_path: "/path/to/processed_data/training.csv"
-    csv_infer_path: "/path/to/processed_data/inference.csv"
+      - "/path/to/data/training/raw/AOI_1"
+      - "/path/to/data/training/raw/AOI_2"
+    output_root: "/path/to/data/training/preprocessed"
+    csv_path: "/path/to/data/training/preprocessed/training.csv"
+    csv_infer_path: "/path/to/data/training/preprocessed/inference.csv"
+    workflow: "training"
 
     # Data preparation parameters
     include_intensity: true
@@ -132,8 +133,24 @@ data:
     num_workers: 4
 
     # Paths for loading pre-processed data
-    csv_root_folder: "/path/to/processed_data"
-    patches_root_folder: "/path/to/processed_data"
+    csv_root_folder: "/path/to/data/training/preprocessed"
+    patches_root_folder: "/path/to/data/training/preprocessed"
+```
+
+Recommended layout:
+
+```text
+data/
+├── training/
+│   ├── raw/
+│   │   ├── AOI_1/
+│   │   └── AOI_2/
+│   └── preprocessed/
+│       ├── AOI_1/
+│       └── AOI_2/
+└── inference/
+    ├── raw/
+    └── preprocessed/
 ```
 
 #### Step 2: Run training

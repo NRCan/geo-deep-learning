@@ -64,6 +64,7 @@ class ElevationStackDataModule(CSVDataModule):
         regenerate_csv: bool = False,
         min_water_pixels: int = 1,
         test_only: bool = False,
+        workflow: str = "training",
         project_extents_path: str | None = None,
         seam_gaussian_sigma: float = 1.5,
     ) -> None:
@@ -95,8 +96,12 @@ class ElevationStackDataModule(CSVDataModule):
         self.regenerate_csv = regenerate_csv
         self.min_water_pixels = min_water_pixels
         self.test_only = test_only
+        self.workflow = workflow
         self.project_extents_path = project_extents_path
         self.seam_gaussian_sigma = seam_gaussian_sigma
+
+        self._validate_workflow()
+        self._validate_workflow_paths()
 
         # Track if user provided custom stats (to avoid overwriting with stats.npy)
         self.user_provided_stats = mean is not None and std is not None
@@ -110,6 +115,49 @@ class ElevationStackDataModule(CSVDataModule):
             log.info("Slicing user-provided stats to 2 channels (excluding intensity)")
             self.norm_stats["mean"] = self.norm_stats["mean"][:_NUM_BASE_CHANNELS]
             self.norm_stats["std"] = self.norm_stats["std"][:_NUM_BASE_CHANNELS]
+
+    def _validate_workflow(self) -> None:
+        """Validate the workflow mode used to organize dataset paths."""
+        if self.workflow not in {"training", "inference"}:
+            msg = (
+                "workflow must be either 'training' or 'inference', "
+                f"got: {self.workflow}"
+            )
+            raise ValueError(msg)
+
+    def _validate_workflow_paths(self) -> None:
+        """
+        Validate that configured paths match the workflow layout.
+
+        Expected layout:
+          data/<workflow>/raw/<aoi>/
+          data/<workflow>/preprocessed/<aoi>/
+        """
+        if not self.input_folders:
+            return
+
+        expected_raw_segment = f"/{self.workflow}/raw/"
+        expected_preprocessed_segment = f"/{self.workflow}/preprocessed"
+
+        for input_folder in self.input_folders:
+            input_path = Path(input_folder).resolve().as_posix()
+            if expected_raw_segment not in input_path:
+                msg = (
+                    f"Input folder does not match workflow='{self.workflow}' layout: "
+                    f"{input_folder}. Expected path containing "
+                    f"'{expected_raw_segment}'."
+                )
+                raise ValueError(msg)
+
+        if self.output_root:
+            output_path = Path(self.output_root).resolve().as_posix()
+            if expected_preprocessed_segment not in output_path:
+                msg = (
+                    f"output_root does not match workflow='{self.workflow}' layout: "
+                    f"{self.output_root}. Expected path containing "
+                    f"'{expected_preprocessed_segment}'."
+                )
+                raise ValueError(msg)
 
     # ------------------------------------------------------------------
     # Setup datasets
