@@ -55,7 +55,7 @@ log = logging.getLogger(__name__)
 
 _BINARY_THRESHOLD = 0.5  # Probability threshold for water/non-water classification
 _NEGATIVE_NODATA_THRESHOLD = -32000.0
-
+_NON_STANDARDIZED_CHANNEL_KEYS = ("zero_intensity",)
 
 # =============================================================================
 # 1. PREPROCESSING
@@ -69,6 +69,7 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
     workflow: str = "inference",
     nodata_val: float = -32767,
     include_intensity: bool = True,
+    selected_channel_indices: list[int] | None = None,
     project_extents_path: str | None = None,
     seam_gaussian_sigma: float = 1.5,
 ) -> str:
@@ -250,9 +251,10 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
         stack_inputs = [str(twi_path), str(ndsm_path)]
         if has_intensity:
             stack_inputs.append(str(intensity_aligned))
-            log.info("Band order: [TWI, nDSM, Intensity]")
-        else:
-            log.info("Band order: [TWI, nDSM]")
+        if selected_channel_indices is not None:
+            stack_inputs = [stack_inputs[idx] for idx in selected_channel_indices]
+            log.info("Selected channel indices: %s", selected_channel_indices)
+        log.info("Band order after selection: %s", stack_inputs)
 
         stack_rasters(
             raster_paths=stack_inputs,
@@ -477,6 +479,18 @@ def _valid_data_mask(
     return valid_mask
 
 
+def _skip_standardization_indices_from_descriptions(
+    descriptions: list[str | None],
+) -> list[int]:
+    """Return band indices that should bypass standardization."""
+    skip_indices = []
+    for idx, description in enumerate(descriptions):
+        normalized_name = (description or "").lower()
+        if any(key in normalized_name for key in _NON_STANDARDIZED_CHANNEL_KEYS):
+            skip_indices.append(idx)
+    return skip_indices
+
+
 # =============================================================================
 # 3. SLIDING WINDOW INFERENCE
 # =============================================================================
@@ -489,6 +503,7 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     mean: list[float],
     std: list[float],
     *,
+    selected_channel_indices: list[int] | None = None,
     model_in_channels: int | None = None,
     window_size: int = 512,
     stride: int = 512,
@@ -537,28 +552,56 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         ref_crs = src.crs
 
         # Determine how many channels to actually load
-        channels_to_load = (
-            model_in_channels if model_in_channels is not None else num_bands
-        )
+        if selected_channel_indices is None:
+            channels_to_load = (
+                model_in_channels if model_in_channels is not None else num_bands
+            )
+            bands_to_read = list(range(1, channels_to_load + 1))
+            stats_indices = list(range(channels_to_load))
+        else:
+            channels_to_load = len(selected_channel_indices)
+            if num_bands == channels_to_load:
+                bands_to_read = list(range(1, num_bands + 1))
+            else:
+                bands_to_read = [idx + 1 for idx in selected_channel_indices]
+            stats_indices = selected_channel_indices
 
         # Validate that input raster has enough bands
-        if channels_to_load > num_bands:
+        if max(bands_to_read) > num_bands:
             msg = (
-                f"Model expects {channels_to_load} channels but input raster "
-                f"only has {num_bands} bands"
+                f"Requested bands {bands_to_read} but input raster only has "
+                f"{num_bands} bands"
+            )
+            raise ValueError(msg)
+
+        if model_in_channels is not None and channels_to_load != model_in_channels:
+            msg = (
+                f"Configured channel selection loads {channels_to_load} bands but "
+                f"model expects {model_in_channels}"
             )
             raise ValueError(msg)
 
         # Log channel information
         log.info("Input raster bands: %d", num_bands)
         log.info("Model expects: %d channels", channels_to_load)
-        if channels_to_load < num_bands:
+        if channels_to_load < num_bands or selected_channel_indices is not None:
             log.info(
-                "Will load only first %d channels (excluding intensity)",
-                channels_to_load,
+                "Will load raster bands %s",
+                bands_to_read,
             )
 
         log.info("Input shape: (%d, %d, %d)", channels_to_load, height, width)
+        band_nodata_values = _get_band_nodata_values(src, bands_to_read)
+        selected_descriptions = [src.descriptions[band - 1] for band in bands_to_read]
+        skip_standardization_indices = _skip_standardization_indices_from_descriptions(
+            selected_descriptions,
+        )
+        log.info("Per-band nodata metadata values: %s", band_nodata_values)
+        log.info("Bands skipping standardization: %s", skip_standardization_indices)
+        log.info(
+            "Also masking values <= %.1f as negative nodata sentinels",
+            _NEGATIVE_NODATA_THRESHOLD,
+        )
 
         # Initialize output arrays
         # Prediction accumulator (sum of predictions)
@@ -598,22 +641,22 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         log.info("Total windows to process: %d", len(windows))
 
         # Validate and slice mean/std to match model's expected channels
-        if len(mean) < channels_to_load or len(std) < channels_to_load:
+        if len(mean) < max(stats_indices) + 1 or len(std) < max(stats_indices) + 1:
             msg = (
                 f"Mean/std arrays have {len(mean)}/{len(std)} values but "
-                f"model expects {channels_to_load} channels"
+                f"requested stats indices are {stats_indices}"
             )
             raise ValueError(msg)
 
-        # Slice mean/std if they have more values than needed
-        mean_sliced = mean[:channels_to_load]
-        std_sliced = std[:channels_to_load]
+        mean_sliced = [mean[idx] for idx in stats_indices]
+        std_sliced = [std[idx] for idx in stats_indices]
 
-        if len(mean) > channels_to_load:
+        if len(mean) != len(mean_sliced):
             log.info(
-                "Slicing mean/std from %d to %d values to match model channels",
+                "Selecting mean/std from %d to %d values using indices %s",
                 len(mean),
-                channels_to_load,
+                len(mean_sliced),
+                stats_indices,
             )
 
         # Convert stats to tensors
@@ -662,8 +705,6 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
 
                 # Read window data - load only the channels the model expects
                 if channels_to_load < num_bands:
-                    # Load only first N channels (1-indexed in rasterio)
-                    bands_to_read = list(range(1, channels_to_load + 1))
                     window_data = src.read(bands_to_read, window=window).astype(
                         np.float32,
                     )  # (C, H, W)
@@ -692,20 +733,25 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
                         dtype=bool,
                     )
 
+                valid_mask_window &= data_valid_mask
+
                 # Convert to tensor
                 window_tensor = torch.from_numpy(window_data).float()  # (C, H, W)
 
                 # Apply standardization
-                # window_tensor = standardization(
-                #     window_tensor.unsqueeze(0), mean_t, std_t
-                # )  # (1, C, H, W)
-
                 window_tensor = window_tensor.to(device)
-                window_tensor = standardization(
-                    window_tensor.unsqueeze(0),
-                    mean_t,
-                    std_t,
-                )
+                window_tensor = window_tensor.unsqueeze(0)
+                standardize_indices = [
+                    idx for idx in range(channels_to_load)
+                    if idx not in skip_standardization_indices
+                ]
+                if standardize_indices:
+                    window_tensor[:, standardize_indices] = standardization(
+                        window_tensor[:, standardize_indices],
+                        mean_t[standardize_indices],
+                        std_t[standardize_indices],
+                    )
+                window_tensor = window_tensor * channel_weights_t
 
                 window_tensor[:, :, ~valid_mask_window] = 0.0
 
@@ -1099,6 +1145,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     batch_size: int = 4,
     device: str = "cuda",
     include_intensity: bool = True,
+    selected_channel_indices: list[int] | None = None,
     export_vector: bool = True,
     simplify_tolerance: float = 1.0,
     project_extents_path: str | None = None,
@@ -1230,6 +1277,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
             data_folder=data_folder,
             output_folder=output_folder,
             include_intensity=include_intensity,
+            selected_channel_indices=selected_channel_indices,
             project_extents_path=project_extents_path,
             seam_gaussian_sigma=seam_gaussian_sigma,
         )
@@ -1266,6 +1314,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         output_raster_path=prediction_raster_full,
         mean=mean,
         std=std,
+        selected_channel_indices=selected_channel_indices,
         model_in_channels=model_in_channels,
         window_size=window_size,
         stride=stride,
@@ -1424,6 +1473,24 @@ def parse_args() -> argparse.Namespace:
         help="Exclude intensity band from inputs",
     )
     parser.add_argument(
+        "--drop_twi",
+        action="store_true",
+        help="Exclude the TWI band and use downstream channels instead",
+    )
+    parser.add_argument(
+        "--selected_channel_indices",
+        type=int,
+        nargs="+",
+        default=None,
+        help=(
+            "Explicit 0-based channel indices to load from the stacked raster. "
+            "Use this for arbitrary feature subsets such as "
+            "--selected_channel_indices 1 2 3 4 for "
+            "[nDSM, intensity, nadir_weighted, zero_intensity]. "
+            "When provided, this overrides shortcut flags like --drop_twi."
+        ),
+    )
+    parser.add_argument(
         "--no_vector",
         action="store_true",
         help="Skip vector export (raster only)",
@@ -1474,7 +1541,19 @@ def main() -> None:
         )
         raise ValueError(msg)
 
+    if args.selected_channel_indices is not None:
+        if any(idx < 0 for idx in args.selected_channel_indices):
+            msg = "--selected_channel_indices must contain only non-negative integers"
+            raise ValueError(msg)
+        if len(set(args.selected_channel_indices)) != len(args.selected_channel_indices):
+            msg = "--selected_channel_indices must not contain duplicate indices"
+            raise ValueError(msg)
+
     # Run inference
+    selected_channel_indices = args.selected_channel_indices
+    if selected_channel_indices is None and args.drop_twi:
+        selected_channel_indices = [1] if args.no_intensity else [1, 2]
+
     run_inference(
         checkpoint_path=args.checkpoint,
         output_folder=args.output_folder,
@@ -1487,6 +1566,7 @@ def main() -> None:
         batch_size=args.batch_size,
         device=args.device,
         include_intensity=not args.no_intensity,
+        selected_channel_indices=selected_channel_indices,
         export_vector=not args.no_vector,
         simplify_tolerance=args.simplify_tolerance,
         project_extents_path=args.project_extents,

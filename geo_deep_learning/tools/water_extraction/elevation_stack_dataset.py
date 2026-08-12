@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 MIN_SPATIAL_DIMS = 2
+_NON_STANDARDIZED_CHANNEL_KEYS = ("zero_intensity",)
 
 
 class ElevationStackDataset(CSVDataset):
@@ -41,6 +42,8 @@ class ElevationStackDataset(CSVDataset):
         csv_path: str | None = None,
         csv_infer_path: str | None = None,
         include_intensity: bool = True,
+        extra_input_rasters: list[str] | None = None,
+        selected_channel_indices: list[int] | None = None,
     ) -> None:
         """
         Initialize the ElevationStackDataset.
@@ -61,16 +64,40 @@ class ElevationStackDataset(CSVDataset):
         self.csv_path = csv_path
         self.csv_infer_path = csv_infer_path
         self.include_intensity = include_intensity
+        self.extra_input_rasters = extra_input_rasters or []
+        self.selected_channel_indices = selected_channel_indices
         self.norm_stats = norm_stats or {
             "mean": [0.0, 0.0, 0.0],
             "std": [1.0, 1.0, 1.0],
         }
+        self._skip_standardization_indices = self._resolve_skip_standardization_indices()
 
         # Load files using custom method
         self.files = self._load_files()
 
         # Log dataset creation (using the same pattern as base class)
         log_dataset(self.split, len(self.files))
+
+    def _resolved_channel_names(self) -> list[str]:
+        """Return configured channel names in stack order."""
+        channel_names = ["twi", "ndsm"]
+        if self.include_intensity:
+            channel_names.append("intensity")
+        channel_names.extend(Path(raster).stem for raster in self.extra_input_rasters)
+
+        if self.selected_channel_indices is None:
+            return channel_names
+
+        return [channel_names[idx] for idx in self.selected_channel_indices]
+
+    def _resolve_skip_standardization_indices(self) -> list[int]:
+        """Return channel indices that should bypass standardization."""
+        skip_indices = []
+        for idx, channel_name in enumerate(self._resolved_channel_names()):
+            normalized_name = channel_name.lower()
+            if any(key in normalized_name for key in _NON_STANDARDIZED_CHANNEL_KEYS):
+                skip_indices.append(idx)
+        return skip_indices
 
     def _load_files(self) -> list[dict[str, str]]:
         """
@@ -177,8 +204,17 @@ class ElevationStackDataset(CSVDataset):
         #         f"split={self.split}"
         #     )
 
-        image = standardization(image, mean, std)
-        
+        standardize_indices = [
+            idx for idx in range(num_channels)
+            if idx not in self._skip_standardization_indices
+        ]
+        if standardize_indices:
+            image[standardize_indices] = standardization(
+                image[standardize_indices],
+                mean[standardize_indices],
+                std[standardize_indices],
+            )
+
         # Guard: Check for non-finite values after preprocessing
         if not torch.isfinite(image).all():
             nan_count = torch.isnan(image).sum().item()
@@ -216,9 +252,7 @@ class ElevationStackDataset(CSVDataset):
         """
         Load image with enhanced nodata handling for elevation data.
 
-        Loads channels based on include_intensity setting:
-        - include_intensity=True: loads all 3 channels [TWI, nDSM, Intensity]
-        - include_intensity=False: loads only 2 channels [TWI, nDSM]
+        Loads channels based on include_intensity and extra_input_rasters settings.
 
         Args:
             index: Index of the sample to load
@@ -230,16 +264,26 @@ class ElevationStackDataset(CSVDataset):
         image_path = self.files[index]["image"]
         image_name = Path(image_path).name
 
-        # Determine how many channels to load based on include_intensity
-        num_channels = 3 if self.include_intensity else 2
+        # Determine which channels to load from the configured feature set.
+        available_channels = 2 + int(self.include_intensity) + len(self.extra_input_rasters)
+        if self.selected_channel_indices is None:
+            channel_indices = list(range(available_channels))
+        else:
+            channel_indices = self.selected_channel_indices
 
         with rio.open(image_path) as image:
             total_bands = image.count
 
+            if total_bands == len(channel_indices):
+                channels_to_load = list(range(1, total_bands + 1))
+            else:
+                channels_to_load = [idx + 1 for idx in channel_indices]
+
             # Validate that the raster has enough bands
-            if total_bands < num_channels:
+            if max(channels_to_load) > total_bands:
                 error_msg = (f"Insufficient bands in {image_name}: "
-                             f"expected {num_channels} bands (include_intensity={self.include_intensity}) "
+                             f"requested channel indices {channel_indices} (include_intensity={self.include_intensity}, "
+                             f"extra_input_rasters={self.extra_input_rasters}) "
                              f"but file only has {total_bands} bands")
                 logger.error(error_msg)
                 raise ValueError(error_msg)

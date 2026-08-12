@@ -57,6 +57,12 @@ class ElevationStackDataModule(CSVDataModule):
         csv_path: str = "",
         csv_infer_path: str = "",
         include_intensity: bool = False,
+        extra_input_rasters: list[str] | None = None,
+        selected_channel_indices: list[int] | None = None,
+        stacked_inputs_filename: str = "stacked_inputs.tif",
+        tiles_dirname: str = "tiles",
+        tile_stats_filename: str = "tile_stats.csv",
+        stats_filename: str = "stats.npy",
         stride: int = 256,
         test_ratio: float = 0.2,
         valid_mask_min_ratio: float | None = 0.9,
@@ -89,6 +95,12 @@ class ElevationStackDataModule(CSVDataModule):
             csv_infer_path,
         )
         self.include_intensity = include_intensity
+        self.extra_input_rasters = extra_input_rasters or []
+        self.selected_channel_indices = selected_channel_indices
+        self.stacked_inputs_filename = stacked_inputs_filename
+        self.tiles_dirname = tiles_dirname
+        self.tile_stats_filename = tile_stats_filename
+        self.stats_filename = stats_filename
         self.stride = stride
         self.test_ratio = test_ratio
         self.valid_mask_min_ratio = valid_mask_min_ratio
@@ -106,15 +118,10 @@ class ElevationStackDataModule(CSVDataModule):
         # Track if user provided custom stats (to avoid overwriting with stats.npy)
         self.user_provided_stats = mean is not None and std is not None
 
-        # Slice user-provided stats to match include_intensity setting
-        if (
-            self.user_provided_stats
-            and not self.include_intensity
-            and len(self.norm_stats["mean"]) > _NUM_BASE_CHANNELS
-        ):
-            log.info("Slicing user-provided stats to 2 channels (excluding intensity)")
-            self.norm_stats["mean"] = self.norm_stats["mean"][:_NUM_BASE_CHANNELS]
-            self.norm_stats["std"] = self.norm_stats["std"][:_NUM_BASE_CHANNELS]
+        if self.user_provided_stats:
+            self._slice_norm_stats_to_selected_channels(
+                source="user-provided config",
+            )
 
     def _validate_workflow(self) -> None:
         """Validate the workflow mode used to organize dataset paths."""
@@ -192,6 +199,67 @@ class ElevationStackDataModule(CSVDataModule):
         )
         return None
 
+    def _available_num_channels(self) -> int:
+        """Return the number of channels available in the full stack."""
+        return (
+            _NUM_BASE_CHANNELS
+            + int(self.include_intensity)
+            + len(self.extra_input_rasters)
+        )
+
+    def _resolved_channel_indices(self) -> list[int]:
+        """Return the selected channel indices in stack order."""
+        available_channels = self._available_num_channels()
+        if self.selected_channel_indices is None:
+            return list(range(available_channels))
+
+        invalid_indices = [
+            idx
+            for idx in self.selected_channel_indices
+            if idx < 0 or idx >= available_channels
+        ]
+        if invalid_indices:
+            msg = (
+                "selected_channel_indices contains invalid indices "
+                f"{invalid_indices} for {available_channels} available channels"
+            )
+            raise ValueError(msg)
+
+        if len(set(self.selected_channel_indices)) != len(self.selected_channel_indices):
+            msg = (
+                "selected_channel_indices must not contain duplicates: "
+                f"{self.selected_channel_indices}"
+            )
+            raise ValueError(msg)
+
+        return self.selected_channel_indices
+
+    def _expected_num_channels(self) -> int:
+        """Return the configured number of input channels."""
+        return len(self._resolved_channel_indices())
+
+    def _slice_norm_stats_to_selected_channels(self, *, source: str) -> None:
+        """Slice normalization stats to the selected channels, if needed."""
+        selected_indices = self._resolved_channel_indices()
+        if len(self.norm_stats["mean"]) == len(selected_indices):
+            return
+
+        if len(self.norm_stats["mean"]) < max(selected_indices) + 1:
+            msg = (
+                f"Normalization stats from {source} do not cover requested channels "
+                f"{selected_indices}. mean has {len(self.norm_stats['mean'])} values, "
+                f"std has {len(self.norm_stats['std'])} values."
+            )
+            raise ValueError(msg)
+
+        log.info(
+            "Slicing normalization stats from %s using channel indices %s",
+            source,
+            selected_indices,
+        )
+        self.norm_stats["mean"] = [self.norm_stats["mean"][idx] for idx in selected_indices]
+        self.norm_stats["std"] = [self.norm_stats["std"][idx] for idx in selected_indices]
+
     @staticmethod
     def _crop_raster_to_aoi(
         input_raster_path: str,
@@ -239,13 +307,14 @@ class ElevationStackDataModule(CSVDataModule):
     def setup(self, stage: str | None = None) -> None:  # noqa: ARG002
         """Validate normalization stats and create train/val/test datasets."""
         # Validate stats configuration before creating datasets
-        expected_channels = 3 if self.include_intensity else 2
+        expected_channels = self._expected_num_channels()
         mean_channels = len(self.norm_stats["mean"])
         std_channels = len(self.norm_stats["std"])
         if mean_channels != expected_channels:
             error_msg = (
                 f"Normalization stats mismatch: expected {expected_channels} channels "
-                f"(include_intensity={self.include_intensity}) but mean has "
+                f"(include_intensity={self.include_intensity}, "
+                f"extra_input_rasters={self.extra_input_rasters}) but mean has "
                 f"{mean_channels} values: {self.norm_stats['mean']}"
             )
             log.error(error_msg)
@@ -254,7 +323,8 @@ class ElevationStackDataModule(CSVDataModule):
         if std_channels != expected_channels:
             error_msg = (
                 f"Normalization stats mismatch: expected {expected_channels} channels "
-                f"(include_intensity={self.include_intensity}) but std has "
+                f"(include_intensity={self.include_intensity}, "
+                f"extra_input_rasters={self.extra_input_rasters}) but std has "
                 f"{std_channels} values: {self.norm_stats['std']}"
             )
             log.error(error_msg)
@@ -281,6 +351,8 @@ class ElevationStackDataModule(CSVDataModule):
                 csv_path=self.csv_infer_path,
                 csv_infer_path=self.csv_infer_path,
                 include_intensity=self.include_intensity,
+                extra_input_rasters=self.extra_input_rasters,
+                selected_channel_indices=self.selected_channel_indices,
             )
             log.info("Test-only mode: created inference dataset with %d samples", len(self.test_dataset))
         else:
@@ -291,6 +363,8 @@ class ElevationStackDataModule(CSVDataModule):
                 patches_root_folder=self.patches_root_folder,
                 csv_path=self.csv_path,
                 include_intensity=self.include_intensity,
+                extra_input_rasters=self.extra_input_rasters,
+                selected_channel_indices=self.selected_channel_indices,
             )
             self.val_dataset = ElevationStackDataset(
                 split="val",
@@ -299,6 +373,8 @@ class ElevationStackDataModule(CSVDataModule):
                 patches_root_folder=self.patches_root_folder,
                 csv_path=self.csv_path,
                 include_intensity=self.include_intensity,
+                extra_input_rasters=self.extra_input_rasters,
+                selected_channel_indices=self.selected_channel_indices,
             )
             self.test_dataset = ElevationStackDataset(
                 split="tst",
@@ -307,6 +383,8 @@ class ElevationStackDataModule(CSVDataModule):
                 patches_root_folder=self.patches_root_folder,
                 csv_path=self.csv_path,
                 include_intensity=self.include_intensity,
+                extra_input_rasters=self.extra_input_rasters,
+                selected_channel_indices=self.selected_channel_indices,
             )
             
             log.info("Training mode: created datasets")
@@ -530,9 +608,9 @@ class ElevationStackDataModule(CSVDataModule):
 
         self.norm_stats["mean"] = means
         self.norm_stats["std"] = stds
-
-        stats_path = Path(self.output_root) / "stats.npy"
-        np.save(stats_path, {"means": means, "stds": stds})
+        self._slice_norm_stats_to_selected_channels(
+            source="computed CSV statistics",
+        )
 
         log.info(
             "Saved normalization stats from %d tiles to %s",
@@ -558,6 +636,7 @@ class ElevationStackDataModule(CSVDataModule):
         dtm = Path(aoi_path) / "dtm.tif"
         dsm = Path(aoi_path) / "dsm.tif"
         intensity = Path(aoi_path) / "intensity.tif"
+        extra_raster_inputs = [Path(aoi_path) / raster for raster in self.extra_input_rasters]
         if not self.test_only:
             labels_vector = self._resolve_vector_file(aoi_path, "waterbodies")
 
@@ -571,6 +650,10 @@ class ElevationStackDataModule(CSVDataModule):
         log.info("Aligning inputs to DTM")
         dsm_aligned = out_dir / "dsm_aligned.tif"
         intensity_aligned = out_dir / "intensity_aligned.tif"
+        extra_rasters_aligned = {
+            raw_path: out_dir / f"{raw_path.stem}_aligned.tif"
+            for raw_path in extra_raster_inputs
+        }
 
         if not dsm_aligned.exists():
             log.info("Aligning DSM: %s", dsm_aligned)
@@ -590,6 +673,20 @@ class ElevationStackDataModule(CSVDataModule):
                 )
             else:
                 log.info("Skipping Intensity alignment (already exists)")
+
+        for raw_path, aligned_path in extra_rasters_aligned.items():
+            if not raw_path.exists():
+                msg = f"Configured extra input raster not found: {raw_path}"
+                raise FileNotFoundError(msg)
+
+            if not aligned_path.exists():
+                log.info("Aligning extra raster '%s': %s", raw_path.name, aligned_path)
+                align_to_reference(str(dtm), str(raw_path), str(aligned_path))
+            else:
+                log.info(
+                    "Skipping extra raster alignment for '%s' (already exists)",
+                    raw_path.name,
+                )
 
         # Seam correction on DTM and DSM
         # Skipped when project_extents_path is not configured.
@@ -652,21 +749,29 @@ class ElevationStackDataModule(CSVDataModule):
             log.info("Skipping nDSM (already exists at %s)", ndsm_path)
 
         # Step 3: Stack inputs
-        # Always use same filename - channel selection happens at load time
-        stack_path = out_dir / "stacked_inputs.tif"
+        stack_path = out_dir / self.stacked_inputs_filename
 
-        if not stack_path.exists():
-            log.info("Stacking Inputs")
+        log.info("Stacking Inputs")
 
-            stack_inputs = [str(twi_path), str(ndsm_path)]
-            if self.include_intensity and intensity_aligned.exists():
-                stack_inputs.append(str(intensity_aligned))
-                log.info("Adding Intensity")
+        stack_inputs = [str(twi_path), str(ndsm_path)]
+        if self.include_intensity and intensity_aligned.exists():
+            stack_inputs.append(str(intensity_aligned))
+            log.info("Adding Intensity")
+        for raw_path in extra_raster_inputs:
+            aligned_path = extra_rasters_aligned[raw_path]
+            stack_inputs.append(str(aligned_path))
+            log.info("Adding extra raster: %s", raw_path.name)
 
-            log.info("Stacking %d bands: %s", len(stack_inputs), stack_inputs)
-            stack_rasters(stack_inputs, str(stack_path))
-        else:
-            log.info("Skipping stacking (already exists at %s)", stack_path)
+        selected_indices = self._resolved_channel_indices()
+        if selected_indices != list(range(len(stack_inputs))):
+            stack_inputs = [stack_inputs[idx] for idx in selected_indices]
+            log.info(
+                "Selecting stack channels %s before writing stacked inputs",
+                selected_indices,
+            )
+
+        log.info("Stacking %d bands: %s", len(stack_inputs), stack_inputs)
+        stack_rasters(stack_inputs, str(stack_path))
 
         # Optional: rasterize valid LiDAR mask
         valid_mask_raster = out_dir / "valid_mask.tif"
