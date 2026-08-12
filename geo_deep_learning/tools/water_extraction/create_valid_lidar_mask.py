@@ -41,7 +41,7 @@ def find_aoi_vector(aoi_folder: Path) -> Path:
     """
     Find the AOI vector file in the data folder.
 
-    Looks for aoi.gpkg or aoi.shp.
+    Looks for aoi_buffered.gpkg/shp first, then aoi.gpkg/shp.
 
     Args:
         aoi_folder: Path to the AOI data folder
@@ -54,6 +54,8 @@ def find_aoi_vector(aoi_folder: Path) -> Path:
 
     """
     candidates = [
+        aoi_folder / "aoi_buffered.gpkg",
+        aoi_folder / "aoi_buffered.shp",
         aoi_folder / "aoi.gpkg",
         aoi_folder / "aoi.shp",
     ]
@@ -206,7 +208,10 @@ def main() -> None:
         "--aoi_folder",
         type=str,
         required=True,
-        help="Path to AOI data folder containing aoi.gpkg or aoi.shp",
+        help=(
+            "Path to AOI data folder containing "
+            "aoi_buffered.gpkg/shp or aoi.gpkg/shp"
+        ),
     )
     parser.add_argument(
         "--lidar_index",

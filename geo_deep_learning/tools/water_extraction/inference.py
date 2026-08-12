@@ -978,7 +978,7 @@ def _resolve_aoi_vector(data_folder: str) -> Path | None:
     """
     Find the AOI vector file in the data folder.
 
-    Looks for aoi.gpkg or aoi.shp.
+    Looks for aoi_buffered.gpkg/shp first, then aoi.gpkg/shp.
 
     Args:
         data_folder: Path to the data folder
@@ -988,7 +988,12 @@ def _resolve_aoi_vector(data_folder: str) -> Path | None:
 
     """
     data_path = Path(data_folder)
-    candidates = [data_path / "aoi.gpkg", data_path / "aoi.shp"]
+    candidates = [
+        data_path / "aoi_buffered.gpkg",
+        data_path / "aoi_buffered.shp",
+        data_path / "aoi.gpkg",
+        data_path / "aoi.shp",
+    ]
 
     for candidate in candidates:
         if candidate.exists():
@@ -1065,7 +1070,8 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         checkpoint_path: Path to trained model checkpoint
         stacked_inputs: Path to preprocessed stacked_inputs.tif
             (e.g., preprocessed_02NB000/stacked_inputs.tif)
-        data_folder: Path to RAW data folder containing aoi.gpkg/shp
+        data_folder: Path to RAW data folder containing
+            aoi_buffered.gpkg/shp or aoi.gpkg/shp
             (e.g., data/02NB000/). Used ONLY to extract AOI name and find AOI
             boundary vector. NOT used for inference input files.
         output_folder: Where to save all outputs
@@ -1108,7 +1114,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     aoi_vector_path = None
 
     if data_folder is not None:
-        # data_folder contains RAW data: dtm.tif, dsm.tif, aoi.gpkg, etc.
+        # data_folder contains RAW data: dtm.tif, dsm.tif, AOI vector, etc.
         # Used ONLY to extract AOI name and find AOI boundary
         aoi_name = Path(data_folder).name
         aoi_vector_path = _resolve_aoi_vector(data_folder)
@@ -1332,6 +1338,7 @@ def parse_args() -> argparse.Namespace:
         required=False,
         help=(
             "Path to RAW data folder with aoi.gpkg/shp "
+            "(or aoi_buffered.gpkg/shp) "
             "(e.g., data/inference/raw/02NB000/). "
             "Used only for AOI name and boundary vector. "
             "If not provided, AOI name is inferred from stacked_inputs path."
