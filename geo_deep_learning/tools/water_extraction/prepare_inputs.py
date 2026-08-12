@@ -28,6 +28,8 @@ from shapely.validation import make_valid
 log = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+_FLOAT_NODATA_VALUE = -32767.0
+
 
 def compute_ndsm(
     dsm_path: str,
@@ -107,6 +109,28 @@ def log_system_resources(tag: str = "") -> None:
         tmp.used / 1e9,
         tmp.total / 1e9,
     )
+
+
+def _normalize_raster_nodata(
+    raster_path: Path,
+    *,
+    target_nodata: float = _FLOAT_NODATA_VALUE,
+) -> None:
+    """Rewrite float nodata pixels/metadata to a single sentinel."""
+    with rasterio.open(raster_path, "r+") as dst:
+        current_nodata = dst.nodata
+        if current_nodata == target_nodata:
+            return
+
+        data = dst.read(1)
+        if current_nodata is not None:
+            nodata_mask = data == current_nodata
+            if np.any(nodata_mask):
+                data = data.astype(np.float32, copy=False)
+                data[nodata_mask] = target_nodata
+                dst.write(data, 1)
+
+        dst.nodata = target_nodata
 
 
 # def compute_twi_whitebox(
@@ -321,6 +345,7 @@ def compute_twi_whitebox(
     halo: int = 1,
     # keep OMP modest; higher can increase memory pressure
     max_threads: int = 8,
+    nodata_val: float = _FLOAT_NODATA_VALUE,
 ) -> None:
     """
     Compute Topographic Wetness Index (TWI) from a DTM using whitebox_workflows,
@@ -569,6 +594,8 @@ def compute_twi_whitebox(
     # Move into place atomically
     tmp_tif.replace(twi_output_path)
 
+    _normalize_raster_nodata(twi_output_path, target_nodata=nodata_val)
+
     if not twi_output_path.exists():
         raise RuntimeError("[TWI] Final TWI output was not created")
 
@@ -670,14 +697,43 @@ def stack_rasters(
             f"Failed to open reference raster: {input_rasters[0]}"
         ) from e
 
+    width = int(profile["width"])
+    height = int(profile["height"])
+
+    # Some source rasters carry invalid TIFF block sizes in their profile
+    # (for example block width equal to full image width). Reusing those
+    # values breaks stacked output creation, so compute safe tiled blocks.
+    profile.pop("blockxsize", None)
+    profile.pop("blockysize", None)
+
+    max_block_size = 512
+    blockxsize = min(max_block_size, width)
+    blockysize = min(max_block_size, height)
+
+    blockxsize = max(16, (blockxsize // 16) * 16)
+    blockysize = max(16, (blockysize // 16) * 16)
+
+    if blockxsize > width:
+        blockxsize = width
+    if blockysize > height:
+        blockysize = height
+
+    use_tiling = width >= 16 and height >= 16 and blockxsize >= 16 and blockysize >= 16
+
     profile.update(
         count=len(input_rasters),
         compress="lzw",
         interleave="band",
-        tiled=True,
+        tiled=use_tiling,
         BIGTIFF="IF_SAFER",
         nodata=None,  # CRITICAL: prevent global nodata
     )
+
+    if use_tiling:
+        profile.update(
+            blockxsize=blockxsize,
+            blockysize=blockysize,
+        )
 
     # ------------------------------------------------------------------
     # Create output
@@ -687,6 +743,22 @@ def stack_rasters(
     with rasterio.open(output_path, "w", **profile) as dst:
         for band_idx, raster_path in enumerate(input_rasters, start=1):
             with rasterio.open(raster_path) as src:
+                if (
+                    src.width != width
+                    or src.height != height
+                    or src.crs != profile["crs"]
+                    or src.transform != profile["transform"]
+                ):
+                    msg = (
+                        "All rasters must share the same grid before stacking. "
+                        f"Reference grid: width={width}, height={height}, "
+                        f"crs={profile['crs']}, transform={profile['transform']}. "
+                        f"Offending raster: {raster_path} with width={src.width}, "
+                        f"height={src.height}, crs={src.crs}, "
+                        f"transform={src.transform}."
+                    )
+                    raise ValueError(msg)
+
                 data = src.read(1)
 
                 # Write raw data

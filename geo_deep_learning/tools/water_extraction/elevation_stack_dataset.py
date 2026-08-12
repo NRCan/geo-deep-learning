@@ -244,34 +244,23 @@ class ElevationStackDataset(CSVDataset):
                 logger.error(error_msg)
                 raise ValueError(error_msg)
 
-            # Load only the required number of channels (1-indexed in rasterio)
-            if num_channels < total_bands:
-                # Load subset of bands: [1, 2] for 2 channels, [1, 2, 3] for 3 channels
-                channels_to_load = list(range(1, num_channels + 1))
-                image_array = image.read(channels_to_load).astype(np.float32)
-                # if index < 3:  # Debug logging for first few samples
-                #     logger.info("Loading %d/%d channels from %s (include_intensity=%s, split=%s)",
-                #         num_channels,
-                #         total_bands,
-                #         image_name,
-                #         self.include_intensity,
-                #         self.split,
-                #     )
-            else:
-                # Load all bands
-                image_array = image.read().astype(np.float32)
-                # if index < 3:
-                #     logger.info(
-                #         "Loading all %d channels from %s (include_intensity=%s, split=%s)",
-                #         total_bands,
-                #         image_name,
-                #         self.include_intensity,
-                #         self.split,
-                #     )
+            image_array = image.read(channels_to_load).astype(np.float32)
 
-            # Handle nodata values - set them to 0 (matching original implementation)
+            # Handle nodata values - set them to 0.
+            # Prefer formal nodata field; fall back to per-band NODATA_VALUE tags
+            # (tiles written before rasterio nodata was set store the value there).
             if image.nodata is not None:
                 image_array[image_array == image.nodata] = 0.0
+            else:
+                for i in range(image_array.shape[0]):
+                    source_band_index = channels_to_load[i]
+                    band_nodata_str = image.tags(source_band_index).get("NODATA_VALUE")
+                    if band_nodata_str is not None:
+                        try:
+                            band_nodata = float(band_nodata_str)
+                            image_array[i][image_array[i] == band_nodata] = 0.0
+                        except (TypeError, ValueError):
+                            pass
 
             image_tensor = torch.from_numpy(image_array).float()
 

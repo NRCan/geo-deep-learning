@@ -54,6 +54,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 _BINARY_THRESHOLD = 0.5  # Probability threshold for water/non-water classification
+_NEGATIVE_NODATA_THRESHOLD = -32000.0
 
 
 # =============================================================================
@@ -436,6 +437,46 @@ def standardization(
     return (input_tensor - mean) / std
 
 
+def _get_band_nodata_values(
+    src: rasterio.DatasetReader,
+    bands: list[int],
+) -> list[float | None]:
+    """Read per-band nodata values, including metadata tags from stacked rasters."""
+    nodata_values = []
+    for band_idx in bands:
+        band_nodata = src.nodata
+        band_nodata_tag = src.tags(band_idx).get("NODATA_VALUE")
+        if band_nodata_tag is not None:
+            try:
+                band_nodata = float(band_nodata_tag)
+            except (TypeError, ValueError):
+                log.warning(
+                    "Ignoring invalid NODATA_VALUE tag for band %d: %r",
+                    band_idx,
+                    band_nodata_tag,
+                )
+        nodata_values.append(band_nodata)
+    return nodata_values
+
+
+def _valid_data_mask(
+    window_data: np.ndarray,
+    band_nodata_values: list[float | None],
+) -> np.ndarray:
+    """Return pixels with valid data in every loaded channel."""
+    valid_mask = np.isfinite(window_data).all(axis=0)
+
+    for channel_idx, nodata_value in enumerate(band_nodata_values):
+        band = window_data[channel_idx]
+        if nodata_value is not None:
+            valid_mask &= band != nodata_value
+
+        # Some TWI/nDSM products carry -32768 even when the band tag says -32767.
+        valid_mask &= band > _NEGATIVE_NODATA_THRESHOLD
+
+    return valid_mask
+
+
 # =============================================================================
 # 3. SLIDING WINDOW INFERENCE
 # =============================================================================
@@ -631,6 +672,12 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
                     window_data = src.read(window=window).astype(
                         np.float32,
                     )  # (C, H, W)
+
+                data_valid_mask = _valid_data_mask(window_data, band_nodata_values)
+
+                # Replace invalid raw pixels before standardization so nodata
+                # sentinels cannot become extreme model inputs.
+                window_data[:, ~data_valid_mask] = 0.0
 
                 # Check for nodata and apply valid mask if available
                 if valid_mask_full is not None:

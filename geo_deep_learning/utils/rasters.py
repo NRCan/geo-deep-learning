@@ -158,6 +158,14 @@ def compute_dataset_stats_from_list(
             sum_sq_pixels[i] += np.sum(valid_pixels[i] ** 2)
             total_valid_pixels[i] += len(valid_pixels[i])
 
+    empty_bands = np.where(total_valid_pixels == 0)[0]
+    if len(empty_bands) > 0:
+        band_ids = ", ".join(str(int(idx) + 1) for idx in empty_bands)
+        raise ValueError(
+            "No valid pixels were found for stacked raster band(s) "
+            f"{band_ids}. Check CRS alignment and nodata metadata for the input channels."
+        )
+
     means = sum_pixels / total_valid_pixels
     stds = np.sqrt((sum_sq_pixels / total_valid_pixels) - (means**2))
 
