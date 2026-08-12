@@ -24,6 +24,8 @@ import requests
 from lightning.pytorch.cli import LightningArgumentParser
 from pystac_client import Client
 from rasterio.crs import CRS
+from requests import Response, Session
+from requests.exceptions import ChunkedEncodingError, ConnectionError, RequestException
 from rasterio.io import MemoryFile
 from rasterio.mask import mask
 from rasterio.merge import merge
@@ -44,6 +46,10 @@ DEFAULT_STAC_API_URL = "https://datacube.services.geo.ca/stac/api/"
 DEFAULT_ELEVATION_COLLECTION = "hrdem-lidar"
 # Mapping from legacy identifiers to STAC asset names (adjust if catalog changes)
 ASSET_KEYS = {"dtm": "dtm", "dsm": "dsm"}
+DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+DOWNLOAD_RETRY_LIMIT = 6
+DOWNLOAD_RETRY_BACKOFF_SECONDS = 10
+DOWNLOAD_TIMEOUT_SECONDS = 60
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -167,6 +173,51 @@ def _is_nonempty_file(path: Path, min_bytes: int = 1024) -> bool:
         return False
 
 
+def _get_expected_download_size(response: Response, resume_from: int) -> int | None:
+    """Infer the total file size from response headers when available."""
+    content_range = response.headers.get("Content-Range")
+    if content_range:
+        total_size = content_range.rsplit("/", 1)[-1]
+        if total_size.isdigit():
+            return int(total_size)
+
+    content_length = response.headers.get("Content-Length")
+    if content_length and content_length.isdigit():
+        return int(content_length) + resume_from
+
+    return None
+
+
+def _open_download_stream(
+    session: Session,
+    url: str,
+    resume_from: int,
+) -> tuple[Response, bool, int | None]:
+    """Open a streaming HTTP response, resuming with Range when possible."""
+    headers = {"Accept-Encoding": "identity"}
+    if resume_from > 0:
+        headers["Range"] = f"bytes={resume_from}-"
+
+    response = session.get(
+        url,
+        stream=True,
+        timeout=DOWNLOAD_TIMEOUT_SECONDS,
+        headers=headers,
+    )
+    response.raise_for_status()
+
+    resumed = response.status_code == 206 and resume_from > 0
+    if resume_from > 0 and not resumed:
+        log.warning(
+            "[RESTART] Server ignored Range request for %s; restarting from byte 0.",
+            Path(url).name,
+        )
+        _flush_logs()
+
+    expected_size = _get_expected_download_size(response, resume_from if resumed else 0)
+    return response, resumed, expected_size
+
+
 def find_stac_items(
     stac_api_url: str,
     collection_id: str,
@@ -192,8 +243,7 @@ def download_asset(url: str, out_path: Path) -> None:
     Behavior:
     - If out_path exists and looks valid -> skip.
     - Else download to out_path_temp then rename to out_path on success.
-    - If out_path_temp exists from a previous attempt, delete and re-download
-      (simple, robust; avoids tricky HTTP range resume).
+    - If out_path_temp exists from a previous attempt, resume it when supported.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -218,29 +268,105 @@ def download_asset(url: str, out_path: Path) -> None:
         _flush_logs()
 
     tmp_path = out_path.with_name(out_path.stem + "_temp" + out_path.suffix)
-
-    # If a previous temp exists, remove it to avoid confusion.
     if tmp_path.exists():
-        try:
-            log.warning("[CLEANUP] Removing leftover temp file: %s", tmp_path.name)
-            tmp_path.unlink()
-        except OSError:
-            # If unlink fails, we will overwrite by opening with "wb" anyway,
-            # but keep this log for visibility.
-            log.warning("[CLEANUP] Could not remove temp file: %s", tmp_path)
+        tmp_size = tmp_path.stat().st_size
+        if tmp_size > 0:
+            log.info("[RESUME-CANDIDATE] Found partial temp file %s (%0.2f MB).", tmp_path.name, tmp_size / (1024 * 1024))
+        else:
+            log.warning("[RESTART] Removing empty temp file: %s", tmp_path.name)
+            try:
+                tmp_path.unlink()
+            except OSError:
+                log.warning("[CLEANUP] Could not remove empty temp file: %s", tmp_path)
+        _flush_logs()
 
     log.info("[DOWNLOAD] %s", out_path.name)
     _flush_logs()
 
-    # Stream download into temp file (quiet mode)
-    with requests.get(url, stream=True, timeout=60) as r:
-        r.raise_for_status()
-        t0 = time.time()
+    t0 = time.time()
+    last_error: Exception | None = None
+    expected_size: int | None = None
 
-        with open(tmp_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    f.write(chunk)
+    with requests.Session() as session:
+        for attempt in range(1, DOWNLOAD_RETRY_LIMIT + 1):
+            resume_from = tmp_path.stat().st_size if tmp_path.exists() else 0
+            if resume_from > 0:
+                log.info(
+                    "[RESUME] %s attempt %d/%d from byte %d (%0.2f MB).",
+                    out_path.name,
+                    attempt,
+                    DOWNLOAD_RETRY_LIMIT,
+                    resume_from,
+                    resume_from / (1024 * 1024),
+                )
+            else:
+                log.info(
+                    "[FETCH] %s attempt %d/%d from byte 0.",
+                    out_path.name,
+                    attempt,
+                    DOWNLOAD_RETRY_LIMIT,
+                )
+            _flush_logs()
+
+            try:
+                response, resumed, expected_size = _open_download_stream(
+                    session=session,
+                    url=url,
+                    resume_from=resume_from,
+                )
+                with response:
+                    write_mode = "ab" if resumed else "wb"
+                    if resume_from > 0 and not resumed and tmp_path.exists():
+                        tmp_path.unlink()
+                    with open(tmp_path, write_mode) as f:
+                        for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+                            if chunk:
+                                f.write(chunk)
+
+                final_size = tmp_path.stat().st_size if tmp_path.exists() else 0
+                if expected_size is not None and final_size < expected_size:
+                    msg = (
+                        f"Incomplete download for {out_path.name}: "
+                        f"{final_size} of {expected_size} bytes"
+                    )
+                    raise IOError(msg)
+                break
+            except (
+                ChunkedEncodingError,
+                ConnectionError,
+                RequestException,
+                IOError,
+                OSError,
+            ) as exc:
+                last_error = exc
+                if attempt >= DOWNLOAD_RETRY_LIMIT:
+                    break
+                wait_seconds = DOWNLOAD_RETRY_BACKOFF_SECONDS * attempt
+                current_size = tmp_path.stat().st_size if tmp_path.exists() else 0
+                log.warning(
+                    "[RETRY] %s attempt %d/%d failed after %s at %0.2f MB: %s",
+                    out_path.name,
+                    attempt,
+                    DOWNLOAD_RETRY_LIMIT,
+                    _fmt_duration(time.time() - t0),
+                    current_size / (1024 * 1024),
+                    exc,
+                )
+                log.info("[BACKOFF] Waiting %ss before retrying %s.", wait_seconds, out_path.name)
+                _flush_logs()
+                time.sleep(wait_seconds)
+        else:
+            msg = f"Exhausted download retries for {out_path.name}"
+            raise RuntimeError(msg) from last_error
+
+    if last_error is not None and (not tmp_path.exists() or tmp_path.stat().st_size == 0):
+        raise RuntimeError(f"Failed to download {out_path.name}") from last_error
+
+    if expected_size is not None and tmp_path.stat().st_size < expected_size:
+        raise RuntimeError(
+            f"Downloaded temp file is truncated: {tmp_path} "
+            f"({tmp_path.stat().st_size} < {expected_size} bytes)"
+        ) from last_error
 
     log.info(
         "[DONE-DOWNLOAD] %s in %s",
