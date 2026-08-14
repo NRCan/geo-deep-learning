@@ -66,7 +66,7 @@ data:
     # ElevationStackDataModule specific parameters
     input_folders:
       - "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/02NB000"
-    output_root: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/preprocessed_02NB000_06_mars"
+    output_root: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/preprocessed_02NB000_10_mars_large"
     #csv_path: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/preprocessed_02NB000/02NB000_water_extraction.csv"
     #csv_infer_path: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/preprocessed_02NB000/02NB000_water_extraction_infer.csv"
     include_intensity: true
@@ -78,14 +78,16 @@ data:
     min_water_pixels: 1
     project_extents_path: /gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/data/02NB000/02NB000_lidar_projects_boundaries.gpkg
     seam_gaussian_sigma: 1.5 # Default
+    # Must match the training normalization used by
+    # combined_gaspe_02NF000_train_new_labels.yaml.
     mean:
-    - 3.9649343334774128
-    - 8.978241985499926
-    - 137.23464626784536
+    - 4.231090538246201
+    - 8.917769556203337
+    - 103.88342419625829
     std:
-    - 2.2158924903309316
-    - 6.302609887417542
-    - 63.83268941767069
+    - 2.278194006708422
+    - 6.448131445628947
+    - 66.01412962786637
     test_only: true
 
 # Training configuration

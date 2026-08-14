@@ -76,14 +76,16 @@ data:
     num_workers: 16  # Utilize more CPU cores
     regenerate_csv: false
     min_water_pixels: 1
+    # Must match the training normalization used by
+    # combined_gaspe_02NF000_train_new_labels.yaml.
     mean:
-    - 3.9649343334774128
-    - 8.978241985499926
-    - 137.23464626784536
+    - 4.231090538246201
+    - 8.917769556203337
+    - 103.88342419625829
     std:
-    - 2.2158924903309316
-    - 6.302609887417542
-    - 63.83268941767069
+    - 2.278194006708422
+    - 6.448131445628947
+    - 66.01412962786637
     test_only: true
 
 # Training configuration
