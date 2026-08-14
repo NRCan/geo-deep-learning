@@ -1,6 +1,7 @@
 """Elevation Stack DataModule for water extraction."""
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -448,8 +449,8 @@ class ElevationStackDataModule(CSVDataModule):
           - Output: stacked_inputs.tif ready for inference
 
         Semantics:
-        - Skips if data already exists (based on test_only mode)
-        - regenerate_csv=True forces CSV regeneration (training mode only)
+        - In inference mode, skips if preprocessed stacks already exist
+        - In training mode with input_folders, regenerates stack/tiles/CSV each run
         """
         if self._data_already_exists() and not self.regenerate_csv:
             if self.test_only:
@@ -458,6 +459,18 @@ class ElevationStackDataModule(CSVDataModule):
                 log.info("[SKIP] Tiles already exist and CSV handling resolved.")
                 self._load_or_compute_stats()
             return
+
+        if not self.test_only:
+            for path_str in [self.csv_path, self.csv_infer_path]:
+                path = Path(path_str)
+                if path.exists():
+                    path.unlink()
+                    log.info("Removed stale CSV: %s", path)
+
+            stats_path = Path(self.output_root) / self.stats_filename
+            if stats_path.exists():
+                stats_path.unlink()
+                log.info("Removed stale stats cache: %s", stats_path)
 
         # -------------------------------
         # AOI processing (preprocessing + tiling for training)
@@ -477,8 +490,13 @@ class ElevationStackDataModule(CSVDataModule):
                 root_output_folder=self.output_root,
                 csv_tiling_path=self.csv_path,
                 csv_inference_path=self.csv_infer_path,
+                aoi_names=[Path(aoi_path).name for aoi_path in self.input_folders]
+                if self.input_folders
+                else None,
                 test_ratio=self.test_ratio,
                 min_water_pixels=self.min_water_pixels,
+                tiles_folder_name=self.tiles_dirname,
+                tile_stats_filename=self.tile_stats_filename,
             )
             log.info("Computing normalization statistics")
             self._compute_and_save_stats()
@@ -508,6 +526,10 @@ class ElevationStackDataModule(CSVDataModule):
             log.info("All preprocessed stacks exist → skipping preprocessing")
             return True
 
+        if self.input_folders:
+            log.info("Training mode with input_folders → forcing stack/tile/CSV regeneration")
+            return False
+
         # Training mode: check for tiles and CSV
         if self.regenerate_csv:
             log.info("regenerate_csv=True → bypassing CSV existence check")
@@ -521,7 +543,7 @@ class ElevationStackDataModule(CSVDataModule):
 
         for aoi_path in self.input_folders:
             aoi_name = Path(aoi_path).name
-            tiles_root = Path(self.output_root) / aoi_name / "tiles"
+            tiles_root = Path(self.output_root) / aoi_name / self.tiles_dirname
 
             log.info("[DEBUG] aoi_name = %s", aoi_name)
             log.info("[DEBUG] tiles_root = %s", tiles_root)
@@ -554,31 +576,10 @@ class ElevationStackDataModule(CSVDataModule):
             )
             return
 
-        stats_path = Path(self.output_root) / "stats.npy"
-        log.info("[DEBUG] loaded stats path: %s", stats_path)
-
+        stats_path = Path(self.output_root) / self.stats_filename
         if stats_path.exists():
-            stats = np.load(stats_path, allow_pickle=True).item()
-            self.norm_stats["mean"] = stats["means"]
-            self.norm_stats["std"] = stats["stds"]
-
-            # Slice stats to match include_intensity setting
-            # Always use first 2 channels (TWI, nDSM) if intensity is not included
-            num_mean_channels = len(self.norm_stats["mean"])
-            if not self.include_intensity and num_mean_channels > _NUM_BASE_CHANNELS:
-                log.info("Slicing stats to 2 channels (excluding intensity)")
-                self.norm_stats["mean"] = self.norm_stats["mean"][:_NUM_BASE_CHANNELS]
-                self.norm_stats["std"] = self.norm_stats["std"][:_NUM_BASE_CHANNELS]
-
-            log.info("Loaded existing statistics from stats.npy")
-            log.info(
-                "[DEBUG] stats (include_intensity=%s): mean=%s, std=%s",
-                self.include_intensity,
-                self.norm_stats["mean"],
-                self.norm_stats["std"],
-            )
-        else:
-            self._compute_and_save_stats()
+            log.info("Ignoring existing stats cache and recomputing from current CSV: %s", stats_path)
+        self._compute_and_save_stats()
 
     def _compute_and_save_stats(self) -> None:
         """
@@ -613,10 +614,25 @@ class ElevationStackDataModule(CSVDataModule):
         )
 
         log.info(
-            "Saved normalization stats from %d tiles to %s",
+            "Computed normalization stats from %d tiles (not cached to %s)",
             len(tile_paths),
-            stats_path,
+            Path(self.output_root) / self.stats_filename,
         )
+
+    def _reset_training_outputs_for_aoi(self, out_dir: Path) -> None:
+        """Remove derived training artifacts that must be regenerated on rerun."""
+        stack_path = out_dir / self.stacked_inputs_filename
+        tiles_root = out_dir / self.tiles_dirname
+        tile_stats_path = out_dir / self.tile_stats_filename
+
+        for path in [stack_path, tile_stats_path]:
+            if path.exists():
+                path.unlink()
+                log.info("Removed stale training artifact: %s", path)
+
+        if tiles_root.exists():
+            shutil.rmtree(tiles_root)
+            log.info("Removed stale tiles directory: %s", tiles_root)
 
     def _process_aoi(self, aoi_path: str) -> None:  # noqa: C901, PLR0912, PLR0915
         """
@@ -645,6 +661,9 @@ class ElevationStackDataModule(CSVDataModule):
             "valid_lidar_mask",
             required=False,
         )
+
+        if not self.test_only:
+            self._reset_training_outputs_for_aoi(out_dir)
 
         # Step 1: Align inputs to DTM
         log.info("Aligning inputs to DTM")
@@ -807,7 +826,7 @@ class ElevationStackDataModule(CSVDataModule):
             tile_raster_pair(
                 input_path=str(stack_path),
                 label_path=str(label_raster),
-                output_dir=str(out_dir / "tiles"),
+                output_dir=str(out_dir / self.tiles_dirname),
                 patch_size=self.patch_size[0],
                 stride=self.stride,
                 valid_mask_path=(
@@ -815,6 +834,7 @@ class ElevationStackDataModule(CSVDataModule):
                 ),
                 valid_mask_min_ratio=self.valid_mask_min_ratio,
                 save_rejected_tiles=self.save_rejected_tiles,
+                tile_stats_filename=self.tile_stats_filename,
             )
         else:
             log.info("test_only=True → skipping label rasterization and tiling")

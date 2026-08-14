@@ -1028,6 +1028,7 @@ def tile_raster_pair(  # noqa: PLR0913
     valid_mask_min_ratio: float | None = 0.9,
     save_rejected_tiles: bool = False,
     rejected_dir: str | None = None,
+    tile_stats_filename: str = "tile_stats.csv",
 ) -> None:
     """
     Tile input/label rasters into patches, apply all validity filtering once,
@@ -1198,7 +1199,7 @@ def tile_raster_pair(  # noqa: PLR0913
             valid_mask_src.close()
 
     pd.DataFrame(tile_stats).to_csv(
-        Path(output_dir).parent / "tile_stats.csv",
+        Path(output_dir).parent / tile_stats_filename,
         index=False,
     )
 
@@ -1216,10 +1217,13 @@ def generate_csv_from_tiles(
     csv_tiling_path: str,
     csv_inference_path: str,
     *,
+    aoi_names: list[str] | None = None,
     val_ratio: float = 0.2,
     test_ratio: float = 0.2,
     water_ratio_bins: tuple[float, ...] = (0.001, 0.01, 0.05),
     min_water_pixels: int = 1,  # NEW (1 = remove zero-water tiles)
+    tiles_folder_name: str = "tiles",
+    tile_stats_filename: str = "tile_stats.csv",
 ) -> None:
     """
     Generate stratified train/val/test CSVs using tile-level statistics.
@@ -1234,20 +1238,28 @@ def generate_csv_from_tiles(
 
     rows: list[dict] = []
 
-    log.info(f"[DEBUG] Path(root_output_folder) = {Path(root_output_folder)}")
-    log.info(f"[DEBUG] Path(root_output_folder) = {Path(root_output_folder)}")
+    root_output_path = Path(root_output_folder)
+    requested_aoi_names = set(aoi_names or [])
 
-    for aoi_dir in Path(root_output_folder).iterdir():
-        log.info(f"[DEBUG] aoi_dir inside loop = {aoi_dir}")
+    log.info("[DEBUG] Path(root_output_folder) = %s", root_output_path)
+    if requested_aoi_names:
+        log.info("[DEBUG] Restricting CSV generation to AOIs: %s", sorted(requested_aoi_names))
+
+    for aoi_dir in root_output_path.iterdir():
+        log.info("[DEBUG] aoi_dir inside loop = %s", aoi_dir)
 
         if not aoi_dir.is_dir():
             continue
 
-        tiles_root = aoi_dir / "tiles"
+        if requested_aoi_names and aoi_dir.name not in requested_aoi_names:
+            log.info("[DEBUG] Skipping AOI not requested by current run: %s", aoi_dir.name)
+            continue
+
+        tiles_root = aoi_dir / tiles_folder_name
         if not tiles_root.exists():
             raise FileNotFoundError(f"Missing tiles directory in {aoi_dir}")
 
-        stats_path = aoi_dir / "tile_stats.csv"
+        stats_path = aoi_dir / tile_stats_filename
         if not stats_path.exists():
             raise FileNotFoundError(f"Missing tile_stats.csv in {aoi_dir}")
 
@@ -1257,9 +1269,14 @@ def generate_csv_from_tiles(
             tid = int(row["tile_id"])
             rows.append(
                 {
-                    "tif": str(aoi_dir / "tiles" / "inputs" / f"tile_{tid:05d}.tif"),
+                    "tif": str(
+                        aoi_dir / tiles_folder_name / "inputs" / f"tile_{tid:05d}.tif"
+                    ),
                     "gpkg": str(
-                        aoi_dir / "tiles" / "labels" / f"tile_{tid:05d}_label.tif"
+                        aoi_dir
+                        / tiles_folder_name
+                        / "labels"
+                        / f"tile_{tid:05d}_label.tif"
                     ),
                     "aoi": aoi_dir.name,
                     "water_pixels": int(row["water_pixels"]),
