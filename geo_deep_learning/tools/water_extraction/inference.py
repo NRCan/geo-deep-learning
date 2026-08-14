@@ -509,6 +509,8 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     stride: int = 512,
     batch_size: int = 4,
     device: str = "cuda",
+    binary_threshold: float = _BINARY_THRESHOLD,
+    channel_weights: list[float] | None = None,
     _nodata_val: float = -32767,
     data_folder: str | None = None,
 ) -> None:
@@ -530,6 +532,8 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         stride: Stride between window positions (< window_size for overlap)
         batch_size: Number of windows to process in parallel
         device: Device to run inference on
+        binary_threshold: Probability threshold for water/non-water classification
+        channel_weights: Optional per-channel multipliers applied after standardization
         _nodata_val: NoData value (reserved for future use)
         data_folder: Optional path to original data folder for finding valid_lidar_mask
 
@@ -540,6 +544,8 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     log.info("Window size: %d x %d", window_size, window_size)
     log.info("Stride: %d", stride)
     log.info("Batch size: %d", batch_size)
+    log.info("Binary threshold: %.3f", binary_threshold)
+    log.info("Channel weights: %s", channel_weights)
     log.info("Overlap: %.1f%%", (1 - stride / window_size) * 100)
 
     with rasterio.open(input_raster_path) as src:
@@ -670,6 +676,31 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
             1,
             1,
         )
+        if channel_weights is None:
+            channel_weights_sliced = [1.0] * channels_to_load
+        else:
+            if len(channel_weights) < max(stats_indices) + 1:
+                msg = (
+                    f"Channel weights have {len(channel_weights)} values but "
+                    f"requested channel indices are {stats_indices}"
+                )
+                raise ValueError(msg)
+
+            channel_weights_sliced = [channel_weights[idx] for idx in stats_indices]
+            if len(channel_weights) != len(channel_weights_sliced):
+                log.info(
+                    "Selecting channel weights from %d to %d values using indices %s",
+                    len(channel_weights),
+                    len(channel_weights_sliced),
+                    stats_indices,
+                )
+
+        channel_weights_t = torch.tensor(
+            channel_weights_sliced,
+            dtype=torch.float32,
+            device=device,
+        ).view(1, -1, 1, 1)
+        log.info("Applied channel weights: %s", channel_weights_sliced)
 
         # Process windows in batches
         batch_windows = []
@@ -847,8 +878,8 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         prediction_sum[valid_pixels] / weight_sum[valid_pixels]
     )
 
-    # Convert probabilities to binary mask (threshold at 0.5)
-    binary_prediction = (final_prediction > _BINARY_THRESHOLD).astype(np.uint8)
+    # Convert probabilities to binary mask.
+    binary_prediction = (final_prediction > binary_threshold).astype(np.uint8)
 
     # Save output raster
     log.info("Saving prediction raster: %s", output_raster_path)
@@ -1150,6 +1181,8 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     simplify_tolerance: float = 1.0,
     project_extents_path: str | None = None,
     seam_gaussian_sigma: float = 1.5,
+    binary_threshold: float = _BINARY_THRESHOLD,
+    channel_weights: list[float] | None = None,
 ) -> dict[str, str]:
     """
     Run complete inference pipeline.
@@ -1183,6 +1216,9 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
             computed. Pass None to skip seam correction.
         seam_gaussian_sigma: Gaussian sigma for seam correction inpainting in pixels
             (default 1.5). Should be at least seam_width_pixels to bridge the gap.
+        binary_threshold: Probability threshold for water/non-water classification
+            (default 0.5).
+        channel_weights: Optional per-channel multipliers applied after standardization.
 
     Returns:
         Dictionary with paths to outputs:
@@ -1194,6 +1230,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     """
     output_path = Path(output_folder)
     output_path.mkdir(parents=True, exist_ok=True)
+    output_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Start timing
     start_time = time.time()
@@ -1261,6 +1298,9 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     log.info("Device: %s", device)
     log.info("Mean: %s", mean)
     log.info("Std: %s", std)
+    log.info("Binary threshold: %.3f", binary_threshold)
+    log.info("Channel weights: %s", channel_weights)
+    log.info("Selected channel indices: %s", selected_channel_indices)
     if aoi_vector_path:
         log.info("AOI vector: %s", aoi_vector_path)
     log.info("=" * 80)
@@ -1307,7 +1347,9 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
             break
 
     # Step 3: Run inference (full extent)
-    prediction_raster_full = str(output_path / f"water_prediction_{aoi_name}_full.tif")
+    prediction_raster_full = str(
+        output_path / f"water_prediction_{aoi_name}_full_{output_timestamp}.tif",
+    )
     sliding_window_inference(
         model=model,
         input_raster_path=stacked_inputs,
@@ -1320,12 +1362,16 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         stride=stride,
         batch_size=batch_size,
         device=device,
+        binary_threshold=binary_threshold,
+        channel_weights=channel_weights,
         data_folder=data_folder,
     )
 
     # Step 4: Crop to AOI boundary (if available)
     if aoi_vector_path is not None:
-        prediction_raster = str(output_path / f"water_prediction_{aoi_name}.tif")
+        prediction_raster = str(
+            output_path / f"water_prediction_{aoi_name}_{output_timestamp}.tif",
+        )
         crop_raster_to_aoi(
             input_raster_path=prediction_raster_full,
             output_raster_path=prediction_raster,
@@ -1344,7 +1390,9 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
 
     # Step 5: Export vectors (optional)
     if export_vector:
-        prediction_vector = str(output_path / f"water_bodies_{aoi_name}.gpkg")
+        prediction_vector = str(
+            output_path / f"water_bodies_{aoi_name}_{output_timestamp}.gpkg",
+        )
         export_vectors(
             prediction_raster_path=prediction_raster,
             output_vector_path=prediction_vector,
@@ -1496,6 +1544,22 @@ def parse_args() -> argparse.Namespace:
         help="Skip vector export (raster only)",
     )
     parser.add_argument(
+        "--threshold",
+        type=float,
+        default=_BINARY_THRESHOLD,
+        help="Probability threshold for water/non-water classification",
+    )
+    parser.add_argument(
+        "--channel_weights",
+        type=float,
+        nargs="+",
+        default=None,
+        help=(
+            "Optional per-channel multipliers applied after standardization. "
+            "For [TWI, nDSM, intensity], use e.g. --channel_weights 1.0 1.0 1.2"
+        ),
+    )
+    parser.add_argument(
         "--simplify_tolerance",
         type=float,
         default=1.0,
@@ -1541,6 +1605,19 @@ def main() -> None:
         )
         raise ValueError(msg)
 
+    if not 0.0 <= args.threshold <= 1.0:
+        msg = "--threshold must be between 0 and 1"
+        raise ValueError(msg)
+
+    if args.channel_weights is not None:
+        if len(args.channel_weights) != len(args.mean):
+            msg = "Channel weights must have the same length as mean/std"
+            raise ValueError(msg)
+
+        if any(weight < 0 for weight in args.channel_weights):
+            msg = "Channel weights must be non-negative"
+            raise ValueError(msg)
+
     if args.selected_channel_indices is not None:
         if any(idx < 0 for idx in args.selected_channel_indices):
             msg = "--selected_channel_indices must contain only non-negative integers"
@@ -1568,6 +1645,8 @@ def main() -> None:
         include_intensity=not args.no_intensity,
         selected_channel_indices=selected_channel_indices,
         export_vector=not args.no_vector,
+        binary_threshold=args.threshold,
+        channel_weights=args.channel_weights,
         simplify_tolerance=args.simplify_tolerance,
         project_extents_path=args.project_extents,
         seam_gaussian_sigma=args.seam_sigma,
