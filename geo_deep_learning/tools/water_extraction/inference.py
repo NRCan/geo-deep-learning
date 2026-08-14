@@ -1410,7 +1410,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     log.info("INFERENCE COMPLETE")
     log.info(
         "End time: %s",
-        datetime.datetime.now(tz=datetime.UTC).strftime("%Y-%m-%d %H:%M:%S"),
+        datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
     )
     log.info(
         "Total duration: %02d:%02d:%02d (HH:MM:SS)",

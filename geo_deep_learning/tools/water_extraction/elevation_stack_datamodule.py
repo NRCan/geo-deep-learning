@@ -517,7 +517,9 @@ class ElevationStackDataModule(CSVDataModule):
             log.info("test_only=True → checking for preprocessed stacks only")
             for aoi_path in self.input_folders:
                 aoi_name = Path(aoi_path).name
-                stacked_path = Path(self.output_root) / aoi_name / "stacked_inputs.tif"
+                stacked_path = (
+                    Path(self.output_root) / aoi_name / self.stacked_inputs_filename
+                )
 
                 if not stacked_path.exists():
                     log.info("Stacked inputs not found: %s", stacked_path)
