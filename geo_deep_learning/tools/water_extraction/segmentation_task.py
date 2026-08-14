@@ -9,6 +9,7 @@ from torch import Tensor
 from geo_deep_learning.tasks_with_models.segmentation_unetplus import (
     SegmentationUnetPlus,
 )
+from geo_deep_learning.utils.segmentation_metrics import SegmentationMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,13 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
         super().__init__(*args, **kwargs)
         self.ignore_index = ignore_index
         self._logged_label_values = False
+        self._val_metrics_updated = False
+        self.val_metrics = SegmentationMetrics(
+            num_classes=2 if self.num_classes == 1 else self.num_classes,
+            class_labels=self.labels,
+            ignore_index=self.ignore_index,
+            threshold=self.threshold,
+        )
 
         # # BACKWARD-COMPATIBILITY ALIAS (NO REBUILD)
         # if not hasattr(self, "model"):
@@ -107,6 +115,11 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
 
         return loss
 
+    def on_validation_epoch_start(self) -> None:
+        """Reset validation metric state at the start of each validation epoch."""
+        self._val_metrics_updated = False
+        self.val_metrics.reset()
+
     # def on_train_batch_start(
     #     self,
     #     batch: dict[str, Any],
@@ -170,12 +183,12 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
 
         unique_vals = torch.unique(y)
         if torch.any(y < 0):
-            self.log("has_ignore_pixels", 1, prog_bar=True)
+            self.log("has_ignore_pixels", 1, prog_bar=False, batch_size=batch_size)
         else:
-            self.log("has_ignore_pixels", 0, prog_bar=True)
+            self.log("has_ignore_pixels", 0, prog_bar=False, batch_size=batch_size)
 
         if torch.any(y > self.num_classes - 1):
-            self.log("has_invalid_labels", 1, prog_bar=True)
+            self.log("has_invalid_labels", 1, prog_bar=False, batch_size=batch_size)
             print("INVALID LABEL VALUES:", unique_vals.tolist())
 
         y_hat = self(x)
@@ -220,12 +233,12 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
 
         unique_vals = torch.unique(y)
         if torch.any(y < 0):
-            self.log("has_ignore_pixels", 1, prog_bar=True)
+            self.log("has_ignore_pixels", 1, prog_bar=False, batch_size=batch_size)
         else:
-            self.log("has_ignore_pixels", 0, prog_bar=True)
+            self.log("has_ignore_pixels", 0, prog_bar=False, batch_size=batch_size)
 
         if torch.any(y > self.num_classes - 1):
-            self.log("has_invalid_labels", 1, prog_bar=True)
+            self.log("has_invalid_labels", 1, prog_bar=False, batch_size=batch_size)
             print("INVALID LABEL VALUES:", unique_vals.tolist())
 
         y_hat = self(x)
@@ -259,7 +272,34 @@ class WaterExtractionSegmentation(SegmentationUnetPlus):
         else:
             y_hat = y_hat.softmax(dim=1).argmax(dim=1)
 
+        y_target = y.squeeze(1).long() if y.dim() == 4 else y.long()
+        valid_mask = y_target != self.ignore_index
+        if valid_mask.any():
+            self.val_metrics.update(y_hat[valid_mask], y_target[valid_mask])
+            self._val_metrics_updated = True
+
         return y_hat
+
+    def on_validation_epoch_end(self) -> None:
+        """Log validation metrics expected by checkpointing and early stopping."""
+        if not self._val_metrics_updated:
+            logger.warning("No valid pixels found for validation metrics this epoch")
+            self.log("val_iou_water", 0.0, prog_bar=True, logger=True)
+            return
+
+        metrics = {
+            f"val_{name}": value for name, value in self.val_metrics.compute().items()
+        }
+        progress_metric = metrics.pop("val_iou_water")
+        self.log_dict(metrics, prog_bar=False, logger=True, sync_dist=True)
+        self.log(
+            "val_iou_water",
+            progress_metric,
+            prog_bar=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.val_metrics.reset()
 
     def test_step(
         self,
