@@ -10,7 +10,9 @@
 waterloo_subset_512/
 mlruns/
 .ipynb_checkpoints/
+configs_local/
 temp_local/
+slurm_local/
 data/
 logs/
 jobs_sh/
@@ -20,3 +22,4 @@ results/
 # Specific files
 environment_full_conda_bckp.yml
 core*
+*_copy*
