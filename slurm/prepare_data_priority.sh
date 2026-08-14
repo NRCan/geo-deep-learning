@@ -1,15 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=water_prep_data
-#SBATCH --partition=standard
+#SBATCH --partition=gpu_a100
 #SBATCH --account=nrcan_geobase
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=400G
-#SBATCH --time=12:00:00
+#SBATCH --mem=256G
+#SBATCH --time=48:00:00
 #SBATCH --output=slurm/logs/%j_prepare_data.out
 #SBATCH --error=slurm/logs/%j_prepare_data.out
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=luca.romanini@nrcan-rncan.gc.ca
-#SBATCH --qos=low
 
 # ══════════════════════════════════════════════════════════════
 # Water Extraction Data Preparation - SLURM Job
@@ -60,7 +59,7 @@ echo ""
 # OPTION 1: Use config file as-is (no overrides)
 # ══════════════════════════════════════════════════════════════
 python -m geo_deep_learning.tools.water_extraction.prepare_data \
-    --config configs/02NF000_train.yaml
+    --config configs/02NB000.yaml
 
 # ══════════════════════════════════════════════════════════════
 # OPTION 2: Use config file with CLI overrides
