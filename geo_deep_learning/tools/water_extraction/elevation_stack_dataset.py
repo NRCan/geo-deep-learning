@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 # Constants
 MIN_SPATIAL_DIMS = 2
 _NON_STANDARDIZED_CHANNEL_KEYS = ("zero_intensity",)
+_FEATURE_ALIASES = {
+    "nadir": "nadir_weighted",
+    "nadir_weighted_aligned": "nadir_weighted",
+    "zero": "zero_intensity",
+    "zero_intensity_aligned": "zero_intensity",
+}
 
 
 class ElevationStackDataset(CSVDataset):
@@ -43,6 +49,7 @@ class ElevationStackDataset(CSVDataset):
         csv_infer_path: str | None = None,
         include_intensity: bool = True,
         extra_input_rasters: list[str] | None = None,
+        requested_features: list[str] | None = None,
         selected_channel_indices: list[int] | None = None,
     ) -> None:
         """
@@ -65,6 +72,7 @@ class ElevationStackDataset(CSVDataset):
         self.csv_infer_path = csv_infer_path
         self.include_intensity = include_intensity
         self.extra_input_rasters = extra_input_rasters or []
+        self.requested_features = requested_features
         self.selected_channel_indices = selected_channel_indices
         self.norm_stats = norm_stats or {
             "mean": [0.0, 0.0, 0.0],
@@ -80,6 +88,15 @@ class ElevationStackDataset(CSVDataset):
 
     def _resolved_channel_names(self) -> list[str]:
         """Return configured channel names in stack order."""
+        if self.requested_features is not None:
+            channel_names = [
+                self._normalize_feature_name(feature)
+                for feature in self.requested_features
+            ]
+            if self.selected_channel_indices is None:
+                return channel_names
+            return [channel_names[idx] for idx in self.selected_channel_indices]
+
         channel_names = ["twi", "ndsm"]
         if self.include_intensity:
             channel_names.append("intensity")
@@ -89,6 +106,12 @@ class ElevationStackDataset(CSVDataset):
             return channel_names
 
         return [channel_names[idx] for idx in self.selected_channel_indices]
+
+    @staticmethod
+    def _normalize_feature_name(feature_name: str) -> str:
+        """Normalize a configured feature name."""
+        normalized = feature_name.strip().lower()
+        return _FEATURE_ALIASES.get(normalized, normalized)
 
     def _resolve_skip_standardization_indices(self) -> list[int]:
         """Return channel indices that should bypass standardization."""
@@ -265,7 +288,7 @@ class ElevationStackDataset(CSVDataset):
         image_name = Path(image_path).name
 
         # Determine which channels to load from the configured feature set.
-        available_channels = 2 + int(self.include_intensity) + len(self.extra_input_rasters)
+        available_channels = len(self._resolved_channel_names())
         if self.selected_channel_indices is None:
             channel_indices = list(range(available_channels))
         else:

@@ -232,6 +232,38 @@ for model_id in sorted(models):
 PY
 }
 
+resolve_requested_features() {
+    python - "$MODEL_REGISTRY" ${MODEL_IDS:-} <<'PY'
+import sys
+from pathlib import Path
+import yaml
+
+registry = Path(sys.argv[1])
+requested_model_ids = sys.argv[2:]
+with registry.open(encoding="utf-8") as file:
+    payload = yaml.safe_load(file) or {}
+
+models = payload.get("models", {})
+if requested_model_ids:
+    model_ids = requested_model_ids
+else:
+    model_ids = sorted(models)
+
+feature_order = ["twi", "ndsm", "dtm", "intensity", "nadir_weighted", "zero_intensity"]
+selected = []
+for model_id in model_ids:
+    model_cfg = models.get(model_id)
+    if not isinstance(model_cfg, dict):
+        continue
+    for feature in model_cfg.get("features", []):
+        if feature in feature_order and feature not in selected:
+            selected.append(feature)
+
+for feature in selected:
+    print(feature)
+PY
+}
+
 SOURCE_AOI_VECTOR="$(find_vector "$SOURCE_AOI_DIR" "$AOI_VECTOR_STEM" || true)"
 if [[ -z "${SOURCE_AOI_VECTOR:-}" ]]; then
     echo "Missing AOI vector in $SOURCE_AOI_DIR (expected $AOI_VECTOR_STEM.gpkg or $AOI_VECTOR_STEM.shp)" >&2
@@ -254,6 +286,11 @@ require_file "$GDL_CONDA_SH"
 require_file "$INTENSITY_CONDA_SH"
 require_file "$MODEL_REGISTRY"
 resolve_sitestore_base
+
+REQUESTED_FEATURES=()
+if [[ "$RUN_REGISTERED_INFERENCE" == "1" && "$WORKFLOW" == "inference" ]]; then
+    mapfile -t REQUESTED_FEATURES < <(resolve_requested_features)
+fi
 
 copy_vector_family "$SOURCE_AOI_VECTOR" "$RAW_AOI_DIR"
 if [[ -n "$WATERBODIES_VECTOR" ]]; then
@@ -552,6 +589,18 @@ data:
     extra_input_rasters:
       - "nadir_weighted.tif"
       - "zero_intensity.tif"
+EOF
+
+if [[ ${#REQUESTED_FEATURES[@]} -gt 0 ]]; then
+    {
+        echo "    requested_features:"
+        for feature in "${REQUESTED_FEATURES[@]}"; do
+            echo "      - \"$feature\""
+        done
+    } >> "$PREP_CONFIG"
+fi
+
+cat >> "$PREP_CONFIG" <<EOF
     stride: $STRIDE
     patch_size: [$PATCH_SIZE, $PATCH_SIZE]
     batch_size: $BATCH_SIZE

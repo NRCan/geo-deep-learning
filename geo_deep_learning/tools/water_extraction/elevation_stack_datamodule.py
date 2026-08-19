@@ -30,7 +30,17 @@ from geo_deep_learning.tools.water_extraction.prepare_inputs import (
 from geo_deep_learning.tools.water_extraction.seam_correction import correct_seams
 from geo_deep_learning.utils.rasters import compute_dataset_stats_from_list
 
-_NUM_BASE_CHANNELS = 2
+_DEFAULT_FEATURE_ORDER = ("twi", "ndsm")
+_KNOWN_FEATURES = frozenset(
+    {"twi", "ndsm", "dtm", "intensity", "nadir_weighted", "zero_intensity"},
+)
+_FEATURE_ALIASES = {
+    "nadir": "nadir_weighted",
+    "nadir_weighted_aligned": "nadir_weighted",
+    "zero": "zero_intensity",
+    "zero_intensity_aligned": "zero_intensity",
+}
+_INTENSITY_DEPENDENT_FEATURES = frozenset({"intensity", "zero_intensity"})
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +69,7 @@ class ElevationStackDataModule(CSVDataModule):
         csv_infer_path: str = "",
         include_intensity: bool = False,
         extra_input_rasters: list[str] | None = None,
+        requested_features: list[str] | None = None,
         selected_channel_indices: list[int] | None = None,
         stacked_inputs_filename: str = "stacked_inputs.tif",
         tiles_dirname: str = "tiles",
@@ -97,6 +108,12 @@ class ElevationStackDataModule(CSVDataModule):
         )
         self.include_intensity = include_intensity
         self.extra_input_rasters = extra_input_rasters or []
+        self.requested_features = self._validate_requested_features(requested_features)
+        if self.requested_features is not None:
+            self.include_intensity = self.include_intensity or any(
+                self._feature_needs_intensity(feature)
+                for feature in self.requested_features
+            )
         self.selected_channel_indices = selected_channel_indices
         self.stacked_inputs_filename = stacked_inputs_filename
         self.tiles_dirname = tiles_dirname
@@ -123,6 +140,35 @@ class ElevationStackDataModule(CSVDataModule):
             self._slice_norm_stats_to_selected_channels(
                 source="user-provided config",
             )
+
+    @staticmethod
+    def _normalize_feature_name(feature_name: str) -> str:
+        """Normalize a configured feature name."""
+        normalized = feature_name.strip().lower()
+        return _FEATURE_ALIASES.get(normalized, normalized)
+
+    @staticmethod
+    def _feature_needs_intensity(feature_name: str) -> bool:
+        """Return whether a feature depends on intensity being present."""
+        return feature_name in _INTENSITY_DEPENDENT_FEATURES
+
+    @classmethod
+    def _validate_requested_features(
+        cls,
+        requested_features: list[str] | None,
+    ) -> list[str] | None:
+        """Validate and normalize an optional requested feature list."""
+        if requested_features is None:
+            return None
+
+        normalized_features = [
+            cls._normalize_feature_name(feature) for feature in requested_features
+        ]
+        unknown_features = sorted(set(normalized_features) - _KNOWN_FEATURES)
+        if unknown_features:
+            msg = f"Unknown requested feature(s): {unknown_features}"
+            raise ValueError(msg)
+        return normalized_features
 
     def _validate_workflow(self) -> None:
         """Validate the workflow mode used to organize dataset paths."""
@@ -202,11 +248,18 @@ class ElevationStackDataModule(CSVDataModule):
 
     def _available_num_channels(self) -> int:
         """Return the number of channels available in the full stack."""
-        return (
-            _NUM_BASE_CHANNELS
-            + int(self.include_intensity)
-            + len(self.extra_input_rasters)
-        )
+        return len(self._stack_feature_order())
+
+    def _stack_feature_order(self) -> list[str]:
+        """Return the configured stack feature order."""
+        if self.requested_features is not None:
+            return list(self.requested_features)
+
+        stack_features = list(_DEFAULT_FEATURE_ORDER)
+        if self.include_intensity:
+            stack_features.append("intensity")
+        stack_features.extend(Path(raster).stem for raster in self.extra_input_rasters)
+        return stack_features
 
     def _resolved_channel_indices(self) -> list[int]:
         """Return the selected channel indices in stack order."""
@@ -335,9 +388,10 @@ class ElevationStackDataModule(CSVDataModule):
         log.info("DATAMODULE SETUP DIAGNOSTICS")
         log.info("=" * 80)
         log.info(
-            "Setting up datasets: include_intensity=%s, expected_channels=%d, "
-            "mean=%s, std=%s",
+            "Setting up datasets: include_intensity=%s, requested_features=%s, "
+            "expected_channels=%d, mean=%s, std=%s",
             self.include_intensity,
+            self.requested_features,
             expected_channels,
             self.norm_stats["mean"],
             self.norm_stats["std"],
@@ -353,6 +407,7 @@ class ElevationStackDataModule(CSVDataModule):
                 csv_infer_path=self.csv_infer_path,
                 include_intensity=self.include_intensity,
                 extra_input_rasters=self.extra_input_rasters,
+                requested_features=self.requested_features,
                 selected_channel_indices=self.selected_channel_indices,
             )
             log.info("Test-only mode: created inference dataset with %d samples", len(self.test_dataset))
@@ -365,6 +420,7 @@ class ElevationStackDataModule(CSVDataModule):
                 csv_path=self.csv_path,
                 include_intensity=self.include_intensity,
                 extra_input_rasters=self.extra_input_rasters,
+                requested_features=self.requested_features,
                 selected_channel_indices=self.selected_channel_indices,
             )
             self.val_dataset = ElevationStackDataset(
@@ -375,6 +431,7 @@ class ElevationStackDataModule(CSVDataModule):
                 csv_path=self.csv_path,
                 include_intensity=self.include_intensity,
                 extra_input_rasters=self.extra_input_rasters,
+                requested_features=self.requested_features,
                 selected_channel_indices=self.selected_channel_indices,
             )
             self.test_dataset = ElevationStackDataset(
@@ -385,6 +442,7 @@ class ElevationStackDataModule(CSVDataModule):
                 csv_path=self.csv_path,
                 include_intensity=self.include_intensity,
                 extra_input_rasters=self.extra_input_rasters,
+                requested_features=self.requested_features,
                 selected_channel_indices=self.selected_channel_indices,
             )
             
@@ -654,6 +712,7 @@ class ElevationStackDataModule(CSVDataModule):
         dtm = Path(aoi_path) / "dtm.tif"
         dsm = Path(aoi_path) / "dsm.tif"
         intensity = Path(aoi_path) / "intensity.tif"
+        stack_features = self._stack_feature_order()
         extra_raster_inputs = [Path(aoi_path) / raster for raster in self.extra_input_rasters]
         if not self.test_only:
             labels_vector = self._resolve_vector_file(aoi_path, "waterbodies")
@@ -696,6 +755,12 @@ class ElevationStackDataModule(CSVDataModule):
                 log.info("Skipping Intensity alignment (already exists)")
 
         for raw_path, aligned_path in extra_rasters_aligned.items():
+            if stack_features and self._normalize_feature_name(raw_path.stem) not in stack_features:
+                log.info(
+                    "Skipping extra raster alignment for '%s' (feature not requested)",
+                    raw_path.name,
+                )
+                continue
             if not raw_path.exists():
                 msg = f"Configured extra input raster not found: {raw_path}"
                 raise FileNotFoundError(msg)
@@ -754,34 +819,60 @@ class ElevationStackDataModule(CSVDataModule):
             dsm_for_deriv = dsm_aligned
 
         # Step 2: Compute derivatives
-        twi_path = out_dir / "twi.tif"
-        ndsm_path = out_dir / "ndsm.tif"
+        feature_rasters: dict[str, str] = {}
 
-        if not twi_path.exists():
-            log.info("Computing TWI: %s", twi_path)
-            compute_twi_whitebox(str(dtm_for_deriv), str(twi_path))
-        else:
-            log.info("Skipping TWI (already exists at %s)", twi_path)
+        if "twi" in stack_features:
+            twi_path = out_dir / "twi.tif"
+            if not twi_path.exists():
+                log.info("Computing TWI: %s", twi_path)
+                compute_twi_whitebox(str(dtm_for_deriv), str(twi_path))
+            else:
+                log.info("Skipping TWI (already exists at %s)", twi_path)
+            feature_rasters["twi"] = str(twi_path)
 
-        if not ndsm_path.exists():
-            log.info("Computing nDSM: %s", ndsm_path)
-            compute_ndsm(str(dsm_for_deriv), str(dtm_for_deriv), str(ndsm_path))
-        else:
-            log.info("Skipping nDSM (already exists at %s)", ndsm_path)
+        if "ndsm" in stack_features:
+            ndsm_path = out_dir / "ndsm.tif"
+            if not ndsm_path.exists():
+                log.info("Computing nDSM: %s", ndsm_path)
+                compute_ndsm(str(dsm_for_deriv), str(dtm_for_deriv), str(ndsm_path))
+            else:
+                log.info("Skipping nDSM (already exists at %s)", ndsm_path)
+            feature_rasters["ndsm"] = str(ndsm_path)
+
+        if "dtm" in stack_features:
+            feature_rasters["dtm"] = str(dtm_for_deriv)
+
+        if "intensity" in stack_features:
+            if not intensity_aligned.exists():
+                msg = (
+                    f"Requested feature 'intensity' but aligned intensity raster was "
+                    f"not created for {aoi_name}"
+                )
+                raise FileNotFoundError(msg)
+            feature_rasters["intensity"] = str(intensity_aligned)
+
+        for raw_path in extra_raster_inputs:
+            feature_name = self._normalize_feature_name(raw_path.stem)
+            if feature_name not in stack_features:
+                continue
+
+            aligned_path = extra_rasters_aligned[raw_path]
+            if not aligned_path.exists():
+                msg = (
+                    f"Requested feature '{feature_name}' but aligned raster is missing: "
+                    f"{aligned_path}"
+                )
+                raise FileNotFoundError(msg)
+            feature_rasters[feature_name] = str(aligned_path)
 
         # Step 3: Stack inputs
         stack_path = out_dir / self.stacked_inputs_filename
 
         log.info("Stacking Inputs")
 
-        stack_inputs = [str(twi_path), str(ndsm_path)]
-        if self.include_intensity and intensity_aligned.exists():
-            stack_inputs.append(str(intensity_aligned))
-            log.info("Adding Intensity")
-        for raw_path in extra_raster_inputs:
-            aligned_path = extra_rasters_aligned[raw_path]
-            stack_inputs.append(str(aligned_path))
-            log.info("Adding extra raster: %s", raw_path.name)
+        stack_inputs = [feature_rasters[feature] for feature in stack_features]
+        for feature in stack_features:
+            log.info("Adding feature to stack: %s", feature)
 
         selected_indices = self._resolved_channel_indices()
         if selected_indices != list(range(len(stack_inputs))):
