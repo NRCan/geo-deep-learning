@@ -1,0 +1,63 @@
+models:
+  model_1:
+    checkpoint: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/logs/416513058095129906/6f8382a5e63d4f74ab8dcbf56a22e26f/checkpoints/snapshot-epoch=54-stepstep=358655.ckpt"
+    features: ["twi", "ndsm", "intensity"]
+    mean: [4.341473463484586, 8.268036478613958, 108.65862098642809]
+    std: [2.3101977006601664, 6.789171784745837, 68.39879819015957]
+    threshold: 0.5
+    output_name: "model1_twi_ndsm_intensity_epoch54_snapshot"
+    source_job: "slurm_local/run_inference_selected_24_projects_02NB000_model1.sh"
+
+  model_2:
+    checkpoint: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/logs/999125134452479550/c7d297efc6ee4c3abe018b65d527d0b7/artifacts/model-epoch=76-stepstep=502117-val_iou_water=0.9736/model-epoch=76-stepstep=502117-val_iou_water=0.9736.ckpt"
+    features: ["twi", "ndsm", "intensity", "nadir_weighted", "zero_intensity"]
+    mean: [4.341473463484586, 8.268036478613958, 108.65862098642809, 0.2605359919835747, 0.04787351608075232]
+    std: [2.3101977006601664, 6.789171784745837, 68.39879819015957, 0.290578000782072, 0.2134985773695419]
+    threshold: 0.5
+    output_name: "model2_twi_ndsm_intensity_nadir_zero_epoch76"
+    source_job: "slurm_local/run_inference_selected_24_projects_02NB000_model2.sh"
+
+  model_3:
+    checkpoint: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/logs/567557349595935612/8bf32012333a41b5896138f0fdf0b9dd/checkpoints/snapshot-epoch=29-stepstep=195630.ckpt"
+    features: ["ndsm", "intensity", "nadir_weighted", "zero_intensity"]
+    mean: [8.268036478613958, 108.65862098642809, 0.2605359919835747, 0.04787351608075232]
+    std: [6.789171784745837, 68.39879819015957, 0.290578000782072, 0.2134985773695419]
+    threshold: 0.5
+    output_name: "model3_ndsm_intensity_nadir_zero_epoch29"
+    source_job: "slurm_local/run_inference_selected_24_projects_02NB000_model3.sh"
+
+  model_4:
+    checkpoint: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/logs/217484514759637921/6a9322825a4f49f39c6d8a5dd1f2e75e/artifacts/model-epoch=77-stepstep=508638-val_iou_water=0.9746/model-epoch=77-stepstep=508638-val_iou_water=0.9746.ckpt"
+    features: ["twi", "intensity", "nadir_weighted", "zero_intensity"]
+    mean: [4.341473463484586, 108.65862098642809, 0.2605359919835747, 0.04787351608075232]
+    std: [2.3101977006601664, 68.39879819015957, 0.290578000782072, 0.2134985773695419]
+    threshold: 0.5
+    output_name: "model4_twi_intensity_nadir_zero_epoch77"
+    source_job: "slurm_local/run_inference_selected_24_projects_02NB000_model4.sh"
+
+  model_5:
+    checkpoint: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/logs/180061116926218057/b1597ea7dcc6403eb41b65ea89c30940/artifacts/model-epoch=109-stepstep=717310-val_iou_water=0.9740/model-epoch=109-stepstep=717310-val_iou_water=0.9740.ckpt"
+    features: ["intensity", "nadir_weighted", "zero_intensity"]
+    mean: [108.65862098642809, 0.2605359919835747, 0.04787351608075232]
+    std: [68.39879819015957, 0.290578000782072, 0.2134985773695419]
+    threshold: 0.5
+    output_name: "model5_intensity_nadir_zero_epoch109"
+    source_job: "slurm_local/run_inference_selected_24_projects_02NB000_model5.sh"
+
+  model_6:
+    checkpoint: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/logs/388103897641707811/a2fe20811873430dac0575112ed81c6f/checkpoints/model-epoch=39-stepstep=260840-val_iou_water=0.9668.ckpt"
+    features: ["twi", "dtm", "intensity", "nadir_weighted", "zero_intensity"]
+    mean: [4.341473464470863, 425.02664536840354, 108.65862096975131, 0.2605359919048049, 0.04787351608075232]
+    std: [2.3101976970393303, 214.28282251068524, 68.39879822357192, 0.2905780006497352, 0.2134985773695419]
+    threshold: 0.5
+    output_name: "model6_twi_dtm_intensity_nadir_zero_epoch39"
+    source_job: "slurm_local/run_inference_selected_24_projects_02NB000_model6.sh"
+
+  model_7:
+    checkpoint: "/gpfs/fs5/nrcan/nrcan_geobase/work/transfer/work/deep_learning/gdl_projects/geo-deep-learning/logs/925857138045655891/8582c18cdf35452fbd263a9dcc7fd1a8/checkpoints/snapshot-epoch=69-stepstep=456470.ckpt"
+    features: ["dtm", "intensity", "nadir_weighted", "zero_intensity"]
+    mean: [425.02664536840354, 108.65862096975131, 0.2605359919048049, 0.04787351608075232]
+    std: [214.28282251068524, 68.39879822357192, 0.2905780006497352, 0.2134985773695419]
+    threshold: 0.5
+    output_name: "model7_dtm_intensity_nadir_zero_epoch69_snapshot"
+    source_job: "slurm_local/run_inference_selected_24_projects_02NB000_model7.sh"

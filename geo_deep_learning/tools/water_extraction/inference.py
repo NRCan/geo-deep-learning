@@ -21,12 +21,14 @@ import datetime
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 import fiona
 import numpy as np
 import rasterio
 import rasterio.mask
 import torch
+import yaml
 from rasterio.features import rasterize, shapes
 from rasterio.windows import Window
 from shapely.geometry import mapping
@@ -34,6 +36,9 @@ from shapely.geometry import shape as shapely_shape
 from shapely.validation import make_valid
 from tqdm import tqdm
 
+from geo_deep_learning.tools.water_extraction.extract_zero_intensity_mask import (
+    build_zero_intensity_mask,
+)
 from geo_deep_learning.tools.water_extraction.prepare_inputs import (
     compute_ndsm,
     compute_twi_whitebox,
@@ -56,6 +61,223 @@ log = logging.getLogger(__name__)
 _BINARY_THRESHOLD = 0.5  # Probability threshold for water/non-water classification
 _NEGATIVE_NODATA_THRESHOLD = -32000.0
 _NON_STANDARDIZED_CHANNEL_KEYS = ("zero_intensity",)
+_FEATURE_ALIASES = {
+    "nadir": "nadir_weighted",
+    "nadir_weighted_aligned": "nadir_weighted",
+    "zero": "zero_intensity",
+    "zero_intensity_aligned": "zero_intensity",
+}
+_KNOWN_FEATURES = frozenset(
+    {"twi", "ndsm", "dtm", "intensity", "nadir_weighted", "zero_intensity"},
+)
+_INTENSITY_DEPENDENT_FEATURES = frozenset({"intensity", "zero_intensity"})
+_DEFAULT_REGISTRY_PATH = (
+    Path(__file__).resolve().parents[3] / "configs" / "inference_models.yaml"
+)
+
+
+def _normalize_feature_name(feature_name: str) -> str:
+    """Normalize a feature name for registry and runtime matching."""
+    normalized = feature_name.strip().lower()
+    return _FEATURE_ALIASES.get(normalized, normalized)
+
+
+def _feature_needs_intensity(feature_name: str) -> bool:
+    """Return whether a feature depends on an intensity raster."""
+    return feature_name in _INTENSITY_DEPENDENT_FEATURES
+
+
+def _validate_feature_names(features: list[str], *, context: str) -> list[str]:
+    """Validate and normalize a feature list."""
+    normalized_features = [_normalize_feature_name(feature) for feature in features]
+    unknown_features = sorted(set(normalized_features) - _KNOWN_FEATURES)
+    if unknown_features:
+        msg = f"Unknown feature(s) in {context}: {unknown_features}"
+        raise ValueError(msg)
+    return normalized_features
+
+
+def _load_model_registry(registry_path: str) -> dict[str, dict[str, Any]]:
+    """Load the inference model registry from YAML."""
+    registry_file = Path(registry_path).resolve()
+    if not registry_file.exists():
+        msg = f"Model registry not found: {registry_file}"
+        raise FileNotFoundError(msg)
+
+    with registry_file.open(encoding="utf-8") as file:
+        raw_registry = yaml.safe_load(file) or {}
+
+    if not isinstance(raw_registry, dict):
+        msg = f"Model registry must be a mapping at the top level: {registry_file}"
+        raise ValueError(msg)
+
+    raw_models = raw_registry.get("models")
+    if not isinstance(raw_models, dict) or not raw_models:
+        msg = (
+            "Model registry must define a non-empty 'models' mapping: "
+            f"{registry_file}"
+        )
+        raise ValueError(msg)
+
+    return raw_models
+
+
+def _resolve_model_config(model_id: str, registry_path: str) -> dict[str, Any]:
+    """Resolve and validate a single model configuration from the registry."""
+    models = _load_model_registry(registry_path)
+    if model_id not in models:
+        available_models = ", ".join(sorted(models))
+        msg = f"Unknown model_id '{model_id}'. Available models: {available_models}"
+        raise ValueError(msg)
+
+    model_config = models[model_id]
+    if not isinstance(model_config, dict):
+        msg = f"Registry entry for model_id '{model_id}' must be a mapping"
+        raise ValueError(msg)
+
+    missing_keys = [
+        key
+        for key in ("checkpoint", "features", "mean", "std")
+        if key not in model_config
+    ]
+    if missing_keys:
+        msg = (
+            f"Registry entry for model_id '{model_id}' is missing required key(s): "
+            f"{missing_keys}"
+        )
+        raise ValueError(msg)
+
+    features_raw = model_config["features"]
+    if not isinstance(features_raw, list) or not features_raw:
+        msg = (
+            f"Registry entry for model_id '{model_id}' must define a non-empty "
+            "features list"
+        )
+        raise ValueError(msg)
+
+    features = _validate_feature_names(features_raw, context=f"model '{model_id}'")
+
+    mean = model_config["mean"]
+    std = model_config["std"]
+    if not isinstance(mean, list) or not isinstance(std, list):
+        msg = (
+            f"Registry entry for model_id '{model_id}' must define list values "
+            "for mean and std"
+        )
+        raise ValueError(msg)
+
+    if len(mean) != len(features) or len(std) != len(features):
+        msg = (
+            f"Registry stats length mismatch for model_id '{model_id}': "
+            f"features={len(features)}, mean={len(mean)}, std={len(std)}"
+        )
+        raise ValueError(msg)
+
+    checkpoint_path = Path(model_config["checkpoint"]).expanduser().resolve()
+    if not checkpoint_path.exists():
+        msg = (
+            f"Checkpoint configured for model_id '{model_id}' does not exist: "
+            f"{checkpoint_path}"
+        )
+        raise FileNotFoundError(msg)
+
+    channel_weights = model_config.get("channel_weights")
+    if channel_weights is not None:
+        if (
+            not isinstance(channel_weights, list)
+            or len(channel_weights) != len(features)
+        ):
+            msg = (
+                f"channel_weights for model_id '{model_id}' must be a list matching "
+                f"the feature count ({len(features)})"
+            )
+            raise ValueError(msg)
+
+    threshold = model_config.get("threshold")
+    if threshold is not None and not 0.0 <= float(threshold) <= 1.0:
+        msg = f"threshold for model_id '{model_id}' must be between 0 and 1"
+        raise ValueError(msg)
+
+    output_name = model_config.get("output_name")
+    if output_name is not None and not isinstance(output_name, str):
+        msg = f"output_name for model_id '{model_id}' must be a string"
+        raise ValueError(msg)
+
+    return {
+        "model_id": model_id,
+        "checkpoint": str(checkpoint_path),
+        "features": features,
+        "mean": [float(value) for value in mean],
+        "std": [float(value) for value in std],
+        "threshold": float(threshold) if threshold is not None else None,
+        "channel_weights": (
+            [float(value) for value in channel_weights]
+            if channel_weights is not None
+            else None
+        ),
+        "output_name": output_name,
+    }
+
+
+def _infer_preprocessed_root(data_folder: str, *, workflow: str) -> Path:
+    """Infer the workflow preprocessed root from a raw AOI folder."""
+    data_path = Path(data_folder).resolve()
+    data_path_str = data_path.as_posix()
+    expected_raw_segment = f"/{workflow}/raw/"
+    if expected_raw_segment not in data_path_str:
+        msg = (
+            f"data_folder does not match workflow='{workflow}' layout: {data_folder}. "
+            f"Expected path containing '{expected_raw_segment}'."
+        )
+        raise ValueError(msg)
+
+    return data_path.parent.parent / "preprocessed"
+
+
+def _write_single_band_raster(
+    output_path: Path,
+    data: np.ndarray,
+    profile: dict[str, Any],
+    *,
+    description: str,
+) -> None:
+    """Write a single-band raster while preserving metadata."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(output_path, "w", **profile) as dst:
+        dst.write(data, 1)
+        dst.set_band_description(1, description)
+        nodata = profile.get("nodata")
+        if nodata is not None:
+            dst.update_tags(1, NODATA_VALUE=str(nodata))
+
+
+def _validate_stacked_input_features(
+    stacked_inputs: str,
+    *,
+    expected_features: list[str],
+) -> None:
+    """Validate that a preprocessed stack matches the requested feature list."""
+    with rasterio.open(stacked_inputs) as src:
+        if src.count != len(expected_features):
+            msg = (
+                f"Stacked inputs at {stacked_inputs} contain {src.count} band(s), but "
+                f"the selected model requires {len(expected_features)} feature(s): "
+                f"{expected_features}"
+            )
+            raise ValueError(msg)
+
+        actual_features = [
+            _normalize_feature_name(description or "")
+            for description in src.descriptions
+        ]
+
+    if actual_features != expected_features:
+        msg = (
+            f"Stacked inputs at {stacked_inputs} do not match the selected model "
+            f"feature order. Expected {expected_features}, found {actual_features}. "
+            "Use --data_folder so the stack can be rebuilt automatically."
+        )
+        raise ValueError(msg)
 
 # =============================================================================
 # 1. PREPROCESSING
@@ -69,6 +291,7 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
     workflow: str = "inference",
     nodata_val: float = -32767,
     include_intensity: bool = True,
+    requested_features: list[str] | None = None,
     selected_channel_indices: list[int] | None = None,
     project_extents_path: str | None = None,
     seam_gaussian_sigma: float = 1.5,
@@ -91,6 +314,7 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
         workflow: Workflow layout used to validate input/output roots
         nodata_val: NoData value for output rasters
         include_intensity: Whether to include intensity band in stack
+        requested_features: Explicit feature list to build and stack in order
         project_extents_path: Path to GeoPackage with one polygon per LiDAR project
             extent. When provided, seam correction is applied to the DTM and aligned
             DSM before any derivatives are computed. Pass None to skip seam correction.
@@ -148,9 +372,20 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
     log.info("PREPROCESSING: %s", data_folder)
     log.info("=" * 80)
 
+    if requested_features is not None:
+        requested_features = _validate_feature_names(
+            requested_features,
+            context="requested features",
+        )
+        include_intensity = include_intensity or any(
+            _feature_needs_intensity(feature) for feature in requested_features
+        )
+
     # Aligned rasters
     dsm_aligned = output_path / "dsm_aligned.tif"
     intensity_aligned = output_path / "intensity_aligned.tif"
+    nadir_weighted_aligned = output_path / "nadir_weighted_aligned.tif"
+    zero_intensity_aligned = output_path / "zero_intensity_aligned.tif"
 
     # Align DSM to DTM
     if not dsm_aligned.exists():
@@ -184,6 +419,24 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
             "Intensity file not found: %s (proceeding without intensity)",
             intensity_path,
         )
+
+    nadir_weighted_path = data_path / "nadir_weighted.tif"
+    has_nadir_weighted = False
+    if "nadir_weighted" in (requested_features or []):
+        if not nadir_weighted_path.exists():
+            msg = f"Requested feature 'nadir_weighted' but file not found: {nadir_weighted_path}"
+            raise FileNotFoundError(msg)
+        if not nadir_weighted_aligned.exists():
+            log.info("Aligning nadir-weighted raster to DTM grid...")
+            align_to_reference(
+                reference_path=str(dtm_path),
+                input_path=str(nadir_weighted_path),
+                output_path=str(nadir_weighted_aligned),
+                nodata_val=nodata_val,
+            )
+        else:
+            log.info("Skipping nadir-weighted alignment (already exists)")
+        has_nadir_weighted = True
 
     # Seam correction on DTM and DSM
     # Skipped when project_extents_path is not provided.
@@ -219,45 +472,106 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
         dtm_for_deriv = dtm_path
         dsm_for_deriv = dsm_aligned
 
-    # Compute nDSM
-    ndsm_path = output_path / "ndsm.tif"
-    if not ndsm_path.exists():
-        log.info("Computing nDSM...")
-        compute_ndsm(
-            dsm_path=str(dsm_for_deriv),
-            dtm_path=str(dtm_for_deriv),
-            output_path=str(ndsm_path),
-            nodata_val=nodata_val,
-        )
-    else:
-        log.info("Skipping nDSM computation (already exists)")
+    feature_rasters: dict[str, Path] = {}
 
-    # Compute TWI
-    twi_path = output_path / "twi.tif"
-    if not twi_path.exists():
-        log.info("Computing TWI...")
-        compute_twi_whitebox(
-            dtm_path=str(dtm_for_deriv),
-            twi_output_path=str(twi_path),
-            keep_intermediate=True,
-        )
+    if requested_features is None:
+        stack_features = ["twi", "ndsm"]
+        if has_intensity:
+            stack_features.append("intensity")
     else:
-        log.info("Skipping TWI computation (already exists)")
+        stack_features = requested_features
+        missing_intensity_features = [
+            feature for feature in stack_features if _feature_needs_intensity(feature)
+        ]
+        if missing_intensity_features and not has_intensity:
+            msg = (
+                f"Requested feature(s) {missing_intensity_features} but intensity.tif "
+                f"is missing from {data_folder}"
+            )
+            raise FileNotFoundError(msg)
 
-    # Stack bands (order: TWI, nDSM, [intensity])
-    stacked_path = output_path / "stacked_inputs.tif"
+    if "ndsm" in stack_features:
+        ndsm_path = output_path / "ndsm.tif"
+        if not ndsm_path.exists():
+            log.info("Computing nDSM...")
+            compute_ndsm(
+                dsm_path=str(dsm_for_deriv),
+                dtm_path=str(dtm_for_deriv),
+                output_path=str(ndsm_path),
+                nodata_val=nodata_val,
+            )
+        else:
+            log.info("Skipping nDSM computation (already exists)")
+        feature_rasters["ndsm"] = ndsm_path
+
+    if "twi" in stack_features:
+        twi_path = output_path / "twi.tif"
+        if not twi_path.exists():
+            log.info("Computing TWI...")
+            compute_twi_whitebox(
+                dtm_path=str(dtm_for_deriv),
+                twi_output_path=str(twi_path),
+                keep_intermediate=True,
+            )
+        else:
+            log.info("Skipping TWI computation (already exists)")
+        feature_rasters["twi"] = twi_path
+
+    if "intensity" in stack_features:
+        feature_rasters["intensity"] = intensity_aligned
+
+    if "dtm" in stack_features:
+        feature_rasters["dtm"] = dtm_for_deriv
+
+    if "nadir_weighted" in stack_features:
+        if not has_nadir_weighted:
+            msg = "Requested feature 'nadir_weighted' is unavailable"
+            raise FileNotFoundError(msg)
+        feature_rasters["nadir_weighted"] = nadir_weighted_aligned
+
+    if "zero_intensity" in stack_features:
+        raw_zero_intensity_path = data_path / "zero_intensity.tif"
+        if raw_zero_intensity_path.exists():
+            if not zero_intensity_aligned.exists():
+                log.info("Aligning zero-intensity raster to DTM grid...")
+                align_to_reference(
+                    reference_path=str(dtm_path),
+                    input_path=str(raw_zero_intensity_path),
+                    output_path=str(zero_intensity_aligned),
+                    nodata_val=nodata_val,
+                )
+            else:
+                log.info("Skipping zero-intensity alignment (already exists)")
+        else:
+            if not zero_intensity_aligned.exists():
+                log.info("Building zero-intensity mask...")
+                zero_mask, zero_profile = build_zero_intensity_mask(intensity_aligned)
+                _write_single_band_raster(
+                    zero_intensity_aligned,
+                    zero_mask,
+                    zero_profile,
+                    description="zero_intensity",
+                )
+            else:
+                log.info("Skipping zero-intensity mask (already exists)")
+        feature_rasters["zero_intensity"] = zero_intensity_aligned
+
+    stacked_filename = (
+        "stacked_inputs.tif"
+        if requested_features is None
+        else f"stacked_inputs__{'__'.join(stack_features)}.tif"
+    )
+    stacked_path = output_path / stacked_filename
     if not stacked_path.exists():
         log.info("Stacking bands...")
-        stack_inputs = [str(twi_path), str(ndsm_path)]
-        if has_intensity:
-            stack_inputs.append(str(intensity_aligned))
-        if selected_channel_indices is not None:
+        stack_inputs = [str(feature_rasters[feature]) for feature in stack_features]
+        if requested_features is None and selected_channel_indices is not None:
             stack_inputs = [stack_inputs[idx] for idx in selected_channel_indices]
             log.info("Selected channel indices: %s", selected_channel_indices)
         log.info("Band order after selection: %s", stack_inputs)
 
         stack_rasters(
-            raster_paths=stack_inputs,
+            input_rasters=stack_inputs,
             output_path=str(stacked_path),
             nodata_val=nodata_val,
         )
@@ -1176,6 +1490,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     batch_size: int = 4,
     device: str = "cuda",
     include_intensity: bool = True,
+    requested_features: list[str] | None = None,
     selected_channel_indices: list[int] | None = None,
     export_vector: bool = True,
     simplify_tolerance: float = 1.0,
@@ -1183,6 +1498,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     seam_gaussian_sigma: float = 1.5,
     binary_threshold: float = _BINARY_THRESHOLD,
     channel_weights: list[float] | None = None,
+    output_name: str | None = None,
 ) -> dict[str, str]:
     """
     Run complete inference pipeline.
@@ -1209,6 +1525,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         batch_size: Batch size for inference (default: 4)
         device: Device for inference ('cuda' or 'cpu', default: 'cuda')
         include_intensity: Whether to include intensity band (default: True)
+        requested_features: Explicit feature list to build/expect in stack order
         export_vector: Whether to export vectorized results (default: True)
         simplify_tolerance: Geometry simplification tolerance (default: 1.0)
         project_extents_path: Path to GeoPackage with one polygon per LiDAR project
@@ -1219,6 +1536,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         binary_threshold: Probability threshold for water/non-water classification
             (default 0.5).
         channel_weights: Optional per-channel multipliers applied after standardization.
+        output_name: Optional output stem to use instead of the AOI name
 
     Returns:
         Dictionary with paths to outputs:
@@ -1298,6 +1616,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     log.info("Device: %s", device)
     log.info("Mean: %s", mean)
     log.info("Std: %s", std)
+    log.info("Requested features: %s", requested_features)
     log.info("Binary threshold: %.3f", binary_threshold)
     log.info("Channel weights: %s", channel_weights)
     log.info("Selected channel indices: %s", selected_channel_indices)
@@ -1310,13 +1629,23 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         # Use already preprocessed inputs (typical for inference after training)
         stacked_inputs = str(Path(stacked_inputs).resolve())
         log.info("Using preprocessed stacked_inputs: %s", stacked_inputs)
+        if requested_features is not None:
+            _validate_stacked_input_features(
+                stacked_inputs,
+                expected_features=requested_features,
+            )
     elif data_folder is not None:
         # Preprocess raw data on-the-fly (less common, for ad-hoc inference)
         log.info("Preprocessing raw data from: %s", data_folder)
+        preprocessed_root = _infer_preprocessed_root(
+            data_folder,
+            workflow="inference",
+        )
         stacked_inputs = preprocess_aoi(
             data_folder=data_folder,
-            output_folder=output_folder,
+            output_folder=str(preprocessed_root),
             include_intensity=include_intensity,
+            requested_features=requested_features,
             selected_channel_indices=selected_channel_indices,
             project_extents_path=project_extents_path,
             seam_gaussian_sigma=seam_gaussian_sigma,
@@ -1346,9 +1675,11 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
             log.debug("[DEBUG] Non-finite weights in: %s", name)
             break
 
+    output_stem = output_name or aoi_name
+
     # Step 3: Run inference (full extent)
     prediction_raster_full = str(
-        output_path / f"water_prediction_{aoi_name}_full_{output_timestamp}.tif",
+        output_path / f"water_prediction_{output_stem}_full_{output_timestamp}.tif",
     )
     sliding_window_inference(
         model=model,
@@ -1370,7 +1701,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     # Step 4: Crop to AOI boundary (if available)
     if aoi_vector_path is not None:
         prediction_raster = str(
-            output_path / f"water_prediction_{aoi_name}_{output_timestamp}.tif",
+            output_path / f"water_prediction_{output_stem}_{output_timestamp}.tif",
         )
         crop_raster_to_aoi(
             input_raster_path=prediction_raster_full,
@@ -1391,7 +1722,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     # Step 5: Export vectors (optional)
     if export_vector:
         prediction_vector = str(
-            output_path / f"water_bodies_{aoi_name}_{output_timestamp}.gpkg",
+            output_path / f"water_bodies_{output_stem}_{output_timestamp}.gpkg",
         )
         export_vectors(
             prediction_raster_path=prediction_raster,
@@ -1441,7 +1772,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--checkpoint",
         type=str,
-        required=True,
+        required=False,
         help="Path to trained model checkpoint (.ckpt)",
     )
     parser.add_argument(
@@ -1454,15 +1785,27 @@ def parse_args() -> argparse.Namespace:
         "--mean",
         type=float,
         nargs="+",
-        required=True,
+        required=False,
         help="Per-band mean for standardization (e.g., --mean 0.0 0.0 0.0)",
     )
     parser.add_argument(
         "--std",
         type=float,
         nargs="+",
-        required=True,
+        required=False,
         help="Per-band std for standardization (e.g., --std 1.0 1.0 1.0)",
+    )
+    parser.add_argument(
+        "--model_id",
+        type=str,
+        default=None,
+        help="Model identifier from the inference registry for automated inference",
+    )
+    parser.add_argument(
+        "--registry",
+        type=str,
+        default=str(_DEFAULT_REGISTRY_PATH),
+        help="Path to the inference model registry YAML",
     )
 
     # Input arguments - at least one is required
@@ -1546,8 +1889,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--threshold",
         type=float,
-        default=_BINARY_THRESHOLD,
-        help="Probability threshold for water/non-water classification",
+        default=None,
+        help=(
+            "Probability threshold for water/non-water classification. When "
+            "--model_id is used, this overrides any registry default."
+        ),
     )
     parser.add_argument(
         "--channel_weights",
@@ -1592,11 +1938,6 @@ def main() -> None:
     """CLI entry point."""
     args = parse_args()
 
-    # Validate input lengths
-    if len(args.mean) != len(args.std):
-        msg = "Mean and std must have the same length"
-        raise ValueError(msg)
-
     # Validate that at least stacked_inputs or data_folder is provided
     if args.stacked_inputs is None and args.data_folder is None:
         msg = (
@@ -1605,15 +1946,11 @@ def main() -> None:
         )
         raise ValueError(msg)
 
-    if not 0.0 <= args.threshold <= 1.0:
+    if args.threshold is not None and not 0.0 <= args.threshold <= 1.0:
         msg = "--threshold must be between 0 and 1"
         raise ValueError(msg)
 
     if args.channel_weights is not None:
-        if len(args.channel_weights) != len(args.mean):
-            msg = "Channel weights must have the same length as mean/std"
-            raise ValueError(msg)
-
         if any(weight < 0 for weight in args.channel_weights):
             msg = "Channel weights must be non-negative"
             raise ValueError(msg)
@@ -1622,34 +1959,91 @@ def main() -> None:
         if any(idx < 0 for idx in args.selected_channel_indices):
             msg = "--selected_channel_indices must contain only non-negative integers"
             raise ValueError(msg)
-        if len(set(args.selected_channel_indices)) != len(args.selected_channel_indices):
+        if len(set(args.selected_channel_indices)) != len(
+            args.selected_channel_indices,
+        ):
             msg = "--selected_channel_indices must not contain duplicate indices"
             raise ValueError(msg)
 
-    # Run inference
+    checkpoint_path = args.checkpoint
+    mean = args.mean
+    std = args.std
+    include_intensity = not args.no_intensity
+    requested_features = None
     selected_channel_indices = args.selected_channel_indices
-    if selected_channel_indices is None and args.drop_twi:
-        selected_channel_indices = [1] if args.no_intensity else [1, 2]
+    output_name = None
+    binary_threshold = args.threshold
+    channel_weights = args.channel_weights
+
+    if args.model_id is not None:
+        if args.no_intensity:
+            msg = "--no_intensity cannot be used with --model_id"
+            raise ValueError(msg)
+        if args.drop_twi:
+            msg = "--drop_twi cannot be used with --model_id"
+            raise ValueError(msg)
+        if args.selected_channel_indices is not None:
+            msg = "--selected_channel_indices cannot be used with --model_id"
+            raise ValueError(msg)
+
+        model_config = _resolve_model_config(args.model_id, args.registry)
+        checkpoint_path = model_config["checkpoint"]
+        mean = model_config["mean"]
+        std = model_config["std"]
+        requested_features = model_config["features"]
+        include_intensity = any(
+            _feature_needs_intensity(feature) for feature in requested_features
+        )
+        output_name = model_config["output_name"]
+        if binary_threshold is None:
+            binary_threshold = model_config["threshold"]
+        if channel_weights is None:
+            channel_weights = model_config["channel_weights"]
+    else:
+        if checkpoint_path is None:
+            msg = "--checkpoint is required when --model_id is not used"
+            raise ValueError(msg)
+        if mean is None or std is None:
+            msg = "--mean and --std are required when --model_id is not used"
+            raise ValueError(msg)
+        if len(mean) != len(std):
+            msg = "Mean and std must have the same length"
+            raise ValueError(msg)
+        if channel_weights is not None and len(channel_weights) != len(mean):
+            msg = "Channel weights must have the same length as mean/std"
+            raise ValueError(msg)
+
+        if selected_channel_indices is None and args.drop_twi:
+            selected_channel_indices = [1] if args.no_intensity else [1, 2]
+
+    if binary_threshold is None:
+        binary_threshold = _BINARY_THRESHOLD
+
+    if channel_weights is not None and len(channel_weights) != len(mean):
+        msg = "Channel weights must have the same length as the active mean/std values"
+        raise ValueError(msg)
 
     run_inference(
-        checkpoint_path=args.checkpoint,
+        checkpoint_path=checkpoint_path,
         output_folder=args.output_folder,
-        mean=args.mean,
-        std=args.std,
+        mean=mean,
+        std=std,
         data_folder=args.data_folder,
         stacked_inputs=args.stacked_inputs,
         window_size=args.window_size,
         stride=args.stride,
         batch_size=args.batch_size,
         device=args.device,
-        include_intensity=not args.no_intensity,
+        include_intensity=include_intensity,
+        requested_features=requested_features,
         selected_channel_indices=selected_channel_indices,
         export_vector=not args.no_vector,
-        binary_threshold=args.threshold,
-        channel_weights=args.channel_weights,
+        binary_threshold=binary_threshold,
+        channel_weights=channel_weights,
         simplify_tolerance=args.simplify_tolerance,
         project_extents_path=args.project_extents,
         seam_gaussian_sigma=args.seam_sigma,
+        output_name=output_name,
     )
 
 
