@@ -315,7 +315,7 @@ fi
 
 log "Step 3b/7: Detect and repair missing CRS metadata on run-local extracted LAZ copies only"
 log "Step 3b/7: Sitestore source LAZ files are never modified"
-python "$GDL_REPO/scripts/repair_extracted_laz_crs.py" \
+python "$GDL_REPO/geo_deep_learning/tools/water_extraction/repair_extracted_laz_crs.py" \
     --metadata-csv "$EXTRACT_DIR/extraction_metadata.csv" \
     --project-index "$PROJECT_INDEX"
 
