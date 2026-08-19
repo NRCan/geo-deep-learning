@@ -24,10 +24,11 @@ import requests
 from lightning.pytorch.cli import LightningArgumentParser
 from pystac_client import Client
 from rasterio.crs import CRS
+from rasterio.features import geometry_mask
+from rasterio.transform import from_origin
+from rasterio.windows import Window, transform as window_transform
 from requests import Response, Session
 from requests.exceptions import ChunkedEncodingError, ConnectionError, RequestException
-from rasterio.io import MemoryFile
-from rasterio.mask import mask
 from rasterio.merge import merge
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
@@ -50,6 +51,8 @@ DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 DOWNLOAD_RETRY_LIMIT = 6
 DOWNLOAD_RETRY_BACKOFF_SECONDS = 10
 DOWNLOAD_TIMEOUT_SECONDS = 60
+DEFAULT_OUTPUT_BYTES_PER_PIXEL = 4
+DEFAULT_MERGE_MEM_LIMIT_MB = 512
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -67,6 +70,122 @@ def _flush_logs() -> None:
         sys.stderr.flush()
     except Exception:
         pass
+
+
+def _estimate_output_shape(
+    bounds: tuple[float, float, float, float],
+    resolution: int,
+) -> tuple[int, int]:
+    """Estimate output raster height/width from AOI bounds and requested resolution."""
+    minx, miny, maxx, maxy = bounds
+    width = max(1, int(np.ceil((maxx - minx) / resolution)))
+    height = max(1, int(np.ceil((maxy - miny) / resolution)))
+    return height, width
+
+
+def _resolve_max_output_pixels() -> int | None:
+    """Read the optional output-size guard from the environment."""
+    raw_value = os.environ.get("GDL_MAX_ELEVATION_OUTPUT_PIXELS")
+    if raw_value is None or raw_value == "":
+        return None
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(
+            "GDL_MAX_ELEVATION_OUTPUT_PIXELS must be an integer"
+        ) from exc
+    if value <= 0:
+        raise ValueError("GDL_MAX_ELEVATION_OUTPUT_PIXELS must be positive")
+    return value
+
+
+def _resolve_merge_mem_limit_mb() -> int:
+    """Read the merge chunk memory limit from the environment."""
+    raw_value = os.environ.get("GDL_ELEVATION_MERGE_MEM_LIMIT_MB")
+    if raw_value is None or raw_value == "":
+        return DEFAULT_MERGE_MEM_LIMIT_MB
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(
+            "GDL_ELEVATION_MERGE_MEM_LIMIT_MB must be an integer"
+        ) from exc
+    if value <= 0:
+        raise ValueError("GDL_ELEVATION_MERGE_MEM_LIMIT_MB must be positive")
+    return value
+
+
+def _validate_output_size(
+    *,
+    identifier: str,
+    aoi_bounds: tuple[float, float, float, float],
+    resolution: int,
+) -> tuple[int, int, int]:
+    """
+    Estimate output size and optionally fail if an explicit guard is configured.
+    """
+    height, width = _estimate_output_shape(aoi_bounds, resolution)
+    pixel_count = height * width
+    max_pixels = _resolve_max_output_pixels()
+    if max_pixels is not None and pixel_count > max_pixels:
+        estimated_gib = (
+            pixel_count * DEFAULT_OUTPUT_BYTES_PER_PIXEL / (1024**3)
+        )
+        raise RuntimeError(
+            "Requested output for "
+            f"{identifier} is too large for the current in-memory merge path: "
+            f"{width}x{height} pixels ({pixel_count:,} total, "
+            f"~{estimated_gib:.1f} GiB per float32 band) at {resolution} m. "
+            "Unset or raise GDL_MAX_ELEVATION_OUTPUT_PIXELS to allow the "
+            "windowed on-disk merge path to proceed."
+        )
+    return height, width, pixel_count
+
+
+def _build_output_transform(
+    aoi_bounds: tuple[float, float, float, float],
+    resolution: int,
+) -> tuple[rasterio.Affine, int, int]:
+    """Build the output transform and dimensions for the AOI envelope."""
+    height, width = _estimate_output_shape(aoi_bounds, resolution)
+    minx, _, _, maxy = aoi_bounds
+    return from_origin(minx, maxy, resolution, resolution), height, width
+
+
+def _mask_window_to_aoi(
+    *,
+    dataset: rasterio.io.DatasetWriter,
+    window: Window,
+    geoms: list[dict],
+    nodata: float | int,
+) -> None:
+    """Apply the AOI geometry mask to a single destination window."""
+    data = dataset.read(window=window, masked=False)
+    inside_aoi_mask = geometry_mask(
+        geoms,
+        out_shape=(int(window.height), int(window.width)),
+        transform=window_transform(window, dataset.transform),
+        all_touched=False,
+        invert=True,
+    )
+    data[:, ~inside_aoi_mask] = nodata
+    dataset.write(data, window=window)
+
+
+def _apply_aoi_mask_to_raster(
+    raster_path: Path,
+    geoms: list[dict],
+    nodata: float | int,
+) -> None:
+    """Mask the merged raster in place, one destination block at a time."""
+    with rasterio.open(raster_path, "r+") as dataset:
+        for _, window in dataset.block_windows(1):
+            _mask_window_to_aoi(
+                dataset=dataset,
+                window=window,
+                geoms=geoms,
+                nodata=nodata,
+            )
 
 
 @dataclass
@@ -416,6 +535,21 @@ def download_stac_asset_mosaic(
     _flush_logs()
     t0_total = time.time()
 
+    height, width, pixel_count = _validate_output_size(
+        identifier=identifier,
+        aoi_bounds=aoi_bounds,
+        resolution=resolution,
+    )
+    log.info(
+        "[SIZE] Planned output for %s: %dx%d pixels (%s total) at %sm resolution",
+        identifier,
+        width,
+        height,
+        f"{pixel_count:,}",
+        resolution,
+    )
+    _flush_logs()
+
     asset_key = ASSET_KEYS.get(identifier, identifier)
 
     bbox_wgs84 = transform_bounds(aoi_crs, "EPSG:4326", *aoi_bounds, densify_pts=21)
@@ -488,6 +622,7 @@ def download_stac_asset_mosaic(
     _flush_logs()
 
     sources = [rasterio.open(p) for p in valid_assets]
+    vrt_sources: list = sources
 
     try:
         dtype = sources[0].dtypes[0]
@@ -495,7 +630,13 @@ def download_stac_asset_mosaic(
         if nodata is None:
             nodata = -9999.0 if np.issubdtype(dtype, np.floating) else 0
 
-        log.info("Merging %d local rasters for %s", len(sources), identifier)
+        merge_mem_limit_mb = _resolve_merge_mem_limit_mb()
+        log.info(
+            "Merging %d local rasters for %s with %s MB chunk limit",
+            len(sources),
+            identifier,
+            merge_mem_limit_mb,
+        )
         t0 = time.time()
         _flush_logs()
 
@@ -541,32 +682,6 @@ def download_stac_asset_mosaic(
         log.info("[MERGE] Using AOI bounds (AOI CRS): %s", aoi_bounds)
         _flush_logs()
 
-        merged, merged_transform = merge(
-            vrt_sources,
-            bounds=aoi_bounds,  # AOI bounds in AOI CRS (correct)
-            res=resolution,  # resolution in AOI CRS units (meters)
-            nodata=nodata,
-        )
-
-        log.info(
-            "[MERGE] Result for %s: shape=%s dtype=%s",
-            identifier,
-            merged.shape,
-            merged.dtype,
-        )
-        _flush_logs()
-
-        log.info("Merge completed in %s", _fmt_duration(time.time() - t0))
-        _flush_logs()
-
-        log.info("Starting mask + write for %s", identifier)
-        t0 = time.time()
-        _flush_logs()
-
-        # -----------------------------------------------------------------
-        # CHANGED: We now write to output_temp.tif and rename at the end.
-        # This prevents 0-byte "final" outputs if the job dies mid-write.
-        # -----------------------------------------------------------------
         final_out = Path(output_path)
         tmp_out = final_out.with_name(final_out.stem + "_temp" + final_out.suffix)
 
@@ -578,42 +693,49 @@ def download_stac_asset_mosaic(
             except OSError:
                 log.warning("[CLEANUP] Could not remove temp output: %s", tmp_out)
 
-        with MemoryFile() as memfile:
-            with memfile.open(
-                driver="GTiff",
-                height=merged.shape[1],
-                width=merged.shape[2],
-                count=1,
-                dtype=merged.dtype,
-                crs=aoi_crs,
-                transform=merged_transform,
-                nodata=nodata,
-                compress="DEFLATE",
-                BIGTIFF="YES",
-            ) as tmp:
-                tmp.write(merged)
+        profile = sources[0].profile.copy()
+        output_transform, output_height, output_width = _build_output_transform(
+            aoi_bounds,
+            resolution,
+        )
+        profile.update(
+            driver="GTiff",
+            height=output_height,
+            width=output_width,
+            count=1,
+            dtype=dtype,
+            crs=aoi_crs,
+            transform=output_transform,
+            nodata=nodata,
+            compress="DEFLATE",
+            BIGTIFF="YES",
+            tiled=True,
+            blockxsize=512,
+            blockysize=512,
+        )
 
-                masked, masked_transform = mask(
-                    tmp,
-                    geoms,
-                    crop=True,
-                    filled=True,
-                    nodata=nodata,
-                )
-
-                profile = tmp.profile
-                profile.update(
-                    height=masked.shape[1],
-                    width=masked.shape[2],
-                    transform=masked_transform,
-                    BIGTIFF="YES",
-                )
-
-        log.info("[WRITE] Writing %s to temp output %s", identifier, tmp_out.name)
+        log.info("[WRITE] Writing merged %s directly to temp output %s", identifier, tmp_out.name)
         _flush_logs()
 
-        with rasterio.open(tmp_out, "w", **profile) as dst:
-            dst.write(masked.astype(dtype, copy=False))
+        merge(
+            vrt_sources,
+            bounds=aoi_bounds,  # AOI bounds in AOI CRS (correct)
+            res=resolution,  # resolution in AOI CRS units (meters)
+            nodata=nodata,
+            dtype=dtype,
+            dst_path=str(tmp_out),
+            dst_kwds=profile,
+            mem_limit=merge_mem_limit_mb,
+        )
+
+        log.info("Merge completed in %s", _fmt_duration(time.time() - t0))
+        _flush_logs()
+
+        log.info("Starting mask + write for %s", identifier)
+        t0 = time.time()
+        _flush_logs()
+
+        _apply_aoi_mask_to_raster(tmp_out, geoms, nodata)
 
         # Validate written temp output before renaming
         if not _is_nonempty_file(tmp_out) or not is_valid_geotiff(str(tmp_out)):
@@ -637,6 +759,9 @@ def download_stac_asset_mosaic(
         _flush_logs()
 
     finally:
+        if vrt_sources is not sources:
+            for src in vrt_sources:
+                src.close()
         for src in sources:
             src.close()
 

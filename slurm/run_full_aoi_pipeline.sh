@@ -89,6 +89,7 @@ PREP_ROOT="$WORKFLOW_ROOT/preprocessed"
 RUN_ROOT="$WORKFLOW_ROOT/runs"
 RAW_AOI_DIR="$RAW_ROOT/$AOI_NAME"
 RUN_DIR="$RUN_ROOT/$AOI_NAME"
+ELEVATION_CACHE_DIR="$RUN_DIR/elevation_cache"
 EXTRACT_DIR="$RUN_DIR/extracted_laz"
 INTENSITY_RESULTS="$RUN_DIR/intensity_results"
 NADIR_DIR="$RUN_DIR/nadir_outputs"
@@ -260,27 +261,24 @@ activate_gdl
 if [[ "$FORCE_RERUN" != "1" && $(is_valid_geotiff "$RAW_AOI_DIR/dtm.tif"; echo $?) -eq 0 && $(is_valid_geotiff "$RAW_AOI_DIR/dsm.tif"; echo $?) -eq 0 ]]; then
     log "Skipping DTM/DSM download: existing rasters validated"
 else
-    ELEVATION_STAGE_DIR="$RUN_DIR/elevation_temp"
-    rm -rf "$ELEVATION_STAGE_DIR"
-    mkdir -p "$ELEVATION_STAGE_DIR"
+    mkdir -p "$ELEVATION_CACHE_DIR"
 
     python -m geo_deep_learning.tools.water_extraction.download_elevation \
         --aoi_path "$RAW_AOI_VECTOR" \
-        --out_folder "$ELEVATION_STAGE_DIR" \
+        --out_folder "$ELEVATION_CACHE_DIR" \
         --resolution "$RESOLUTION"
 
-    if ! is_valid_geotiff "$ELEVATION_STAGE_DIR/dtm.tif"; then
-        echo "Downloaded DTM is missing or invalid: $ELEVATION_STAGE_DIR/dtm.tif" >&2
+    if ! is_valid_geotiff "$ELEVATION_CACHE_DIR/dtm.tif"; then
+        echo "Downloaded DTM is missing or invalid: $ELEVATION_CACHE_DIR/dtm.tif" >&2
         exit 1
     fi
-    if ! is_valid_geotiff "$ELEVATION_STAGE_DIR/dsm.tif"; then
-        echo "Downloaded DSM is missing or invalid: $ELEVATION_STAGE_DIR/dsm.tif" >&2
+    if ! is_valid_geotiff "$ELEVATION_CACHE_DIR/dsm.tif"; then
+        echo "Downloaded DSM is missing or invalid: $ELEVATION_CACHE_DIR/dsm.tif" >&2
         exit 1
     fi
 
-    promote_file "$ELEVATION_STAGE_DIR/dtm.tif" "$RAW_AOI_DIR/dtm.tif"
-    promote_file "$ELEVATION_STAGE_DIR/dsm.tif" "$RAW_AOI_DIR/dsm.tif"
-    rm -rf "$ELEVATION_STAGE_DIR"
+    promote_file "$ELEVATION_CACHE_DIR/dtm.tif" "$RAW_AOI_DIR/dtm.tif"
+    promote_file "$ELEVATION_CACHE_DIR/dsm.tif" "$RAW_AOI_DIR/dsm.tif"
 fi
 
 log "Step 2/7: Create valid_lidar_mask.gpkg"
