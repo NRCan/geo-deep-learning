@@ -254,6 +254,27 @@ def _write_single_band_raster(
             dst.update_tags(1, NODATA_VALUE=str(nodata))
 
 
+def _create_memmap_array(
+    output_raster_path: str,
+    *,
+    suffix: str,
+    shape: tuple[int, int],
+) -> tuple[np.memmap, Path]:
+    """Create a disk-backed float32 array for large-scene accumulation."""
+    output_path = Path(output_raster_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{output_path.stem}_{suffix}_",
+        suffix=".mmap",
+        dir=output_path.parent,
+    )
+    os.close(fd)
+    Path(tmp_path).unlink(missing_ok=False)
+    memmap = np.memmap(tmp_path, dtype=np.float32, mode="w+", shape=shape)
+    memmap.fill(0.0)
+    return memmap, Path(tmp_path)
+
+
 def _validate_stacked_input_features(
     stacked_inputs: str,
     *,
@@ -938,11 +959,23 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
             _NEGATIVE_NODATA_THRESHOLD,
         )
 
-        # Initialize output arrays
-        # Prediction accumulator (sum of predictions)
-        prediction_sum = np.zeros((height, width), dtype=np.float32)
-        # Weight accumulator (count of predictions per pixel)
-        weight_sum = np.zeros((height, width), dtype=np.float32)
+        estimated_scene_gib = (height * width * np.dtype(np.float32).itemsize) / (
+            1024**3
+        )
+        log.info(
+            "Using disk-backed accumulators for this AOI (%.1f GiB per float32 raster)",
+            estimated_scene_gib,
+        )
+        prediction_sum, prediction_sum_path = _create_memmap_array(
+            output_raster_path,
+            suffix="prediction_sum",
+            shape=(height, width),
+        )
+        weight_sum, weight_sum_path = _create_memmap_array(
+            output_raster_path,
+            suffix="weight_sum",
+            shape=(height, width),
+        )
 
         # Compute window positions
         windows = [
@@ -1036,7 +1069,7 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         batch_positions = []
 
         # Load valid lidar mask if available
-        valid_mask_full = None
+        valid_mask_geometries: list[tuple[tuple[float, float, float, float], Any]] = []
         if data_folder is not None:
             valid_lidar_mask_path = _resolve_valid_lidar_mask(data_folder)
             if valid_lidar_mask_path is not None:
@@ -1046,78 +1079,105 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
                         msg = "CRS mismatch between valid mask and raster"
                         raise ValueError(msg)
 
-                    geometries = [feature["geometry"] for feature in shp]
+                    for feature in shp:
+                        geometry = feature["geometry"]
+                        if geometry is None:
+                            continue
+                        geom_shape = shapely_shape(geometry)
+                        if geom_shape.is_empty:
+                            continue
+                        valid_mask_geometries.append((geom_shape.bounds, geometry))
 
-                valid_mask_full = rasterize(
-                    [(geom, 1) for geom in geometries],
-                    out_shape=ref_shape,
-                    transform=ref_transform,
-                    fill=0,
-                    dtype="uint8",
+                log.info(
+                    "Valid LiDAR mask loaded successfully (%d geometries); rasterizing per window",
+                    len(valid_mask_geometries),
                 )
-                log.info("Valid LiDAR mask loaded and rasterized successfully")
         else:
             log.info("No data_folder provided - skipping valid LiDAR mask filtering")
 
-        with torch.no_grad():
-            for i, (x, y) in enumerate(tqdm(windows, desc="Inference")):
-                window = Window(x, y, window_size, window_size)
+        weight = _compute_window_weight(window_size)
 
-                # Read window data - load only the channels the model expects
-                if channels_to_load < num_bands:
-                    window_data = src.read(bands_to_read, window=window).astype(
-                        np.float32,
+        try:
+            with torch.no_grad():
+                for i, (x, y) in enumerate(tqdm(windows, desc="Inference")):
+                    window = Window(x, y, window_size, window_size)
+
+                # Read each band independently to avoid rasterio mixed-dtype VRT
+                # failures that occur before out_dtype casting is applied.
+                    window_data = np.stack(
+                        [
+                            src.read(
+                                band_idx,
+                                window=window,
+                                out_dtype=np.float32,
+                            )
+                            for band_idx in bands_to_read
+                        ],
+                        axis=0,
                     )  # (C, H, W)
-                else:
-                    # Load all bands
-                    window_data = src.read(window=window).astype(
-                        np.float32,
-                    )  # (C, H, W)
 
-                data_valid_mask = _valid_data_mask(window_data, band_nodata_values)
+                    data_valid_mask = _valid_data_mask(window_data, band_nodata_values)
 
-                # Replace invalid raw pixels before standardization so nodata
-                # sentinels cannot become extreme model inputs.
-                window_data[:, ~data_valid_mask] = 0.0
+                    # Replace invalid raw pixels before standardization so nodata
+                    # sentinels cannot become extreme model inputs.
+                    window_data[:, ~data_valid_mask] = 0.0
 
-                # Check for nodata and apply valid mask if available
-                if valid_mask_full is not None:
-                    valid_mask_window = valid_mask_full[
-                        y : y + window_size,
-                        x : x + window_size,
-                    ].astype(bool)
-                else:
-                    # No valid mask - process all pixels
-                    valid_mask_window = np.ones(
-                        (window_size, window_size),
-                        dtype=bool,
-                    )
+                    # Check for nodata and apply valid mask if available
+                    if valid_mask_geometries:
+                        window_bounds = rasterio.windows.bounds(window, ref_transform)
+                        window_geometries = [
+                            (geometry, 1)
+                            for bounds, geometry in valid_mask_geometries
+                            if not (
+                                bounds[2] <= window_bounds[0]
+                                or bounds[0] >= window_bounds[2]
+                                or bounds[3] <= window_bounds[1]
+                                or bounds[1] >= window_bounds[3]
+                            )
+                        ]
+                        if window_geometries:
+                            valid_mask_window = rasterize(
+                                window_geometries,
+                                out_shape=(window_size, window_size),
+                                transform=src.window_transform(window),
+                                fill=0,
+                                dtype="uint8",
+                            ).astype(bool)
+                        else:
+                            valid_mask_window = np.zeros(
+                                (window_size, window_size),
+                                dtype=bool,
+                            )
+                    else:
+                        valid_mask_window = np.ones(
+                            (window_size, window_size),
+                            dtype=bool,
+                        )
 
-                valid_mask_window &= data_valid_mask
+                    valid_mask_window &= data_valid_mask
 
-                # Convert to tensor
-                window_tensor = torch.from_numpy(window_data).float()  # (C, H, W)
+                    # Convert to tensor
+                    window_tensor = torch.from_numpy(window_data).float()  # (C, H, W)
 
-                # Apply standardization
-                window_tensor = window_tensor.to(device)
-                window_tensor = window_tensor.unsqueeze(0)
-                standardize_indices = [
-                    idx for idx in range(channels_to_load)
-                    if idx not in skip_standardization_indices
-                ]
-                if standardize_indices:
-                    window_tensor[:, standardize_indices] = standardization(
-                        window_tensor[:, standardize_indices],
-                        mean_t[standardize_indices],
-                        std_t[standardize_indices],
-                    )
-                window_tensor = window_tensor * channel_weights_t
+                    # Apply standardization
+                    window_tensor = window_tensor.to(device)
+                    window_tensor = window_tensor.unsqueeze(0)
+                    standardize_indices = [
+                        idx for idx in range(channels_to_load)
+                        if idx not in skip_standardization_indices
+                    ]
+                    if standardize_indices:
+                        window_tensor[:, standardize_indices] = standardization(
+                            window_tensor[:, standardize_indices],
+                            mean_t[standardize_indices],
+                            std_t[standardize_indices],
+                        )
+                    window_tensor = window_tensor * channel_weights_t
 
-                window_tensor[:, :, ~valid_mask_window] = 0.0
+                    window_tensor[:, :, ~valid_mask_window] = 0.0
 
-                batch_windows.append(window_tensor)
-                # batch_positions.append((x, y, valid_mask))
-                batch_positions.append((x, y, valid_mask_window))
+                    batch_windows.append(window_tensor)
+                    batch_positions.append((x, y, valid_mask_window))
 
                 # # Convert to tensor
                 # window_tensor = torch.from_numpy(window_data).float()  # (C, H, W)
@@ -1156,59 +1216,50 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
                 # batch_positions.append((x, y, valid_mask))
 
                 # Process batch when full or at end
-                if len(batch_windows) == batch_size or i == len(windows) - 1:
-                    # Stack batch
-                    batch_tensor = torch.cat(batch_windows, dim=0).to(
-                        device,
-                    )  # (B, C, H, W)
+                    if len(batch_windows) == batch_size or i == len(windows) - 1:
+                        # Stack batch
+                        batch_tensor = torch.cat(batch_windows, dim=0).to(
+                            device,
+                        )  # (B, C, H, W)
 
-                    # Run inference
-                    logits = model(batch_tensor)  # (B, num_classes, H, W)
+                        # Run inference
+                        logits = model(batch_tensor)  # (B, num_classes, H, W)
 
-                    # Get predictions (class probabilities)
-                    if logits.shape[1] == 1:
-                        # Binary with sigmoid
-                        probs = torch.sigmoid(logits).squeeze(1)  # (B, H, W)
-                    else:
-                        # Multi-class with softmax (water is class 1)
-                        probs = torch.softmax(logits, dim=1)[:, 1, :, :]  # (B, H, W)
+                        # Get predictions (class probabilities)
+                        if logits.shape[1] == 1:
+                            # Binary with sigmoid
+                            probs = torch.sigmoid(logits).squeeze(1)  # (B, H, W)
+                        else:
+                            # Multi-class with softmax (water is class 1)
+                            probs = torch.softmax(logits, dim=1)[:, 1, :, :]  # (B, H, W)
 
-                    probs = probs.cpu().numpy()
+                        probs = probs.cpu().numpy()
 
-                    # Accumulate predictions with spatial weighting
-                    for j, (bx, by, valid_mask) in enumerate(batch_positions):
-                        pred = probs[j]  # (H, W)
+                        # Accumulate predictions with spatial weighting
+                        for j, (bx, by, valid_mask) in enumerate(batch_positions):
+                            pred = probs[j]  # (H, W)
 
-                        # Apply Gaussian-like center weighting to reduce edge artifacts
-                        weight = _compute_window_weight(window_size)
+                            # Mask invalid pixels
+                            pred[~valid_mask] = 0
+                            weighted_window = np.where(valid_mask, weight, 0.0)
 
-                        # Mask invalid pixels
-                        pred[~valid_mask] = 0
-                        weight[~valid_mask] = 0
+                            # Accumulate
+                            prediction_sum[
+                                by : by + window_size,
+                                bx : bx + window_size,
+                            ] += pred * weighted_window
+                            weight_sum[
+                                by : by + window_size,
+                                bx : bx + window_size,
+                            ] += weighted_window
 
-                        # Accumulate
-                        prediction_sum[
-                            by : by + window_size,
-                            bx : bx + window_size,
-                        ] += pred * weight
-                        weight_sum[by : by + window_size, bx : bx + window_size] += (
-                            weight
-                        )
-
-                    # Clear batch
-                    batch_windows = []
-                    batch_positions = []
-
-    # Compute final prediction (weighted average)
-    # Avoid division by zero
-    final_prediction = np.zeros_like(prediction_sum)
-    valid_pixels = weight_sum > 0
-    final_prediction[valid_pixels] = (
-        prediction_sum[valid_pixels] / weight_sum[valid_pixels]
-    )
-
-    # Convert probabilities to binary mask.
-    binary_prediction = (final_prediction > binary_threshold).astype(np.uint8)
+                        # Clear batch and release GPU memory sooner on long AOIs
+                        batch_windows = []
+                        batch_positions = []
+                        del batch_tensor, logits, probs
+        finally:
+            prediction_sum.flush()
+            weight_sum.flush()
 
     # Save output raster
     log.info("Saving prediction raster: %s", output_raster_path)
@@ -1222,7 +1273,34 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     )
 
     with rasterio.open(output_raster_path, "w", **profile) as dst:
-        dst.write(binary_prediction, 1)
+        chunk_rows = max(1, min(4096, height))
+        for row_start in range(0, height, chunk_rows):
+            row_stop = min(row_start + chunk_rows, height)
+            row_window = Window(0, row_start, width, row_stop - row_start)
+
+            pred_chunk = np.asarray(prediction_sum[row_start:row_stop, :])
+            weight_chunk = np.asarray(weight_sum[row_start:row_stop, :])
+            binary_chunk = np.full(
+                (row_stop - row_start, width),
+                255,
+                dtype=np.uint8,
+            )
+            valid_chunk = weight_chunk > 0
+            if np.any(valid_chunk):
+                prob_chunk = np.zeros_like(pred_chunk, dtype=np.float32)
+                prob_chunk[valid_chunk] = (
+                    pred_chunk[valid_chunk] / weight_chunk[valid_chunk]
+                )
+                binary_chunk[valid_chunk] = (
+                    prob_chunk[valid_chunk] > binary_threshold
+                ).astype(np.uint8)
+
+            dst.write(binary_chunk, 1, window=row_window)
+
+    del prediction_sum
+    del weight_sum
+    for memmap_path in (prediction_sum_path, weight_sum_path):
+        memmap_path.unlink(missing_ok=True)
 
     log.info("Prediction complete: %s", output_raster_path)
 
