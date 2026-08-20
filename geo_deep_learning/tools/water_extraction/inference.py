@@ -13,12 +13,14 @@ Usage:
         --data_folder path/to/aoi \
         --output_folder path/to/outputs \
         --mean 0.0 0.0 0.0 \
-        --std 1.0 1.0 1.0
+        --std 1.0 1.0 1.0git stat
 """
 
 import argparse
 import datetime
 import logging
+import os
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -40,6 +42,7 @@ from geo_deep_learning.tools.water_extraction.extract_zero_intensity_mask import
     build_zero_intensity_mask,
 )
 from geo_deep_learning.tools.water_extraction.prepare_inputs import (
+    build_vrt_stack,
     compute_ndsm,
     compute_twi_whitebox,
     stack_rasters,
@@ -293,6 +296,7 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
     include_intensity: bool = True,
     requested_features: list[str] | None = None,
     selected_channel_indices: list[int] | None = None,
+    stack_as_vrt: bool = True,
     project_extents_path: str | None = None,
     seam_gaussian_sigma: float = 1.5,
 ) -> str:
@@ -305,7 +309,7 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
       project_extents_path is given)
     - Computes nDSM (corrected DSM - corrected DTM)
     - Computes TWI (Topographic Wetness Index) from corrected DTM
-    - Stacks bands into a single multi-band raster
+    - Stacks bands into a single multi-band raster or VRT
 
     Args:
         data_folder: Path to folder containing dtm.tif, dsm.tif, intensity.tif
@@ -315,6 +319,7 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
         nodata_val: NoData value for output rasters
         include_intensity: Whether to include intensity band in stack
         requested_features: Explicit feature list to build and stack in order
+        stack_as_vrt: Build a virtual stack instead of materializing a GeoTIFF
         project_extents_path: Path to GeoPackage with one polygon per LiDAR project
             extent. When provided, seam correction is applied to the DTM and aligned
             DSM before any derivatives are computed. Pass None to skip seam correction.
@@ -556,25 +561,35 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
                 log.info("Skipping zero-intensity mask (already exists)")
         feature_rasters["zero_intensity"] = zero_intensity_aligned
 
+    stacked_suffix = ".vrt" if stack_as_vrt else ".tif"
     stacked_filename = (
-        "stacked_inputs.tif"
+        f"stacked_inputs{stacked_suffix}"
         if requested_features is None
-        else f"stacked_inputs__{'__'.join(stack_features)}.tif"
+        else f"stacked_inputs__{'__'.join(stack_features)}{stacked_suffix}"
     )
     stacked_path = output_path / stacked_filename
     if not stacked_path.exists():
-        log.info("Stacking bands...")
+        log.info(
+            "Stacking bands as %s...",
+            "VRT" if stack_as_vrt else "GeoTIFF",
+        )
         stack_inputs = [str(feature_rasters[feature]) for feature in stack_features]
         if requested_features is None and selected_channel_indices is not None:
             stack_inputs = [stack_inputs[idx] for idx in selected_channel_indices]
             log.info("Selected channel indices: %s", selected_channel_indices)
         log.info("Band order after selection: %s", stack_inputs)
 
-        stack_rasters(
-            input_rasters=stack_inputs,
-            output_path=str(stacked_path),
-            nodata_val=nodata_val,
-        )
+        if stack_as_vrt:
+            build_vrt_stack(
+                input_rasters=stack_inputs,
+                output_path=str(stacked_path),
+            )
+        else:
+            stack_rasters(
+                input_rasters=stack_inputs,
+                output_path=str(stacked_path),
+                nodata_val=nodata_val,
+            )
     else:
         log.info("Skipping stacking (already exists)")
 

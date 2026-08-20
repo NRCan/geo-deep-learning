@@ -19,6 +19,7 @@ from geo_deep_learning.tools.water_extraction.elevation_stack_dataset import (
 )
 from geo_deep_learning.tools.water_extraction.prepare_inputs import (
     align_to_reference,
+    build_vrt_stack,
     compute_ndsm,
     compute_twi_whitebox,
     generate_csv_from_tiles,
@@ -72,6 +73,7 @@ class ElevationStackDataModule(CSVDataModule):
         requested_features: list[str] | None = None,
         selected_channel_indices: list[int] | None = None,
         stacked_inputs_filename: str = "stacked_inputs.tif",
+        stack_as_vrt: bool | None = None,
         tiles_dirname: str = "tiles",
         tile_stats_filename: str = "tile_stats.csv",
         stats_filename: str = "stats.npy",
@@ -116,6 +118,7 @@ class ElevationStackDataModule(CSVDataModule):
             )
         self.selected_channel_indices = selected_channel_indices
         self.stacked_inputs_filename = stacked_inputs_filename
+        self.stack_as_vrt = (not test_only) if stack_as_vrt is None else stack_as_vrt
         self.tiles_dirname = tiles_dirname
         self.tile_stats_filename = tile_stats_filename
         self.stats_filename = stats_filename
@@ -291,6 +294,13 @@ class ElevationStackDataModule(CSVDataModule):
     def _expected_num_channels(self) -> int:
         """Return the configured number of input channels."""
         return len(self._resolved_channel_indices())
+
+    def _stack_output_path(self, out_dir: Path) -> Path:
+        """Return the stack output path, using VRT when configured."""
+        configured_name = Path(self.stacked_inputs_filename)
+        if self.stack_as_vrt:
+            return out_dir / configured_name.with_suffix(".vrt")
+        return out_dir / configured_name
 
     def _slice_norm_stats_to_selected_channels(self, *, source: str) -> None:
         """Slice normalization stats to the selected channels, if needed."""
@@ -575,9 +585,7 @@ class ElevationStackDataModule(CSVDataModule):
             log.info("test_only=True → checking for preprocessed stacks only")
             for aoi_path in self.input_folders:
                 aoi_name = Path(aoi_path).name
-                stacked_path = (
-                    Path(self.output_root) / aoi_name / self.stacked_inputs_filename
-                )
+                stacked_path = self._stack_output_path(Path(self.output_root) / aoi_name)
 
                 if not stacked_path.exists():
                     log.info("Stacked inputs not found: %s", stacked_path)
@@ -681,11 +689,17 @@ class ElevationStackDataModule(CSVDataModule):
 
     def _reset_training_outputs_for_aoi(self, out_dir: Path) -> None:
         """Remove derived training artifacts that must be regenerated on rerun."""
-        stack_path = out_dir / self.stacked_inputs_filename
+        stack_path = self._stack_output_path(out_dir)
         tiles_root = out_dir / self.tiles_dirname
         tile_stats_path = out_dir / self.tile_stats_filename
 
-        for path in [stack_path, tile_stats_path]:
+        alternate_stack_path = (
+            out_dir / Path(self.stacked_inputs_filename)
+            if stack_path.suffix.lower() == ".vrt"
+            else out_dir / Path(self.stacked_inputs_filename).with_suffix(".vrt")
+        )
+
+        for path in [stack_path, alternate_stack_path, tile_stats_path]:
             if path.exists():
                 path.unlink()
                 log.info("Removed stale training artifact: %s", path)
@@ -866,7 +880,7 @@ class ElevationStackDataModule(CSVDataModule):
             feature_rasters[feature_name] = str(aligned_path)
 
         # Step 3: Stack inputs
-        stack_path = out_dir / self.stacked_inputs_filename
+        stack_path = self._stack_output_path(out_dir)
 
         log.info("Stacking Inputs")
 
@@ -883,7 +897,11 @@ class ElevationStackDataModule(CSVDataModule):
             )
 
         log.info("Stacking %d bands: %s", len(stack_inputs), stack_inputs)
-        stack_rasters(stack_inputs, str(stack_path))
+        if self.stack_as_vrt:
+            log.info("Building virtual stack for tiling: %s", stack_path)
+            build_vrt_stack(stack_inputs, str(stack_path))
+        else:
+            stack_rasters(stack_inputs, str(stack_path))
 
         # Optional: rasterize valid LiDAR mask
         valid_mask_raster = out_dir / "valid_mask.tif"

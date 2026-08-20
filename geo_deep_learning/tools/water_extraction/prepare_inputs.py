@@ -686,16 +686,7 @@ def stack_rasters(
     if not input_rasters:
         raise ValueError("No input rasters provided for stacking")
 
-    # ------------------------------------------------------------------
-    # Open reference raster
-    # ------------------------------------------------------------------
-    try:
-        with rasterio.open(input_rasters[0]) as ref:
-            profile = ref.profile.copy()
-    except RasterioIOError as e:
-        raise RuntimeError(
-            f"Failed to open reference raster: {input_rasters[0]}"
-        ) from e
+    profile = _validate_stack_inputs_share_grid(input_rasters)
 
     width = int(profile["width"])
     height = int(profile["height"])
@@ -779,6 +770,79 @@ def stack_rasters(
                     band_idx,
                     Path(raster_path).stem,
                 )
+
+
+def _validate_stack_inputs_share_grid(input_rasters: Sequence[str]) -> dict:
+    """Validate that all stack inputs share the same grid and return a reference profile."""
+    try:
+        with rasterio.open(input_rasters[0]) as ref:
+            profile = ref.profile.copy()
+            width = ref.width
+            height = ref.height
+            crs = ref.crs
+            transform = ref.transform
+    except RasterioIOError as e:
+        raise RuntimeError(
+            f"Failed to open reference raster: {input_rasters[0]}"
+        ) from e
+
+    for raster_path in input_rasters[1:]:
+        with rasterio.open(raster_path) as src:
+            if (
+                src.width != width
+                or src.height != height
+                or src.crs != crs
+                or src.transform != transform
+            ):
+                msg = (
+                    "All rasters must share the same grid before stacking. "
+                    f"Reference grid: width={width}, height={height}, "
+                    f"crs={crs}, transform={transform}. "
+                    f"Offending raster: {raster_path} with width={src.width}, "
+                    f"height={src.height}, crs={src.crs}, "
+                    f"transform={src.transform}."
+                )
+                raise ValueError(msg)
+
+    return profile
+
+
+def build_vrt_stack(
+    input_rasters: Sequence[str],
+    output_path: str,
+) -> None:
+    """
+    Build a virtual multiband stack using GDAL VRT instead of materializing a GeoTIFF.
+
+    This avoids writing a large intermediate stacked raster before tiling.
+    """
+    if not input_rasters:
+        raise ValueError("No input rasters provided for VRT stacking")
+
+    _validate_stack_inputs_share_grid(input_rasters)
+
+    output_vrt = Path(output_path)
+    output_vrt.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        subprocess.run(
+            [
+                "gdalbuildvrt",
+                "-overwrite",
+                "-separate",
+                str(output_vrt),
+                *[str(path) for path in input_rasters],
+            ],
+            check=True,
+        )
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            "gdalbuildvrt is required to build virtual stacks but was not found"
+        ) from e
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"gdalbuildvrt failed while building virtual stack: {output_vrt}"
+        ) from e
 
 
 def rasterize_labels_binary_aoi_mask(  # noqa: PLR0913
