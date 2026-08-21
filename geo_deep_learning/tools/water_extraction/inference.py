@@ -24,6 +24,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 import fiona
 import numpy as np
@@ -65,6 +66,7 @@ _BINARY_THRESHOLD = 0.5  # Probability threshold for water/non-water classificat
 _NEGATIVE_NODATA_THRESHOLD = -32000.0
 _NON_STANDARDIZED_CHANNEL_KEYS = ("zero_intensity",)
 _FEATURE_ALIASES = {
+    "intensity_aligned": "intensity",
     "nadir": "nadir_weighted",
     "nadir_weighted_aligned": "nadir_weighted",
     "zero": "zero_intensity",
@@ -290,10 +292,10 @@ def _validate_stacked_input_features(
             )
             raise ValueError(msg)
 
-        actual_features = [
-            _normalize_feature_name(description or "")
-            for description in src.descriptions
-        ]
+        actual_features = _resolve_stacked_input_features(
+            stacked_inputs=stacked_inputs,
+            descriptions=src.descriptions,
+        )
 
     if actual_features != expected_features:
         msg = (
@@ -302,6 +304,62 @@ def _validate_stacked_input_features(
             "Use --data_folder so the stack can be rebuilt automatically."
         )
         raise ValueError(msg)
+
+
+def _resolve_stacked_input_features(
+    *,
+    stacked_inputs: str,
+    descriptions: tuple[str | None, ...],
+) -> list[str]:
+    """Resolve feature names for a stacked raster, with VRT source fallback."""
+    normalized_descriptions = [
+        _normalize_feature_name(description or "")
+        for description in descriptions
+    ]
+    if all(normalized_descriptions):
+        return normalized_descriptions
+
+    stacked_path = Path(stacked_inputs)
+    if stacked_path.suffix.lower() != ".vrt":
+        return normalized_descriptions
+
+    source_features = _resolve_vrt_source_features(stacked_path)
+    if len(source_features) == len(normalized_descriptions):
+        return source_features
+
+    return normalized_descriptions
+
+
+def _resolve_vrt_source_features(vrt_path: Path) -> list[str]:
+    """Read feature names from the source rasters referenced by a VRT."""
+    tree = ElementTree.parse(vrt_path)
+    root = tree.getroot()
+    features: list[str] = []
+
+    for band_node in root.findall("VRTRasterBand"):
+        source_filename = band_node.findtext(".//SourceFilename")
+        if not source_filename:
+            features.append("")
+            continue
+
+        source_path = Path(source_filename)
+        if source_path.is_absolute():
+            resolved_path = source_path
+        else:
+            resolved_path = (vrt_path.parent / source_filename).resolve()
+
+        feature_name = ""
+        try:
+            with rasterio.open(resolved_path) as src:
+                feature_name = _normalize_feature_name(src.descriptions[0] or "")
+        except Exception:
+            feature_name = ""
+
+        if not feature_name:
+            feature_name = _normalize_feature_name(resolved_path.stem)
+        features.append(feature_name)
+
+    return features
 
 # =============================================================================
 # 1. PREPROCESSING
