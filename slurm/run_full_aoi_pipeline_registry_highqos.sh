@@ -264,6 +264,82 @@ for feature in selected:
 PY
 }
 
+resolve_model_features() {
+    local model_id="$1"
+    python - "$MODEL_REGISTRY" "$model_id" <<'PY'
+import sys
+from pathlib import Path
+import yaml
+
+registry = Path(sys.argv[1])
+model_id = sys.argv[2]
+with registry.open(encoding="utf-8") as file:
+    payload = yaml.safe_load(file) or {}
+
+models = payload.get("models", {})
+model_cfg = models.get(model_id)
+if not isinstance(model_cfg, dict):
+    msg = f"Model '{model_id}' not found in registry {registry}"
+    raise SystemExit(msg)
+
+for feature in model_cfg.get("features", []):
+    print(feature)
+PY
+}
+
+write_prepare_data_config() {
+    local config_path="$1"
+    local csv_path="$2"
+    local csv_infer_path="$3"
+    local stacked_inputs_filename="$4"
+    local tiles_dirname="$5"
+    local tile_stats_filename="$6"
+    shift 6
+    local requested_features=("$@")
+
+    cat > "$config_path" <<EOF
+data:
+  class_path: geo_deep_learning.tools.water_extraction.elevation_stack_datamodule.ElevationStackDataModule
+  init_args:
+    csv_root_folder: "$PREP_ROOT"
+    patches_root_folder: "$PREP_ROOT"
+    input_folders:
+      - "$RAW_AOI_DIR"
+    output_root: "$PREP_ROOT"
+    csv_path: "$csv_path"
+    csv_infer_path: "$csv_infer_path"
+    workflow: "$WORKFLOW"
+    include_intensity: true
+    extra_input_rasters:
+      - "nadir_weighted.tif"
+      - "zero_intensity.tif"
+    stacked_inputs_filename: "$stacked_inputs_filename"
+    tiles_dirname: "$tiles_dirname"
+    tile_stats_filename: "$tile_stats_filename"
+EOF
+
+    if [[ ${#requested_features[@]} -gt 0 ]]; then
+        {
+            echo "    requested_features:"
+            local feature
+            for feature in "${requested_features[@]}"; do
+                echo "      - \"$feature\""
+            done
+        } >> "$config_path"
+    fi
+
+    cat >> "$config_path" <<EOF
+    stride: $STRIDE
+    patch_size: [$PATCH_SIZE, $PATCH_SIZE]
+    batch_size: $BATCH_SIZE
+    num_workers: $NUM_WORKERS
+    regenerate_csv: false
+    min_water_pixels: $MIN_WATER_PIXELS
+    test_ratio: $TEST_RATIO
+    test_only: $TEST_ONLY
+EOF
+}
+
 SOURCE_AOI_VECTOR="$(find_vector "$SOURCE_AOI_DIR" "$AOI_VECTOR_STEM" || true)"
 if [[ -z "${SOURCE_AOI_VECTOR:-}" ]]; then
     echo "Missing AOI vector in $SOURCE_AOI_DIR (expected $AOI_VECTOR_STEM.gpkg or $AOI_VECTOR_STEM.shp)" >&2
@@ -573,50 +649,8 @@ if [[ "$WORKFLOW" == "inference" ]]; then
     TEST_ONLY=true
 fi
 
-cat > "$PREP_CONFIG" <<EOF
-data:
-  class_path: geo_deep_learning.tools.water_extraction.elevation_stack_datamodule.ElevationStackDataModule
-  init_args:
-    csv_root_folder: "$PREP_ROOT"
-    patches_root_folder: "$PREP_ROOT"
-    input_folders:
-      - "$RAW_AOI_DIR"
-    output_root: "$PREP_ROOT"
-    csv_path: "$PREP_ROOT/${AOI_NAME}_water_extraction.csv"
-    csv_infer_path: "$PREP_ROOT/${AOI_NAME}_water_extraction_infer.csv"
-    workflow: "$WORKFLOW"
-    include_intensity: true
-    extra_input_rasters:
-      - "nadir_weighted.tif"
-      - "zero_intensity.tif"
-EOF
-
-if [[ ${#REQUESTED_FEATURES[@]} -gt 0 ]]; then
-    {
-        echo "    requested_features:"
-        for feature in "${REQUESTED_FEATURES[@]}"; do
-            echo "      - \"$feature\""
-        done
-    } >> "$PREP_CONFIG"
-fi
-
-cat >> "$PREP_CONFIG" <<EOF
-    stride: $STRIDE
-    patch_size: [$PATCH_SIZE, $PATCH_SIZE]
-    batch_size: $BATCH_SIZE
-    num_workers: $NUM_WORKERS
-    regenerate_csv: false
-    min_water_pixels: $MIN_WATER_PIXELS
-    test_ratio: $TEST_RATIO
-    test_only: $TEST_ONLY
-EOF
-
-python -m geo_deep_learning.tools.water_extraction.prepare_data \
-    --config "$PREP_CONFIG"
-
+declare -a RESOLVED_MODEL_IDS=()
 if [[ "$RUN_REGISTERED_INFERENCE" == "1" && "$WORKFLOW" == "inference" ]]; then
-    log "Step 9/9: Run registry-driven inference"
-    activate_gdl
     mapfile -t RESOLVED_MODEL_IDS < <(resolve_model_ids)
     if [[ ${#RESOLVED_MODEL_IDS[@]} -eq 0 ]]; then
         echo "No model ids resolved from MODEL_IDS or $MODEL_REGISTRY" >&2
@@ -627,13 +661,60 @@ if [[ "$RUN_REGISTERED_INFERENCE" == "1" && "$WORKFLOW" == "inference" ]]; then
         if [[ -z "$model_id" ]]; then
             continue
         fi
+        mapfile -t MODEL_FEATURES < <(resolve_model_features "$model_id")
+        if [[ ${#MODEL_FEATURES[@]} -eq 0 ]]; then
+            echo "No features resolved for model '$model_id' from $MODEL_REGISTRY" >&2
+            exit 1
+        fi
+
+        model_prep_config="$RUN_DIR/prepare_data_config__${model_id}.yaml"
+        model_csv_infer="$PREP_ROOT/${AOI_NAME}_water_extraction_infer__${model_id}.csv"
+
+        log "Preparing model-specific inputs for $model_id with features: ${MODEL_FEATURES[*]}"
+        write_prepare_data_config \
+            "$model_prep_config" \
+            "$PREP_ROOT/${AOI_NAME}_water_extraction.csv" \
+            "$model_csv_infer" \
+            "stacked_inputs__${model_id}.tif" \
+            "tiles__${model_id}" \
+            "tile_stats__${model_id}.csv" \
+            "${MODEL_FEATURES[@]}"
+
+        python -m geo_deep_learning.tools.water_extraction.prepare_data \
+            --config "$model_prep_config"
+    done
+else
+    write_prepare_data_config \
+        "$PREP_CONFIG" \
+        "$PREP_ROOT/${AOI_NAME}_water_extraction.csv" \
+        "$PREP_ROOT/${AOI_NAME}_water_extraction_infer.csv" \
+        "stacked_inputs.tif" \
+        "tiles" \
+        "tile_stats.csv" \
+        "${REQUESTED_FEATURES[@]}"
+
+    python -m geo_deep_learning.tools.water_extraction.prepare_data \
+        --config "$PREP_CONFIG"
+fi
+
+if [[ "$RUN_REGISTERED_INFERENCE" == "1" && "$WORKFLOW" == "inference" ]]; then
+    log "Step 9/9: Run registry-driven inference"
+    activate_gdl
+
+    for model_id in "${RESOLVED_MODEL_IDS[@]}"; do
+        if [[ -z "$model_id" ]]; then
+            continue
+        fi
         model_output_dir="$MODEL_RESULTS_ROOT/$model_id"
+        model_stacked_inputs="$PREP_ROOT/$AOI_NAME/stacked_inputs__${model_id}.vrt"
+        require_file "$model_stacked_inputs"
         mkdir -p "$model_output_dir"
-        log "Running inference for $model_id -> $model_output_dir"
+        log "Running inference for $model_id -> $model_output_dir using $model_stacked_inputs"
 
         python -m geo_deep_learning.tools.water_extraction.inference \
             --model_id "$model_id" \
             --registry "$MODEL_REGISTRY" \
+            --stacked_inputs "$model_stacked_inputs" \
             --data_folder "$RAW_AOI_DIR" \
             --output_folder "$model_output_dir" \
             --window_size "$INFERENCE_WINDOW_SIZE" \

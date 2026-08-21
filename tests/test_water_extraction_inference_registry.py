@@ -13,6 +13,9 @@ import yaml
 from rasterio.transform import from_origin
 
 from geo_deep_learning.tools.water_extraction import inference
+from geo_deep_learning.tools.water_extraction.elevation_stack_datamodule import (
+    ElevationStackDataModule,
+)
 
 
 def _write_single_band_raster(
@@ -227,6 +230,121 @@ def test_preprocess_aoi_rejects_missing_intensity_dependency(tmp_path: Path) -> 
             output_folder=str(preprocessed_root),
             requested_features=["ndsm", "zero_intensity"],
         )
+
+
+def test_preprocess_aoi_builds_model_6_stack_with_dtm_in_registry_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Model 6 feature stacks should preserve registry order and include DTM."""
+    raw_aoi = tmp_path / "inference" / "raw" / "AOI_006"
+    preprocessed_root = tmp_path / "inference" / "preprocessed"
+    dtm = np.array([[1, 2], [3, 4]], dtype=np.float32)
+    dsm = np.array([[5, 6], [7, 8]], dtype=np.float32)
+    intensity = np.array([[10, 11], [12, 13]], dtype=np.float32)
+    nadir = np.array([[14, 15], [16, 17]], dtype=np.float32)
+    zero_mask = np.array([[0, 1], [1, 0]], dtype=np.uint8)
+
+    _write_single_band_raster(raw_aoi / "dtm.tif", dtm, description="dtm")
+    _write_single_band_raster(raw_aoi / "dsm.tif", dsm, description="dsm")
+    _write_single_band_raster(
+        raw_aoi / "intensity.tif",
+        intensity,
+        description="intensity",
+    )
+    _write_single_band_raster(
+        raw_aoi / "nadir_weighted.tif",
+        nadir,
+        description="nadir_weighted",
+    )
+    _write_single_band_raster(
+        raw_aoi / "zero_intensity.tif",
+        zero_mask,
+        dtype="uint8",
+        nodata=255,
+        description="zero_intensity",
+    )
+
+    def fake_align_to_reference(
+        reference_path: str,
+        input_path: str,
+        output_path: str,
+        nodata_val: float,
+    ) -> None:
+        del reference_path, nodata_val
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(input_path, output_path)
+
+    def fake_compute_twi(
+        dtm_path: str,
+        twi_output_path: str,
+        keep_intermediate: bool,
+    ) -> None:
+        del dtm_path, keep_intermediate
+        _write_single_band_raster(
+            Path(twi_output_path),
+            np.full((2, 2), 20, dtype=np.float32),
+            description="twi",
+        )
+
+    monkeypatch.setattr(inference, "align_to_reference", fake_align_to_reference)
+    monkeypatch.setattr(inference, "compute_twi_whitebox", fake_compute_twi)
+
+    stacked_path = inference.preprocess_aoi(
+        data_folder=str(raw_aoi),
+        output_folder=str(preprocessed_root),
+        requested_features=[
+            "twi",
+            "dtm",
+            "intensity",
+            "nadir_weighted",
+            "zero_intensity",
+        ],
+    )
+
+    assert Path(stacked_path).name == (
+        "stacked_inputs__twi__dtm__intensity__nadir_weighted__zero_intensity.vrt"
+    )
+    with rasterio.open(stacked_path) as src:
+        assert src.count == 5
+        assert src.descriptions == (
+            "twi",
+            "dtm",
+            "intensity",
+            "nadir_weighted",
+            "zero_intensity",
+        )
+
+
+def test_datamodule_supports_model_specific_stack_and_tile_names(tmp_path: Path) -> None:
+    """Configured model-specific stack and tile names should remain isolated."""
+    out_dir = tmp_path / "inference" / "preprocessed" / "AOI_001"
+    model_6_module = ElevationStackDataModule(
+        workflow="inference",
+        test_only=True,
+        stack_as_vrt=True,
+        stacked_inputs_filename="stacked_inputs__model_6.tif",
+        tiles_dirname="tiles__model_6",
+        tile_stats_filename="tile_stats__model_6.csv",
+        csv_infer_path=str(tmp_path / "AOI_001_water_extraction_infer__model_6.csv"),
+    )
+    model_3_module = ElevationStackDataModule(
+        workflow="inference",
+        test_only=True,
+        stack_as_vrt=True,
+        stacked_inputs_filename="stacked_inputs__model_3.tif",
+        tiles_dirname="tiles__model_3",
+        tile_stats_filename="tile_stats__model_3.csv",
+        csv_infer_path=str(tmp_path / "AOI_001_water_extraction_infer__model_3.csv"),
+    )
+
+    assert model_6_module._stack_output_path(out_dir) == out_dir / "stacked_inputs__model_6.vrt"
+    assert model_3_module._stack_output_path(out_dir) == out_dir / "stacked_inputs__model_3.vrt"
+    assert model_6_module.tiles_dirname == "tiles__model_6"
+    assert model_3_module.tiles_dirname == "tiles__model_3"
+    assert model_6_module.tile_stats_filename == "tile_stats__model_6.csv"
+    assert model_3_module.tile_stats_filename == "tile_stats__model_3.csv"
+    assert model_6_module.csv_infer_path != model_3_module.csv_infer_path
 
 
 def test_main_uses_registry_model_configuration(
