@@ -102,6 +102,45 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
+sanitize_tag() {
+    local raw_value="${1:-}"
+    local fallback="${2:-unknown}"
+    local sanitized
+
+    sanitized="$(printf '%s' "$raw_value" | tr '[:space:]/:' '___' | tr -cd '[:alnum:]_.-')"
+    sanitized="${sanitized#[-._]}"
+    sanitized="${sanitized%[-._]}"
+
+    if [[ -z "$sanitized" ]]; then
+        sanitized="$fallback"
+    fi
+
+    printf '%.80s\n' "$sanitized"
+}
+
+setup_dynamic_slurm_log() {
+    local aoi_tag job_suffix job_name log_dir dynamic_log
+
+    aoi_tag="$(sanitize_tag "$AOI_NAME" "unknown_aoi")"
+    job_suffix="$aoi_tag"
+    job_name="water_full_aoi__${job_suffix}"
+    log_dir="$GDL_REPO/slurm/logs"
+    dynamic_log="$log_dir/${SLURM_JOB_ID:-nojob}_${job_suffix}_full_aoi_pipeline.out"
+
+    mkdir -p "$log_dir"
+
+    if command -v scontrol >/dev/null 2>&1 && [[ -n "${SLURM_JOB_ID:-}" ]]; then
+        scontrol update JobId="$SLURM_JOB_ID" JobName="$job_name" >/dev/null 2>&1 || true
+    fi
+
+    if [[ -z "${SLURM_DYNAMIC_LOG_REDIRECTED:-}" ]]; then
+        export SLURM_DYNAMIC_LOG_REDIRECTED=1
+        export SLURM_DYNAMIC_LOG_PATH="$dynamic_log"
+        echo "Redirecting detailed job log to: $dynamic_log"
+        exec >>"$dynamic_log" 2>&1
+    fi
+}
+
 is_valid_geotiff() {
     local raster_path="$1"
     [[ -f "$raster_path" ]] || return 1
@@ -233,6 +272,8 @@ require_file "$GDL_CONDA_SH"
 require_file "$INTENSITY_CONDA_SH"
 resolve_sitestore_base
 
+setup_dynamic_slurm_log
+
 copy_vector_family "$AOI_VECTOR" "$RAW_AOI_DIR"
 if [[ -n "$WATERBODIES_VECTOR" ]]; then
     copy_vector_family "$WATERBODIES_VECTOR" "$RAW_AOI_DIR"
@@ -253,6 +294,7 @@ echo "Raw AOI    : $RAW_AOI_DIR"
 echo "Prep Root  : $PREP_ROOT"
 echo "Run Dir    : $RUN_DIR"
 echo "Sitestore  : $SITESTORE_BASE"
+echo "Dynamic Log: ${SLURM_DYNAMIC_LOG_PATH:-<default slurm log>}"
 echo "============================================"
 
 log "Step 1/7: Download DTM and DSM"
