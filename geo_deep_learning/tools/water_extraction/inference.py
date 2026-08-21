@@ -1273,6 +1273,7 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
             "nodata": 255,
             "compress": "lzw",
             "tiled": True,
+            "BIGTIFF": "YES",
         },
     )
 

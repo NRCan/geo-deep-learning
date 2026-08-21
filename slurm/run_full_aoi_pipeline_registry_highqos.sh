@@ -132,14 +132,10 @@ setup_dynamic_slurm_log() {
 
     if command -v scontrol >/dev/null 2>&1 && [[ -n "${SLURM_JOB_ID:-}" ]]; then
         scontrol update JobId="$SLURM_JOB_ID" JobName="$job_name" >/dev/null 2>&1 || true
+        scontrol update JobId="$SLURM_JOB_ID" StdOut="$dynamic_log" StdErr="$dynamic_log" >/dev/null 2>&1 || true
     fi
 
-    if [[ -z "${SLURM_DYNAMIC_LOG_REDIRECTED:-}" ]]; then
-        export SLURM_DYNAMIC_LOG_REDIRECTED=1
-        export SLURM_DYNAMIC_LOG_PATH="$dynamic_log"
-        echo "Redirecting detailed job log to: $dynamic_log"
-        exec >>"$dynamic_log" 2>&1
-    fi
+    export SLURM_DYNAMIC_LOG_PATH="$dynamic_log"
 }
 
 is_valid_geotiff() {
