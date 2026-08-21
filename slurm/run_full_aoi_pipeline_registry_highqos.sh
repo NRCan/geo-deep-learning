@@ -346,6 +346,7 @@ data:
     csv_infer_path: "$csv_infer_path"
     workflow: "$WORKFLOW"
     include_intensity: true
+    stack_as_vrt: true
     extra_input_rasters:
       - "nadir_weighted.tif"
       - "zero_intensity.tif"
@@ -746,6 +747,12 @@ if [[ "$RUN_REGISTERED_INFERENCE" == "1" && "$WORKFLOW" == "inference" ]]; then
         fi
         model_output_dir="$MODEL_RESULTS_ROOT/$model_id"
         model_stacked_inputs="$PREP_ROOT/$AOI_NAME/stacked_inputs__${model_id}.vrt"
+        if [[ ! -f "$model_stacked_inputs" ]]; then
+            fallback_stacked_inputs="$PREP_ROOT/$AOI_NAME/stacked_inputs__${model_id}.tif"
+            if [[ -f "$fallback_stacked_inputs" ]]; then
+                model_stacked_inputs="$fallback_stacked_inputs"
+            fi
+        fi
         require_file "$model_stacked_inputs"
         mkdir -p "$model_output_dir"
         log "Running inference for $model_id -> $model_output_dir using $model_stacked_inputs"
