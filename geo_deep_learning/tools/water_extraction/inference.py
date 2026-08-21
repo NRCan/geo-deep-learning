@@ -901,7 +901,7 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     with rasterio.open(input_raster_path) as src:
         height, width = src.height, src.width
         num_bands = src.count
-        profile = src.profile
+        profile = src.profile.copy()
 
         ref_shape = src.shape  # (H, W)
         ref_transform = src.transform
@@ -1263,12 +1263,16 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
 
     # Save output raster
     log.info("Saving prediction raster: %s", output_raster_path)
+    # The inference input may be a VRT stack; never reuse that driver for the
+    # final prediction raster because VRT bands are not directly writable.
     profile.update(
         {
+            "driver": "GTiff",
             "dtype": "uint8",
             "count": 1,
             "nodata": 255,
             "compress": "lzw",
+            "tiled": True,
         },
     )
 
