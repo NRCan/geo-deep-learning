@@ -49,9 +49,13 @@ WORKFLOW="${WORKFLOW:-inference}"
 AOI_VECTOR_STEM="${AOI_VECTOR_STEM:-aoi}"
 BUFFERED_AOI_STEM="${BUFFERED_AOI_STEM:-aoi_buffered}"
 BUFFER_METERS="${BUFFER_METERS:-1000}"
+ENABLE_AOI_PARTITIONING="${ENABLE_AOI_PARTITIONING:-1}"
+MAX_BUFFERED_AOI_PIXELS="${MAX_BUFFERED_AOI_PIXELS:-0}"
+SUBAOI_OVERLAP_METERS="${SUBAOI_OVERLAP_METERS:-$BUFFER_METERS}"
 RUN_REGISTERED_INFERENCE="${RUN_REGISTERED_INFERENCE:-1}"
 MODEL_IDS="${MODEL_IDS:-}"
 MODEL_REGISTRY="${MODEL_REGISTRY:-$GDL_REPO/configs/inference_models.yaml}"
+SKIP_DYNAMIC_SLURM_LOG="${SKIP_DYNAMIC_SLURM_LOG:-0}"
 
 GDL_CONDA_SH="${GDL_CONDA_SH:-/space/partner/nrcan/geobase/work/opt/miniconda-gdl-ops/etc/profile.d/conda.sh}"
 GDL_ENV="${GDL_ENV:-gdl_env}"
@@ -83,6 +87,7 @@ INFERENCE_DEVICE="${INFERENCE_DEVICE:-cuda}"
 INFERENCE_BATCH_SIZE="${INFERENCE_BATCH_SIZE:-8}"
 INFERENCE_WINDOW_SIZE="${INFERENCE_WINDOW_SIZE:-512}"
 INFERENCE_STRIDE="${INFERENCE_STRIDE:-256}"
+SIMPLIFY_TOLERANCE="${SIMPLIFY_TOLERANCE:-1.0}"
 
 AOI_NAME="$(basename "$SOURCE_AOI_DIR")"
 WORKFLOW_ROOT="$OUTPUT_ROOT/$WORKFLOW"
@@ -99,8 +104,26 @@ INTENSITY_CONFIG="$RUN_DIR/intensity_pipeline_config.yaml"
 PREP_CONFIG="$RUN_DIR/prepare_data_config.yaml"
 ZERO_SOURCE="$RUN_DIR/zero_intensity_source.tif"
 MODEL_RESULTS_ROOT="$RESULTS_ROOT/$AOI_NAME"
+PARTITION_ROOT="$RUN_DIR/partitions"
+PARTITION_MANIFEST="$PARTITION_ROOT/partition_manifest.json"
+RUN_OUTPUTS_MANIFEST="$RUN_DIR/run_outputs_manifest.json"
+PARTITION_SHARED_ELEVATION_DIR="$PARTITION_ROOT/_shared_elevation"
 
 mkdir -p "$RAW_AOI_DIR" "$PREP_ROOT" "$RUN_DIR" "$NADIR_DIR" "$MODEL_RESULTS_ROOT"
+
+export GDL_REPO INTENSITY_REPO OUTPUT_ROOT RESULTS_ROOT WORKFLOW AOI_VECTOR_STEM
+export BUFFERED_AOI_STEM BUFFER_METERS ENABLE_AOI_PARTITIONING
+export MAX_BUFFERED_AOI_PIXELS SUBAOI_OVERLAP_METERS RUN_REGISTERED_INFERENCE
+export MODEL_IDS MODEL_REGISTRY GDL_CONDA_SH GDL_ENV INTENSITY_CONDA_SH
+export INTENSITY_ENV REFERENCE_STANDARDS SITESTORE_BASE PROJECT_INDEX TILES_INDEX
+export RESOLUTION TARGET_CRS NADIR_RESOLUTION NADIR_CHUNK_SIZE
+export INTENSITY_PROCESSING_MODE INTENSITY_DARK_ZONE_MODE INTENSITY_OVERLAP_MODE
+export PATCH_SIZE STRIDE BATCH_SIZE NUM_WORKERS TEST_RATIO MIN_WATER_PIXELS
+export ZERO_MIN_COMPONENT_SIZE ZERO_MAX_HOLE_SIZE FORCE_RERUN INFERENCE_DEVICE
+export INFERENCE_BATCH_SIZE INFERENCE_WINDOW_SIZE INFERENCE_STRIDE
+export SIMPLIFY_TOLERANCE TMPDIR
+export https_proxy http_proxy HTTPS_PROXY HTTP_PROXY no_proxy NO_PROXY
+export PYTHONUNBUFFERED SKIP_DYNAMIC_SLURM_LOG
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
@@ -123,6 +146,10 @@ sanitize_tag() {
 }
 
 setup_dynamic_slurm_log() {
+    if [[ "$SKIP_DYNAMIC_SLURM_LOG" == "1" ]]; then
+        return 0
+    fi
+
     local aoi_tag model_tag job_suffix job_name log_dir dynamic_log
 
     aoi_tag="$(sanitize_tag "$AOI_NAME" "unknown_aoi")"
@@ -381,11 +408,460 @@ EOF
 EOF
 }
 
+should_partition_parent_aoi() {
+    [[ "$WORKFLOW" == "inference" ]] || return 1
+    [[ "$RUN_REGISTERED_INFERENCE" == "1" ]] || return 1
+    [[ "$ENABLE_AOI_PARTITIONING" == "1" ]] || return 1
+    [[ "$MAX_BUFFERED_AOI_PIXELS" =~ ^[0-9]+$ ]] || return 1
+    [[ "$MAX_BUFFERED_AOI_PIXELS" -gt 0 ]] || return 1
+    return 0
+}
+
+partition_parent_aoi() {
+    mkdir -p "$PARTITION_ROOT"
+    python -m geo_deep_learning.tools.water_extraction.partition_aoi \
+        --input_aoi "$RAW_AOI_VECTOR" \
+        --buffered_aoi "$RAW_BUFFERED_AOI" \
+        --output_root "$PARTITION_ROOT" \
+        --resolution "$RESOLUTION" \
+        --max_pixels "$MAX_BUFFERED_AOI_PIXELS" \
+        --overlap_meters "$SUBAOI_OVERLAP_METERS" \
+        --child_id_prefix "${AOI_NAME}__part"
+}
+
+partition_required() {
+    python - "$PARTITION_MANIFEST" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+if not manifest_path.exists():
+    raise SystemExit(1)
+
+with manifest_path.open(encoding="utf-8") as file:
+    payload = json.load(file)
+
+print("1" if payload.get("split_required") else "0")
+PY
+}
+
+partition_child_dirs() {
+    python - "$PARTITION_MANIFEST" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+with Path(sys.argv[1]).open(encoding="utf-8") as file:
+    payload = json.load(file)
+
+for child in payload.get("children", []):
+    source_dir = child.get("source_dir")
+    if source_dir:
+        print(source_dir)
+PY
+}
+
+is_partition_child_aoi() {
+    [[ "$(basename "$(dirname "$SOURCE_AOI_DIR")")" == "partitions" ]]
+}
+
+resolve_parent_run_dir_for_child() {
+    if ! is_partition_child_aoi; then
+        return 1
+    fi
+    realpath "$(dirname "$(dirname "$SOURCE_AOI_DIR")")"
+}
+
+crop_parent_elevation_to_child() {
+    local parent_raster="$1"
+    local child_aoi="$2"
+    local output_raster="$3"
+
+    python - "$parent_raster" "$child_aoi" "$output_raster" <<'PY'
+from pathlib import Path
+import sys
+
+import fiona
+import rasterio
+import rasterio.mask
+
+parent_raster = Path(sys.argv[1])
+child_aoi = Path(sys.argv[2])
+output_raster = Path(sys.argv[3])
+
+with fiona.open(child_aoi, "r") as src:
+    geoms = [feature["geometry"] for feature in src if feature["geometry"]]
+    if not geoms:
+        raise RuntimeError(f"No AOI geometries found in {child_aoi}")
+
+with rasterio.open(parent_raster) as src:
+    out_image, out_transform = rasterio.mask.mask(
+        src,
+        geoms,
+        crop=True,
+        filled=True,
+        nodata=src.nodata,
+    )
+    profile = src.profile.copy()
+    profile.update(
+        height=out_image.shape[1],
+        width=out_image.shape[2],
+        transform=out_transform,
+    )
+
+output_raster.parent.mkdir(parents=True, exist_ok=True)
+tmp_output = output_raster.with_name(output_raster.stem + "_temp" + output_raster.suffix)
+with rasterio.open(tmp_output, "w", **profile) as dst:
+    dst.write(out_image)
+tmp_output.replace(output_raster)
+PY
+}
+
+download_elevation_for_aoi() {
+    local aoi_vector="$1"
+    local output_dir="$2"
+
+    mkdir -p "$output_dir"
+    python -m geo_deep_learning.tools.water_extraction.download_elevation \
+        --aoi_path "$aoi_vector" \
+        --out_folder "$output_dir" \
+        --resolution "$RESOLUTION"
+}
+
+ensure_shared_parent_elevation_cache() {
+    local shared_dir="$1"
+
+    mkdir -p "$shared_dir"
+    if [[ "$FORCE_RERUN" != "1" && $(is_valid_geotiff "$shared_dir/dtm.tif"; echo $?) -eq 0 && $(is_valid_geotiff "$shared_dir/dsm.tif"; echo $?) -eq 0 ]]; then
+        log "Shared parent elevation cache already valid in $shared_dir"
+        return 0
+    fi
+
+    log "Downloading shared parent DTM/DSM once for partitioned child workflows"
+    download_elevation_for_aoi "$DOWNLOAD_AOI_VECTOR" "$shared_dir"
+    require_file "$shared_dir/dtm.tif"
+    require_file "$shared_dir/dsm.tif"
+    is_valid_geotiff "$shared_dir/dtm.tif"
+    is_valid_geotiff "$shared_dir/dsm.tif"
+}
+
+promote_shared_parent_elevation_to_child() {
+    local parent_run_dir shared_dir
+    parent_run_dir="$(resolve_parent_run_dir_for_child)" || return 1
+    shared_dir="$parent_run_dir/partitions/_shared_elevation"
+
+    if [[ ! -f "$shared_dir/dtm.tif" || ! -f "$shared_dir/dsm.tif" ]]; then
+        return 1
+    fi
+
+    if [[ "$FORCE_RERUN" != "1" && $(is_valid_geotiff "$RAW_AOI_DIR/dtm.tif"; echo $?) -eq 0 && $(is_valid_geotiff "$RAW_AOI_DIR/dsm.tif"; echo $?) -eq 0 ]]; then
+        return 0
+    fi
+
+    log "Cropping shared parent elevation cache into child AOI outputs"
+    crop_parent_elevation_to_child "$shared_dir/dtm.tif" "$DOWNLOAD_AOI_VECTOR" "$RAW_AOI_DIR/dtm.tif"
+    crop_parent_elevation_to_child "$shared_dir/dsm.tif" "$DOWNLOAD_AOI_VECTOR" "$RAW_AOI_DIR/dsm.tif"
+    require_file "$RAW_AOI_DIR/dtm.tif"
+    require_file "$RAW_AOI_DIR/dsm.tif"
+    is_valid_geotiff "$RAW_AOI_DIR/dtm.tif"
+    is_valid_geotiff "$RAW_AOI_DIR/dsm.tif"
+}
+
+run_outputs_complete_for_root() {
+    local manifest_path="$1"
+    local model_results_root="$2"
+    shift 2
+
+    python - "$manifest_path" "$model_results_root" "$MODEL_REGISTRY" "$@" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+import yaml
+
+
+def latest_candidates(model_dir: Path) -> tuple[Path | None, Path | None, Path | None]:
+    full_candidates = sorted(
+        model_dir.glob("water_prediction_*_full_*.tif"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    cropped_candidates = sorted(
+        [
+            path
+            for path in model_dir.glob("water_prediction_*.tif")
+            if "_full_" not in path.name
+        ],
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    vector_candidates = sorted(
+        model_dir.glob("water_bodies_*.gpkg"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return (
+        full_candidates[0] if full_candidates else None,
+        cropped_candidates[0] if cropped_candidates else None,
+        vector_candidates[0] if vector_candidates else None,
+    )
+
+
+manifest_path = Path(sys.argv[1])
+model_results_root = Path(sys.argv[2])
+registry_path = Path(sys.argv[3])
+requested_model_ids = [arg for arg in sys.argv[4:] if arg]
+
+with registry_path.open(encoding="utf-8") as file:
+    payload = yaml.safe_load(file) or {}
+
+models = payload.get("models", {})
+model_ids = requested_model_ids or sorted(models)
+
+if not model_ids:
+    raise SystemExit(1)
+
+if manifest_path.exists():
+    try:
+        with manifest_path.open(encoding="utf-8") as file:
+            manifest_payload = json.load(file)
+    except Exception:
+        manifest_payload = {}
+    else:
+        manifest_models = manifest_payload.get("models", {})
+        manifest_complete = True
+        for model_id in model_ids:
+            model_outputs = manifest_models.get(model_id)
+            prediction_raster_full = None if model_outputs is None else model_outputs.get(
+                "prediction_raster_full",
+            )
+            if not prediction_raster_full or not Path(prediction_raster_full).is_file():
+                manifest_complete = False
+                break
+        if manifest_complete:
+            raise SystemExit(0)
+
+for model_id in model_ids:
+    model_dir = model_results_root / model_id
+    if not model_dir.exists():
+        raise SystemExit(1)
+
+    prediction_raster_full, prediction_raster, prediction_vector = latest_candidates(
+        model_dir,
+    )
+    if (
+        prediction_raster_full is None
+        or prediction_raster is None
+        or prediction_vector is None
+    ):
+        raise SystemExit(1)
+
+    for path in (prediction_raster_full, prediction_raster, prediction_vector):
+        if not path.is_file() or path.stat().st_size <= 0:
+            raise SystemExit(1)
+
+raise SystemExit(0)
+PY
+}
+
+write_run_outputs_manifest_for_root() {
+    local manifest_path="$1"
+    local model_results_root="$2"
+    shift 2
+
+    python - "$manifest_path" "$model_results_root" "$MODEL_REGISTRY" "$@" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+import yaml
+
+manifest_path = Path(sys.argv[1])
+model_results_root = Path(sys.argv[2])
+registry_path = Path(sys.argv[3])
+requested_model_ids = [arg for arg in sys.argv[4:] if arg]
+
+with registry_path.open(encoding="utf-8") as file:
+    payload = yaml.safe_load(file) or {}
+
+models = payload.get("models", {})
+model_ids = requested_model_ids or sorted(models)
+
+outputs = {"models": {}}
+for model_id in model_ids:
+    model_dir = model_results_root / model_id
+    if not model_dir.exists():
+        continue
+
+    full_candidates = sorted(
+        model_dir.glob("water_prediction_*_full_*.tif"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    cropped_candidates = sorted(
+        [
+            path
+            for path in model_dir.glob("water_prediction_*.tif")
+            if "_full_" not in path.name
+        ],
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    vector_candidates = sorted(
+        model_dir.glob("water_bodies_*.gpkg"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+
+    if not full_candidates:
+        continue
+
+    outputs["models"][model_id] = {
+        "prediction_raster_full": str(full_candidates[0].resolve()),
+        "prediction_raster": (
+            str(cropped_candidates[0].resolve()) if cropped_candidates else None
+        ),
+        "prediction_vector": (
+            str(vector_candidates[0].resolve()) if vector_candidates else None
+        ),
+    }
+
+manifest_path.write_text(json.dumps(outputs, indent=2), encoding="utf-8")
+print(manifest_path)
+PY
+}
+
+write_run_outputs_manifest() {
+    write_run_outputs_manifest_for_root "$RUN_OUTPUTS_MANIFEST" "$MODEL_RESULTS_ROOT" ${MODEL_IDS:-}
+}
+
+ensure_run_outputs_manifest_for_root() {
+    local manifest_path="$1"
+    local model_results_root="$2"
+    shift 2
+
+    if ! run_outputs_complete_for_root "$manifest_path" "$model_results_root" "$@"; then
+        return 1
+    fi
+
+    write_run_outputs_manifest_for_root "$manifest_path" "$model_results_root" "$@" >/dev/null
+}
+
+merge_partitioned_outputs() {
+    local output_timestamp parent_aoi_vector
+    output_timestamp="$(date '+%Y%m%d_%H%M%S')"
+    parent_aoi_vector="$RAW_AOI_VECTOR"
+
+    mapfile -t RESOLVED_MODEL_IDS < <(resolve_model_ids)
+    if [[ ${#RESOLVED_MODEL_IDS[@]} -eq 0 ]]; then
+        echo "No model ids resolved from MODEL_IDS or $MODEL_REGISTRY" >&2
+        exit 1
+    fi
+
+    mapfile -t CHILD_AOI_DIRS < <(partition_child_dirs)
+    if [[ ${#CHILD_AOI_DIRS[@]} -eq 0 ]]; then
+        echo "No child AOIs found in $PARTITION_MANIFEST" >&2
+        exit 1
+    fi
+
+    activate_gdl
+
+    for model_id in "${RESOLVED_MODEL_IDS[@]}"; do
+        if [[ -z "$model_id" ]]; then
+            continue
+        fi
+
+        local model_output_dir merged_full merged_cropped merged_vector output_stem
+        model_output_dir="$MODEL_RESULTS_ROOT/$model_id"
+        mkdir -p "$model_output_dir"
+
+        output_stem="$(python - "$MODEL_REGISTRY" "$model_id" "$AOI_NAME" <<'PY'
+import sys
+from geo_deep_learning.tools.water_extraction.inference import _resolve_model_config
+
+registry, model_id, fallback = sys.argv[1:4]
+config = _resolve_model_config(model_id, registry)
+print(config["output_name"] or fallback)
+PY
+)"
+
+        mapfile -t CHILD_FULL_RASTERS < <(
+            python - "$RUN_ROOT" "$model_id" "${CHILD_AOI_DIRS[@]}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+run_root = Path(sys.argv[1])
+model_id = sys.argv[2]
+child_dirs = sys.argv[3:]
+
+for child_dir in child_dirs:
+    child_name = Path(child_dir).name
+    manifest_path = run_root / child_name / "run_outputs_manifest.json"
+    if not manifest_path.exists():
+        raise SystemExit(
+            f"Missing child run outputs manifest for {child_name}: {manifest_path}"
+        )
+
+    with manifest_path.open(encoding="utf-8") as file:
+        payload = json.load(file)
+
+    model_outputs = payload.get("models", {}).get(model_id)
+    if not model_outputs:
+        raise SystemExit(
+            f"Missing model '{model_id}' outputs in child manifest: {manifest_path}"
+        )
+
+    prediction_raster_full = model_outputs.get("prediction_raster_full")
+    if not prediction_raster_full:
+        raise SystemExit(
+            f"Missing full prediction raster for model '{model_id}' in {manifest_path}"
+        )
+    print(prediction_raster_full)
+PY
+        )
+
+        if [[ ${#CHILD_FULL_RASTERS[@]} -ne ${#CHILD_AOI_DIRS[@]} ]]; then
+            echo "Expected ${#CHILD_AOI_DIRS[@]} child full prediction rasters for model $model_id, found ${#CHILD_FULL_RASTERS[@]}" >&2
+            exit 1
+        fi
+
+        merged_full="$model_output_dir/water_prediction_${output_stem}_full_${output_timestamp}.tif"
+        merged_cropped="$model_output_dir/water_prediction_${output_stem}_${output_timestamp}.tif"
+        merged_vector="$model_output_dir/water_bodies_${output_stem}_${output_timestamp}.gpkg"
+
+        python - "$merged_full" "$merged_cropped" "$merged_vector" "$parent_aoi_vector" "$SIMPLIFY_TOLERANCE" "${CHILD_FULL_RASTERS[@]}" <<'PY'
+import sys
+
+from geo_deep_learning.tools.water_extraction.inference import (
+    crop_raster_to_aoi,
+    export_vectors,
+    merge_prediction_rasters,
+)
+
+merged_full, merged_cropped, merged_vector, aoi_path, simplify = sys.argv[1:6]
+child_rasters = sys.argv[6:]
+
+merge_prediction_rasters(child_rasters, merged_full, method="max")
+crop_raster_to_aoi(merged_full, merged_cropped, aoi_path)
+export_vectors(
+    prediction_raster_path=merged_cropped,
+    output_vector_path=merged_vector,
+    simplify_tolerance=float(simplify),
+)
+PY
+
+        log "Merged ${#CHILD_FULL_RASTERS[@]} child predictions for $model_id -> $model_output_dir"
+    done
+}
+
 SOURCE_AOI_VECTOR="$(find_vector "$SOURCE_AOI_DIR" "$AOI_VECTOR_STEM" || true)"
 if [[ -z "${SOURCE_AOI_VECTOR:-}" ]]; then
     echo "Missing AOI vector in $SOURCE_AOI_DIR (expected $AOI_VECTOR_STEM.gpkg or $AOI_VECTOR_STEM.shp)" >&2
     exit 1
 fi
+SOURCE_BUFFERED_AOI_VECTOR="$(find_vector "$SOURCE_AOI_DIR" "$BUFFERED_AOI_STEM" || true)"
 
 WATERBODIES_VECTOR=""
 if [[ "$WORKFLOW" == "training" ]]; then
@@ -412,6 +888,9 @@ fi
 setup_dynamic_slurm_log
 
 copy_vector_family "$SOURCE_AOI_VECTOR" "$RAW_AOI_DIR"
+if [[ -n "$SOURCE_BUFFERED_AOI_VECTOR" ]]; then
+    copy_vector_family "$SOURCE_BUFFERED_AOI_VECTOR" "$RAW_AOI_DIR"
+fi
 if [[ -n "$WATERBODIES_VECTOR" ]]; then
     copy_vector_family "$WATERBODIES_VECTOR" "$RAW_AOI_DIR"
 fi
@@ -451,16 +930,58 @@ else
 fi
 require_file "$RAW_BUFFERED_AOI"
 
+if should_partition_parent_aoi; then
+    log "Evaluating parent AOI partitioning with max pixel budget $MAX_BUFFERED_AOI_PIXELS"
+    partition_parent_aoi
+    require_file "$PARTITION_MANIFEST"
+
+    if [[ "$(partition_required)" == "1" ]]; then
+        log "Parent AOI exceeds pixel budget; running partitioned child workflows"
+        ensure_shared_parent_elevation_cache "$PARTITION_SHARED_ELEVATION_DIR"
+        mapfile -t CHILD_AOI_DIRS < <(partition_child_dirs)
+        if [[ ${#CHILD_AOI_DIRS[@]} -eq 0 ]]; then
+            echo "Partitioning requested but no child AOIs were created in $PARTITION_ROOT" >&2
+            exit 1
+        fi
+
+        for child_dir in "${CHILD_AOI_DIRS[@]}"; do
+            child_name="$(basename "$child_dir")"
+            child_run_outputs_manifest="$RUN_ROOT/$child_name/run_outputs_manifest.json"
+            child_model_results_root="$RESULTS_ROOT/$child_name"
+
+            if [[ "$FORCE_RERUN" != "1" ]] && ensure_run_outputs_manifest_for_root "$child_run_outputs_manifest" "$child_model_results_root" ${MODEL_IDS:-}; then
+                log "Skipping child AOI workflow for $child_name: existing inference outputs validated"
+                continue
+            fi
+
+            log "Launching child AOI workflow for $child_name"
+            ENABLE_AOI_PARTITIONING=0 \
+            SKIP_DYNAMIC_SLURM_LOG=1 \
+            bash "$0" "$child_dir"
+        done
+
+        log "Merging child inference outputs back to parent AOI"
+        merge_partitioned_outputs
+
+        echo "============================================"
+        echo "Finished : $(date)"
+        echo "Buffered AOI          : $RAW_BUFFERED_AOI"
+        echo "Partition manifest    : $PARTITION_MANIFEST"
+        echo "Inference outputs     : $MODEL_RESULTS_ROOT"
+        echo "============================================"
+        exit 0
+    fi
+
+    log "Buffered parent AOI is within the configured pixel budget; continuing single-AOI workflow"
+fi
+
 log "Step 2/9: Download DTM and DSM using buffered AOI"
 if [[ "$FORCE_RERUN" != "1" && $(is_valid_geotiff "$RAW_AOI_DIR/dtm.tif"; echo $?) -eq 0 && $(is_valid_geotiff "$RAW_AOI_DIR/dsm.tif"; echo $?) -eq 0 ]]; then
     log "Skipping DTM/DSM download: existing rasters validated"
+elif promote_shared_parent_elevation_to_child; then
+    log "Skipping STAC download: reused shared parent elevation cache"
 else
-    mkdir -p "$ELEVATION_CACHE_DIR"
-
-    python -m geo_deep_learning.tools.water_extraction.download_elevation \
-        --aoi_path "$DOWNLOAD_AOI_VECTOR" \
-        --out_folder "$ELEVATION_CACHE_DIR" \
-        --resolution "$RESOLUTION"
+    download_elevation_for_aoi "$DOWNLOAD_AOI_VECTOR" "$ELEVATION_CACHE_DIR"
 
     if ! is_valid_geotiff "$ELEVATION_CACHE_DIR/dtm.tif"; then
         echo "Downloaded DTM is missing or invalid: $ELEVATION_CACHE_DIR/dtm.tif" >&2
@@ -745,33 +1266,38 @@ if [[ "$RUN_REGISTERED_INFERENCE" == "1" && "$WORKFLOW" == "inference" ]]; then
     log "Step 9/9: Run registry-driven inference"
     activate_gdl
 
-    for model_id in "${RESOLVED_MODEL_IDS[@]}"; do
-        if [[ -z "$model_id" ]]; then
-            continue
-        fi
-        model_output_dir="$MODEL_RESULTS_ROOT/$model_id"
-        model_stacked_inputs="$PREP_ROOT/$AOI_NAME/stacked_inputs__${model_id}.vrt"
-        if [[ ! -f "$model_stacked_inputs" ]]; then
-            fallback_stacked_inputs="$PREP_ROOT/$AOI_NAME/stacked_inputs__${model_id}.tif"
-            if [[ -f "$fallback_stacked_inputs" ]]; then
-                model_stacked_inputs="$fallback_stacked_inputs"
+    if [[ "$FORCE_RERUN" != "1" ]] && ensure_run_outputs_manifest_for_root "$RUN_OUTPUTS_MANIFEST" "$MODEL_RESULTS_ROOT" ${MODEL_IDS:-}; then
+        log "Skipping registry-driven inference: existing outputs validated"
+    else
+        for model_id in "${RESOLVED_MODEL_IDS[@]}"; do
+            if [[ -z "$model_id" ]]; then
+                continue
             fi
-        fi
-        require_file "$model_stacked_inputs"
-        mkdir -p "$model_output_dir"
-        log "Running inference for $model_id -> $model_output_dir using $model_stacked_inputs"
+            model_output_dir="$MODEL_RESULTS_ROOT/$model_id"
+            model_stacked_inputs="$PREP_ROOT/$AOI_NAME/stacked_inputs__${model_id}.vrt"
+            if [[ ! -f "$model_stacked_inputs" ]]; then
+                fallback_stacked_inputs="$PREP_ROOT/$AOI_NAME/stacked_inputs__${model_id}.tif"
+                if [[ -f "$fallback_stacked_inputs" ]]; then
+                    model_stacked_inputs="$fallback_stacked_inputs"
+                fi
+            fi
+            require_file "$model_stacked_inputs"
+            mkdir -p "$model_output_dir"
+            log "Running inference for $model_id -> $model_output_dir using $model_stacked_inputs"
 
-        python -m geo_deep_learning.tools.water_extraction.inference \
-            --model_id "$model_id" \
-            --registry "$MODEL_REGISTRY" \
-            --stacked_inputs "$model_stacked_inputs" \
-            --data_folder "$RAW_AOI_DIR" \
-            --output_folder "$model_output_dir" \
-            --window_size "$INFERENCE_WINDOW_SIZE" \
-            --stride "$INFERENCE_STRIDE" \
-            --batch_size "$INFERENCE_BATCH_SIZE" \
-            --device "$INFERENCE_DEVICE"
-    done
+            python -m geo_deep_learning.tools.water_extraction.inference \
+                --model_id "$model_id" \
+                --registry "$MODEL_REGISTRY" \
+                --stacked_inputs "$model_stacked_inputs" \
+                --data_folder "$RAW_AOI_DIR" \
+                --output_folder "$model_output_dir" \
+                --window_size "$INFERENCE_WINDOW_SIZE" \
+                --stride "$INFERENCE_STRIDE" \
+                --batch_size "$INFERENCE_BATCH_SIZE" \
+                --device "$INFERENCE_DEVICE"
+        done
+        write_run_outputs_manifest >/dev/null
+    fi
 else
     log "Step 9/9: Skipping registry-driven inference"
 fi
