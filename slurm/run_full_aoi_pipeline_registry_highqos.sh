@@ -417,8 +417,46 @@ should_partition_parent_aoi() {
     return 0
 }
 
+partition_manifest_complete() {
+    python - "$PARTITION_MANIFEST" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+if not manifest_path.exists():
+    raise SystemExit(1)
+
+with manifest_path.open(encoding="utf-8") as file:
+    payload = json.load(file)
+
+children = payload.get("children", [])
+if payload.get("split_required"):
+    if not children:
+        raise SystemExit(1)
+    for child in children:
+        source_dir = child.get("source_dir")
+        aoi_path = child.get("aoi_path")
+        buffered_aoi_path = child.get("buffered_aoi_path")
+        if not source_dir or not aoi_path or not buffered_aoi_path:
+            raise SystemExit(1)
+        if not Path(source_dir).is_dir():
+            raise SystemExit(1)
+        if not Path(aoi_path).is_file():
+            raise SystemExit(1)
+        if not Path(buffered_aoi_path).is_file():
+            raise SystemExit(1)
+
+raise SystemExit(0)
+PY
+}
+
 partition_parent_aoi() {
     mkdir -p "$PARTITION_ROOT"
+    if [[ "$FORCE_RERUN" != "1" ]] && partition_manifest_complete; then
+        log "Reusing existing partition manifest and child AOIs from $PARTITION_MANIFEST"
+        return 0
+    fi
     python -m geo_deep_learning.tools.water_extraction.partition_aoi \
         --input_aoi "$RAW_AOI_VECTOR" \
         --buffered_aoi "$RAW_BUFFERED_AOI" \

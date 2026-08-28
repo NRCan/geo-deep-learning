@@ -117,6 +117,8 @@ def _write_geometry(
 ) -> None:
     """Write a single geometry feature to GeoPackage."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        output_path.unlink()
     schema = {
         "geometry": geometry.geom_type,
         "properties": {
