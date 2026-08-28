@@ -749,9 +749,11 @@ ensure_run_outputs_manifest_for_root() {
 }
 
 merge_partitioned_outputs() {
-    local output_timestamp parent_aoi_vector
+    local output_timestamp parent_aoi_vector merge_temp_root
     output_timestamp="$(date '+%Y%m%d_%H%M%S')"
     parent_aoi_vector="$RAW_AOI_VECTOR"
+    merge_temp_root="$RUN_DIR/merge_core_predictions"
+    mkdir -p "$merge_temp_root"
 
     mapfile -t RESOLVED_MODEL_IDS < <(resolve_model_ids)
     if [[ ${#RESOLVED_MODEL_IDS[@]} -eq 0 ]]; then
@@ -786,18 +788,34 @@ print(config["output_name"] or fallback)
 PY
 )"
 
-        mapfile -t CHILD_FULL_RASTERS < <(
-            python - "$RUN_ROOT" "$model_id" "${CHILD_AOI_DIRS[@]}" <<'PY'
+        mapfile -t CHILD_CORE_RASTER_SPECS < <(
+            python - "$RUN_ROOT" "$PARTITION_MANIFEST" "$model_id" "${CHILD_AOI_DIRS[@]}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 run_root = Path(sys.argv[1])
-model_id = sys.argv[2]
-child_dirs = sys.argv[3:]
+partition_manifest_path = Path(sys.argv[2])
+model_id = sys.argv[3]
+child_dirs = sys.argv[4:]
+
+with partition_manifest_path.open(encoding="utf-8") as file:
+    partition_payload = json.load(file)
+
+children_by_name = {
+    Path(child["source_dir"]).name: child
+    for child in partition_payload.get("children", [])
+    if child.get("source_dir") and child.get("aoi_path")
+}
 
 for child_dir in child_dirs:
     child_name = Path(child_dir).name
+    child_meta = children_by_name.get(child_name)
+    if not child_meta:
+        raise SystemExit(
+            f"Missing partition metadata for child {child_name}: {partition_manifest_path}"
+        )
+
     manifest_path = run_root / child_name / "run_outputs_manifest.json"
     if not manifest_path.exists():
         raise SystemExit(
@@ -818,20 +836,45 @@ for child_dir in child_dirs:
         raise SystemExit(
             f"Missing full prediction raster for model '{model_id}' in {manifest_path}"
         )
-    print(prediction_raster_full)
+    aoi_path = child_meta.get("aoi_path")
+    if not aoi_path:
+        raise SystemExit(
+            f"Missing core AOI path for child {child_name} in {partition_manifest_path}"
+        )
+    print(f"{prediction_raster_full}\t{aoi_path}\t{child_name}")
 PY
         )
 
-        if [[ ${#CHILD_FULL_RASTERS[@]} -ne ${#CHILD_AOI_DIRS[@]} ]]; then
-            echo "Expected ${#CHILD_AOI_DIRS[@]} child full prediction rasters for model $model_id, found ${#CHILD_FULL_RASTERS[@]}" >&2
+        if [[ ${#CHILD_CORE_RASTER_SPECS[@]} -ne ${#CHILD_AOI_DIRS[@]} ]]; then
+            echo "Expected ${#CHILD_AOI_DIRS[@]} child prediction/core AOI specs for model $model_id, found ${#CHILD_CORE_RASTER_SPECS[@]}" >&2
             exit 1
         fi
 
         merged_full="$model_output_dir/water_prediction_${output_stem}_full_${output_timestamp}.tif"
         merged_cropped="$model_output_dir/water_prediction_${output_stem}_${output_timestamp}.tif"
         merged_vector="$model_output_dir/water_bodies_${output_stem}_${output_timestamp}.gpkg"
+        model_merge_temp_dir="$merge_temp_root/$model_id"
+        mkdir -p "$model_merge_temp_dir"
+        CHILD_CORE_RASTERS=()
+        for child_spec in "${CHILD_CORE_RASTER_SPECS[@]}"; do
+            IFS=$'\t' read -r child_full_raster child_core_aoi child_name <<<"$child_spec"
+            child_core_raster="$model_merge_temp_dir/${child_name}_core.tif"
+            python - "$child_full_raster" "$child_core_raster" "$child_core_aoi" <<'PY'
+import sys
 
-        python - "$merged_full" "$merged_cropped" "$merged_vector" "$parent_aoi_vector" "$SIMPLIFY_TOLERANCE" "${CHILD_FULL_RASTERS[@]}" <<'PY'
+from geo_deep_learning.tools.water_extraction.inference import crop_raster_to_aoi
+
+crop_raster_to_aoi(sys.argv[1], sys.argv[2], sys.argv[3])
+PY
+            CHILD_CORE_RASTERS+=("$child_core_raster")
+        done
+
+        if [[ ${#CHILD_CORE_RASTERS[@]} -ne ${#CHILD_AOI_DIRS[@]} ]]; then
+            echo "Expected ${#CHILD_AOI_DIRS[@]} cropped child core rasters for model $model_id, found ${#CHILD_CORE_RASTERS[@]}" >&2
+            exit 1
+        fi
+
+        python - "$merged_full" "$merged_cropped" "$merged_vector" "$parent_aoi_vector" "$SIMPLIFY_TOLERANCE" "${CHILD_CORE_RASTERS[@]}" <<'PY'
 import sys
 
 from geo_deep_learning.tools.water_extraction.inference import (
@@ -852,7 +895,7 @@ export_vectors(
 )
 PY
 
-        log "Merged ${#CHILD_FULL_RASTERS[@]} child predictions for $model_id -> $model_output_dir"
+        log "Merged ${#CHILD_CORE_RASTERS[@]} child core predictions for $model_id -> $model_output_dir"
     done
 }
 
