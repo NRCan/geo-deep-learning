@@ -4,6 +4,7 @@ import logging
 import shutil
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 import fiona
 import numpy as np
@@ -302,6 +303,49 @@ class ElevationStackDataModule(CSVDataModule):
             return out_dir / configured_name.with_suffix(".vrt")
         return out_dir / configured_name
 
+    def _validate_stack_sources(self, stacked_path: Path) -> bool:
+        """Return True when a preprocessed stack and its VRT sources are usable."""
+        if not stacked_path.exists():
+            log.info("Stacked inputs not found: %s", stacked_path)
+            return False
+
+        if stacked_path.suffix.lower() != ".vrt":
+            return True
+
+        try:
+            tree = ElementTree.parse(stacked_path)
+        except Exception as exc:
+            log.info("Could not parse stacked VRT %s: %s", stacked_path, exc)
+            return False
+
+        missing_sources: list[str] = []
+        for band_node in tree.getroot().findall("VRTRasterBand"):
+            source_filename = band_node.findtext(".//SourceFilename")
+            if not source_filename:
+                continue
+
+            source_path = Path(source_filename)
+            resolved_path = (
+                source_path
+                if source_path.is_absolute()
+                else (stacked_path.parent / source_path).resolve()
+            )
+            if not resolved_path.exists():
+                missing_sources.append(str(resolved_path))
+
+        if missing_sources:
+            missing_preview = ", ".join(missing_sources[:3])
+            if len(missing_sources) > 3:
+                missing_preview += ", ..."
+            log.info(
+                "Stacked inputs VRT has missing source rasters (%d): %s",
+                len(missing_sources),
+                missing_preview,
+            )
+            return False
+
+        return True
+
     def _slice_norm_stats_to_selected_channels(self, *, source: str) -> None:
         """Slice normalization stats to the selected channels, if needed."""
         selected_indices = self._resolved_channel_indices()
@@ -587,8 +631,7 @@ class ElevationStackDataModule(CSVDataModule):
                 aoi_name = Path(aoi_path).name
                 stacked_path = self._stack_output_path(Path(self.output_root) / aoi_name)
 
-                if not stacked_path.exists():
-                    log.info("Stacked inputs not found: %s", stacked_path)
+                if not self._validate_stack_sources(stacked_path):
                     return False
 
             log.info("All preprocessed stacks exist → skipping preprocessing")

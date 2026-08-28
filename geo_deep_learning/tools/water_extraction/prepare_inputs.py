@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
+from xml.etree import ElementTree
 
 import fiona
 import numpy as np
@@ -843,6 +844,27 @@ def build_vrt_stack(
         raise RuntimeError(
             f"gdalbuildvrt failed while building virtual stack: {output_vrt}"
         ) from e
+
+    tree = ElementTree.parse(output_vrt)
+    root = tree.getroot()
+    band_nodes = root.findall("VRTRasterBand")
+    if len(band_nodes) != len(input_rasters):
+        msg = (
+            f"Unexpected VRT band count in {output_vrt}: "
+            f"expected {len(input_rasters)}, found {len(band_nodes)}"
+        )
+        raise RuntimeError(msg)
+
+    for band_node, input_raster in zip(band_nodes, input_rasters, strict=True):
+        with rasterio.open(input_raster) as src:
+            description = src.descriptions[0] or Path(input_raster).stem
+
+        description_node = band_node.find("Description")
+        if description_node is None:
+            description_node = ElementTree.SubElement(band_node, "Description")
+        description_node.text = description
+
+    tree.write(output_vrt, encoding="utf-8", xml_declaration=True)
 
 
 def rasterize_labels_binary_aoi_mask(  # noqa: PLR0913

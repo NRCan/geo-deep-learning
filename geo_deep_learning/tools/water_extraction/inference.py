@@ -33,6 +33,7 @@ import rasterio.mask
 import torch
 import yaml
 from rasterio.features import rasterize, shapes
+from rasterio.merge import merge
 from rasterio.windows import Window
 from shapely.geometry import mapping
 from shapely.geometry import shape as shapely_shape
@@ -312,6 +313,20 @@ def _resolve_stacked_input_features(
     descriptions: tuple[str | None, ...],
 ) -> list[str]:
     """Resolve feature names for a stacked raster, with VRT source fallback."""
+    return _resolve_loaded_band_features(
+        stacked_inputs=stacked_inputs,
+        descriptions=list(descriptions),
+        bands_to_read=list(range(1, len(descriptions) + 1)),
+    )
+
+
+def _resolve_loaded_band_features(
+    *,
+    stacked_inputs: str,
+    descriptions: list[str | None],
+    bands_to_read: list[int],
+) -> list[str]:
+    """Resolve feature names for the loaded bands, with VRT source fallback."""
     normalized_descriptions = [
         _normalize_feature_name(description or "")
         for description in descriptions
@@ -324,10 +339,15 @@ def _resolve_stacked_input_features(
         return normalized_descriptions
 
     source_features = _resolve_vrt_source_features(stacked_path)
-    if len(source_features) == len(normalized_descriptions):
-        return source_features
-
-    return normalized_descriptions
+    resolved_features: list[str] = []
+    for idx, band_number in enumerate(bands_to_read):
+        fallback_feature = normalized_descriptions[idx]
+        source_idx = band_number - 1
+        if 0 <= source_idx < len(source_features) and source_features[source_idx]:
+            resolved_features.append(source_features[source_idx])
+        else:
+            resolved_features.append(fallback_feature)
+    return resolved_features
 
 
 def _resolve_vrt_source_features(vrt_path: Path) -> list[str]:
@@ -470,6 +490,7 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
     intensity_aligned = output_path / "intensity_aligned.tif"
     nadir_weighted_aligned = output_path / "nadir_weighted_aligned.tif"
     zero_intensity_aligned = output_path / "zero_intensity_aligned.tif"
+    zero_intensity_generated = output_path / "zero_intensity.tif"
 
     # Align DSM to DTM
     if not dsm_aligned.exists():
@@ -626,19 +647,20 @@ def preprocess_aoi(  # noqa: PLR0913, C901, PLR0912, PLR0915
                 )
             else:
                 log.info("Skipping zero-intensity alignment (already exists)")
+            feature_rasters["zero_intensity"] = zero_intensity_aligned
         else:
-            if not zero_intensity_aligned.exists():
+            if not zero_intensity_generated.exists():
                 log.info("Building zero-intensity mask...")
                 zero_mask, zero_profile = build_zero_intensity_mask(intensity_aligned)
                 _write_single_band_raster(
-                    zero_intensity_aligned,
+                    zero_intensity_generated,
                     zero_mask,
                     zero_profile,
                     description="zero_intensity",
                 )
             else:
                 log.info("Skipping zero-intensity mask (already exists)")
-        feature_rasters["zero_intensity"] = zero_intensity_aligned
+            feature_rasters["zero_intensity"] = zero_intensity_generated
 
     stacked_suffix = ".vrt" if stack_as_vrt else ".tif"
     stacked_filename = (
@@ -893,7 +915,7 @@ def _skip_standardization_indices_from_descriptions(
     """Return band indices that should bypass standardization."""
     skip_indices = []
     for idx, description in enumerate(descriptions):
-        normalized_name = (description or "").lower()
+        normalized_name = _normalize_feature_name(description or "")
         if any(key in normalized_name for key in _NON_STANDARDIZED_CHANNEL_KEYS):
             skip_indices.append(idx)
     return skip_indices
@@ -1007,10 +1029,16 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         log.info("Input shape: (%d, %d, %d)", channels_to_load, height, width)
         band_nodata_values = _get_band_nodata_values(src, bands_to_read)
         selected_descriptions = [src.descriptions[band - 1] for band in bands_to_read]
+        selected_features = _resolve_loaded_band_features(
+            stacked_inputs=input_raster_path,
+            descriptions=selected_descriptions,
+            bands_to_read=bands_to_read,
+        )
         skip_standardization_indices = _skip_standardization_indices_from_descriptions(
-            selected_descriptions,
+            selected_features,
         )
         log.info("Per-band nodata metadata values: %s", band_nodata_values)
+        log.info("Resolved loaded band features: %s", selected_features)
         log.info("Bands skipping standardization: %s", skip_standardization_indices)
         log.info(
             "Also masking values <= %.1f as negative nodata sentinels",
@@ -1561,6 +1589,44 @@ def export_vectors(
                 dst.write(feature)
 
         log.info("Vector export complete: %s", output_vector_path)
+
+
+def merge_prediction_rasters(
+    input_raster_paths: list[str],
+    output_raster_path: str,
+    *,
+    method: str = "max",
+) -> None:
+    """Merge child prediction rasters into a single parent raster."""
+    if not input_raster_paths:
+        msg = "At least one input raster is required for merging"
+        raise ValueError(msg)
+
+    resolved_paths = [str(Path(path).resolve()) for path in input_raster_paths]
+    log.info("Merging %d prediction rasters with method=%s", len(resolved_paths), method)
+
+    sources = [rasterio.open(path) for path in resolved_paths]
+    try:
+        mosaic, transform = merge(sources, method=method)
+        profile = sources[0].profile.copy()
+        profile.update(
+            {
+                "height": mosaic.shape[1],
+                "width": mosaic.shape[2],
+                "transform": transform,
+                "count": mosaic.shape[0],
+                "compress": "lzw",
+            }
+        )
+        output_path = Path(output_raster_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with rasterio.open(output_path, "w", **profile) as dst:
+            dst.write(mosaic)
+    finally:
+        for src in sources:
+            src.close()
+
+    log.info("Merged prediction raster saved: %s", output_raster_path)
 
 
 # =============================================================================
