@@ -16,7 +16,6 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlparse
 
 import fiona
 import numpy as np
@@ -24,8 +23,6 @@ import rasterio
 import requests
 from lightning.pytorch.cli import LightningArgumentParser
 from pystac_client import Client
-from pystac_client.exceptions import APIError
-from pystac_client.stac_api_io import StacApiIO
 from rasterio.crs import CRS
 from rasterio.features import geometry_mask
 from rasterio.transform import from_origin
@@ -56,7 +53,6 @@ DOWNLOAD_RETRY_BACKOFF_SECONDS = 10
 DOWNLOAD_TIMEOUT_SECONDS = 60
 DEFAULT_OUTPUT_BYTES_PER_PIXEL = 4
 DEFAULT_MERGE_MEM_LIMIT_MB = 512
-DEFAULT_PROXY_BYPASS_HOSTS = ("datacube.services.geo.ca",)
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -126,61 +122,6 @@ def _resolve_merge_mem_limit_mb() -> int:
     if value <= 0:
         raise ValueError("GDL_ELEVATION_MERGE_MEM_LIMIT_MB must be positive")
     return value
-
-
-def _resolve_proxy_bypass_hosts() -> tuple[str, ...]:
-    """Read optional proxy bypass hosts from the environment."""
-    raw_value = os.environ.get("GDL_PROXY_BYPASS_HOSTS")
-    if raw_value is None or raw_value.strip() == "":
-        return DEFAULT_PROXY_BYPASS_HOSTS
-    hosts = tuple(host.strip().lower() for host in raw_value.split(",") if host.strip())
-    return hosts or DEFAULT_PROXY_BYPASS_HOSTS
-
-
-def _should_bypass_proxy(url: str) -> bool:
-    """Decide whether a URL should be fetched directly instead of via env proxies."""
-    hostname = (urlparse(url).hostname or "").lower()
-    if not hostname:
-        return False
-    for bypass_host in _resolve_proxy_bypass_hosts():
-        if hostname == bypass_host or hostname.endswith(f".{bypass_host}"):
-            return True
-    return False
-
-
-def _configure_session_proxy_behavior(
-    session: Session,
-    *,
-    url: str,
-    force_direct: bool = False,
-) -> bool:
-    """
-    Configure whether a session should honor proxy env vars.
-
-    Returns True when the session is configured for direct access.
-    """
-    direct = force_direct or _should_bypass_proxy(url)
-    session.trust_env = not direct
-    if direct:
-        session.proxies.clear()
-    return direct
-
-
-def _is_proxy_error(exc: BaseException) -> bool:
-    """Detect requests/pystac failures caused by proxy negotiation/tunneling."""
-    cur: BaseException | None = exc
-    seen: set[int] = set()
-    while cur is not None and id(cur) not in seen:
-        seen.add(id(cur))
-        message = str(cur)
-        if (
-            "ProxyError" in message
-            or "Unable to connect to proxy" in message
-            or "Tunnel connection failed" in message
-        ):
-            return True
-        cur = cur.__cause__ or cur.__context__
-    return False
 
 
 def _validate_output_size(
@@ -404,65 +345,22 @@ def _open_download_stream(
     return response, resumed, expected_size
 
 
-def _build_stac_client(stac_api_url: str, *, force_direct: bool = False) -> tuple[Client, bool]:
-    """Create a STAC client with proxy handling matched to the target host."""
-    stac_io = StacApiIO(timeout=DOWNLOAD_TIMEOUT_SECONDS)
-    direct = _configure_session_proxy_behavior(
-        stac_io.session,
-        url=stac_api_url,
-        force_direct=force_direct,
-    )
-    return Client.open(stac_api_url, stac_io=stac_io), direct
-
-
 def find_stac_items(
     stac_api_url: str,
     collection_id: str,
     bbox_wgs84: tuple[float, float, float, float],
 ) -> list:
     """Query the STAC API for items intersecting the AOI."""
-    modes = [False]
-    if _should_bypass_proxy(stac_api_url):
-        modes = [True, False]
-    else:
-        modes = [False, True]
-
-    last_error: Exception | None = None
-    for force_direct in modes:
-        mode_name = "direct" if force_direct else "proxy/env"
-        try:
-            log.info("[STAC] Querying %s via %s mode", stac_api_url, mode_name)
-            _flush_logs()
-            client, used_direct = _build_stac_client(
-                stac_api_url,
-                force_direct=force_direct,
-            )
-            search = client.search(collections=[collection_id], bbox=bbox_wgs84)
-            items = list(search.get_items())
-            if not items:
-                msg = (
-                    f"No STAC items found in collection '{collection_id}' "
-                    f"for bbox {bbox_wgs84}."
-                )
-                raise RuntimeError(msg)
-            if used_direct and not force_direct:
-                log.info("[STAC] Bypassed proxy for %s based on host policy", stac_api_url)
-                _flush_logs()
-            return items
-        except (APIError, RequestException, RuntimeError) as exc:
-            last_error = exc
-            if force_direct or not _is_proxy_error(exc):
-                raise
-            log.warning(
-                "[STAC] Proxy-mediated request failed for %s; retrying direct: %s",
-                stac_api_url,
-                exc,
-            )
-            _flush_logs()
-
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError(f"Failed to query STAC API: {stac_api_url}")
+    client = Client.open(stac_api_url)
+    search = client.search(collections=[collection_id], bbox=bbox_wgs84)
+    items = list(search.get_items())
+    if not items:
+        msg = (
+            f"No STAC items found in collection '{collection_id}' "
+            f"for bbox {bbox_wgs84}."
+        )
+        raise RuntimeError(msg)
+    return items
 
 
 def download_asset(url: str, out_path: Path) -> None:
@@ -517,10 +415,6 @@ def download_asset(url: str, out_path: Path) -> None:
     expected_size: int | None = None
 
     with requests.Session() as session:
-        using_direct = _configure_session_proxy_behavior(session, url=url)
-        if using_direct:
-            log.info("[NETWORK] Bypassing proxy for asset host %s", urlparse(url).hostname)
-            _flush_logs()
         for attempt in range(1, DOWNLOAD_RETRY_LIMIT + 1):
             resume_from = tmp_path.stat().st_size if tmp_path.exists() else 0
             if resume_from > 0:
@@ -572,19 +466,6 @@ def download_asset(url: str, out_path: Path) -> None:
                 OSError,
             ) as exc:
                 last_error = exc
-                if not using_direct and _is_proxy_error(exc):
-                    log.warning(
-                        "[NETWORK] Proxy request failed for %s; switching to direct access: %s",
-                        out_path.name,
-                        exc,
-                    )
-                    _flush_logs()
-                    using_direct = _configure_session_proxy_behavior(
-                        session,
-                        url=url,
-                        force_direct=True,
-                    )
-                    continue
                 if attempt >= DOWNLOAD_RETRY_LIMIT:
                     break
                 wait_seconds = DOWNLOAD_RETRY_BACKOFF_SECONDS * attempt

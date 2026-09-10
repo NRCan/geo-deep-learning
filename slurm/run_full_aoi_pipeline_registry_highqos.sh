@@ -34,10 +34,6 @@ mkdir -p slurm/logs
 
 export https_proxy="${https_proxy:-http://webproxy.science.gc.ca:8888/}"
 export http_proxy="${http_proxy:-http://webproxy.science.gc.ca:8888/}"
-export HTTPS_PROXY="${HTTPS_PROXY:-$https_proxy}"
-export HTTP_PROXY="${HTTP_PROXY:-$http_proxy}"
-export no_proxy="${no_proxy:+$no_proxy,}datacube.services.geo.ca"
-export NO_PROXY="${NO_PROXY:+$NO_PROXY,}datacube.services.geo.ca"
 export PYTHONUNBUFFERED=1
 export TMPDIR="${TMPDIR:-/gpfs/fs5/nrcan/nrcan_geobase/gdl_tmp}"
 
@@ -122,7 +118,7 @@ export PATCH_SIZE STRIDE BATCH_SIZE NUM_WORKERS TEST_RATIO MIN_WATER_PIXELS
 export ZERO_MIN_COMPONENT_SIZE ZERO_MAX_HOLE_SIZE FORCE_RERUN INFERENCE_DEVICE
 export INFERENCE_BATCH_SIZE INFERENCE_WINDOW_SIZE INFERENCE_STRIDE
 export SIMPLIFY_TOLERANCE TMPDIR
-export https_proxy http_proxy HTTPS_PROXY HTTP_PROXY no_proxy NO_PROXY
+export https_proxy http_proxy
 export PYTHONUNBUFFERED SKIP_DYNAMIC_SLURM_LOG
 
 log() {
