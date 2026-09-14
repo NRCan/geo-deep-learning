@@ -29,10 +29,9 @@ from xml.etree import ElementTree
 import fiona
 import numpy as np
 import rasterio
-import rasterio.mask
 import torch
 import yaml
-from rasterio.features import rasterize, shapes
+from rasterio.features import geometry_mask, geometry_window, rasterize, shapes
 from rasterio.merge import merge
 from rasterio.windows import Window
 from shapely.geometry import mapping
@@ -1453,9 +1452,16 @@ def crop_raster_to_aoi(
         aoi_geoms = [feature["geometry"] for feature in aoi_src]
         aoi_crs = aoi_src.crs
 
-    # Crop raster
+    if not aoi_geoms:
+        msg = f"AOI contains no geometries: {aoi_vector_path}"
+        raise ValueError(msg)
+
+    output_path = Path(output_raster_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Crop one destination block at a time. rasterio.mask.mask reads the
+    # complete crop into memory, which is prohibitively expensive for full AOIs.
     with rasterio.open(input_raster_path) as src:
-        # Check CRS compatibility
         if src.crs != aoi_crs:
             log.warning(
                 "CRS mismatch between raster (%s) and AOI (%s)",
@@ -1463,32 +1469,50 @@ def crop_raster_to_aoi(
                 aoi_crs,
             )
 
-        # Mask and crop
-        out_image, out_transform = rasterio.mask.mask(
-            src,
-            aoi_geoms,
-            crop=True,
-            nodata=src.nodata,
-        )
-
-        # Update metadata - preserve compression and dtype
+        raster_window = Window(0, 0, src.width, src.height)
+        crop_window = geometry_window(src, aoi_geoms).intersection(raster_window)
+        crop_window = crop_window.round_offsets().round_lengths()
         out_meta = src.meta.copy()
         out_meta.update(
             {
-                "height": out_image.shape[1],
-                "width": out_image.shape[2],
-                "transform": out_transform,
-                "compress": "lzw",  # Ensure compression is enabled
+                "height": int(crop_window.height),
+                "width": int(crop_window.width),
+                "transform": src.window_transform(crop_window),
+                "compress": "lzw",
+                "tiled": True,
+                "blockxsize": 512,
+                "blockysize": 512,
+                "BIGTIFF": "YES",
             },
         )
 
-        log.info("  Cropped shape: %s", out_image.shape)
+        log.info(
+            "  Cropped shape: (%d, %d, %d)",
+            src.count,
+            out_meta["height"],
+            out_meta["width"],
+        )
         log.info("  Output dtype: %s", out_meta["dtype"])
         log.info("  Compression: %s", out_meta.get("compress", "none"))
 
-    # Write cropped raster
-    with rasterio.open(output_raster_path, "w", **out_meta) as dst:
-        dst.write(out_image)
+        fill_value = src.nodata if src.nodata is not None else 0
+        with rasterio.open(output_path, "w", **out_meta) as dst:
+            for _, dst_window in dst.block_windows(1):
+                src_window = Window(
+                    crop_window.col_off + dst_window.col_off,
+                    crop_window.row_off + dst_window.row_off,
+                    dst_window.width,
+                    dst_window.height,
+                )
+                block = src.read(window=src_window)
+                outside_aoi = geometry_mask(
+                    aoi_geoms,
+                    out_shape=(int(dst_window.height), int(dst_window.width)),
+                    transform=dst.window_transform(dst_window),
+                    invert=False,
+                )
+                block[:, outside_aoi] = fill_value
+                dst.write(block, window=dst_window)
 
     log.info("Cropped raster saved: %s", output_raster_path)
 
@@ -1525,42 +1549,6 @@ def export_vectors(
     log.info("Output vector: %s", output_vector_path)
 
     with rasterio.open(prediction_raster_path) as src:
-        image = src.read(1)
-        transform = src.transform
-        crs = src.crs
-
-        # Extract shapes for water class
-        log.info("Extracting water polygons (class=%d)...", water_class)
-        mask = image == water_class
-
-        # Polygonize
-        geoms = []
-        for geom, value in shapes(image, mask=mask, transform=transform):
-            if value == water_class:
-                # Convert to shapely geometry
-                shp = shapely_shape(geom)
-
-                # Simplify to reduce vertex count
-                if simplify_tolerance > 0:
-                    shp = shp.simplify(simplify_tolerance, preserve_topology=True)
-
-                # Validate geometry
-                if not shp.is_valid:
-                    shp = make_valid(shp)
-
-                # Skip empty or very small polygons
-                if shp.is_empty or shp.area < 1.0:
-                    continue
-
-                geoms.append(shp)
-
-        log.info("Extracted %d water polygons", len(geoms))
-
-        if len(geoms) == 0:
-            log.warning("No water polygons found!")
-            return
-
-        # Define schema
         schema = {
             "geometry": "Polygon",
             "properties": {
@@ -1569,25 +1557,43 @@ def export_vectors(
             },
         }
 
-        # Write to GeoPackage
-        log.info("Writing to GeoPackage...")
+        # Passing a raster band to shapes lets GDAL polygonize without first
+        # materializing the full raster and a second full-size boolean mask.
+        log.info("Extracting water polygons (class=%d)...", water_class)
+        polygon_count = 0
         with fiona.open(
             output_vector_path,
             "w",
             driver="GPKG",
-            crs=crs,
+            crs=src.crs,
             schema=schema,
         ) as dst:
-            for _i, geom in enumerate(geoms):
-                feature = {
-                    "geometry": mapping(geom),
-                    "properties": {
-                        "class": water_class,
-                        "area": geom.area,
-                    },
-                }
-                dst.write(feature)
+            for geom, value in shapes(rasterio.band(src, 1), transform=src.transform):
+                if value != water_class:
+                    continue
 
+                shp = shapely_shape(geom)
+                if simplify_tolerance > 0:
+                    shp = shp.simplify(simplify_tolerance, preserve_topology=True)
+                if not shp.is_valid:
+                    shp = make_valid(shp)
+                if shp.is_empty or shp.area < 1.0:
+                    continue
+
+                dst.write(
+                    {
+                        "geometry": mapping(shp),
+                        "properties": {
+                            "class": water_class,
+                            "area": shp.area,
+                        },
+                    },
+                )
+                polygon_count += 1
+
+        log.info("Extracted %d water polygons", polygon_count)
+        if polygon_count == 0:
+            log.warning("No water polygons found!")
         log.info("Vector export complete: %s", output_vector_path)
 
 
@@ -1596,6 +1602,7 @@ def merge_prediction_rasters(
     output_raster_path: str,
     *,
     method: str = "max",
+    mem_limit_mb: int = 256,
 ) -> None:
     """Merge child prediction rasters into a single parent raster."""
     if not input_raster_paths:
@@ -1605,23 +1612,23 @@ def merge_prediction_rasters(
     resolved_paths = [str(Path(path).resolve()) for path in input_raster_paths]
     log.info("Merging %d prediction rasters with method=%s", len(resolved_paths), method)
 
+    output_path = Path(output_raster_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     sources = [rasterio.open(path) for path in resolved_paths]
     try:
-        mosaic, transform = merge(sources, method=method)
-        profile = sources[0].profile.copy()
-        profile.update(
-            {
-                "height": mosaic.shape[1],
-                "width": mosaic.shape[2],
-                "transform": transform,
-                "count": mosaic.shape[0],
+        merge(
+            sources,
+            method=method,
+            mem_limit=mem_limit_mb,
+            dst_path=output_path,
+            dst_kwds={
                 "compress": "lzw",
-            }
+                "tiled": True,
+                "blockxsize": 512,
+                "blockysize": 512,
+                "BIGTIFF": "YES",
+            },
         )
-        output_path = Path(output_raster_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with rasterio.open(output_path, "w", **profile) as dst:
-            dst.write(mosaic)
     finally:
         for src in sources:
             src.close()
