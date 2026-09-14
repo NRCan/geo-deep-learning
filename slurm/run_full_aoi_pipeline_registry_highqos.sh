@@ -3,6 +3,10 @@
 #   WORKFLOW=inference sbatch slurm/run_full_aoi_pipeline_registry_highqos.sh /path/to/aoi_folder
 # Optional:
 #   MODEL_IDS="model_1 model_3 model_7" sbatch slurm/run_full_aoi_pipeline_registry_highqos.sh /path/to/aoi_folder
+# Shared whole-AOI intensity (default path: <parent run>/partitions/_shared_elevation/intensity.tif):
+#   INTENSITY_SOURCE_MODE=required FORCE_SHARED_INTENSITY_REFRESH=1 \
+#     sbatch slurm/run_full_aoi_pipeline_registry_highqos.sh /path/to/aoi_folder
+# Modes: auto (default), required, generate.
 
 #SBATCH --job-name=water_full_aoi_registry
 #SBATCH --partition=gpu_a100
@@ -52,6 +56,9 @@ RUN_REGISTERED_INFERENCE="${RUN_REGISTERED_INFERENCE:-1}"
 MODEL_IDS="${MODEL_IDS:-}"
 MODEL_REGISTRY="${MODEL_REGISTRY:-$GDL_REPO/configs/inference_models.yaml}"
 SKIP_DYNAMIC_SLURM_LOG="${SKIP_DYNAMIC_SLURM_LOG:-0}"
+INTENSITY_SOURCE_MODE="${INTENSITY_SOURCE_MODE:-auto}"
+SHARED_INTENSITY_RASTER="${SHARED_INTENSITY_RASTER:-}"
+FORCE_SHARED_INTENSITY_REFRESH="${FORCE_SHARED_INTENSITY_REFRESH:-0}"
 
 GDL_CONDA_SH="${GDL_CONDA_SH:-/space/partner/nrcan/geobase/work/opt/miniconda-gdl-ops/etc/profile.d/conda.sh}"
 GDL_ENV="${GDL_ENV:-gdl_env}"
@@ -104,6 +111,13 @@ PARTITION_ROOT="$RUN_DIR/partitions"
 PARTITION_MANIFEST="$PARTITION_ROOT/partition_manifest.json"
 RUN_OUTPUTS_MANIFEST="$RUN_DIR/run_outputs_manifest.json"
 PARTITION_SHARED_ELEVATION_DIR="$PARTITION_ROOT/_shared_elevation"
+if [[ -z "$SHARED_INTENSITY_RASTER" ]]; then
+    SHARED_INTENSITY_RASTER="$PARTITION_SHARED_ELEVATION_DIR/intensity.tif"
+fi
+SHARED_INTENSITY_PROVENANCE="$RAW_AOI_DIR/intensity.shared_source.json"
+SHARED_INTENSITY_REFRESHED=0
+SHARED_INTENSITY_ACTIVE=0
+SHARED_INTENSITY_PENDING="$RUN_DIR/shared_intensity_inference.pending"
 
 mkdir -p "$RAW_AOI_DIR" "$PREP_ROOT" "$RUN_DIR" "$NADIR_DIR" "$MODEL_RESULTS_ROOT"
 
@@ -118,11 +132,45 @@ export PATCH_SIZE STRIDE BATCH_SIZE NUM_WORKERS TEST_RATIO MIN_WATER_PIXELS
 export ZERO_MIN_COMPONENT_SIZE ZERO_MAX_HOLE_SIZE FORCE_RERUN INFERENCE_DEVICE
 export INFERENCE_BATCH_SIZE INFERENCE_WINDOW_SIZE INFERENCE_STRIDE
 export SIMPLIFY_TOLERANCE TMPDIR
+export INTENSITY_SOURCE_MODE SHARED_INTENSITY_RASTER
+export FORCE_SHARED_INTENSITY_REFRESH
 export https_proxy http_proxy
 export PYTHONUNBUFFERED SKIP_DYNAMIC_SLURM_LOG
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+validate_shared_intensity_options() {
+    case "$INTENSITY_SOURCE_MODE" in
+        auto|generate|required) ;;
+        *)
+            echo "INTENSITY_SOURCE_MODE must be auto, generate, or required; got: $INTENSITY_SOURCE_MODE" >&2
+            exit 1
+            ;;
+    esac
+    if [[ "$FORCE_SHARED_INTENSITY_REFRESH" != "0" && "$FORCE_SHARED_INTENSITY_REFRESH" != "1" ]]; then
+        echo "FORCE_SHARED_INTENSITY_REFRESH must be 0 or 1; got: $FORCE_SHARED_INTENSITY_REFRESH" >&2
+        exit 1
+    fi
+    if [[ "$INTENSITY_SOURCE_MODE" == "generate" && "$FORCE_SHARED_INTENSITY_REFRESH" == "1" ]]; then
+        echo "FORCE_SHARED_INTENSITY_REFRESH=1 cannot be combined with INTENSITY_SOURCE_MODE=generate" >&2
+        exit 1
+    fi
+}
+
+shared_intensity_selected() {
+    if [[ "$INTENSITY_SOURCE_MODE" == "generate" ]]; then
+        return 1
+    fi
+    if [[ -f "$SHARED_INTENSITY_RASTER" ]]; then
+        return 0
+    fi
+    if [[ "$INTENSITY_SOURCE_MODE" == "required" ]]; then
+        echo "Required shared intensity raster not found: $SHARED_INTENSITY_RASTER" >&2
+        exit 1
+    fi
+    return 1
 }
 
 sanitize_tag() {
@@ -414,33 +462,56 @@ should_partition_parent_aoi() {
 }
 
 partition_manifest_complete() {
-    python - "$PARTITION_MANIFEST" <<'PY'
+    python - "$PARTITION_MANIFEST" "$PARTITION_ROOT" "$RAW_AOI_VECTOR" \
+        "$RAW_BUFFERED_AOI" "$RESOLUTION" "$MAX_BUFFERED_AOI_PIXELS" \
+        "$SUBAOI_OVERLAP_METERS" <<'PY'
 import json
+import math
 import sys
 from pathlib import Path
 
-manifest_path = Path(sys.argv[1])
+(
+    manifest_raw,
+    partition_root_raw,
+    input_aoi_raw,
+    buffered_aoi_raw,
+    resolution_raw,
+    max_pixels_raw,
+    overlap_raw,
+) = sys.argv[1:]
+manifest_path = Path(manifest_raw)
+partition_root = Path(partition_root_raw).resolve()
 if not manifest_path.exists():
     raise SystemExit(1)
 
 with manifest_path.open(encoding="utf-8") as file:
     payload = json.load(file)
 
+if Path(payload.get("input_aoi", "")).resolve() != Path(input_aoi_raw).resolve():
+    raise SystemExit(1)
+if Path(payload.get("buffered_aoi", "")).resolve() != Path(buffered_aoi_raw).resolve():
+    raise SystemExit(1)
+if not math.isclose(float(payload.get("resolution", -1)), float(resolution_raw)):
+    raise SystemExit(1)
+if int(payload.get("max_pixels", -1)) != int(max_pixels_raw):
+    raise SystemExit(1)
+if not math.isclose(float(payload.get("overlap_meters", -1)), float(overlap_raw)):
+    raise SystemExit(1)
+
 children = payload.get("children", [])
 if payload.get("split_required"):
     if not children:
         raise SystemExit(1)
     for child in children:
-        source_dir = child.get("source_dir")
-        aoi_path = child.get("aoi_path")
-        buffered_aoi_path = child.get("buffered_aoi_path")
-        if not source_dir or not aoi_path or not buffered_aoi_path:
+        child_name = child.get("child_name") or child.get("child_id")
+        if not child_name:
             raise SystemExit(1)
-        if not Path(source_dir).is_dir():
+        child_dir = partition_root / child_name
+        if not child_dir.is_dir():
             raise SystemExit(1)
-        if not Path(aoi_path).is_file():
+        if not (child_dir / "aoi.gpkg").is_file():
             raise SystemExit(1)
-        if not Path(buffered_aoi_path).is_file():
+        if not (child_dir / "aoi_buffered.gpkg").is_file():
             raise SystemExit(1)
 
 raise SystemExit(0)
@@ -481,19 +552,28 @@ PY
 }
 
 partition_child_dirs() {
-    python - "$PARTITION_MANIFEST" <<'PY'
+    python - "$PARTITION_MANIFEST" "$PARTITION_ROOT" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-with Path(sys.argv[1]).open(encoding="utf-8") as file:
+manifest_path = Path(sys.argv[1])
+partition_root = Path(sys.argv[2]).resolve()
+with manifest_path.open(encoding="utf-8") as file:
     payload = json.load(file)
 
 for child in payload.get("children", []):
-    source_dir = child.get("source_dir")
-    if source_dir:
-        print(source_dir)
+    child_name = child.get("child_name") or child.get("child_id")
+    if child_name:
+        print(partition_root / child_name)
 PY
+}
+
+partition_child_buffered_aois() {
+    local child_dir
+    while IFS= read -r child_dir; do
+        printf '%s/aoi_buffered.gpkg\n' "$child_dir"
+    done < <(partition_child_dirs)
 }
 
 is_partition_child_aoi() {
@@ -600,6 +680,78 @@ promote_shared_parent_elevation_to_child() {
     require_file "$RAW_AOI_DIR/dsm.tif"
     is_valid_geotiff "$RAW_AOI_DIR/dtm.tif"
     is_valid_geotiff "$RAW_AOI_DIR/dsm.tif"
+}
+
+validate_shared_intensity_for_aois() {
+    local aoi_path
+    local -a validation_args=()
+    for aoi_path in "$@"; do
+        validation_args+=(--aoi "$aoi_path")
+    done
+    python -m geo_deep_learning.tools.water_extraction.shared_intensity validate \
+        --source "$SHARED_INTENSITY_RASTER" \
+        "${validation_args[@]}"
+}
+
+child_shared_intensity_is_current() {
+    local child_name="$1"
+    local child_dir="$2"
+    local child_raw_dir="$RAW_ROOT/$child_name"
+
+    if [[ -f "$RUN_ROOT/$child_name/shared_intensity_inference.pending" ]]; then
+        return 1
+    fi
+    if [[ "$FORCE_SHARED_INTENSITY_REFRESH" == "1" ]]; then
+        return 1
+    fi
+    python -m geo_deep_learning.tools.water_extraction.shared_intensity status \
+        --source "$SHARED_INTENSITY_RASTER" \
+        --aoi "$child_dir/aoi_buffered.gpkg" \
+        --reference "$child_raw_dir/dtm.tif" \
+        --output "$child_raw_dir/intensity.tif" \
+        --provenance "$child_raw_dir/intensity.shared_source.json"
+}
+
+invalidate_intensity_dependent_artifacts() {
+    local preprocessed_aoi="$PREP_ROOT/$AOI_NAME"
+
+    rm -f \
+        "$RAW_AOI_DIR/zero_intensity.tif" \
+        "$ZERO_SOURCE" \
+        "$preprocessed_aoi/intensity_aligned.tif" \
+        "$preprocessed_aoi/zero_intensity_aligned.tif" \
+        "$preprocessed_aoi/zero_intensity.tif" \
+        "$preprocessed_aoi"/stacked_inputs*.vrt \
+        "$preprocessed_aoi"/stacked_inputs*.tif
+    touch "$SHARED_INTENSITY_PENDING"
+    log "Invalidated intensity-dependent masks and model stacks for $AOI_NAME"
+}
+
+materialize_shared_intensity_for_current_aoi() {
+    if [[ "$FORCE_SHARED_INTENSITY_REFRESH" != "1" ]] && \
+        python -m geo_deep_learning.tools.water_extraction.shared_intensity status \
+            --source "$SHARED_INTENSITY_RASTER" \
+            --aoi "$DOWNLOAD_AOI_VECTOR" \
+            --reference "$RAW_AOI_DIR/dtm.tif" \
+            --output "$RAW_AOI_DIR/intensity.tif" \
+            --provenance "$SHARED_INTENSITY_PROVENANCE"; then
+        log "Shared intensity subset is already current for $AOI_NAME"
+        if [[ -f "$SHARED_INTENSITY_PENDING" ]]; then
+            SHARED_INTENSITY_REFRESHED=1
+            log "Previous shared-intensity inference is incomplete; resuming"
+        fi
+        return 0
+    fi
+
+    log "Materializing shared intensity on the child DTM grid for $AOI_NAME"
+    python -m geo_deep_learning.tools.water_extraction.shared_intensity materialize \
+        --source "$SHARED_INTENSITY_RASTER" \
+        --aoi "$DOWNLOAD_AOI_VECTOR" \
+        --reference "$RAW_AOI_DIR/dtm.tif" \
+        --output "$RAW_AOI_DIR/intensity.tif" \
+        --provenance "$SHARED_INTENSITY_PROVENANCE"
+    invalidate_intensity_dependent_artifacts
+    SHARED_INTENSITY_REFRESHED=1
 }
 
 run_outputs_complete_for_root() {
@@ -949,6 +1101,7 @@ if [[ "$WORKFLOW" == "training" ]]; then
     fi
 fi
 
+validate_shared_intensity_options
 require_file "$REFERENCE_STANDARDS"
 require_file "$PROJECT_INDEX"
 require_file "$TILES_INDEX"
@@ -990,6 +1143,9 @@ echo "Run Dir        : $RUN_DIR"
 echo "Registry       : $MODEL_REGISTRY"
 echo "Models         : ${MODEL_IDS:-<all registry models>}"
 echo "Dynamic Log    : ${SLURM_DYNAMIC_LOG_PATH:-<default slurm log>}"
+echo "Intensity Mode : $INTENSITY_SOURCE_MODE"
+echo "Shared Raster  : $SHARED_INTENSITY_RASTER"
+echo "Force Shared   : $FORCE_SHARED_INTENSITY_REFRESH"
 echo "============================================"
 
 log "Step 1/9: Create buffered AOI before download"
@@ -1021,13 +1177,30 @@ if should_partition_parent_aoi; then
             exit 1
         fi
 
+        SHARED_INTENSITY_ACTIVE=0
+        if shared_intensity_selected; then
+            SHARED_INTENSITY_ACTIVE=1
+            mapfile -t CHILD_BUFFERED_AOIS < <(partition_child_buffered_aois)
+            log "Validating shared intensity coverage for ${#CHILD_BUFFERED_AOIS[@]} child AOIs"
+            validate_shared_intensity_for_aois "${CHILD_BUFFERED_AOIS[@]}"
+        elif [[ "$INTENSITY_SOURCE_MODE" == "auto" ]]; then
+            log "Shared intensity not found; child workflows will generate intensity"
+        fi
+
         for child_dir in "${CHILD_AOI_DIRS[@]}"; do
             child_name="$(basename "$child_dir")"
             child_run_outputs_manifest="$RUN_ROOT/$child_name/run_outputs_manifest.json"
             child_model_results_root="$RESULTS_ROOT/$child_name"
+            child_intensity_stale=0
 
-            if [[ "$FORCE_RERUN" != "1" ]] && ensure_run_outputs_manifest_for_root "$child_run_outputs_manifest" "$child_model_results_root" ${MODEL_IDS:-}; then
-                log "Skipping child AOI workflow for $child_name: existing inference outputs validated"
+            if [[ "$SHARED_INTENSITY_ACTIVE" == "1" ]] && ! child_shared_intensity_is_current "$child_name" "$child_dir"; then
+                child_intensity_stale=1
+                log "Shared intensity refresh required for $child_name"
+            fi
+
+            if [[ "$FORCE_RERUN" != "1" && "$child_intensity_stale" != "1" ]] && \
+                ensure_run_outputs_manifest_for_root "$child_run_outputs_manifest" "$child_model_results_root" ${MODEL_IDS:-}; then
+                log "Skipping child AOI workflow for $child_name: inputs and inference outputs validated"
                 continue
             fi
 
@@ -1071,6 +1244,15 @@ else
 
     promote_file "$ELEVATION_CACHE_DIR/dtm.tif" "$RAW_AOI_DIR/dtm.tif"
     promote_file "$ELEVATION_CACHE_DIR/dsm.tif" "$RAW_AOI_DIR/dsm.tif"
+fi
+
+if shared_intensity_selected; then
+    SHARED_INTENSITY_ACTIVE=1
+    activate_gdl
+    validate_shared_intensity_for_aois "$DOWNLOAD_AOI_VECTOR"
+    materialize_shared_intensity_for_current_aoi
+elif [[ "$INTENSITY_SOURCE_MODE" == "auto" ]]; then
+    log "Shared intensity not found; generating intensity for $AOI_NAME"
 fi
 
 log "Step 3/9: Create valid_lidar_mask.gpkg"
@@ -1177,7 +1359,9 @@ qa:
   thumbnail_resolution: 0.1
 EOF
 
-if [[ "$FORCE_RERUN" != "1" && $(is_valid_geotiff "$RAW_AOI_DIR/intensity.tif"; echo $?) -eq 0 ]]; then
+if [[ "$SHARED_INTENSITY_ACTIVE" == "1" ]]; then
+    log "Skipping intensity generation: using validated shared intensity subset"
+elif [[ "$FORCE_RERUN" != "1" && $(is_valid_geotiff "$RAW_AOI_DIR/intensity.tif"; echo $?) -eq 0 ]]; then
     log "Skipping intensity pipeline: existing intensity.tif validated"
 else
     python main.py --config "$INTENSITY_CONFIG"
@@ -1343,7 +1527,8 @@ if [[ "$RUN_REGISTERED_INFERENCE" == "1" && "$WORKFLOW" == "inference" ]]; then
     log "Step 9/9: Run registry-driven inference"
     activate_gdl
 
-    if [[ "$FORCE_RERUN" != "1" ]] && ensure_run_outputs_manifest_for_root "$RUN_OUTPUTS_MANIFEST" "$MODEL_RESULTS_ROOT" ${MODEL_IDS:-}; then
+    if [[ "$FORCE_RERUN" != "1" && "$SHARED_INTENSITY_REFRESHED" != "1" ]] && \
+        ensure_run_outputs_manifest_for_root "$RUN_OUTPUTS_MANIFEST" "$MODEL_RESULTS_ROOT" ${MODEL_IDS:-}; then
         log "Skipping registry-driven inference: existing outputs validated"
     else
         for model_id in "${RESOLVED_MODEL_IDS[@]}"; do
@@ -1374,6 +1559,7 @@ if [[ "$RUN_REGISTERED_INFERENCE" == "1" && "$WORKFLOW" == "inference" ]]; then
                 --device "$INFERENCE_DEVICE"
         done
         write_run_outputs_manifest >/dev/null
+        rm -f "$SHARED_INTENSITY_PENDING"
     fi
 else
     log "Step 9/9: Skipping registry-driven inference"
