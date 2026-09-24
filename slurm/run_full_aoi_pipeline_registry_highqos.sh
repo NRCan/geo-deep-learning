@@ -76,6 +76,8 @@ RESOLUTION="${RESOLUTION:-1}"
 TARGET_CRS="${TARGET_CRS:-EPSG:3979}"
 NADIR_RESOLUTION="${NADIR_RESOLUTION:-10}"
 NADIR_CHUNK_SIZE="${NADIR_CHUNK_SIZE:-5000000}"
+NADIR_OVERLAP_MODE="${NADIR_OVERLAP_MODE:-config_priority}"
+FORCE_NADIR_REBUILD="${FORCE_NADIR_REBUILD:-0}"
 INTENSITY_PROCESSING_MODE="${INTENSITY_PROCESSING_MODE:-baseline}"
 INTENSITY_DARK_ZONE_MODE="${INTENSITY_DARK_ZONE_MODE:-false}"
 INTENSITY_OVERLAP_MODE="${INTENSITY_OVERLAP_MODE:-false}"
@@ -130,7 +132,8 @@ export AOI_NAME_OVERRIDE RAW_AOI_DIR_OVERRIDE
 export MAX_BUFFERED_AOI_PIXELS SUBAOI_OVERLAP_METERS RUN_REGISTERED_INFERENCE
 export MODEL_IDS MODEL_REGISTRY GDL_CONDA_SH GDL_ENV INTENSITY_CONDA_SH
 export INTENSITY_ENV REFERENCE_STANDARDS SITESTORE_BASE PROJECT_INDEX TILES_INDEX
-export RESOLUTION TARGET_CRS NADIR_RESOLUTION NADIR_CHUNK_SIZE
+export RESOLUTION TARGET_CRS NADIR_RESOLUTION NADIR_CHUNK_SIZE NADIR_OVERLAP_MODE
+export FORCE_NADIR_REBUILD
 export INTENSITY_PROCESSING_MODE INTENSITY_DARK_ZONE_MODE INTENSITY_OVERLAP_MODE
 export PATCH_SIZE STRIDE BATCH_SIZE NUM_WORKERS TEST_RATIO MIN_WATER_PIXELS
 export ZERO_MIN_COMPONENT_SIZE ZERO_MAX_HOLE_SIZE FORCE_RERUN INFERENCE_DEVICE
@@ -1176,6 +1179,10 @@ if [[ "$WORKFLOW" == "training" ]]; then
 fi
 
 validate_shared_intensity_options
+if [[ "$FORCE_NADIR_REBUILD" != "0" && "$FORCE_NADIR_REBUILD" != "1" ]]; then
+    echo "FORCE_NADIR_REBUILD must be 0 or 1; got: $FORCE_NADIR_REBUILD" >&2
+    exit 1
+fi
 require_file "$REFERENCE_STANDARDS"
 require_file "$PROJECT_INDEX"
 require_file "$TILES_INDEX"
@@ -1466,19 +1473,38 @@ else
         --overwrite
 fi
 
-if [[ "$FORCE_RERUN" != "1" && $(is_valid_geotiff "$RAW_AOI_DIR/nadir_weighted.tif"; echo $?) -eq 0 ]]; then
+if [[ "$FORCE_RERUN" != "1" && "$FORCE_NADIR_REBUILD" != "1" && $(is_valid_geotiff "$RAW_AOI_DIR/nadir_weighted.tif"; echo $?) -eq 0 ]]; then
     log "Skipping nadir-weighted generation: existing nadir_weighted.tif validated"
 else
     activate_intensity
-    python make_nadir_risk_raster.py \
-        --config "$INTENSITY_CONFIG" \
-        --name "$AOI_NAME" \
-        --output-dir "$NADIR_DIR" \
-        --output-mode weighted_only \
-        --resolution "$NADIR_RESOLUTION" \
-        --workers "$NUM_WORKERS" \
-        --chunk-size "$NADIR_CHUNK_SIZE" \
-        --overwrite
+    case "$NADIR_OVERLAP_MODE" in
+        config_priority)
+            python "$GDL_REPO/geo_deep_learning/tools/water_extraction/build_priority_nadir_raster.py" \
+                --config "$INTENSITY_CONFIG" \
+                --nadir-tool "$INTENSITY_REPO/make_nadir_risk_raster.py" \
+                --name "$AOI_NAME" \
+                --output-dir "$NADIR_DIR" \
+                --resolution "$NADIR_RESOLUTION" \
+                --workers "$NUM_WORKERS" \
+                --chunk-size "$NADIR_CHUNK_SIZE" \
+                --overwrite
+            ;;
+        aggregate)
+            python make_nadir_risk_raster.py \
+                --config "$INTENSITY_CONFIG" \
+                --name "$AOI_NAME" \
+                --output-dir "$NADIR_DIR" \
+                --output-mode weighted_only \
+                --resolution "$NADIR_RESOLUTION" \
+                --workers "$NUM_WORKERS" \
+                --chunk-size "$NADIR_CHUNK_SIZE" \
+                --overwrite
+            ;;
+        *)
+            echo "NADIR_OVERLAP_MODE must be config_priority or aggregate; got: $NADIR_OVERLAP_MODE" >&2
+            exit 1
+            ;;
+    esac
 fi
 
 NADIR_SOURCE="$NADIR_DIR/${AOI_NAME}_nadir_weighted_${NADIR_RESOLUTION}m.tif"
@@ -1497,7 +1523,7 @@ if is_valid_geotiff "$RAW_AOI_DIR/nadir_weighted.tif"; then
     NADIR_VALID=1
 fi
 
-if [[ "$FORCE_RERUN" != "1" && "$ZERO_VALID" -eq 1 && "$NADIR_VALID" -eq 1 ]]; then
+if [[ "$FORCE_RERUN" != "1" && "$FORCE_NADIR_REBUILD" != "1" && "$ZERO_VALID" -eq 1 && "$NADIR_VALID" -eq 1 ]]; then
     log "Skipping raster alignment: existing aligned extra rasters validated"
 else
     if [[ "$FORCE_RERUN" == "1" || "$ZERO_VALID" -ne 1 ]]; then
@@ -1521,7 +1547,7 @@ PY
         log "Skipping zero-intensity alignment: existing aligned raster validated"
     fi
 
-    if [[ "$FORCE_RERUN" == "1" || "$NADIR_VALID" -ne 1 ]]; then
+    if [[ "$FORCE_RERUN" == "1" || "$FORCE_NADIR_REBUILD" == "1" || "$NADIR_VALID" -ne 1 ]]; then
 python - <<PY
 from rasterio.enums import Resampling
 from geo_deep_learning.tools.water_extraction.prepare_inputs import align_to_reference
