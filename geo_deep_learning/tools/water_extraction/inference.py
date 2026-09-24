@@ -932,6 +932,7 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     mean: list[float],
     std: list[float],
     *,
+    probability_raster_path: str | None = None,
     selected_channel_indices: list[int] | None = None,
     model_in_channels: int | None = None,
     window_size: int = 512,
@@ -962,6 +963,8 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         batch_size: Number of windows to process in parallel
         device: Device to run inference on
         binary_threshold: Probability threshold for water/non-water classification
+        probability_raster_path: Optional path for the final, overlap-averaged
+            water probabilities. Valid pixels are in [0, 1]; NoData is -9999.
         channel_weights: Optional per-channel multipliers applied after standardization
         _nodata_val: NoData value (reserved for future use)
         data_folder: Optional path to original data folder for finding valid_lidar_mask
@@ -1362,30 +1365,46 @@ def sliding_window_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         },
     )
 
+    probability_profile = profile | {"dtype": "float32", "nodata": -9999.0}
     with rasterio.open(output_raster_path, "w", **profile) as dst:
-        chunk_rows = max(1, min(4096, height))
-        for row_start in range(0, height, chunk_rows):
-            row_stop = min(row_start + chunk_rows, height)
-            row_window = Window(0, row_start, width, row_stop - row_start)
+        probability_dst = (
+            rasterio.open(probability_raster_path, "w", **probability_profile)
+            if probability_raster_path is not None
+            else None
+        )
+        try:
+            chunk_rows = max(1, min(4096, height))
+            for row_start in range(0, height, chunk_rows):
+                row_stop = min(row_start + chunk_rows, height)
+                row_window = Window(0, row_start, width, row_stop - row_start)
 
-            pred_chunk = np.asarray(prediction_sum[row_start:row_stop, :])
-            weight_chunk = np.asarray(weight_sum[row_start:row_stop, :])
-            binary_chunk = np.full(
-                (row_stop - row_start, width),
-                255,
-                dtype=np.uint8,
-            )
-            valid_chunk = weight_chunk > 0
-            if np.any(valid_chunk):
-                prob_chunk = np.zeros_like(pred_chunk, dtype=np.float32)
-                prob_chunk[valid_chunk] = (
-                    pred_chunk[valid_chunk] / weight_chunk[valid_chunk]
+                pred_chunk = np.asarray(prediction_sum[row_start:row_stop, :])
+                weight_chunk = np.asarray(weight_sum[row_start:row_stop, :])
+                binary_chunk = np.full(
+                    (row_stop - row_start, width),
+                    255,
+                    dtype=np.uint8,
                 )
-                binary_chunk[valid_chunk] = (
-                    prob_chunk[valid_chunk] > binary_threshold
-                ).astype(np.uint8)
+                valid_chunk = weight_chunk > 0
+                probability_chunk = np.full(
+                    (row_stop - row_start, width),
+                    -9999.0,
+                    dtype=np.float32,
+                )
+                if np.any(valid_chunk):
+                    probability_chunk[valid_chunk] = (
+                        pred_chunk[valid_chunk] / weight_chunk[valid_chunk]
+                    )
+                    binary_chunk[valid_chunk] = (
+                        probability_chunk[valid_chunk] > binary_threshold
+                    ).astype(np.uint8)
 
-            dst.write(binary_chunk, 1, window=row_window)
+                dst.write(binary_chunk, 1, window=row_window)
+                if probability_dst is not None:
+                    probability_dst.write(probability_chunk, 1, window=row_window)
+        finally:
+            if probability_dst is not None:
+                probability_dst.close()
 
     del prediction_sum
     del weight_sum
@@ -1722,6 +1741,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     requested_features: list[str] | None = None,
     selected_channel_indices: list[int] | None = None,
     export_vector: bool = True,
+    save_probability: bool = False,
     simplify_tolerance: float = 1.0,
     project_extents_path: str | None = None,
     seam_gaussian_sigma: float = 1.5,
@@ -1756,6 +1776,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         include_intensity: Whether to include intensity band (default: True)
         requested_features: Explicit feature list to build/expect in stack order
         export_vector: Whether to export vectorized results (default: True)
+        save_probability: Save the final, overlap-averaged water probability raster.
         simplify_tolerance: Geometry simplification tolerance (default: 1.0)
         project_extents_path: Path to GeoPackage with one polygon per LiDAR project
             extent. When provided, seam correction is applied before derivatives are
@@ -1772,6 +1793,7 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
         - 'stacked_inputs': preprocessed multi-band raster used for inference
         - 'prediction_raster_full': binary prediction raster (full extent, uncropped)
         - 'prediction_raster': binary prediction raster (cropped to AOI)
+        - 'probability_raster_full': water probabilities (when save_probability=True)
         - 'prediction_vector': vectorized waterbodies (if export_vector=True)
 
     """
@@ -1910,10 +1932,19 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
     prediction_raster_full = str(
         output_path / f"water_prediction_{output_stem}_full_{output_timestamp}.tif",
     )
+    probability_raster_full = (
+        str(
+            output_path
+            / f"water_probability_{output_stem}_full_{output_timestamp}.tif"
+        )
+        if save_probability
+        else None
+    )
     sliding_window_inference(
         model=model,
         input_raster_path=stacked_inputs,
         output_raster_path=prediction_raster_full,
+        probability_raster_path=probability_raster_full,
         mean=mean,
         std=std,
         selected_channel_indices=selected_channel_indices,
@@ -1937,16 +1968,31 @@ def run_inference(  # noqa: PLR0913, C901, PLR0912, PLR0915
             output_raster_path=prediction_raster,
             aoi_vector_path=str(aoi_vector_path),
         )
+        if probability_raster_full is not None:
+            probability_raster = str(
+                output_path / f"water_probability_{output_stem}_{output_timestamp}.tif",
+            )
+            crop_raster_to_aoi(
+                input_raster_path=probability_raster_full,
+                output_raster_path=probability_raster,
+                aoi_vector_path=str(aoi_vector_path),
+            )
+        else:
+            probability_raster = None
         log.info("Using cropped prediction for vector export")
     else:
         log.warning("No AOI vector found - skipping cropping step")
         prediction_raster = prediction_raster_full
+        probability_raster = probability_raster_full
 
     outputs = {
         "stacked_inputs": stacked_inputs,
         "prediction_raster": prediction_raster,
         "prediction_raster_full": prediction_raster_full,
     }
+    if probability_raster_full is not None:
+        outputs["probability_raster_full"] = probability_raster_full
+        outputs["probability_raster"] = probability_raster
 
     # Step 5: Export vectors (optional)
     if export_vector:
@@ -2116,6 +2162,14 @@ def parse_args() -> argparse.Namespace:
         help="Skip vector export (raster only)",
     )
     parser.add_argument(
+        "--save_probability",
+        action="store_true",
+        help=(
+            "Save the final overlap-averaged water probability raster in addition "
+            "to the thresholded prediction raster."
+        ),
+    )
+    parser.add_argument(
         "--threshold",
         type=float,
         default=None,
@@ -2267,6 +2321,7 @@ def main() -> None:
         requested_features=requested_features,
         selected_channel_indices=selected_channel_indices,
         export_vector=not args.no_vector,
+        save_probability=args.save_probability,
         binary_threshold=binary_threshold,
         channel_weights=channel_weights,
         simplify_tolerance=args.simplify_tolerance,

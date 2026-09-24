@@ -135,7 +135,7 @@ export INTENSITY_PROCESSING_MODE INTENSITY_DARK_ZONE_MODE INTENSITY_OVERLAP_MODE
 export PATCH_SIZE STRIDE BATCH_SIZE NUM_WORKERS TEST_RATIO MIN_WATER_PIXELS
 export ZERO_MIN_COMPONENT_SIZE ZERO_MAX_HOLE_SIZE FORCE_RERUN INFERENCE_DEVICE
 export INFERENCE_BATCH_SIZE INFERENCE_WINDOW_SIZE INFERENCE_STRIDE
-export SIMPLIFY_TOLERANCE TMPDIR
+export SIMPLIFY_TOLERANCE SAVE_PROBABILITY_RASTER TMPDIR
 export INTENSITY_SOURCE_MODE SHARED_INTENSITY_RASTER
 export FORCE_SHARED_INTENSITY_REFRESH
 export https_proxy http_proxy
@@ -898,6 +898,20 @@ for model_id in model_ids:
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
+    probability_full_candidates = sorted(
+        model_dir.glob("water_probability_*_full_*.tif"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    probability_candidates = sorted(
+        [
+            path
+            for path in model_dir.glob("water_probability_*.tif")
+            if "_full_" not in path.name
+        ],
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
     vector_candidates = sorted(
         model_dir.glob("water_bodies_*.gpkg"),
         key=lambda path: path.stat().st_mtime,
@@ -914,6 +928,16 @@ for model_id in model_ids:
         ),
         "prediction_vector": (
             str(vector_candidates[0].resolve()) if vector_candidates else None
+        ),
+        "probability_raster_full": (
+            str(probability_full_candidates[0].resolve())
+            if probability_full_candidates
+            else None
+        ),
+        "probability_raster": (
+            str(probability_candidates[0].resolve())
+            if probability_candidates
+            else None
         ),
     }
 
@@ -964,7 +988,8 @@ merge_partitioned_outputs() {
             continue
         fi
 
-        local model_output_dir merged_full merged_cropped merged_vector output_stem
+        local model_output_dir merged_full merged_cropped merged_vector \
+            merged_probability_full merged_probability output_stem
         model_output_dir="$MODEL_RESULTS_ROOT/$model_id"
         mkdir -p "$model_output_dir"
 
@@ -979,7 +1004,8 @@ PY
 )"
 
         mapfile -t CHILD_CORE_RASTER_SPECS < <(
-            python - "$RUN_ROOT" "$PARTITION_MANIFEST" "$model_id" "${CHILD_AOI_DIRS[@]}" <<'PY'
+            python - "$RUN_ROOT" "$PARTITION_MANIFEST" "$model_id" \
+                "$SAVE_PROBABILITY_RASTER" "${CHILD_AOI_DIRS[@]}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -987,7 +1013,8 @@ from pathlib import Path
 run_root = Path(sys.argv[1])
 partition_manifest_path = Path(sys.argv[2])
 model_id = sys.argv[3]
-child_dirs = sys.argv[4:]
+save_probability = sys.argv[4] == "1"
+child_dirs = sys.argv[5:]
 
 with partition_manifest_path.open(encoding="utf-8") as file:
     partition_payload = json.load(file)
@@ -1026,12 +1053,20 @@ for child_dir in child_dirs:
         raise SystemExit(
             f"Missing full prediction raster for model '{model_id}' in {manifest_path}"
         )
+    probability_raster_full = model_outputs.get("probability_raster_full")
+    if save_probability and not probability_raster_full:
+        raise SystemExit(
+            f"Missing full probability raster for model '{model_id}' in {manifest_path}"
+        )
     aoi_path = child_meta.get("aoi_path")
     if not aoi_path:
         raise SystemExit(
             f"Missing core AOI path for child {child_name} in {partition_manifest_path}"
         )
-    print(f"{prediction_raster_full}\t{aoi_path}\t{child_name}")
+    print(
+        f"{prediction_raster_full}\t{probability_raster_full or '__NONE__'}"
+        f"\t{aoi_path}\t{child_name}"
+    )
 PY
         )
 
@@ -1043,11 +1078,15 @@ PY
         merged_full="$model_output_dir/water_prediction_${output_stem}_full_${output_timestamp}.tif"
         merged_cropped="$model_output_dir/water_prediction_${output_stem}_${output_timestamp}.tif"
         merged_vector="$model_output_dir/water_bodies_${output_stem}_${output_timestamp}.gpkg"
+        merged_probability_full="$model_output_dir/water_probability_${output_stem}_full_${output_timestamp}.tif"
+        merged_probability="$model_output_dir/water_probability_${output_stem}_${output_timestamp}.tif"
         model_merge_temp_dir="$merge_temp_root/$model_id"
         mkdir -p "$model_merge_temp_dir"
         CHILD_CORE_RASTERS=()
+        CHILD_CORE_PROBABILITY_RASTERS=()
         for child_spec in "${CHILD_CORE_RASTER_SPECS[@]}"; do
-            IFS=$'\t' read -r child_full_raster child_core_aoi child_name <<<"$child_spec"
+            IFS=$'\t' read -r child_full_raster child_full_probability \
+                child_core_aoi child_name <<<"$child_spec"
             child_core_raster="$model_merge_temp_dir/${child_name}_core.tif"
             python - "$child_full_raster" "$child_core_raster" "$child_core_aoi" <<'PY'
 import sys
@@ -1057,6 +1096,17 @@ from geo_deep_learning.tools.water_extraction.inference import crop_raster_to_ao
 crop_raster_to_aoi(sys.argv[1], sys.argv[2], sys.argv[3])
 PY
             CHILD_CORE_RASTERS+=("$child_core_raster")
+            if [[ "$SAVE_PROBABILITY_RASTER" == "1" ]]; then
+                child_core_probability="$model_merge_temp_dir/${child_name}_probability_core.tif"
+                python - "$child_full_probability" "$child_core_probability" "$child_core_aoi" <<'PY'
+import sys
+
+from geo_deep_learning.tools.water_extraction.inference import crop_raster_to_aoi
+
+crop_raster_to_aoi(sys.argv[1], sys.argv[2], sys.argv[3])
+PY
+                CHILD_CORE_PROBABILITY_RASTERS+=("$child_core_probability")
+            fi
         done
 
         if [[ ${#CHILD_CORE_RASTERS[@]} -ne ${#CHILD_AOI_DIRS[@]} ]]; then
@@ -1084,6 +1134,26 @@ export_vectors(
     simplify_tolerance=float(simplify),
 )
 PY
+
+        if [[ "$SAVE_PROBABILITY_RASTER" == "1" ]]; then
+            if [[ ${#CHILD_CORE_PROBABILITY_RASTERS[@]} -ne ${#CHILD_AOI_DIRS[@]} ]]; then
+                echo "Expected ${#CHILD_AOI_DIRS[@]} child probability rasters for model $model_id, found ${#CHILD_CORE_PROBABILITY_RASTERS[@]}" >&2
+                exit 1
+            fi
+            python - "$merged_probability_full" "$merged_probability" "$parent_aoi_vector" "${CHILD_CORE_PROBABILITY_RASTERS[@]}" <<'PY'
+import sys
+
+from geo_deep_learning.tools.water_extraction.inference import (
+    crop_raster_to_aoi,
+    merge_prediction_rasters,
+)
+
+merged_full, merged_cropped, aoi_path = sys.argv[1:4]
+child_rasters = sys.argv[4:]
+merge_prediction_rasters(child_rasters, merged_full, method="max")
+crop_raster_to_aoi(merged_full, merged_cropped, aoi_path)
+PY
+        fi
 
         log "Merged ${#CHILD_CORE_RASTERS[@]} child core predictions for $model_id -> $model_output_dir"
     done
@@ -1551,6 +1621,11 @@ if [[ "$RUN_REGISTERED_INFERENCE" == "1" && "$WORKFLOW" == "inference" ]]; then
             mkdir -p "$model_output_dir"
             log "Running inference for $model_id -> $model_output_dir using $model_stacked_inputs"
 
+            inference_probability_args=()
+            if [[ "$SAVE_PROBABILITY_RASTER" == "1" ]]; then
+                inference_probability_args+=(--save_probability)
+            fi
+
             python -m geo_deep_learning.tools.water_extraction.inference \
                 --model_id "$model_id" \
                 --registry "$MODEL_REGISTRY" \
@@ -1560,7 +1635,8 @@ if [[ "$RUN_REGISTERED_INFERENCE" == "1" && "$WORKFLOW" == "inference" ]]; then
                 --window_size "$INFERENCE_WINDOW_SIZE" \
                 --stride "$INFERENCE_STRIDE" \
                 --batch_size "$INFERENCE_BATCH_SIZE" \
-                --device "$INFERENCE_DEVICE"
+                --device "$INFERENCE_DEVICE" \
+                "${inference_probability_args[@]}"
         done
         write_run_outputs_manifest >/dev/null
         rm -f "$SHARED_INTENSITY_PENDING"
