@@ -145,6 +145,21 @@ def test_partition_aoi_splits_large_aoi_and_skips_empty_cells(tmp_path: Path) ->
     assert unioned_children is not None
     assert unioned_children.symmetric_difference(l_shape).area < 1e-6
 
+    index_path = output_root / "subaoi_index.gpkg"
+    assert result["subaoi_index_gpkg"] == str(index_path.resolve())
+    assert fiona.listlayers(index_path) == ["subaoi_core", "subaoi_buffered"]
+    with fiona.open(index_path, layer="subaoi_core") as src:
+        index_features = list(src)
+
+    assert len(index_features) == len(children)
+    assert {feature["properties"]["child_id"] for feature in index_features} == {
+        child["child_id"] for child in children
+    }
+    assert {
+        Path(feature["properties"]["aoi_path"]).resolve()
+        for feature in index_features
+    } == {Path(child["aoi_path"]).resolve() for child in children}
+
 
 def test_partition_aoi_child_buffer_includes_overlap(tmp_path: Path) -> None:
     """Each child buffered AOI should extend beyond its core AOI by the configured overlap."""

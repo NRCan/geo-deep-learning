@@ -46,6 +46,11 @@ class PartitionRecord:
     estimated_pixels: int
 
 
+INDEX_FILENAME = "subaoi_index.gpkg"
+INDEX_CORE_LAYER = "subaoi_core"
+INDEX_BUFFERED_LAYER = "subaoi_buffered"
+
+
 def _load_union_geometry(
     vector_path: str | Path,
 ) -> tuple[BaseGeometry, pyproj.CRS]:
@@ -141,6 +146,64 @@ def _write_geometry(
         )
 
 
+def _write_partition_index(
+    output_path: Path,
+    children: list[PartitionRecord],
+    child_geometries: list[tuple[BaseGeometry, BaseGeometry]],
+    crs: pyproj.CRS,
+) -> None:
+    """Write all partition boundaries and child locations to one GeoPackage."""
+    if len(children) != len(child_geometries):
+        raise ValueError("Each partition record must have core and buffered geometries")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        output_path.unlink()
+
+    schema = {
+        "geometry": "Unknown",
+        "properties": {
+            "child_id": "str",
+            "child_name": "str",
+            "row": "int",
+            "col": "int",
+            "source_dir": "str",
+            "aoi_path": "str",
+            "buffered_aoi_path": "str",
+            "estimated_pixels": "int",
+        },
+    }
+
+    for layer_name, geometry_index in (
+        (INDEX_CORE_LAYER, 0),
+        (INDEX_BUFFERED_LAYER, 1),
+    ):
+        with fiona.open(
+            output_path,
+            "w",
+            driver="GPKG",
+            layer=layer_name,
+            crs=crs.to_wkt(),
+            schema=schema,
+        ) as dst:
+            for child, geometries in zip(children, child_geometries, strict=True):
+                dst.write(
+                    {
+                        "geometry": mapping(geometries[geometry_index]),
+                        "properties": {
+                            "child_id": child.child_id,
+                            "child_name": child.child_name,
+                            "row": child.row,
+                            "col": child.col,
+                            "source_dir": child.source_dir,
+                            "aoi_path": child.aoi_path,
+                            "buffered_aoi_path": child.buffered_aoi_path,
+                            "estimated_pixels": child.estimated_pixels,
+                        },
+                    }
+                )
+
+
 def _serialize_bounds(bounds: tuple[float, float, float, float]) -> list[float]:
     """Convert bounds tuple to stable JSON-friendly floats."""
     return [float(value) for value in bounds]
@@ -210,6 +273,7 @@ def partition_aoi(
     )
 
     manifest_path = Path(output_root) / "partition_manifest.json"
+    index_path = Path(output_root) / INDEX_FILENAME
     Path(output_root).mkdir(parents=True, exist_ok=True)
 
     result: dict[str, object] = {
@@ -241,6 +305,7 @@ def partition_aoi(
 
     to_parent_crs = _build_transformer(metric_crs, parent_crs)
     children: list[PartitionRecord] = []
+    child_geometries: list[tuple[BaseGeometry, BaseGeometry]] = []
 
     child_index = 0
     for row in range(n_rows):
@@ -306,8 +371,11 @@ def partition_aoi(
                     estimated_pixels=child_pixels,
                 )
             )
+            child_geometries.append((child_core, child_buffered))
             child_index += 1
 
+    _write_partition_index(index_path, children, child_geometries, parent_crs)
+    result["subaoi_index_gpkg"] = str(index_path.resolve())
     result["children"] = [asdict(child) for child in children]
     manifest_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     log.info(
