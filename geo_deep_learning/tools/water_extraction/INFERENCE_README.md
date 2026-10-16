@@ -2,6 +2,39 @@
 
 End-to-end inference script for extracting waterbodies from LiDAR elevation data using trained deep learning models.
 
+*** UPDATE: Automated HPC workflow (draft) ***
+
+This section records the proposed automated workflow for a new AOI. It is inspired by [`slurm/run_full_aoi_pipeline.sh`](../../../slurm/run_full_aoi_pipeline.sh), which should be treated as an implementation reference rather than as the prescribed command to run. The legacy, step-by-step pipeline remains documented below.
+
+### Minimum input
+
+Prepare one folder per work unit. Its name becomes the AOI name used in the output folders. The business input is the AOI polygon, saved as `aoi.gpkg`, or as a complete shapefile set (`aoi.shp` together with `.dbf`, `.shx`, `.prj`, etc.). The AOI must be a valid polygon covering the processing area.
+
+```text
+/path/to/my_aois/02XX000/
+└── aoi.gpkg
+```
+
+DTM, DSM, LiDAR `.laz` files, intensity rasters, the valid-LiDAR mask, and preprocessing inputs are produced or located by the workflow from the HPC indexes and configured paths. For training workflows, `waterbodies.gpkg` or `waterbodies.shp` is also required.
+
+> **Implementation note:** in its current inference mode, the reference script defaults to an AOI named `aoi_buffered.gpkg`/`.shp`. A workflow based on it should either create that buffered AOI first or explicitly set `AOI_VECTOR_STEM=aoi`.
+
+### Slurm file to adapt when creating a workflow
+
+When creating a project-specific submission script based on the reference, review the Slurm header for the appropriate `#SBATCH --partition`, `--account`, `--gpus`, `--time`, `--qos`, output log path, and notification email. Inference requires a GPU; the preparation steps can remain in the same job. Keep the project-specific copy separate from the shared reference script.
+
+Most processing settings can be supplied as environment variables rather than hard-coded: the AOI location, output root, processing resolution, worker count, patch size, batch size, and rerun behavior. Use `FORCE_RERUN=1` only when all existing validated outputs need to be regenerated.
+
+### Expected workflow and outputs
+
+A workflow following this pattern should: download DTM/DSM; create the valid LiDAR coverage mask; extract the intersecting LAZ copies; build the intensity mosaic; create and align the zero-intensity and nadir-weighted rasters; and prepare the model inputs. Final model inference can then be launched using the prepared inputs and the model-specific checkpoint and normalization statistics.
+
+Logs are normally written under `slurm/logs/`. Intermediate data are organized under `data/<workflow>/raw/`, `data/<workflow>/preprocessed/`, and `data/<workflow>/runs/`. Inspect the final rasters and GeoPackage before archiving results or removing local LAZ copies created during extraction.
+
+For the existing manual/legacy pipeline, continue with the documentation below.
+
+*** END UPDATE ***
+
 ## Overview
 
 This script performs the complete inference pipeline:
