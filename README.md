@@ -40,7 +40,7 @@ The two environments are fully isolated and reproducible via separate lockfiles.
 ### Requirements
 
 - Python **3.12**
-- [uv](https://docs.astral.sh/uv/) package manager
+- [uv](https://docs.astral.sh/uv/) package manager. **uv must be installed before following the steps below.** See the [uv installation instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
 ### CPU-only
 
