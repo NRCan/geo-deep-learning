@@ -1,3 +1,5 @@
+([Français](#geo-deep-learning-1))
+
 # Geo Deep Learning
 
 A PyTorch Lightning-based framework for geospatial deep learning with multi-sensor Earth observation data.
